@@ -91,7 +91,7 @@ npm install && npm run dev
 
 ## 🎨 Project Structure
 
-```
+```text
 bluecatfish-presentation/
 ├── app/
 │   ├── presentation/
