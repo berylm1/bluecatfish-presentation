@@ -97,7 +97,7 @@ function SlotColumn({
 export default function PreferenceSelector({
   onComplete,
 }: {
-  onComplete: () => void;
+  onComplete: (prefs: any) => void;
 }) {
   const [step, setStep] = useState<"intro" | "selector">("intro");
   
@@ -140,8 +140,12 @@ export default function PreferenceSelector({
 
       if (upsertError) throw upsertError;
 
-      onComplete();
-    } catch (err: any) {
+      onComplete({
+        text_pref: prefs.text,
+        audio_pref: prefs.audio,
+        image_pref: prefs.visual,
+      }); 
+    }  catch (err: any) {
       setError(err.message || "Failed to save preferences");
     } finally {
       setSaving(false);
