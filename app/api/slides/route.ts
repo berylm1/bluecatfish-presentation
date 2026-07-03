@@ -31,11 +31,22 @@ async function getRagContext(topic: string, matchCount = 4): Promise<string> {
   return (data ?? []).map((row: any) => row.content).join("\n\n");
 }
 
+async function getMatchingImages(query: string, count: number): Promise<string[]> {
+  const queryEmbedding = await embed(query);
+  const { data, error } = await supabase.rpc("match_images", {
+    query_embedding: queryEmbedding,
+    match_count: count,
+  });
+  if (error) throw new Error(`Image lookup failed: ${error.message}`);
+  return (data ?? []).map((row: any) => row.url);
+}
+
 async function generateSingleSlide(
   ragContext: string,
   promptGuidance: string,
   slideTopic: string,
   slideNum: number,
+  visualPref: string,
   attempt = 1
 ): Promise<any> { 
   const response = await fetch("https://api.openai.com/v1/chat/completions", {
@@ -94,6 +105,21 @@ async function generateSingleSlide(
   return generateSingleSlide(ragContext, promptGuidance, slideTopic, slideNum, attempt + 1);
   }
 
+  if (visualPref === "low") { 
+    const urls = await getMatchingImages(slideTopic, 1);
+    slide.image = urls[0] ?? "";
+    slide.bullets = slide.bullets.map((b: any) => ({ ...b, image: urls[0] ?? "" }));
+  } else if (visualPref === "medium" || visualPref === "high") {
+    const bulletImages = await Promise.all(
+      slide.bullets.map((b: any) => getMatchingImages(b.detail, 1))
+    );
+    slide.bullets = slide.bullets.map((b: any, i: number) => ({
+      ...b,
+      image: bulletImages[i][0] ?? "",
+    }));
+    slide.image = slide.bullets[0].image; 
+  }
+  
   return slide;
 }
 
