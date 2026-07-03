@@ -6,8 +6,8 @@ import AICharacter from "@/components/AICharacter";
 import Navigation from "@/components/Navigation";
 import Quiz from "@/components/Quiz";
 import ChatInterface from "@/components/ChatInterface";
-import { createClient } from "@/lib/supabase/client";
-
+import { createClient } from "@/lib/supabase/client";      
+import PreferenceSelector from "@/components/PreferenceSelector";
 
 // ===================== QUIZ DATA =====================
 const QUIZ_DATA = [
@@ -43,28 +43,44 @@ export default function LearningTool() {
   const [activeBullet, setActiveBullet] = useState(0);
   const [quizFeedback, setQuizFeedback] = useState("");
   const [visualPref, setVisualPref] = useState<string>("low");
+  const [prefsLoaded, setPrefsLoaded] = useState(false);  
+  const [hasPrefs, setHasPrefs] = useState(false);         
+  const [prefs, setPrefs] = useState<any>(null);     
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
-
+  useEffect(() => {
+    const checkPrefs = async () => {
+      const supabase = createClient();
+      const { data: userData } = await supabase.auth.getUser();
+      if (!userData?.user) return;
+  
+      const { data: prefsRow } = await supabase
+        .from("user_preferences")
+        .select("text_pref, audio_pref, image_pref")
+        .eq("user_id", userData.user.id)
+        .maybeSingle();
+  
+      if (prefsRow) {
+        setPrefs(prefsRow);
+        setHasPrefs(true);
+        // has prefs → go straight to generation
+      } else {
+        setHasPrefs(false);
+        // no prefs → show selector, DON'T generate
+      }
+      setPrefsLoaded(true);
+    };
+    checkPrefs();
+  }, []);
   // ===================== FETCH AI SLIDES ON LOAD =====================
   useEffect(() => {
+    if (!hasPrefs || !prefs) return;
+    
     const fetchSlides = async () => {
       try {
-        const supabase = createClient();
-        const { data: userData } = await supabase.auth.getUser();
-        if (!userData?.user) throw new Error("Not logged in");
-
-        const { data: prefsRow } = await supabase
-          .from("user_preferences")
-          .select("text_pref, audio_pref, image_pref")
-          .eq("user_id", userData.user.id)
-          .maybeSingle();
-
-        if (!prefsRow) throw new Error("No preferences found");
-
-        const textPref = prefsRow.text_pref;
-        const audioPref = prefsRow.audio_pref;
-        const visualPref = prefsRow.image_pref;
+        const textPref = prefs.text_pref;
+        const audioPref = prefs.audio_pref;
+        const visualPref = prefs.image_pref;
         setVisualPref(prefsRow.image_pref ?? "low");
         
         const slidesRes = await fetch("/api/slides", {
@@ -115,7 +131,7 @@ export default function LearningTool() {
     };
 
     fetchSlides();
-  }, []);
+  }, [hasPrefs, prefs]);
 
   // ===================== PAGE LOGIC =====================
 
@@ -206,6 +222,24 @@ export default function LearningTool() {
   };
 
   // ===================== LOADING SCREEN =====================
+  if (!prefsLoaded) {
+    return (
+      <div className="h-screen w-screen flex items-center justify-center text-2xl font-semibold">
+        Loading...
+      </div>
+    );
+  }
+
+  if (!hasPrefs) {
+    return (
+      <PreferenceSelector
+        onComplete={(newPrefs: any) => {
+          setPrefs(newPrefs);
+          setHasPrefs(true); // triggers the gated fetchSlides useEffect
+        }}
+      />
+    );
+  }
   if (isSlidesLoading) {
     return (
       <div className="h-screen w-screen flex items-center justify-center text-2xl font-semibold">
@@ -213,7 +247,6 @@ export default function LearningTool() {
       </div>
     );
   }
-
   // ===================== RENDER =====================
   return (
     // <main className="h-screen w-screen bg-slate-50 flex flex-col overflow-hidden text-slate-900">
