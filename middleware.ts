@@ -34,10 +34,12 @@ export async function middleware(request: NextRequest) {
 
   // Refreshes the session if expired — required for Server Components
   const { data: { user } } = await supabase.auth.getUser();
-
-  const isPublic = PUBLIC_PATHS.some((path) =>
-    request.nextUrl.pathname.startsWith(path)
-  );
+  
+  const pathname = request.nextUrl.pathname;
+  
+  const isPublic = 
+    pathname === "/" ||
+    PUBLIC_PATHS.some((path) => pathname.startsWith(path));
 
   // Everything is protected UNLESS it's in PUBLIC_PATHS
   if (!isPublic && !user) {
