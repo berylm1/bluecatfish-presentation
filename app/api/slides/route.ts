@@ -98,6 +98,7 @@ async function generateSingleSlide(
   if (!content) throw new Error("No content from AI (batch)");
   
   const parsed = JSON.parse(content);
+  
   const slide = parsed.slide ?? parsed;
 
   if ((!slide.bullets || slide.bullets.length !== 3) && attempt < 2) {
@@ -105,11 +106,19 @@ async function generateSingleSlide(
   return generateSingleSlide(ragContext, promptGuidance, slideTopic, slideNum, attempt + 1);
   }
 
-  if (visualPref === "low") { 
-    const urls = await getMatchingImages(slideTopic, 1);
-    slide.image = urls[0] ?? "";
-    slide.bullets = slide.bullets.map((b: any) => ({ ...b, image: urls[0] ?? "" }));
-  } else if (visualPref === "medium" || visualPref === "high") {
+  const imageCount = visualPref === "high" ? 3 : 1;
+  const queryText = visualPref === "low"
+    ? slideTopic // one image for whole slide topic
+    : slide.bullets.map((b: any) => b.detail).join(", "); // richer query using bullet details
+
+  const imageUrls = await getMatchingImages(queryText, imageCount);
+
+  // Attach images — per-bullet for medium/high, single for low
+  if (visualPref === "low") {
+    slide.image = imageUrls[0] ?? "";
+    slide.bullets = slide.bullets.map((b: any) => ({ ...b, image: imageUrls[0] ?? "" }));
+  } else if (visualPref === "medium") {
+    // one image per bullet, matched to bullet detail
     const bulletImages = await Promise.all(
       slide.bullets.map((b: any) => getMatchingImages(b.detail, 1))
     );
@@ -117,7 +126,17 @@ async function generateSingleSlide(
       ...b,
       image: bulletImages[i][0] ?? "",
     }));
-    slide.image = slide.bullets[0].image; 
+    slide.image = slide.bullets[0].image; // default slide image = first bullet's image
+  } else if (visualPref === "high") {
+    // one image per bullet, all shown simultaneously
+    const bulletImages = await Promise.all(
+      slide.bullets.map((b: any) => getMatchingImages(b.detail, 1))
+    );
+    slide.bullets = slide.bullets.map((b: any, i: number) => ({
+      ...b,
+      image: bulletImages[i][0] ?? "",
+    }));
+    slide.image = slide.bullets[0].image;
   }
   
   return slide;
@@ -186,7 +205,7 @@ export async function POST(req: Request) {
     
     const slides = await Promise.all(
       slideTopics.map((t, i) =>
-        generateSingleSlide([i], promptGuidance, t, ragContexts[i] + 1)
+        generateSingleSlide(ragContexts[i], promptGuidance, t, i + 1, visualPref)
       )
     );
     
