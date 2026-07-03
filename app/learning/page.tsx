@@ -7,7 +7,6 @@ import Navigation from "@/components/Navigation";
 import Quiz from "@/components/Quiz";
 import ChatInterface from "@/components/ChatInterface";
 import { createClient } from "@/lib/supabase/client";
-import { useRouter } from "next/navigation";
 
 
 // ===================== QUIZ DATA =====================
@@ -36,7 +35,6 @@ const QUIZ_DATA = [
 
 // ===================== MAIN COMPONENT =====================
 export default function LearningTool() {
-  const router = useRouter();
   const [slidesData, setSlidesData] = useState<any[]>([]);
   const [audioUrls, setAudioUrls] = useState<Record<string, string>>({});
   const [isSlidesLoading, setIsSlidesLoading] = useState(true);
@@ -44,6 +42,7 @@ export default function LearningTool() {
   const [currentStep, setCurrentStep] = useState(0);
   const [activeBullet, setActiveBullet] = useState(0);
   const [quizFeedback, setQuizFeedback] = useState("");
+  const [visualPref, setVisualPref] = useState<string>("low");
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
 
@@ -61,15 +60,13 @@ export default function LearningTool() {
           .eq("user_id", userData.user.id)
           .maybeSingle();
 
-        if (!prefsRow) {
-          router.push("/preferences"); // adjust to your actual preference route
-          return;
-        }  
-        
+        if (!prefsRow) throw new Error("No preferences found");
+
         const textPref = prefsRow.text_pref;
         const audioPref = prefsRow.audio_pref;
         const visualPref = prefsRow.image_pref;
-
+        setVisualPref(prefsRow.image_pref ?? "low");
+        
         const slidesRes = await fetch("/api/slides", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -81,20 +78,6 @@ export default function LearningTool() {
         
        const slides = slidesResult.slides
         
-        const demoImages = [
-          "https://d9-wret.s3.us-west-2.amazonaws.com/assets/palladium/production/s3fs-public/styles/full_width/public/media/images/Chesapeake_base_V6.jpg?itok=-cALA8Ab",
-          "https://dnr.maryland.gov/fisheries/PublishingImages/FishMD_Fish/blue_catfish.png",
-          "https://chesapeakebaystory.umces.edu/site/assets/files/1048/blue-crab-dfodge-maryland_cbf.jpg",
-          "https://assets.simpleviewinc.com/simpleview/image/upload/c_fill,h_799,q_75,w_1200/v1/clients/virginia/CN21060703V_152_cfaa1935-8ab4-4b9f-87d3-58aee33d3e30.jpg",
-          "https://easyshrimprecipes.com/wp-content/uploads/2025/04/easy-baked-catfish-fillet-recipe.jpg",
-          "https://www.nutritionadvance.com/wp-content/uploads/2019/07/catfish-fillets-on-white-plate-face.jpg",
-          "https://www.boaterexam.com/blog/media/posts/75/CDNTrad_Bass2024-199.jpg",
-          "https://tse2.mm.bing.net/th/id/OIP.508iP5Sjm4niQ5etmpLCIgHaE8?rs=1&pid=ImgDetMain&o=7&rm=3",
-        ];
-        slides.forEach((slide: any, i: number) => {
-          if (demoImages[i]) slide.image = demoImages[i];
-        });
-
         setSlidesData(slides);
         setIsSlidesLoading(false);
 
@@ -244,7 +227,7 @@ export default function LearningTool() {
                   🔊 Preparing audio…
                 </div>
               )}
-            <SlideContent data={currentSlideData} activeBullet={activeBullet} onBulletClick={handleBulletClick} />
+            <SlideContent data={currentSlideData} activeBullet={activeBullet} onBulletClick={handleBulletClick} visualPref={visualPref}/>
           </>
           )}
           {isQuizMode && currentQuizData && <Quiz data={currentQuizData} onAnswerSelected={handleQuizAnswer} />}
