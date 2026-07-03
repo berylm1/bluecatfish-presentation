@@ -8,6 +8,7 @@ import Quiz from "@/components/Quiz";
 import ChatInterface from "@/components/ChatInterface";
 import { createClient } from "@/lib/supabase/client";      
 import PreferenceSelector from "@/components/PreferenceSelector";
+import styles from "./learning.module.css";
 
 // ===================== QUIZ DATA =====================
 const QUIZ_DATA = [
