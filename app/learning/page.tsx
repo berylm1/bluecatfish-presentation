@@ -62,9 +62,10 @@ export default function LearningTool() {
           .maybeSingle();
 
         if (!prefsRow) {
-          router.push("/components/PreferenceSelector.tsx"); // adjust to your actual preference route
+          router.push("/preferences"); // adjust to your actual preference route
           return;
         }  
+        
         const textPref = prefsRow.text_pref;
         const audioPref = prefsRow.audio_pref;
         const visualPref = prefsRow.image_pref;
