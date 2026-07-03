@@ -1,18 +1,40 @@
 import React from 'react';
 
+interface Bullet {
+  main: string;
+  detail: string;
+  audio: string;
+  image?: string;
+}
 
 interface SlideContentProps {
   data: {
     title: string;
     image: string;
-    bullets: { label: string;
-     }[];
+    bullets: Bullet[];
   };
   activeBullet: number;
   onBulletClick: (index: number) => void;
+  visualPref?: string;
 }
 
-export default function SlideContent({ data, activeBullet, onBulletClick }: SlideContentProps) {
+export default function SlideContent({
+  data,
+  activeBullet,
+  onBulletClick,
+  visualPref = "low",
+}: SlideContentProps) {
+
+  // Which image to show on the right panel
+  const getDisplayImage = () => {
+    if (visualPref === "medium") {
+      // swap to active bullet's image on click
+      return data.bullets[activeBullet]?.image || data.image;
+    }
+    // low: always the slide-level image
+    return data.image;
+  };
+
   return (
     <div className="h-full flex flex-col">
       {/* Title Section */}
@@ -58,16 +80,34 @@ export default function SlideContent({ data, activeBullet, onBulletClick }: Slid
 
         {/* Right Column: Image Display */}
         <div className="flex flex-col gap-4">
-          <div className="relative aspect-[4/3] rounded-[2rem] overflow-hidden shadow-2xl border-[12px] border-white bg-white group">
-            <img
-               src={data.image}
-              
-              alt={data.title}
-              className="w-full h-full object-contain transition-transform duration-700 group-hover:scale-105"
-            />
+          {visualPref === "high" ? (
+            <div className="grid grid-cols-1 gap-3">
+              {data.bullets.map((bullet, index) => (
+                <div
+                  key={index}
+                  onClick={() => onBulletClick(index)}
+                  className="relative rounded-[2rem] overflow-hidden shadow-2xl border-[12px] border-white bg-white" 
+                  style={{ height: "280px" }}
+                >
+              <img
+                src={bullet.image || data.image}
+                alt={bullet.detail || data.title}
+                className="w-full h-full object-contain"
+              />
           </div>
-        </div>
+        ))}
       </div>
+    ) : (
+      <div className="relative aspect-[4/3] rounded-[2rem] overflow-hidden shadow-2xl border-[12px] border-white bg-white group">
+        <img
+          src={getDisplayImage()}
+          alt={data.title}
+          className="w-full h-full object-contain transition-transform duration-700 group-hover:scale-105"
+        />
     </div>
-  );
+    )}
+    </div>
+  </div>
+</div>
+);
 }
