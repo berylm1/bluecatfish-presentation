@@ -55,7 +55,7 @@ export default function LoginPage() {
       if (error) {
         setError(error.message);
       } else {
-        window.location.href = "/dashboard";
+        window.location.href = "/learning";
       }
     } else {
       const { error } = await supabase.auth.signInWithPassword({
@@ -66,7 +66,7 @@ export default function LoginPage() {
       if (error) {
         setError(error.message);
       } else {
-        window.location.href = "/dashboard";
+        window.location.href = "/learning";
       }
     }
   };
