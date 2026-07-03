@@ -7,6 +7,7 @@ import Navigation from "@/components/Navigation";
 import Quiz from "@/components/Quiz";
 import ChatInterface from "@/components/ChatInterface";
 import { createClient } from "@/lib/supabase/client";
+import { useRouter } from "next/navigation";
 
 
 // ===================== QUIZ DATA =====================
@@ -35,6 +36,7 @@ const QUIZ_DATA = [
 
 // ===================== MAIN COMPONENT =====================
 export default function LearningTool() {
+  const router = useRouter();
   const [slidesData, setSlidesData] = useState<any[]>([]);
   const [audioUrls, setAudioUrls] = useState<Record<string, string>>({});
   const [isSlidesLoading, setIsSlidesLoading] = useState(true);
@@ -59,8 +61,10 @@ export default function LearningTool() {
           .eq("user_id", userData.user.id)
           .maybeSingle();
 
-        if (!prefsRow) throw new Error("No preferences found");
-
+        if (!prefsRow) {
+          router.push("/components/PreferenceSelector.tsx"); // adjust to your actual preference route
+          return;
+        }  
         const textPref = prefsRow.text_pref;
         const audioPref = prefsRow.audio_pref;
         const visualPref = prefsRow.image_pref;
