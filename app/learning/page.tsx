@@ -81,7 +81,7 @@ export default function LearningTool() {
         const textPref = prefs.text_pref;
         const audioPref = prefs.audio_pref;
         const visualPref = prefs.image_pref;
-        setVisualPref(prefsRow.image_pref ?? "low");
+        setVisualPref(prefs.image_pref ?? "low");
         
         const slidesRes = await fetch("/api/slides", {
           method: "POST",
