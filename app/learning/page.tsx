@@ -8,7 +8,6 @@ import Quiz from "@/components/Quiz";
 import ChatInterface from "@/components/ChatInterface";
 import { createClient } from "@/lib/supabase/client";      
 import PreferenceSelector from "@/components/PreferenceSelector";
-import styles from "./learning.module.css";
 
 // ===================== QUIZ DATA =====================
 const QUIZ_DATA = [
@@ -251,7 +250,6 @@ export default function LearningTool() {
   // ===================== RENDER =====================
   return (
     // <main className="h-screen w-screen bg-slate-50 flex flex-col overflow-hidden text-slate-900">
-    <div className={styles.wrapper}>
     <main className="h-screen w-screen bg-slate-50 flex flex-col overflow-y-auto text-slate-900">
       <div className="flex-1 flex flex-row p-10 gap-10">
         <section className="flex-[3] bg-white rounded-[3rem] shadow-xl p-12 border border-slate-100 relative overflow-hidden flex flex-col">
@@ -278,6 +276,5 @@ export default function LearningTool() {
         <Navigation current={currentStep} total={totalSlides} onNext={handleNext} onPrev={handlePrev} />
       </footer>
     </main>
-    </div>
   );
 }
