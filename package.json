@@ -10,14 +10,14 @@
   "dependencies": {
     "next": "^16.2.9",
     "react": "^19.0.0",
-    "react-dom": "^19.0.0"
+    "react-dom": "^19.0.0",
     "redis": "^5.11.0",
   },
   "devDependencies": {
     "@types/node": "^22",
     "@types/react": "^19",
     "@types/react-dom": "^19",
-    "typescript": "^5"
+    "typescript": "^5",
     "@types/redis": "^4.0.10",
   }
 }
