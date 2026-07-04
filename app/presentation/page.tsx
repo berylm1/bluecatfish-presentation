@@ -1178,7 +1178,7 @@ export default function AIPresentation() {
           </div>
 
           {/* Chat Messages */}
-          <div className="flex-1 overflow-y-auto p-4 space-y-3">
+          <div className="flex-1 overflow-y-auto py-4 px-4 space-y-3">
             {messages.map((msg, idx) => (
               <div
                 key={idx}
@@ -1209,7 +1209,7 @@ export default function AIPresentation() {
 
           {/* Chat Input */}
           <div className="p-4 border-t border-slate-700">
-            <div className="flex gap-3">
+            <div className="flex gap-2 px-4 pb-4">
               <input
                 type="text"
                 value={input}
