@@ -1166,7 +1166,7 @@ export default function AIPresentation() {
               <div className="text-3xl">🦀</div>
               <div>
                 <h3 className="font-bold text-white">Ask Finley</h3>
-                <p className="text-xs text-blue-200 px-1">Your AI Blue Catfish Expert</p>
+                <p className="text-xs text-blue-200 pb-1">Your AI Blue Catfish Expert</p>
               </div>
             </div>
             <button
@@ -1182,13 +1182,13 @@ export default function AIPresentation() {
             {messages.map((msg, idx) => (
               <div
                 key={idx}
-                className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
+                className={`flex ${msg.role === 'user' ? 'justify-end pr-4' : 'justify-start pl-4'}`}
               >
                 <div
                   className={`max-w-[75%] rounded-2xl px-4 py-3 ${
                     msg.role === 'user'
-                      ? 'bg-blue-600 text-white rounded-br-none ml-2'
-                      : 'bg-slate-700 text-gray-100 rounded-bl-none mr-2'
+                      ? 'bg-blue-600 text-white rounded-br-none mr-[5%]'
+                      : 'bg-slate-700 text-gray-100 rounded-bl-none ml-[5%]'
                   }`}
                 >
                   <p className="text-sm">{msg.text}</p>
@@ -1208,7 +1208,7 @@ export default function AIPresentation() {
           </div>
 
           {/* Chat Input */}
-          <div className="p-4 border-t border-slate-700">
+          <div className="p-4 border-t border-slate-700 m-4">
             <div className="flex gap-2 ml-2">
               <input
                 type="text"
@@ -1216,7 +1216,7 @@ export default function AIPresentation() {
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && !isLoading && sendMessage(input)}
                 placeholder="Ask about Blue Catfish..."
-                className="flex-1 bg-slate-700 text-white rounded-full px-[21px] py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="flex-1 bg-slate-700 text-white rounded-full px-[21px] py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 ml-[5%]"
                 disabled={isLoading}
               />
               <button
