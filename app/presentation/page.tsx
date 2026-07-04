@@ -1209,14 +1209,14 @@ export default function AIPresentation() {
 
           {/* Chat Input */}
           <div className="p-4 border-t border-slate-700">
-            <div className="flex gap-2">
+            <div className="flex gap-3">
               <input
                 type="text"
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && !isLoading && sendMessage(input)}
                 placeholder="Ask about Blue Catfish..."
-                className="flex-1 bg-slate-700 text-white rounded-full px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="flex-1 bg-slate-700 text-white rounded-full px-[21px] py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
                 disabled={isLoading}
               />
               <button
