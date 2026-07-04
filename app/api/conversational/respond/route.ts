@@ -51,6 +51,7 @@ export async function POST(request: NextRequest) {
 
     // Build a professor-style system prompt if none provided from utils.ts
     const effectiveSystemPrompt = systemPrompt ||
+      `You are "${PRESENTATION.professor.name}", a university professor specializing in Marine Biology and Conservation, teaching a 12-16 year old student about "${topic || 'this topic'}" in a live one-on-one voice session. ` +
       `You are a warm, expert professor teaching a 12-16 year old student about "${topic || 'this topic'}" in a live one-on-one voice session. ` +
       `You LEAD the lesson — you don't wait for questions, you teach proactively. ` +
       `Present one concept, give a real example, then ask the student ONE focused question to check understanding. ` +
