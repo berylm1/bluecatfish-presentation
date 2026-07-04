@@ -1166,7 +1166,7 @@ export default function AIPresentation() {
               <div className="text-3xl">🦀</div>
               <div>
                 <h3 className="font-bold text-white">Ask Finley</h3>
-                <p className="text-xs text-blue-200">Your AI Blue Catfish Expert</p>
+                <p className="text-xs text-blue-200 px-1">Your AI Blue Catfish Expert</p>
               </div>
             </div>
             <button
