@@ -497,7 +497,7 @@ const useAIChat = () => {
   return { messages, isLoading, input, setInput, sendMessage };
 };
 
-
+/*
 // Rule-based fallback responses
 function getRuleBasedResponse(question: string): string {
   const q = question.toLowerCase();
@@ -529,7 +529,7 @@ function getRuleBasedResponse(question: string): string {
   
   return "That's a great question! Blue Catfish are fascinating creatures. They can grow over 100 pounds, tolerate brackish water, and have spread throughout the Chesapeake Bay. Would you like to know more about their impact or what we can do about them?";
 }
-
+*/
 // ===================== MAIN COMPONENT =====================
 export default function AIPresentation() {
   const [activeSection, setActiveSection] = useState(0);
