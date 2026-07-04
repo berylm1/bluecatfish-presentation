@@ -1209,7 +1209,7 @@ export default function AIPresentation() {
 
           {/* Chat Input */}
           <div className="p-4 border-t border-slate-700">
-            <div className="flex gap-2">
+            <div className="flex gap-2 ml-2">
               <input
                 type="text"
                 value={input}
