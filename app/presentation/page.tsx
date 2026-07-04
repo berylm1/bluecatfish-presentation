@@ -3,16 +3,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import Link from 'next/link';
 
-export function LearningButton() {
-  return (
-    <Link href="/learning">
-      <button className="px-4 py-2 rounded-md bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 transition-colors">
-        Learning
-      </button>
-    </Link>
-  );
-}
-
 // ===================== TYPES =====================
 interface Message {
   role: 'user' | 'ai';
@@ -1233,7 +1223,6 @@ export default function AIPresentation() {
 
       {/* Source Attribution */}
       <footer className="text-center py-4 text-blue-300 text-sm">
-        <LearningButton />
         <p>
           Source: University of Maryland Extension - 
           <a 
