@@ -1159,7 +1159,7 @@ export default function AIPresentation() {
 
       {/* AI Chat Panel */}
       {showChat && (
-        <div className="fixed right-6 bottom-6 w-[26rem] max-h-[70vh] bg-slate-900/95 backdrop-blur-lg rounded-2xl shadow-2xl border border-blue-500/30 flex flex-col overflow-hidden z-50">
+        <div className="fixed right-6 bottom-6 w-[26rem] max-h-[70vh] bg-slate-900/95 backdrop-blur-lg rounded-2xl shadow-2xl border border-blue-500/30 flex flex-col overflow-hidden z-50 mb-4">
           {/* Chat Header */}
           <div className="bg-gradient-to-r from-blue-600 to-cyan-600 p-4 flex items-center justify-between">
             <div className="flex items-center gap-3">
@@ -1196,7 +1196,7 @@ export default function AIPresentation() {
               </div>
             ))}
             {isLoading && (
-              <div className="flex justify-start">
+              <div className="flex justify-start pl-4">
                 <div className="bg-slate-700 rounded-2xl px-4 py-3 flex gap-1">
                   <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" />
                   <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce delay-100" />
@@ -1208,7 +1208,7 @@ export default function AIPresentation() {
           </div>
 
           {/* Chat Input */}
-          <div className="p-4 border-t border-slate-700 m-4">
+          <div className="p-4 border-t border-slate-700 mt-4">
             <div className="flex gap-2 ml-2">
               <input
                 type="text"
