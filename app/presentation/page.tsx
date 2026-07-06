@@ -965,7 +965,7 @@ export default function AIPresentation() {
             {/* Breakdown Modal - Shows when learner is confused */}
             {showBreakdown && currentSection.breakdown && (
               <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-[fadeIn_0.3s_ease-out]">
-                <div className="bg-gradient-to-br from-slate-800 to-slate-900 rounded-3xl max-w-3xl w-full max-h-[85vh] overflow-hidden border border-cyan-500/30 shadow-2xl animate-[slideUp_0.4s_ease-out]">
+                <div className="bg-gradient-to-br from-slate-800 to-slate-900 rounded-3xl max-w-3xl w-full max-h-[85vh] border border-cyan-500/30 shadow-2xl animate-[slideUp_0.4s_ease-out]">
                   {/* Modal Header */}
                   <div className="bg-gradient-to-r from-amber-600 to-orange-600 p-6">
                     <div className="flex items-center justify-between">
