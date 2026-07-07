@@ -14,7 +14,7 @@ export default function Home() {
           Interactive AI-powered presentation about the Chesapeake Bay invasion
         </p>
         <Link
-          href="/presentation"
+          href="/presentationv2"
           className="inline-block px-12 py-6 bg-gradient-to-r from-blue-500 to-cyan-500 hover:from-blue-600 hover:to-cyan-600 text-white text-2xl font-bold rounded-full shadow-2xl transform hover:scale-105 transition-all"
         >
           ▶ Start Presentation
