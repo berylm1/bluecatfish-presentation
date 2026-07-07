@@ -26,7 +26,6 @@ interface SectionWithBreakdown {
 }
 
 // ===================== STATIC INTRO/CONCLUSION SCRIPTS =====================
-// Only intro + conclusion stay hardcoded — per-section narration now comes from the AI-generated sections.
 const LECTURE_SCRIPTS = {
   intro: `Welcome to this presentation on Blue Catfish invasion in the Chesapeake Bay. I'm your professor, and today we'll explore one of the most significant ecological challenges facing the Bay ecosystem. Blue Catfish, once introduced for recreational fishing, have become an invasive species with far-reaching consequences. Let's dive in.`,
   conclusion: `So to summarize what we've learned today: Blue Catfish are an invasive species that were introduced for recreational fishing but have since become a major ecological threat. They eat enormous quantities of native species, make up the majority of fish biomass in many rivers, and have no natural predators to keep their numbers in check. However, there's hope. By commercial harvesting and encouraging consumption of Blue Catfish, we can reduce their population while enjoying a sustainable and delicious food source. Thank you for joining me in this presentation about the Chesapeake Bay's Blue Catfish invasion. Remember, sometimes the solution to an ecological problem can be found on our dinner plates.`
@@ -44,8 +43,6 @@ const PRESENTATION = {
 };
 
 // ===================== AUDIO PLAYER HOOK =====================
-// Replaces useSpeechSynthesis. Plays pre-generated OpenAI TTS mp3 URLs instead of
-// browser speechSynthesis or the local voicebox service.
 const useAudioPlayer = () => {
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
@@ -116,7 +113,6 @@ const useAudioPlayer = () => {
 };
 
 // ===================== AI CHAT HOOK =====================
-// Unchanged from before — already wired to /api/conversational/respond.
 const useAIChat = () => {
   const [messages, setMessages] = useState<Message[]>([
     { role: 'ai', text: `Good day! I'm ${PRESENTATION.professor.name}, and I'll be your guide through today's lecture on the Blue Catfish invasion in the Chesapeake Bay. Feel free to ask me any questions as we go through the material. What would you like to explore first?` }
@@ -167,7 +163,7 @@ const useAIChat = () => {
 
 // ===================== MAIN COMPONENT =====================
 export default function AIPresentation() {
-  // ---- Section + audio data (fetched, not hardcoded) ----
+
   const [sections, setSections] = useState<SectionWithBreakdown[]>([]);
   const [audioUrls, setAudioUrls] = useState<Record<string, string>>({});
   const [isContentLoading, setIsContentLoading] = useState(true);
@@ -232,7 +228,7 @@ export default function AIPresentation() {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
-  // ---- Narration handlers (now just play pre-generated audio by key) ----
+  // ---- Narration handlers ----
   const narrateSection = (index: number) => {
     if (index < sections.length) {
       play(audioUrls[`section${index}_narration`], `section${index}_narration`);
@@ -325,11 +321,6 @@ export default function AIPresentation() {
   }
 
   // ===================== RENDER =====================
-  // Continue below with your existing JSX, with these changes:
-  // 1. Replace every `PRESENTATION.sections[...]` reference with `sections[...]` (already done above via currentSection)
-  // 2. Remove any UI referencing voiceType / changeVoiceType / voiceboxAvailable — that toggle no longer exists
-  // 3. Any "speed/rate" slider tied to changeRate can be removed too, since OpenAI audio files play at fixed pace
-  // 4. isSpeaking / isPaused / pause() / resume() / stop() all still work the same as before — just backed by real <audio> now
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-blue-900 to-slate-900 flex flex-col">
       {/* Header */}
@@ -386,6 +377,7 @@ export default function AIPresentation() {
               >
                 ⏹️
               </button>
+              {/* 
               <select
                 value={speechRate}
                 onChange={(e) => changeRate(parseFloat(e.target.value))}
@@ -396,6 +388,7 @@ export default function AIPresentation() {
                 <option value="0.85">0.85x</option>
                 <option value="1.0">1.0x</option>
               </select>
+              */}
             </div>
             
             {/* Chat Toggle */}
@@ -419,13 +412,13 @@ export default function AIPresentation() {
           {/* Progress Bar */}
           <div className="mb-8">
             <div className="flex justify-between text-blue-200 text-sm mb-2">
-              <span>Section {activeSection + 1} of {PRESENTATION.sections.length}</span>
-              <span>{Math.round(((activeSection + 1) / PRESENTATION.sections.length) * 100)}%</span>
+              <span>Section {activeSection + 1} of {sections.length}</span>
+              <span>{Math.round(((activeSection + 1) / sections.length) * 100)}%</span>
             </div>
             <div className="h-2 bg-blue-900/50 rounded-full overflow-hidden">
               <div 
                 className="h-full bg-gradient-to-r from-blue-500 to-cyan-400 transition-all duration-500"
-                style={{ width: `${((activeSection + 1) / PRESENTATION.sections.length) * 100}%` }}
+                style={{ width: `${((activeSection + 1) / sections.length) * 100}%` }}
               />
             </div>
           </div>
@@ -476,7 +469,7 @@ export default function AIPresentation() {
                 
                 {/* Slide Counter Badge */}
                 <div className="absolute top-4 left-4 bg-cyan-500/90 backdrop-blur-sm px-4 py-2 rounded-full shadow-lg">
-                  <span className="font-bold text-white">{activeSection + 1} / {PRESENTATION.sections.length}</span>
+                  <span className="font-bold text-white">{activeSection + 1} / {sections.length}</span>
                 </div>
                 
                 {/* Interactive Icon with Hover Effect */}
@@ -569,11 +562,11 @@ export default function AIPresentation() {
                   <div className="flex-1 h-2 bg-blue-900/50 rounded-full overflow-hidden">
                     <div 
                       className="h-full bg-gradient-to-r from-cyan-400 to-blue-500 transition-all duration-500"
-                      style={{ width: `${((activeSection + 1) / PRESENTATION.sections.length) * 100}%` }}
+                      style={{ width: `${((activeSection + 1) / sections.length) * 100}%` }}
                     />
                   </div>
                   <span className="text-sm text-cyan-400 font-medium">
-                    {Math.round(((activeSection + 1) / PRESENTATION.sections.length) * 100)}%
+                    {Math.round(((activeSection + 1) / sections.length) * 100)}%
                   </span>
                 </div>
               </div>
@@ -737,7 +730,7 @@ export default function AIPresentation() {
             </button>
             
             <div className="flex gap-2">
-              {PRESENTATION.sections.map((_, idx) => (
+              {sections.map((_, idx) => (
                 <button
                   key={idx}
                   onClick={() => {
@@ -756,7 +749,7 @@ export default function AIPresentation() {
 
             <button
               onClick={nextSection}
-              disabled={activeSection === PRESENTATION.sections.length - 1}
+              disabled={activeSection === sections.length - 1}
               className="px-8 py-4 bg-gradient-to-r from-blue-600 to-cyan-600 hover:from-blue-700 hover:to-cyan-700 disabled:opacity-30 disabled:cursor-not-allowed text-white font-semibold rounded-full transition-colors flex items-center gap-2"
             >
               Next →
