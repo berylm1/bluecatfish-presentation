@@ -142,7 +142,7 @@ function TranscriptPanel({
       : -1;
 
   return (
-    <div className="bg-slate-900/60 backdrop-blur-md rounded-3xl border border-blue-500/20 p-6 h-full overflow-y-auto">
+    <div className="bg-slate-900/60 backdrop-blur-md rounded-3xl border border-blue-500/20 p-6 h-full overflow-y-auto max-w-sm mx-auto">
       <h4 className="text-cyan-400 font-bold mb-4 text-sm uppercase tracking-wide">Transcript</h4>
       {words.length > 0 ? (
         <p className="text-blue-100 leading-relaxed text-lg">
@@ -322,7 +322,7 @@ export default function AIPresentation() {
   };
 
   const nextSection = () => {
-    setShowBreakdown(false);
+    setMicroStep(0);
     if (activeSection < sections.length - 1) {
       stop();
       const newIndex = activeSection + 1;
@@ -337,7 +337,7 @@ export default function AIPresentation() {
   };
 
   const prevSection = () => {
-    setShowBreakdown(false);
+    setMicroStep(0);
     if (activeSection > 0) {
       stop();
       const newIndex = activeSection - 1;
@@ -491,7 +491,7 @@ export default function AIPresentation() {
 
       {/* Main Content */}
       <main className="flex-1 flex items-center justify-center p-8">
-        <div className="max-w-6xl w-full">
+        <div className="max-w-7xl w-full">
           {/* Progress Bar */}
           <div className="mb-8">
             <div className="flex justify-between text-blue-200 text-sm mb-2">
@@ -508,7 +508,7 @@ export default function AIPresentation() {
 
           {/* Two Column Layout - Image Left, Content Right */}
           <div className="bg-white/5 backdrop-blur-md rounded-3xl border border-blue-500/30 shadow-2xl overflow-hidden">
-            <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-0">
+            <div className="grid md:grid-cols-2 lg:grid-cols--[1.05fr_1.4fr_0.7fr] gap-0">
               {/* Left: Interactive Animated Graphics */}
               <div className="relative h-72 md:h-auto min-h-[500px] bg-gradient-to-br from-blue-800 to-cyan-900 overflow-hidden">
                 {/* Animated Background Elements */}
@@ -597,23 +597,6 @@ export default function AIPresentation() {
                   </p>
                 </div>
                 
-                {/* Interactive Stats Grid */}
-                <div className="grid grid-cols-2 gap-4">
-                  {currentSection.stats.map((stat, idx) => (
-                    <div
-                      key={idx}
-                      className="group bg-blue-800/50 backdrop-blur-sm rounded-xl p-4 text-center border border-cyan-500/30 cursor-pointer transition-all duration-300 hover:bg-blue-700/60 hover:scale-105 hover:shadow-lg hover:shadow-cyan-500/20 animate-[fadeInUp_0.5s_ease-out_forwards]"
-                      style={{ animationDelay: `${0.6 + idx * 0.1}s` }}
-                    >
-                      <div className="text-2xl md:text-3xl font-bold text-cyan-400 mb-1 transition-colors group-hover:text-white">
-                        {stat.value}
-                      </div>
-                      <div className="text-sm text-blue-200 group-hover:text-blue-100 transition-colors">
-                        {stat.label}
-                      </div>
-                    </div>
-                  ))}
-                </div>
                 {/* ===================== MINI-SLIDESHOW (replaces old Confused button + modal) ===================== */}
                 <div className="mt-6 pt-4 border-t border-blue-700/30">
                   {/* Step content */}
