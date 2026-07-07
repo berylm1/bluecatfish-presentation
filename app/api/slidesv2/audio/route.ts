@@ -96,6 +96,13 @@ export async function POST(req: Request) {
           `${FOLDER}/section${i + 1}_detailed.mp3`
         );
       }
+      
+      if (section.breakdown?.realWorldExample) {
+        audioUrls[`section${i}_example`] = await generateAndUpload(
+          section.breakdown.realWorldExample,
+          `${FOLDER}/section${i + 1}_example.mp3`
+        );
+      }
     }
 
     return NextResponse.json({ success: true, audioUrls });
