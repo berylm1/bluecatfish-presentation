@@ -189,7 +189,7 @@ export default function AIPresentation() {
   useEffect(() => {
     async function loadPresentation() {
       try {
-        const sectionsRes = await fetch('/api/slides2', { method: 'POST' });
+        const sectionsRes = await fetch('/api/slidesv2', { method: 'POST' });
         const sectionsData = await sectionsRes.json();
 
         if (sectionsData.error || !sectionsData.sections) {
@@ -198,7 +198,7 @@ export default function AIPresentation() {
 
         setSections(sectionsData.sections);
 
-        const audioRes = await fetch('/api/slides2/audio', {
+        const audioRes = await fetch('/api/slidesv2/audio', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
