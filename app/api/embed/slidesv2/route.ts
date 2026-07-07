@@ -1,0 +1,173 @@
+import { NextResponse } from "next/server";
+import { createClient } from "@supabase/supabase-js";
+import { getValue, setValue } from "@/src/redisClient";
+
+const supabase = createClient(
+  process.env.SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_ROLE_KEY! // server-only, bypasses RLS
+);
+
+async function embed(text: string): Promise<number[]> {
+  const res = await fetch("https://api.openai.com/v1/embeddings", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
+    },
+    body: JSON.stringify({ model: "text-embedding-3-small", input: text }),
+  });
+  const data = await res.json();
+  return data.data[0].embedding;
+}
+
+async function getRagContext(topic: string, matchCount = 5): Promise<string> {
+  const queryEmbedding = await embed(topic);
+  const { data, error } = await supabase.rpc("match_documents2", {
+    query_embedding: queryEmbedding,
+    match_count: matchCount,
+  });
+  if (error) throw new Error(`RAG lookup failed: ${error.message}`);
+  return (data ?? []).map((row: any) => row.content).join("\n\n");
+}
+
+async function getMatchingImages(query: string, count: number): Promise<string[]> {
+  const queryEmbedding = await embed(query);
+  const { data, error } = await supabase.rpc("match_images", {
+    query_embedding: queryEmbedding,
+    match_count: count,
+  });
+  if (error) throw new Error(`Image lookup failed: ${error.message}`);
+  return (data ?? []).map((row: any) => row.url);
+}
+
+async function generateSingleSection(
+  ragContext: string,
+  sectionTopic: string,
+  sectionNum: number,
+  attempt = 1
+): Promise<any> {
+  const response = await fetch("https://api.openai.com/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
+    },
+    body: JSON.stringify({
+      model: "gpt-3.5-turbo",
+      response_format: { type: "json_object" },
+      messages: [
+        {
+          role: "system",
+          content: `You are an educational assistant creating one section of a slide-based lesson on Blue Catfish invasion in the Chesapeake Bay.
+Base every fact strictly on the SOURCE CONTENT below — do not invent facts.
+
+SOURCE CONTENT:
+"""${ragContext}"""
+
+STRICT RULES YOU MUST FOLLOW:
+1. "content" must be exactly 2 sentences — an informative on-screen paragraph summarizing this section's core idea.
+2. "narration" must be a DIFFERENT script than "content" — written for natural spoken delivery (this feeds a text-to-speech pipeline), covering the same topic with different phrasing/pacing. Roughly 2-4 sentences.
+3. "stats" must contain EXACTLY 2 items, each a short quantitative or date-based fact from the source content, styled like:
+   { "value": "100+ Million", "label": "Estimated population in Bay" }
+   { "value": "1970s-80s", "label": "When they were introduced" }
+   "value" is the short number/date/quantity. "label" is a small caption explaining what it refers to (3-6 words).
+4. "icon" must be a single emoji character that visually represents this section's topic.
+5. "breakdown.simple" must be exactly 2 sentences, explaining the topic in the SIMPLEST possible terms for a confused learner — must use DIFFERENT wording and framing than "content", not just a shorter version of it.
+6. "breakdown.detailed" must be 4-5 sentences of deeper, more scientific/technical explanation, still strictly grounded in the source content, for a learner who wants more depth.
+7. "breakdown.keyTerms" must contain EXACTLY 3 items, each a key word or phrase from this section paired with a plain-language definition:
+   { "term": "...", "definition": "..." }
+8. "breakdown.realWorldExample" must explain the concept via an analogy to something unrelated and familiar (e.g. comparing an ecological concept to delivery logistics, sports, cooking, etc.) — NOT another catfish/fish fact. 2-3 sentences.
+
+Output ONLY a JSON object with key "section" structured EXACTLY like this:
+
+{
+  "section": {
+    "title": "String",
+    "icon": "emoji",
+    "image": "",
+    "content": "2 sentence paragraph",
+    "stats": [
+      { "value": "...", "label": "..." },
+      { "value": "...", "label": "..." }
+    ],
+    "narration": "TTS script, different wording than content",
+    "breakdown": {
+      "simple": "2 sentences, different angle than content",
+      "detailed": "4-5 sentences, scientific depth",
+      "keyTerms": [
+        { "term": "...", "definition": "..." },
+        { "term": "...", "definition": "..." },
+        { "term": "...", "definition": "..." }
+      ],
+      "realWorldExample": "analogy to something unrelated, 2-3 sentences"
+    }
+  }
+}`,
+        },
+        {
+          role: "user",
+          content: `Generate section ${sectionNum} about: ${sectionTopic}`,
+        },
+      ],
+      temperature: 0.7,
+      max_tokens: 2400,
+    }),
+  });
+
+  const data = await response.json();
+  const content = data.choices?.[0]?.message?.content;
+  if (!content) throw new Error("No content from AI (section)");
+
+  const parsed = JSON.parse(content);
+  const section = parsed.section ?? parsed;
+
+  const validKeyTerms = section.breakdown?.keyTerms?.length === 3;
+  const validStats = section.stats?.length === 2;
+
+  if ((!validKeyTerms || !validStats) && attempt < 2) {
+    console.warn(`Section ${sectionNum} malformed (keyTerms/stats), retrying...`);
+    return generateSingleSection(ragContext, sectionTopic, sectionNum, attempt + 1);
+  }
+
+  // Attach one matched image for the section, based on its content
+  const imageUrls = await getMatchingImages(section.content || sectionTopic, 1);
+  section.image = imageUrls[0] ?? "";
+
+  return section;
+}
+
+export async function POST(req: Request) {
+  try {
+    const cacheKey = `bluecatfish_sections_ai_v1`;
+
+    const cachedRaw = await getValue(cacheKey);
+    if (cachedRaw) {
+      return NextResponse.json({ sections: JSON.parse(cachedRaw), source: "cache" });
+    }
+
+    const sectionTopics = [
+      "A New Predator Arrives",
+      "Explosive Growth",
+      "Eating Everything",
+      "No Natural Enemies",
+      "A Delicious Solution",
+    ];
+
+    const ragContexts = await Promise.all(
+      sectionTopics.map((t) => getRagContext(t, 4))
+    );
+
+    const sections = await Promise.all(
+      sectionTopics.map((t, i) =>
+        generateSingleSection(ragContexts[i], t, i + 1)
+      )
+    );
+
+    await setValue(cacheKey, JSON.stringify(sections));
+    return NextResponse.json({ sections, source: "generated" });
+
+  } catch (err: any) {
+    console.error("Section generation error:", err);
+    return NextResponse.json({ error: err.message || "Failed to get sections" }, { status: 500 });
+  }
+}
