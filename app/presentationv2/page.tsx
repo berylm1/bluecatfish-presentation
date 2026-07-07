@@ -2,7 +2,6 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react';
 import Link from 'next/link';
-import { createPortal } from 'react-dom';
 
 // ===================== TYPES =====================
 interface Message {
@@ -111,7 +110,604 @@ const useAudioPlayer = () => {
 
   return { play, pause, resume, stop, isSpeaking, isPaused, currentKey };
 };
+// ===================== AUDIO PLAYER HOOK (updated) =====================
+// Now tracks currentText + currentTime/duration so the transcript panel
+// can estimate which word is currently being spoken.
+const useAudioPlayer = () => {
+  const [isSpeaking, setIsSpeaking] = useState(false);
+  const [isPaused, setIsPaused] = useState(false);
+  const [currentKey, setCurrentKey] = useState<string | null>(null);
+  const [currentText, setCurrentText] = useState<string>('');
+  const [currentTime, setCurrentTime] = useState(0);
+  const [duration, setDuration] = useState(0);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
 
+  const play = useCallback((url: string | undefined, key: string, text: string = '') => {
+    if (!url) {
+      console.warn(`No audio URL found for "${key}"`);
+      return;
+    }
+
+    if (audioRef.current) {
+      audioRef.current.pause();
+    }
+
+    const audio = new Audio(url);
+    audioRef.current = audio;
+    setCurrentKey(key);
+    setCurrentText(text);
+    setIsSpeaking(true);
+    setIsPaused(false);
+    setCurrentTime(0);
+    setDuration(0);
+
+    audio.ontimeupdate = () => setCurrentTime(audio.currentTime);
+    audio.onloadedmetadata = () => setDuration(audio.duration);
+
+    audio.onended = () => {
+      setIsSpeaking(false);
+      setIsPaused(false);
+      setCurrentKey(null);
+    };
+
+    audio.onerror = () => {
+      console.warn(`Audio playback failed for "${key}"`);
+      setIsSpeaking(false);
+      setIsPaused(false);
+      setCurrentKey(null);
+    };
+
+    audio.play().catch((err) => {
+      console.warn('Audio playback failed:', err);
+      setIsSpeaking(false);
+    });
+  }, []);
+
+  const pause = useCallback(() => {
+    if (audioRef.current && isSpeaking && !isPaused) {
+      audioRef.current.pause();
+      setIsPaused(true);
+    }
+  }, [isSpeaking, isPaused]);
+
+  const resume = useCallback(() => {
+    if (audioRef.current && isPaused) {
+      audioRef.current.play();
+      setIsPaused(false);
+    }
+  }, [isPaused]);
+
+  const stop = useCallback(() => {
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current.currentTime = 0;
+    }
+    setIsSpeaking(false);
+    setIsPaused(false);
+    setCurrentKey(null);
+  }, []);
+
+  return { play, pause, resume, stop, isSpeaking, isPaused, currentKey, currentText, currentTime, duration };
+};
+
+// ===================== TRANSCRIPT PANEL =====================
+// Highlights the word currently "being spoken" by estimating position
+// from currentTime / duration (approximate, not exact word-timing).
+function TranscriptPanel({
+  text,
+  currentTime,
+  duration,
+  isSpeaking,
+}: {
+  text: string;
+  currentTime: number;
+  duration: number;
+  isSpeaking: boolean;
+}) {
+  const words = text ? text.split(/\s+/) : [];
+  const activeIndex =
+    isSpeaking && duration > 0
+      ? Math.min(words.length - 1, Math.floor((currentTime / duration) * words.length))
+      : -1;
+
+  return (
+    <div className="bg-slate-900/60 backdrop-blur-md rounded-3xl border border-blue-500/20 p-6 h-full overflow-y-auto">
+      <h4 className="text-cyan-400 font-bold mb-4 text-sm uppercase tracking-wide">Transcript</h4>
+      {words.length > 0 ? (
+        <p className="text-blue-100 leading-relaxed text-lg">
+          {words.map((word, i) => (
+            <span
+              key={i}
+              className={
+                i === activeIndex
+                  ? 'bg-cyan-500/40 text-white rounded px-1 transition-colors'
+                  : 'transition-colors'
+              }
+            >
+              {word}{' '}
+            </span>
+          ))}
+        </p>
+      ) : (
+        <p className="text-blue-300/60 italic">Press play to see the transcript here.</p>
+      )}
+    </div>
+  );
+}
+
+// ===================== AUDIO PLAYER HOOK (updated) =====================
+// Now tracks currentText + currentTime/duration so the transcript panel
+// can estimate which word is currently being spoken.
+const useAudioPlayer = () => {
+  const [isSpeaking, setIsSpeaking] = useState(false);
+  const [isPaused, setIsPaused] = useState(false);
+  const [currentKey, setCurrentKey] = useState<string | null>(null);
+  const [currentText, setCurrentText] = useState<string>('');
+  const [currentTime, setCurrentTime] = useState(0);
+  const [duration, setDuration] = useState(0);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+
+  const play = useCallback((url: string | undefined, key: string, text: string = '') => {
+    if (!url) {
+      console.warn(`No audio URL found for "${key}"`);
+      return;
+    }
+
+    if (audioRef.current) {
+      audioRef.current.pause();
+    }
+
+    const audio = new Audio(url);
+    audioRef.current = audio;
+    setCurrentKey(key);
+    setCurrentText(text);
+    setIsSpeaking(true);
+    setIsPaused(false);
+    setCurrentTime(0);
+    setDuration(0);
+
+    audio.ontimeupdate = () => setCurrentTime(audio.currentTime);
+    audio.onloadedmetadata = () => setDuration(audio.duration);
+
+    audio.onended = () => {
+      setIsSpeaking(false);
+      setIsPaused(false);
+      setCurrentKey(null);
+    };
+
+    audio.onerror = () => {
+      console.warn(`Audio playback failed for "${key}"`);
+      setIsSpeaking(false);
+      setIsPaused(false);
+      setCurrentKey(null);
+    };
+
+    audio.play().catch((err) => {
+      console.warn('Audio playback failed:', err);
+      setIsSpeaking(false);
+    });
+  }, []);
+
+  const pause = useCallback(() => {
+    if (audioRef.current && isSpeaking && !isPaused) {
+      audioRef.current.pause();
+      setIsPaused(true);
+    }
+  }, [isSpeaking, isPaused]);
+
+  const resume = useCallback(() => {
+    if (audioRef.current && isPaused) {
+      audioRef.current.play();
+      setIsPaused(false);
+    }
+  }, [isPaused]);
+
+  const stop = useCallback(() => {
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current.currentTime = 0;
+    }
+    setIsSpeaking(false);
+    setIsPaused(false);
+    setCurrentKey(null);
+  }, []);
+
+  return { play, pause, resume, stop, isSpeaking, isPaused, currentKey, currentText, currentTime, duration };
+};
+
+// ===================== TRANSCRIPT PANEL =====================
+// Highlights the word currently "being spoken" by estimating position
+// from currentTime / duration (approximate, not exact word-timing).
+function TranscriptPanel({
+  text,
+  currentTime,
+  duration,
+  isSpeaking,
+}: {
+  text: string;
+  currentTime: number;
+  duration: number;
+  isSpeaking: boolean;
+}) {
+  const words = text ? text.split(/\s+/) : [];
+  const activeIndex =
+    isSpeaking && duration > 0
+      ? Math.min(words.length - 1, Math.floor((currentTime / duration) * words.length))
+      : -1;
+
+  return (
+    <div className="bg-slate-900/60 backdrop-blur-md rounded-3xl border border-blue-500/20 p-6 h-full overflow-y-auto">
+      <h4 className="text-cyan-400 font-bold mb-4 text-sm uppercase tracking-wide">Transcript</h4>
+      {words.length > 0 ? (
+        <p className="text-blue-100 leading-relaxed text-lg">
+          {words.map((word, i) => (
+            <span
+              key={i}
+              className={
+                i === activeIndex
+                  ? 'bg-cyan-500/40 text-white rounded px-1 transition-colors'
+                  : 'transition-colors'
+              }
+            >
+              {word}{' '}
+            </span>
+          ))}
+        </p>
+      ) : (
+        <p className="text-blue-300/60 italic">Press play to see the transcript here.</p>
+      )}
+    </div>
+  );
+}
+
+// ===================== AUDIO PLAYER HOOK (updated) =====================
+// Now tracks currentText + currentTime/duration so the transcript panel
+// can estimate which word is currently being spoken.
+const useAudioPlayer = () => {
+  const [isSpeaking, setIsSpeaking] = useState(false);
+  const [isPaused, setIsPaused] = useState(false);
+  const [currentKey, setCurrentKey] = useState<string | null>(null);
+  const [currentText, setCurrentText] = useState<string>('');
+  const [currentTime, setCurrentTime] = useState(0);
+  const [duration, setDuration] = useState(0);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+
+  const play = useCallback((url: string | undefined, key: string, text: string = '') => {
+    if (!url) {
+      console.warn(`No audio URL found for "${key}"`);
+      return;
+    }
+
+    if (audioRef.current) {
+      audioRef.current.pause();
+    }
+
+    const audio = new Audio(url);
+    audioRef.current = audio;
+    setCurrentKey(key);
+    setCurrentText(text);
+    setIsSpeaking(true);
+    setIsPaused(false);
+    setCurrentTime(0);
+    setDuration(0);
+
+    audio.ontimeupdate = () => setCurrentTime(audio.currentTime);
+    audio.onloadedmetadata = () => setDuration(audio.duration);
+
+    audio.onended = () => {
+      setIsSpeaking(false);
+      setIsPaused(false);
+      setCurrentKey(null);
+    };
+
+    audio.onerror = () => {
+      console.warn(`Audio playback failed for "${key}"`);
+      setIsSpeaking(false);
+      setIsPaused(false);
+      setCurrentKey(null);
+    };
+
+    audio.play().catch((err) => {
+      console.warn('Audio playback failed:', err);
+      setIsSpeaking(false);
+    });
+  }, []);
+
+  const pause = useCallback(() => {
+    if (audioRef.current && isSpeaking && !isPaused) {
+      audioRef.current.pause();
+      setIsPaused(true);
+    }
+  }, [isSpeaking, isPaused]);
+
+  const resume = useCallback(() => {
+    if (audioRef.current && isPaused) {
+      audioRef.current.play();
+      setIsPaused(false);
+    }
+  }, [isPaused]);
+
+  const stop = useCallback(() => {
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current.currentTime = 0;
+    }
+    setIsSpeaking(false);
+    setIsPaused(false);
+    setCurrentKey(null);
+  }, []);
+
+  return { play, pause, resume, stop, isSpeaking, isPaused, currentKey, currentText, currentTime, duration };
+};
+
+// ===================== TRANSCRIPT PANEL =====================
+// Highlights the word currently "being spoken" by estimating position
+// from currentTime / duration (approximate, not exact word-timing).
+function TranscriptPanel({
+  text,
+  currentTime,
+  duration,
+  isSpeaking,
+}: {
+  text: string;
+  currentTime: number;
+  duration: number;
+  isSpeaking: boolean;
+}) {
+  const words = text ? text.split(/\s+/) : [];
+  const activeIndex =
+    isSpeaking && duration > 0
+      ? Math.min(words.length - 1, Math.floor((currentTime / duration) * words.length))
+      : -1;
+
+  return (
+    <div className="bg-slate-900/60 backdrop-blur-md rounded-3xl border border-blue-500/20 p-6 h-full overflow-y-auto">
+      <h4 className="text-cyan-400 font-bold mb-4 text-sm uppercase tracking-wide">Transcript</h4>
+      {words.length > 0 ? (
+        <p className="text-blue-100 leading-relaxed text-lg">
+          {words.map((word, i) => (
+            <span
+              key={i}
+              className={
+                i === activeIndex
+                  ? 'bg-cyan-500/40 text-white rounded px-1 transition-colors'
+                  : 'transition-colors'
+              }
+            >
+              {word}{' '}
+            </span>
+          ))}
+        </p>
+      ) : (
+        <p className="text-blue-300/60 italic">Press play to see the transcript here.</p>
+      )}
+    </div>
+  );
+}
+// ===================== AUDIO PLAYER HOOK (updated) =====================
+// Now tracks currentText + currentTime/duration so the transcript panel
+// can estimate which word is currently being spoken.
+const useAudioPlayer = () => {
+  const [isSpeaking, setIsSpeaking] = useState(false);
+  const [isPaused, setIsPaused] = useState(false);
+  const [currentKey, setCurrentKey] = useState<string | null>(null);
+  const [currentText, setCurrentText] = useState<string>('');
+  const [currentTime, setCurrentTime] = useState(0);
+  const [duration, setDuration] = useState(0);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+
+  const play = useCallback((url: string | undefined, key: string, text: string = '') => {
+    if (!url) {
+      console.warn(`No audio URL found for "${key}"`);
+      return;
+    }
+
+    if (audioRef.current) {
+      audioRef.current.pause();
+    }
+
+    const audio = new Audio(url);
+    audioRef.current = audio;
+    setCurrentKey(key);
+    setCurrentText(text);
+    setIsSpeaking(true);
+    setIsPaused(false);
+    setCurrentTime(0);
+    setDuration(0);
+
+    audio.ontimeupdate = () => setCurrentTime(audio.currentTime);
+    audio.onloadedmetadata = () => setDuration(audio.duration);
+
+    audio.onended = () => {
+      setIsSpeaking(false);
+      setIsPaused(false);
+      setCurrentKey(null);
+    };
+
+    audio.onerror = () => {
+      console.warn(`Audio playback failed for "${key}"`);
+      setIsSpeaking(false);
+      setIsPaused(false);
+      setCurrentKey(null);
+    };
+
+    audio.play().catch((err) => {
+      console.warn('Audio playback failed:', err);
+      setIsSpeaking(false);
+    });
+  }, []);
+
+  const pause = useCallback(() => {
+    if (audioRef.current && isSpeaking && !isPaused) {
+      audioRef.current.pause();
+      setIsPaused(true);
+    }
+  }, [isSpeaking, isPaused]);
+
+  const resume = useCallback(() => {
+    if (audioRef.current && isPaused) {
+      audioRef.current.play();
+      setIsPaused(false);
+    }
+  }, [isPaused]);
+
+  const stop = useCallback(() => {
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current.currentTime = 0;
+    }
+    setIsSpeaking(false);
+    setIsPaused(false);
+    setCurrentKey(null);
+  }, []);
+
+  return { play, pause, resume, stop, isSpeaking, isPaused, currentKey, currentText, currentTime, duration };
+};
+// ===================== AUDIO PLAYER HOOK (updated) =====================
+// Now tracks currentText + currentTime/duration so the transcript panel
+// can estimate which word is currently being spoken.
+const useAudioPlayer = () => {
+  const [isSpeaking, setIsSpeaking] = useState(false);
+  const [isPaused, setIsPaused] = useState(false);
+  const [currentKey, setCurrentKey] = useState<string | null>(null);
+  const [currentText, setCurrentText] = useState<string>('');
+  const [currentTime, setCurrentTime] = useState(0);
+  const [duration, setDuration] = useState(0);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+
+  const play = useCallback((url: string | undefined, key: string, text: string = '') => {
+    if (!url) {
+      console.warn(`No audio URL found for "${key}"`);
+      return;
+    }
+
+    if (audioRef.current) {
+      audioRef.current.pause();
+    }
+
+    const audio = new Audio(url);
+    audioRef.current = audio;
+    setCurrentKey(key);
+    setCurrentText(text);
+    setIsSpeaking(true);
+    setIsPaused(false);
+    setCurrentTime(0);
+    setDuration(0);
+
+    audio.ontimeupdate = () => setCurrentTime(audio.currentTime);
+    audio.onloadedmetadata = () => setDuration(audio.duration);
+
+    audio.onended = () => {
+      setIsSpeaking(false);
+      setIsPaused(false);
+      setCurrentKey(null);
+    };
+
+    audio.onerror = () => {
+      console.warn(`Audio playback failed for "${key}"`);
+      setIsSpeaking(false);
+      setIsPaused(false);
+      setCurrentKey(null);
+    };
+
+    audio.play().catch((err) => {
+      console.warn('Audio playback failed:', err);
+      setIsSpeaking(false);
+    });
+  }, []);
+
+  const pause = useCallback(() => {
+    if (audioRef.current && isSpeaking && !isPaused) {
+      audioRef.current.pause();
+      setIsPaused(true);
+    }
+  }, [isSpeaking, isPaused]);
+
+  const resume = useCallback(() => {
+    if (audioRef.current && isPaused) {
+      audioRef.current.play();
+      setIsPaused(false);
+    }
+  }, [isPaused]);
+
+  const stop = useCallback(() => {
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current.currentTime = 0;
+    }
+    setIsSpeaking(false);
+    setIsPaused(false);
+    setCurrentKey(null);
+  }, []);
+
+  return { play, pause, resume, stop, isSpeaking, isPaused, currentKey, currentText, currentTime, duration };
+};
+
+// ===================== TRANSCRIPT PANEL =====================
+// Highlights the word currently "being spoken" by estimating position
+// from currentTime / duration (approximate, not exact word-timing).
+function TranscriptPanel({
+  text,
+  currentTime,
+  duration,
+  isSpeaking,
+}: {
+  text: string;
+  currentTime: number;
+  duration: number;
+  isSpeaking: boolean;
+}) {
+  const words = text ? text.split(/\s+/) : [];
+  const activeIndex =
+    isSpeaking && duration > 0
+      ? Math.min(words.length - 1, Math.floor((currentTime / duration) * words.length))
+      : -1;
+}
+
+// ===================== MICRO-STEP (mini-slideshow) CONFIG =====================
+type MicroStep = {
+  label: string;
+  audioKey: string | null;
+};
+
+function getMicroSteps(sectionIndex: number): MicroStep[] {
+  return [
+    { label: 'Overview', audioKey: `section${sectionIndex}_narration` },
+    { label: 'Simple Explanation', audioKey: `section${sectionIndex}_simple` },
+    { label: 'Key Terms', audioKey: null }, // visual only, no audio
+    { label: 'Real World Example', audioKey: `section${sectionIndex}_example` },
+    { label: 'Dive Deeper', audioKey: `section${sectionIndex}_detailed` },
+  ];
+}
+
+// ===================== IN AIPresentation COMPONENT ====================
+function getMicroStepText(section: SectionWithBreakdown, stepIndex: number): string {
+  switch (stepIndex) {
+    case 0: return section.narration;
+    case 1: return section.breakdown.simple;
+    case 2: return ''; // key terms — rendered as a list, no single narrated text
+    case 3: return section.breakdown.realWorldExample;
+    case 4: return section.breakdown.detailed;
+    default: return '';
+  }
+}
+
+const goToMicroStep = (index: number) => {
+  if (index < 0 || index >= microSteps.length) return;
+  setMicroStep(index);
+
+  const step = microSteps[index];
+  const text = getMicroStepText(currentSection, index);
+
+  if (step.audioKey) {
+    play(audioUrls[step.audioKey], step.audioKey, text);
+  } else {
+    stop(); // key terms step has no audio — stop whatever was playing
+  }
+};
+
+const nextMicroStep = () => goToMicroStep(microStep + 1);
+const prevMicroStep = () => goToMicroStep(microStep - 1);
 // ===================== AI CHAT HOOK =====================
 const useAIChat = () => {
   const [messages, setMessages] = useState<Message[]>([
@@ -175,11 +771,9 @@ export default function AIPresentation() {
   const [showIntro, setShowIntro] = useState(true);
   const [showConclusion, setShowConclusion] = useState(false);
 
-  const [confusedSections, setConfusedSections] = useState<Set<number>>(new Set());
-  const [showBreakdown, setShowBreakdown] = useState(false);
-  const [breakdownLevel, setBreakdownLevel] = useState<'simple' | 'detailed'>('simple');
-  const [confusionClicked, setConfusionClicked] = useState(false);
-
+  const [microStep, setMicroStep] = useState(0);
+  const microSteps = getMicroSteps(activeSection);
+  
   const { play, pause, resume, stop, isSpeaking, isPaused, currentKey } = useAudioPlayer();
   const { messages, isLoading, input, setInput, sendMessage } = useAIChat();
 
@@ -228,6 +822,12 @@ export default function AIPresentation() {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
+  // Reset to step 0 whenever the main section changes
+  useEffect(() => {
+    setMicroStep(0);
+    stop();
+  }, [activeSection]);
+
   // ---- Narration handlers ----
   const narrateSection = (index: number) => {
     if (index < sections.length) {
@@ -239,26 +839,6 @@ export default function AIPresentation() {
       setIsNarrating(true);
       setShowConclusion(true);
     }
-  };
-
-  const handleConfused = () => {
-    setConfusedSections(prev => new Set([...prev, activeSection]));
-    setConfusionClicked(true);
-    setShowBreakdown(true);
-    setBreakdownLevel('simple');
-    play(audioUrls[`section${activeSection}_simple`], `section${activeSection}_simple`);
-  };
-
-  const handleShowMore = () => {
-    setBreakdownLevel('detailed');
-    play(audioUrls[`section${activeSection}_detailed`], `section${activeSection}_detailed`);
-  };
-
-  const handleCloseBreakdown = () => {
-    setShowBreakdown(false);
-    setBreakdownLevel('simple');
-    setConfusionClicked(false);
-    stop();
   };
 
   const playIntroduction = () => {
@@ -425,7 +1005,7 @@ export default function AIPresentation() {
 
           {/* Two Column Layout - Image Left, Content Right */}
           <div className="bg-white/5 backdrop-blur-md rounded-3xl border border-blue-500/30 shadow-2xl overflow-hidden">
-            <div className="grid md:grid-cols-2 gap-0">
+            <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-0">
               {/* Left: Interactive Animated Graphics */}
               <div className="relative h-72 md:h-auto min-h-[500px] bg-gradient-to-br from-blue-800 to-cyan-900 overflow-hidden">
                 {/* Animated Background Elements */}
@@ -531,29 +1111,87 @@ export default function AIPresentation() {
                     </div>
                   ))}
                 </div>
-                
-                {/* Confusion Button - Learner Support */}
+                {/* ===================== MINI-SLIDESHOW (replaces old Confused button + modal) ===================== */}
                 <div className="mt-6 pt-4 border-t border-blue-700/30">
-                  <button
-                    onClick={handleConfused}
-                    className={`w-full py-3 px-4 rounded-xl transition-all duration-300 flex items-center justify-center gap-2 font-medium ${
-                      confusedSections.has(activeSection)
-                        ? 'bg-green-600/80 text-white hover:bg-green-600'
-                        : 'bg-amber-600/80 text-white hover:bg-amber-600'
-                    }`}
-                  >
-                    {confusedSections.has(activeSection) ? (
-                      <>
-                        <span className="text-xl">✓</span>
-                        <span>Breakdown Mode Active</span>
-                      </>
-                    ) : (
-                      <>
-                        <span className="text-xl">🤔</span>
-                        <span>I'm Confused - Explain This</span>
-                      </>
+                  {/* Step content */}
+                  <div className="min-h-[160px]">
+                    {microStep === 0 && (
+                      <div>
+                        <p className="text-lg text-blue-100 leading-relaxed mb-4">{currentSection.content}</p>
+                        <div className="grid grid-cols-2 gap-4">
+                          {currentSection.stats.map((stat, idx) => (
+                            <div key={idx} className="bg-blue-800/50 rounded-xl p-4 text-center border border-cyan-500/30">
+                              <div className="text-2xl font-bold text-cyan-400 mb-1">{stat.value}</div>
+                              <div className="text-sm text-blue-200">{stat.label}</div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
                     )}
-                  </button>
+                
+                    {microStep === 1 && (
+                      <div className="bg-blue-900/30 rounded-xl p-5 border border-blue-500/20">
+                        <p className="text-blue-100 leading-relaxed text-lg">{currentSection.breakdown.simple}</p>
+                      </div>
+                    )}
+                
+                    {microStep === 2 && (
+                      <div className="space-y-3">
+                        {currentSection.breakdown.keyTerms.map((kt, idx) => (
+                          <div key={idx} className="bg-blue-900/30 rounded-xl p-4 border border-blue-500/20">
+                            <div className="font-bold text-cyan-400 mb-1">{kt.term}</div>
+                            <div className="text-blue-100 text-sm">{kt.definition}</div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                
+                    {microStep === 3 && (
+                      <div className="bg-amber-900/20 rounded-xl p-5 border border-amber-500/20">
+                        <p className="text-amber-100 leading-relaxed text-lg">{currentSection.breakdown.realWorldExample}</p>
+                      </div>
+                    )}
+                
+                    {microStep === 4 && (
+                      <div className="bg-slate-900/40 rounded-xl p-5 border border-cyan-500/20">
+                        <p className="text-blue-100 leading-relaxed">{currentSection.breakdown.detailed}</p>
+                      </div>
+                    )}
+                  </div>
+                
+                  {/* Mini-slideshow navigation — always visible */}
+                  <div className="flex items-center justify-between mt-5">
+                    <button
+                      onClick={prevMicroStep}
+                      disabled={microStep === 0}
+                      className="px-3 py-2 rounded-lg bg-blue-800/50 hover:bg-blue-700/60 disabled:opacity-30 text-white text-sm transition-colors"
+                    >
+                      ← Back
+                    </button>
+                
+                    <div className="flex gap-2">
+                      {microSteps.map((step, idx) => (
+                        <button
+                          key={idx}
+                          onClick={() => goToMicroStep(idx)}
+                          title={step.label}
+                          className={`w-2.5 h-2.5 rounded-full transition-colors ${
+                            idx === microStep ? 'bg-cyan-400' : 'bg-blue-700/50 hover:bg-blue-600/60'
+                          }`}
+                        />
+                      ))}
+                    </div>
+                
+                    <button
+                      onClick={nextMicroStep}
+                      disabled={microStep === microSteps.length - 1}
+                      className="px-3 py-2 rounded-lg bg-blue-800/50 hover:bg-blue-700/60 disabled:opacity-30 text-white text-sm transition-colors"
+                    >
+                      Next →
+                    </button>
+                  </div>
+                
+                  <p className="text-center text-xs text-blue-300/70 mt-2">{microSteps[microStep].label}</p>
                 </div>
                 
                 {/* Progress Indicator */}
@@ -569,115 +1207,16 @@ export default function AIPresentation() {
                     {Math.round(((activeSection + 1) / sections.length) * 100)}%
                   </span>
                 </div>
-              </div>
             </div>
-            
-            {/* Breakdown Modal - Shows when learner is confused */}
-            {showBreakdown && currentSection.breakdown && createPortal(
-              <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-[fadeIn_0.3s_ease-out]">
-                <div className="bg-gradient-to-br from-slate-800 to-slate-900 rounded-3xl max-w-3xl w-full max-h-[85vh] overflow-hidden border border-cyan-500/30 shadow-2xl animate-[slideUp_0.4s_ease-out]">
-                  {/* Modal Header */}
-                  <div className="bg-gradient-to-r from-amber-600 to-orange-600 p-6">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-3">
-                        <span className="text-4xl animate-bounce">🤔</span>
-                        <div>
-                          <h3 className="text-2xl font-bold text-white">Let's Break This Down</h3>
-                          <p className="text-amber-100 text-sm">Topic: {currentSection.title}</p>
-                        </div>
-                      </div>
-                      <button
-                        onClick={handleCloseBreakdown}
-                        className="w-10 h-10 rounded-full bg-white/20 hover:bg-white/30 flex items-center justify-center text-white text-xl transition-colors"
-                      >
-                        ✕
-                      </button>
-                    </div>
-                  </div>
-                  
-                  {/* Modal Content */}
-                  <div className="p-6 overflow-y-auto max-h-[calc(85vh-180px)]">
-                    {/* Simple Explanation */}
-                    <div className="mb-6">
-                      <div className="flex items-center gap-2 mb-3">
-                        <span className="text-2xl">📚</span>
-                        <h4 className="text-lg font-bold text-cyan-400">Simple Explanation</h4>
-                      </div>
-                      <div className="bg-blue-900/30 rounded-xl p-4 border border-blue-500/20">
-                        <p className="text-blue-100 leading-relaxed">
-                          {currentSection.breakdown.simple}
-                        </p>
-                      </div>
-                    </div>
-                    
-                    {/* Detailed Explanation (if expanded) */}
-                    {breakdownLevel === 'detailed' && (
-                      <div className="mb-6 animate-[fadeIn_0.5s_ease-out]">
-                        <div className="flex items-center gap-2 mb-3">
-                          <span className="text-2xl">🔬</span>
-                          <h4 className="text-lg font-bold text-purple-400">Scientific Details</h4>
-                        </div>
-                        <div className="bg-purple-900/30 rounded-xl p-4 border border-purple-500/20">
-                          <p className="text-purple-100 leading-relaxed">
-                            {currentSection.breakdown.detailed}
-                          </p>
-                        </div>
-                      </div>
-                    )}
-                    
-                    {/* Key Terms */}
-                    <div className="mb-6">
-                      <div className="flex items-center gap-2 mb-3">
-                        <span className="text-2xl">📖</span>
-                        <h4 className="text-lg font-bold text-green-400">Key Terms</h4>
-                      </div>
-                      <div className="grid gap-3">
-                        {currentSection.breakdown.keyTerms.map((term, idx) => (
-                          <div key={idx} className="bg-green-900/30 rounded-xl p-4 border border-green-500/20">
-                            <div className="font-bold text-green-400 mb-1">{term.term}</div>
-                            <p className="text-green-100 text-sm">{term.definition}</p>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                    
-                    {/* Real World Example */}
-                    <div className="mb-4">
-                      <div className="flex items-center gap-2 mb-3">
-                        <span className="text-2xl">🌍</span>
-                        <h4 className="text-lg font-bold text-yellow-400">Real World Example</h4>
-                      </div>
-                      <div className="bg-yellow-900/30 rounded-xl p-4 border border-yellow-500/20">
-                        <p className="text-yellow-100 leading-relaxed">
-                          {currentSection.breakdown.realWorldExample}
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-                  
-                  {/* Modal Footer */}
-                  <div className="p-4 bg-slate-800/50 border-t border-slate-700 flex justify-between items-center">
-                    <button
-                      onClick={handleCloseBreakdown}
-                      className="px-6 py-2 bg-gray-600 hover:bg-gray-500 text-white rounded-lg transition-colors"
-                    >
-                      Got It! Continue
-                    </button>
-                    {breakdownLevel === 'simple' && (
-                      <button
-                        onClick={handleShowMore}
-                        className="px-6 py-2 bg-purple-600 hover:bg-purple-500 text-white rounded-lg transition-colors flex items-center gap-2"
-                      >
-                        <span>Show More Details</span>
-                        <span>→</span>
-                      </button>
-                    )}
-                  </div>
-                </div>
-              </div>,
-              document.body
-            )}
-            
+            <div className="p-6 lg:border-l lg:border-blue-700/20">
+              <TranscriptPanel
+                text={getMicroStepText(currentSection, microStep)}
+                currentTime={currentTime}
+                duration={duration}
+                isSpeaking={isSpeaking}
+              />
+            </div>
+          </div>
             {/* Custom Keyframe Animations */}
             <style jsx>{`
               @keyframes swim {
