@@ -596,12 +596,12 @@ export default function AIPresentation() {
                   <div className="min-h-[160px]">
                     {microStep === 0 && (
                       <div>
-                        <p className="text-lg text-blue-100 leading-relaxed mb-4">{currentSection.content}</p>
+                        <p className="text-xl text-blue-100 leading-relaxed mb-4">{currentSection.content}</p>
                         <div className="grid grid-cols-2 gap-4">
                           {currentSection.stats.map((stat, idx) => (
                             <div key={idx} className="bg-blue-800/50 rounded-xl p-4 text-center border border-cyan-500/30">
                               <div className="text-2xl font-bold text-cyan-400 mb-1">{stat.value}</div>
-                              <div className="text-sm text-blue-200">{stat.label}</div>
+                              <div className="text-base text-blue-200">{stat.label}</div>
                             </div>
                           ))}
                         </div>
