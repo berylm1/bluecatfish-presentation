@@ -129,11 +129,32 @@ Output ONLY a JSON object with key "section" structured EXACTLY like this:
     return generateSingleSection(ragContext, sectionTopic, sectionNum, attempt + 1);
   }
 
-  // Attach one matched image for the section, based on its content
-  const imageUrls = await getMatchingImages(section.content || sectionTopic, 1);
-  section.image = imageUrls[0] ?? "";
-
+  section.image = "";
+  
   return section;
+}
+
+async function assignUniqueImages(sections: any[], sectionTopics: string[]) {
+  const usedUrls = new Set<string>();
+  const CANDIDATE_COUNT = 6; 
+ 
+  for (let i = 0; i < sections.length; i++) {
+    const query = sections[i].content || sectionTopics[i];
+    const candidates = await getMatchingImages(query, CANDIDATE_COUNT);
+ 
+    const firstUnused = candidates.find((url) => !usedUrls.has(url));
+ 
+    if (firstUnused) {
+      sections[i].image = firstUnused;
+      usedUrls.add(firstUnused);
+    } else {
+
+      console.warn(`Section ${i + 1}: all ${CANDIDATE_COUNT} candidate images already used, reusing top match.`);
+      sections[i].image = candidates[0] ?? "";
+    }
+  }
+ 
+  return sections;
 }
 
 export async function POST(req: Request) {
@@ -163,6 +184,8 @@ export async function POST(req: Request) {
       )
     );
 
+    await assignUniqueImages(sections, sectionTopics);
+    
     await setValue(cacheKey, JSON.stringify(sections));
     return NextResponse.json({ sections, source: "generated" });
 
