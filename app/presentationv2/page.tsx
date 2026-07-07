@@ -142,16 +142,16 @@ function TranscriptPanel({
       : -1;
 
   return (
-    <div className="bg-slate-900/60 backdrop-blur-md rounded-3xl border border-blue-500/20 p-6 h-full overflow-y-auto max-w-sm mx-auto">
+    <div className="bg-slate-900/60 backdrop-blur-md rounded-3xl border border-blue-500/20 p-8 max-w-4xl mx-auto text-center">
       <h4 className="text-cyan-400 font-bold mb-4 text-sm uppercase tracking-wide">Transcript</h4>
       {words.length > 0 ? (
-        <p className="text-blue-100 leading-relaxed text-lg">
+        <p className="text-blue-100 leading-relaxed text-xl md:text-2xl">
           {words.map((word, i) => (
             <span
               key={i}
               className={
                 i === activeIndex
-                  ? 'bg-cyan-500/40 text-white rounded px-1 transition-colors'
+                  ? 'bg-cyan-500/40 text-white rounded px-1.5 transition-colors'
                   : 'transition-colors'
               }
             >
@@ -160,7 +160,7 @@ function TranscriptPanel({
           ))}
         </p>
       ) : (
-        <p className="text-blue-300/60 italic">Press play to see the transcript here.</p>
+        <p className="text-blue-300/60 italic text-lg">Press play to see the transcript here.</p>
       )}
     </div>
   );
@@ -589,13 +589,6 @@ export default function AIPresentation() {
                 
                 {/* Animated Underline */}
                 <div className="h-1 w-0 bg-gradient-to-r from-cyan-400 to-blue-500 rounded-full mb-6 animate-[expandWidth_0.8s_ease-out_0.3s_forwards]" />
-                
-                {/* Content with stagger animation */}
-                <div className="relative mb-8 overflow-hidden">
-                  <p className="text-lg md:text-xl text-blue-100 leading-relaxed animate-[fadeIn_0.5s_ease-out_0.5s_forwards] opacity-0">
-                    {currentSection.content}
-                  </p>
-                </div>
                 
                 {/* ===================== MINI-SLIDESHOW (replaces old Confused button + modal) ===================== */}
                 <div className="mt-6 pt-4 border-t border-blue-700/30">
