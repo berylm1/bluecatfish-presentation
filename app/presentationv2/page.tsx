@@ -276,7 +276,7 @@ export default function AIPresentation() {
   const [microStep, setMicroStep] = useState(0);
   const microSteps = getMicroSteps(activeSection);
   
-  const { play, pause, resume, stop, isSpeaking, isPaused, currentKey } = useAudioPlayer();
+  const { play, pause, resume, stop, isSpeaking, isPaused, currentKey, currentText, currentTime, duration } = useAudioPlayer();
   const { messages, isLoading, input, setInput, sendMessage } = useAIChat();
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
