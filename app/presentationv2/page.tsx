@@ -182,34 +182,6 @@ function getMicroSteps(sectionIndex: number): MicroStep[] {
   ];
 }
 
-// ===================== IN AIPresentation COMPONENT ====================
-function getMicroStepText(section: SectionWithBreakdown, stepIndex: number): string {
-  switch (stepIndex) {
-    case 0: return section.narration;
-    case 1: return section.breakdown.simple;
-    case 2: return ''; // key terms — rendered as a list, no single narrated text
-    case 3: return section.breakdown.realWorldExample;
-    case 4: return section.breakdown.detailed;
-    default: return '';
-  }
-}
-
-const goToMicroStep = (index: number) => {
-  if (index < 0 || index >= microSteps.length) return;
-  setMicroStep(index);
-
-  const step = microSteps[index];
-  const text = getMicroStepText(currentSection, index);
-
-  if (step.audioKey) {
-    play(audioUrls[step.audioKey], step.audioKey, text);
-  } else {
-    stop(); // key terms step has no audio — stop whatever was playing
-  }
-};
-
-const nextMicroStep = () => goToMicroStep(microStep + 1);
-const prevMicroStep = () => goToMicroStep(microStep - 1);
 // ===================== AI CHAT HOOK =====================
 const useAIChat = () => {
   const [messages, setMessages] = useState<Message[]>([
@@ -272,9 +244,6 @@ export default function AIPresentation() {
   const [isNarrating, setIsNarrating] = useState(false);
   const [showIntro, setShowIntro] = useState(true);
   const [showConclusion, setShowConclusion] = useState(false);
-
-  const [microStep, setMicroStep] = useState(0);
-  const microSteps = getMicroSteps(activeSection);
   
   const { play, pause, resume, stop, isSpeaking, isPaused, currentKey, currentText, currentTime, duration } = useAudioPlayer();
   const { messages, isLoading, input, setInput, sendMessage } = useAIChat();
@@ -323,12 +292,6 @@ export default function AIPresentation() {
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
-
-  // Reset to step 0 whenever the main section changes
-  useEffect(() => {
-    setMicroStep(0);
-    stop();
-  }, [activeSection]);
 
   // ---- Narration handlers ----
   const narrateSection = (index: number) => {
@@ -383,8 +346,46 @@ export default function AIPresentation() {
     }
   };
 
+  // ===================== IN AIPresentation COMPONENT ====================
   const currentSection = sections[activeSection];
-
+  
+  const [microStep, setMicroStep] = useState(0);
+  const microSteps = getMicroSteps(activeSection);
+  
+  // Reset to step 0 whenever the main section changes
+  useEffect(() => {
+    setMicroStep(0);
+    stop();
+  }, [activeSection]);
+  
+  function getMicroStepText(section: SectionWithBreakdown, stepIndex: number): string {
+    switch (stepIndex) {
+      case 0: return section.narration;
+      case 1: return section.breakdown.simple;
+      case 2: return ''; // key terms — rendered as a list, no single narrated text
+      case 3: return section.breakdown.realWorldExample;
+      case 4: return section.breakdown.detailed;
+      default: return '';
+    }
+  }
+  
+  const goToMicroStep = (index: number) => {
+    if (index < 0 || index >= microSteps.length) return;
+    setMicroStep(index);
+  
+    const step = microSteps[index];
+    const text = getMicroStepText(currentSection, index);
+  
+    if (step.audioKey) {
+      play(audioUrls[step.audioKey], step.audioKey, text);
+    } else {
+      stop(); // key terms step has no audio — stop whatever was playing
+    }
+  };
+  
+  const nextMicroStep = () => goToMicroStep(microStep + 1);
+  const prevMicroStep = () => goToMicroStep(microStep - 1);
+  
   // ---- Loading / error states before rendering the presentation ----
   if (isContentLoading) {
     return (
