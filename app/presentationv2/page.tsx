@@ -687,7 +687,7 @@ export default function AIPresentation() {
                   </span>
                 </div>
             </div>
-            <div className="p-6 lg:border-l lg:border-blue-700/20">
+            <div className="col-span-full w-full p-6">
               <TranscriptPanel
                 text={getMicroStepText(currentSection, microStep)}
                 currentTime={currentTime}
