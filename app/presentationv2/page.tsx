@@ -330,3 +330,529 @@ export default function AIPresentation() {
   // 2. Remove any UI referencing voiceType / changeVoiceType / voiceboxAvailable — that toggle no longer exists
   // 3. Any "speed/rate" slider tied to changeRate can be removed too, since OpenAI audio files play at fixed pace
   // 4. isSpeaking / isPaused / pause() / resume() / stop() all still work the same as before — just backed by real <audio> now
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-blue-900 to-slate-900 flex flex-col">
+      {/* Header */}
+      <header className="bg-black/30 backdrop-blur-sm border-b border-blue-500/30 p-4">
+        <div className="max-w-7xl mx-auto flex items-center justify-between">
+          {/* Professor Badge */}
+          <div className="flex items-center gap-4">
+            <div className="w-10 h-10 rounded-full bg-gradient-to-br from-cyan-400 to-blue-600 flex items-center justify-center">
+              <span className="text-xl">👨‍🏫</span>
+            </div>
+            <div>
+              <h1 className="text-lg font-bold text-white">
+                {PRESENTATION.professor.name}
+              </h1>
+              <p className="text-xs text-cyan-400">
+                {PRESENTATION.title}
+              </p>
+            </div>
+          </div>
+          
+          <div className="flex items-center gap-3">
+            {/* Speaking Indicator */}
+            {isSpeaking && (
+              <div className="flex items-center gap-2 bg-cyan-500/20 px-4 py-2 rounded-full">
+                <div className="flex gap-1">
+                  {[...Array(3)].map((_, i) => (
+                    <div 
+                      key={i}
+                      className="w-1 h-4 bg-cyan-400 rounded-full animate-pulse"
+                      style={{ animationDelay: `${i * 0.15}s` }}
+                    />
+                  ))}
+                </div>
+                <span className="text-cyan-400 text-sm font-medium">
+                  {isPaused ? 'Paused' : 'Teaching...'}
+                </span>
+              </div>
+            )}
+            
+            {/* Voice Controls */}
+            <div className="flex items-center gap-2 bg-black/30 rounded-full px-4 py-2">
+              <button
+                onClick={() => isSpeaking ? (isPaused ? resume() : pause()) : narrateSection(activeSection)}
+                className="w-10 h-10 rounded-full bg-blue-600 hover:bg-blue-700 text-white flex items-center justify-center transition-colors shadow-lg"
+                title={isSpeaking ? (isPaused ? 'Resume' : 'Pause') : 'Play Narration'}
+              >
+                {isSpeaking && !isPaused ? '⏸️' : '▶️'}
+              </button>
+              <button
+                onClick={stop}
+                disabled={!isSpeaking}
+                className="w-10 h-10 rounded-full bg-red-600 hover:bg-red-700 disabled:bg-gray-600 text-white flex items-center justify-center transition-colors shadow-lg"
+                title="Stop"
+              >
+                ⏹️
+              </button>
+              <select
+                value={speechRate}
+                onChange={(e) => changeRate(parseFloat(e.target.value))}
+                className="bg-slate-700 text-white text-sm rounded px-2 py-1"
+                title="Speech Speed"
+              >
+                <option value="0.7">0.7x</option>
+                <option value="0.85">0.85x</option>
+                <option value="1.0">1.0x</option>
+              </select>
+            </div>
+            
+            {/* Chat Toggle */}
+            <button
+              onClick={() => setShowChat(!showChat)}
+              className={`px-4 py-2 rounded-full font-semibold transition-colors ${
+                showChat 
+                  ? 'bg-cyan-500 text-white' 
+                  : 'bg-blue-600 hover:bg-blue-700 text-white'
+              }`}
+            >
+              💬 Ask AI
+            </button>
+          </div>
+        </div>
+      </header>
+
+      {/* Main Content */}
+      <main className="flex-1 flex items-center justify-center p-8">
+        <div className="max-w-6xl w-full">
+          {/* Progress Bar */}
+          <div className="mb-8">
+            <div className="flex justify-between text-blue-200 text-sm mb-2">
+              <span>Section {activeSection + 1} of {PRESENTATION.sections.length}</span>
+              <span>{Math.round(((activeSection + 1) / PRESENTATION.sections.length) * 100)}%</span>
+            </div>
+            <div className="h-2 bg-blue-900/50 rounded-full overflow-hidden">
+              <div 
+                className="h-full bg-gradient-to-r from-blue-500 to-cyan-400 transition-all duration-500"
+                style={{ width: `${((activeSection + 1) / PRESENTATION.sections.length) * 100}%` }}
+              />
+            </div>
+          </div>
+
+          {/* Two Column Layout - Image Left, Content Right */}
+          <div className="bg-white/5 backdrop-blur-md rounded-3xl border border-blue-500/30 shadow-2xl overflow-hidden">
+            <div className="grid md:grid-cols-2 gap-0">
+              {/* Left: Interactive Animated Graphics */}
+              <div className="relative h-72 md:h-auto min-h-[500px] bg-gradient-to-br from-blue-800 to-cyan-900 overflow-hidden">
+                {/* Animated Background Elements */}
+                <div className="absolute inset-0 overflow-hidden">
+                  {/* Floating Bubbles */}
+                  <div className="absolute w-4 h-4 bg-cyan-400/20 rounded-full animate-ping" style={{top: '20%', left: '10%', animationDuration: '3s'}} />
+                  <div className="absolute w-6 h-6 bg-blue-400/20 rounded-full animate-ping" style={{top: '60%', left: '80%', animationDuration: '4s', animationDelay: '1s'}} />
+                  <div className="absolute w-3 h-3 bg-cyan-300/30 rounded-full animate-ping" style={{top: '40%', left: '50%', animationDuration: '2.5s', animationDelay: '0.5s'}} />
+                  
+                  {/* Swimming Fish Animation */}
+                  <div className="absolute animate-[swim_8s_ease-in-out_infinite]" style={{top: '30%', left: '-20%'}}>
+                    <svg width="80" height="50" viewBox="0 0 80 50" className="drop-shadow-lg">
+                      <path d="M60 25 Q70 15 80 25 Q70 35 60 25 M0 25 L45 10 L45 40 Z" fill="currentColor" className="text-cyan-300 opacity-80"/>
+                      <circle cx="50" r="3" fill="white"/>
+                    </svg>
+                  </div>
+                  
+                  {/* Second Fish */}
+                  <div className="absolute animate-[swim2_10s_ease-in-out_infinite]" style={{top: '65%', right: '-20%'}}>
+                    <svg width="60" height="40" viewBox="0 0 80 50" className="drop-shadow-lg">
+                      <path d="M60 25 Q70 15 80 25 Q70 35 60 25 M0 25 L45 10 L45 40 Z" fill="currentColor" className="text-blue-300 opacity-70"/>
+                      <circle cx="50" r="2" fill="white"/>
+                    </svg>
+                  </div>
+                </div>
+                
+                {/* Main Image */}
+                {currentSection.image && (
+                  <img 
+                    src={currentSection.image} 
+                    alt={currentSection.title}
+                    className="absolute inset-0 w-full h-full object-cover opacity-80"
+                    onError={(e) => {
+                      e.currentTarget.style.display='none';
+                    }}
+                  />
+                )}
+                
+                {/* Gradient Overlay */}
+                <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-black/30" />
+                
+                {/* Slide Counter Badge */}
+                <div className="absolute top-4 left-4 bg-cyan-500/90 backdrop-blur-sm px-4 py-2 rounded-full shadow-lg">
+                  <span className="font-bold text-white">{activeSection + 1} / {PRESENTATION.sections.length}</span>
+                </div>
+                
+                {/* Interactive Icon with Hover Effect */}
+                <div className="absolute bottom-4 left-4 group cursor-pointer">
+                  <div className="text-7xl drop-shadow-lg transition-transform duration-300 group-hover:scale-125 group-hover:rotate-12 animate-[float_3s_ease-in-out_infinite]">
+                    {currentSection.icon}
+                  </div>
+                  <div className="absolute -bottom-8 left-0 bg-black/80 px-3 py-1 rounded text-sm text-white opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap">
+                    Click me!
+                  </div>
+                </div>
+                
+                {/* Stats Overlay */}
+                <div className="absolute top-4 right-4 flex flex-col gap-2">
+                  {currentSection.stats.slice(0, 2).map((stat, idx) => (
+                    <div 
+                      key={idx}
+                      className="bg-cyan-500/80 backdrop-blur-sm px-3 py-2 rounded-lg animate-[fadeInUp_0.5s_ease-out_forwards] shadow-lg"
+                      style={{ animationDelay: `${idx * 0.2}s` }}
+                    >
+                      <div className="text-lg font-bold text-white">{stat.value}</div>
+                      <div className="text-xs text-cyan-100">{stat.label}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              
+              {/* Right: Content with Animations */}
+              <div className="p-8 md:p-12 flex flex-col justify-center bg-gradient-to-br from-blue-900/80 to-slate-900/80">
+                {/* Animated Title */}
+                <h2 className="text-3xl md:text-4xl font-bold text-white mb-4 animate-[slideInRight_0.6s_ease-out]">
+                  {currentSection.title}
+                </h2>
+                
+                {/* Animated Underline */}
+                <div className="h-1 w-0 bg-gradient-to-r from-cyan-400 to-blue-500 rounded-full mb-6 animate-[expandWidth_0.8s_ease-out_0.3s_forwards]" />
+                
+                {/* Content with stagger animation */}
+                <div className="relative mb-8 overflow-hidden">
+                  <p className="text-lg md:text-xl text-blue-100 leading-relaxed animate-[fadeIn_0.5s_ease-out_0.5s_forwards] opacity-0">
+                    {currentSection.content}
+                  </p>
+                </div>
+                
+                {/* Interactive Stats Grid */}
+                <div className="grid grid-cols-2 gap-4">
+                  {currentSection.stats.map((stat, idx) => (
+                    <div
+                      key={idx}
+                      className="group bg-blue-800/50 backdrop-blur-sm rounded-xl p-4 text-center border border-cyan-500/30 cursor-pointer transition-all duration-300 hover:bg-blue-700/60 hover:scale-105 hover:shadow-lg hover:shadow-cyan-500/20 animate-[fadeInUp_0.5s_ease-out_forwards]"
+                      style={{ animationDelay: `${0.6 + idx * 0.1}s` }}
+                    >
+                      <div className="text-2xl md:text-3xl font-bold text-cyan-400 mb-1 transition-colors group-hover:text-white">
+                        {stat.value}
+                      </div>
+                      <div className="text-sm text-blue-200 group-hover:text-blue-100 transition-colors">
+                        {stat.label}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                
+                {/* Confusion Button - Learner Support */}
+                <div className="mt-6 pt-4 border-t border-blue-700/30">
+                  <button
+                    onClick={handleConfused}
+                    className={`w-full py-3 px-4 rounded-xl transition-all duration-300 flex items-center justify-center gap-2 font-medium ${
+                      confusedSections.has(activeSection)
+                        ? 'bg-green-600/80 text-white hover:bg-green-600'
+                        : 'bg-amber-600/80 text-white hover:bg-amber-600'
+                    }`}
+                  >
+                    {confusedSections.has(activeSection) ? (
+                      <>
+                        <span className="text-xl">✓</span>
+                        <span>Breakdown Mode Active</span>
+                      </>
+                    ) : (
+                      <>
+                        <span className="text-xl">🤔</span>
+                        <span>I'm Confused - Explain This</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+                
+                {/* Progress Indicator */}
+                <div className="mt-4 flex items-center gap-2">
+                  <span className="text-sm text-blue-300">Progress:</span>
+                  <div className="flex-1 h-2 bg-blue-900/50 rounded-full overflow-hidden">
+                    <div 
+                      className="h-full bg-gradient-to-r from-cyan-400 to-blue-500 transition-all duration-500"
+                      style={{ width: `${((activeSection + 1) / PRESENTATION.sections.length) * 100}%` }}
+                    />
+                  </div>
+                  <span className="text-sm text-cyan-400 font-medium">
+                    {Math.round(((activeSection + 1) / PRESENTATION.sections.length) * 100)}%
+                  </span>
+                </div>
+              </div>
+            </div>
+            
+            {/* Breakdown Modal - Shows when learner is confused */}
+            {showBreakdown && currentSection.breakdown && createPortal(
+              <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-[fadeIn_0.3s_ease-out]">
+                <div className="bg-gradient-to-br from-slate-800 to-slate-900 rounded-3xl max-w-3xl w-full max-h-[85vh] overflow-hidden border border-cyan-500/30 shadow-2xl animate-[slideUp_0.4s_ease-out]">
+                  {/* Modal Header */}
+                  <div className="bg-gradient-to-r from-amber-600 to-orange-600 p-6">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                        <span className="text-4xl animate-bounce">🤔</span>
+                        <div>
+                          <h3 className="text-2xl font-bold text-white">Let's Break This Down</h3>
+                          <p className="text-amber-100 text-sm">Topic: {currentSection.title}</p>
+                        </div>
+                      </div>
+                      <button
+                        onClick={handleCloseBreakdown}
+                        className="w-10 h-10 rounded-full bg-white/20 hover:bg-white/30 flex items-center justify-center text-white text-xl transition-colors"
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  </div>
+                  
+                  {/* Modal Content */}
+                  <div className="p-6 overflow-y-auto max-h-[calc(85vh-180px)]">
+                    {/* Simple Explanation */}
+                    <div className="mb-6">
+                      <div className="flex items-center gap-2 mb-3">
+                        <span className="text-2xl">📚</span>
+                        <h4 className="text-lg font-bold text-cyan-400">Simple Explanation</h4>
+                      </div>
+                      <div className="bg-blue-900/30 rounded-xl p-4 border border-blue-500/20">
+                        <p className="text-blue-100 leading-relaxed">
+                          {currentSection.breakdown.simple}
+                        </p>
+                      </div>
+                    </div>
+                    
+                    {/* Detailed Explanation (if expanded) */}
+                    {breakdownLevel === 'detailed' && (
+                      <div className="mb-6 animate-[fadeIn_0.5s_ease-out]">
+                        <div className="flex items-center gap-2 mb-3">
+                          <span className="text-2xl">🔬</span>
+                          <h4 className="text-lg font-bold text-purple-400">Scientific Details</h4>
+                        </div>
+                        <div className="bg-purple-900/30 rounded-xl p-4 border border-purple-500/20">
+                          <p className="text-purple-100 leading-relaxed">
+                            {currentSection.breakdown.detailed}
+                          </p>
+                        </div>
+                      </div>
+                    )}
+                    
+                    {/* Key Terms */}
+                    <div className="mb-6">
+                      <div className="flex items-center gap-2 mb-3">
+                        <span className="text-2xl">📖</span>
+                        <h4 className="text-lg font-bold text-green-400">Key Terms</h4>
+                      </div>
+                      <div className="grid gap-3">
+                        {currentSection.breakdown.keyTerms.map((term, idx) => (
+                          <div key={idx} className="bg-green-900/30 rounded-xl p-4 border border-green-500/20">
+                            <div className="font-bold text-green-400 mb-1">{term.term}</div>
+                            <p className="text-green-100 text-sm">{term.definition}</p>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                    
+                    {/* Real World Example */}
+                    <div className="mb-4">
+                      <div className="flex items-center gap-2 mb-3">
+                        <span className="text-2xl">🌍</span>
+                        <h4 className="text-lg font-bold text-yellow-400">Real World Example</h4>
+                      </div>
+                      <div className="bg-yellow-900/30 rounded-xl p-4 border border-yellow-500/20">
+                        <p className="text-yellow-100 leading-relaxed">
+                          {currentSection.breakdown.realWorldExample}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                  
+                  {/* Modal Footer */}
+                  <div className="p-4 bg-slate-800/50 border-t border-slate-700 flex justify-between items-center">
+                    <button
+                      onClick={handleCloseBreakdown}
+                      className="px-6 py-2 bg-gray-600 hover:bg-gray-500 text-white rounded-lg transition-colors"
+                    >
+                      Got It! Continue
+                    </button>
+                    {breakdownLevel === 'simple' && (
+                      <button
+                        onClick={handleShowMore}
+                        className="px-6 py-2 bg-purple-600 hover:bg-purple-500 text-white rounded-lg transition-colors flex items-center gap-2"
+                      >
+                        <span>Show More Details</span>
+                        <span>→</span>
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>,
+              document.body
+            )}
+            
+            {/* Custom Keyframe Animations */}
+            <style jsx>{`
+              @keyframes swim {
+                0% { transform: translateX(0); }
+                50% { transform: translateX(calc(100vw + 100%)); }
+                51% { transform: translateX(calc(100vw + 100%)) scaleX(-1); }
+                100% { transform: translateX(0) scaleX(-1); }
+              }
+              @keyframes swim2 {
+                0% { transform: translateX(0) scaleX(-1); }
+                50% { transform: translateX(calc(-100vw - 100%)) scaleX(-1); }
+                51% { transform: translateX(calc(-100vw - 100%)); }
+                100% { transform: translateX(0); }
+              }
+              @keyframes float {
+                0%, 100% { transform: translateY(0); }
+                50% { transform: translateY(-10px); }
+              }
+              @keyframes slideInRight {
+                from { opacity: 0; transform: translateX(30px); }
+                to { opacity: 1; transform: translateX(0); }
+              }
+              @keyframes expandWidth {
+                from { width: 0; }
+                to { width: 4rem; }
+              }
+              @keyframes fadeIn {
+                from { opacity: 0; }
+                to { opacity: 1; }
+              }
+              @keyframes fadeInUp {
+                from { opacity: 0; transform: translateY(20px); }
+                to { opacity: 1; transform: translateY(0); }
+              }
+              @keyframes slideUp {
+                from { opacity: 0; transform: translateY(50px); }
+                to { opacity: 1; transform: translateY(0); }
+              }
+            `}</style>
+          </div>
+
+          {/* Navigation */}
+          <div className="flex justify-between items-center mt-8">
+            <button
+              onClick={prevSection}
+              disabled={activeSection === 0}
+              className="px-8 py-4 bg-white/10 hover:bg-white/20 disabled:opacity-30 disabled:cursor-not-allowed text-white font-semibold rounded-full transition-colors flex items-center gap-2"
+            >
+              ← Previous
+            </button>
+            
+            <div className="flex gap-2">
+              {PRESENTATION.sections.map((_, idx) => (
+                <button
+                  key={idx}
+                  onClick={() => {
+                    stop();
+                    setActiveSection(idx);
+                    setTimeout(() => narrateSection(idx), 300);
+                  }}
+                  className={`w-3 h-3 rounded-full transition-colors ${
+                    idx === activeSection 
+                      ? 'bg-cyan-400' 
+                      : 'bg-blue-700 hover:bg-blue-600'
+                  }`}
+                />
+              ))}
+            </div>
+
+            <button
+              onClick={nextSection}
+              disabled={activeSection === PRESENTATION.sections.length - 1}
+              className="px-8 py-4 bg-gradient-to-r from-blue-600 to-cyan-600 hover:from-blue-700 hover:to-cyan-700 disabled:opacity-30 disabled:cursor-not-allowed text-white font-semibold rounded-full transition-colors flex items-center gap-2"
+            >
+              Next →
+            </button>
+          </div>
+        </div>
+      </main>
+
+      {/* AI Chat Panel */}
+      {showChat && (
+        <div className="fixed right-6 bottom-6 w-[26rem] max-h-[70vh] bg-slate-900/95 backdrop-blur-lg rounded-2xl shadow-2xl border border-blue-500/30 flex flex-col overflow-hidden z-50">
+          {/* Chat Header */}
+          <div className="bg-gradient-to-r from-blue-600 to-cyan-600 p-4 flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <div className="text-3xl">🦀</div>
+              <div>
+                <h3 className="font-bold text-white">Ask Finley</h3>
+                <p className="text-xs text-blue-200">Your AI Blue Catfish Expert</p>
+              </div>
+            </div>
+            <button
+              onClick={() => setShowChat(false)}
+              className="text-white hover:bg-white/20 rounded-full w-8 h-8 flex items-center justify-center"
+            >
+              ✕
+            </button>
+          </div>
+
+          {/* Chat Messages */}
+          <div className="flex-1 overflow-y-auto py-4 px-6 space-y-3">
+            {messages.map((msg, idx) => (
+              <div
+                key={idx}
+                className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
+              >
+                <div
+                  className={`max-w-[75%] rounded-2xl px-4 py-3 ${
+                    msg.role === 'user'
+                      ? 'bg-blue-600 text-white rounded-br-none'
+                      : 'bg-slate-700 text-gray-100 rounded-bl-none'
+                  }`}
+                >
+                  <p className="text-sm">{msg.text}</p>
+                </div>
+              </div>
+            ))}
+            {isLoading && (
+              <div className="flex justify-start">
+                <div className="bg-slate-700 rounded-2xl px-4 py-3 flex gap-1">
+                  <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" />
+                  <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce delay-100" />
+                  <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce delay-200" />
+                </div>
+              </div>
+            )}
+            <div ref={messagesEndRef} />
+          </div>
+
+          {/* Chat Input */}
+          <div className="p-4 border-t border-slate-700">
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && !isLoading && sendMessage(input)}
+                placeholder="Ask about Blue Catfish..."
+                className="flex-1 bg-slate-700 text-white rounded-full px-[21px] py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                disabled={isLoading}
+              />
+              <button
+                onClick={() => sendMessage(input)}
+                disabled={isLoading || !input.trim()}
+                className="w-10 h-10 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 text-white rounded-full flex items-center justify-center transition-colors"
+              >
+                →
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Source Attribution */}
+      <footer className="text-center py-4 text-blue-300 text-sm">
+        <p>
+          Source: University of Maryland Extension - 
+          <a 
+            href="https://extension.umd.edu/resource/chesapeake-bay-blue-catfish-invasive-delicious-and-nutritious/" 
+            target="_blank" 
+            rel="noopener noreferrer"
+            className="underline hover:text-cyan-300"
+          >
+            Chesapeake Bay Blue Catfish Factsheet
+          </a>
+        </p>
+      </footer>
+    </div>
+  );
+}
