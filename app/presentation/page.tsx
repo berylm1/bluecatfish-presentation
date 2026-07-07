@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react';
 import Link from 'next/link';
-
+import { createPortal } from 'react-dom';
 
 // ===================== TYPES =====================
 interface Message {
