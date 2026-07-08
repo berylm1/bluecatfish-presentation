@@ -540,7 +540,7 @@ export default function AIPresentation() {
                   <img 
                     src={currentSection.image} 
                     alt={currentSection.title}
-                    className="absolute inset-0 w-full h-full object-cover opacity-80"
+                    className="absolute inset-0 w-full h-full object-contain opacity-80"
                     onError={(e) => {
                       e.currentTarget.style.display='none';
                     }}
@@ -566,6 +566,7 @@ export default function AIPresentation() {
                 </div>
                 
                 {/* Stats Overlay */}
+                {/*
                 <div className="absolute top-4 right-4 flex flex-col gap-2">
                   {currentSection.stats.slice(0, 2).map((stat, idx) => (
                     <div 
@@ -578,6 +579,7 @@ export default function AIPresentation() {
                     </div>
                   ))}
                 </div>
+                */}
               </div>
               
               {/* Right: Content with Animations */}
@@ -645,7 +647,7 @@ export default function AIPresentation() {
                       disabled={microStep === 0}
                       className="px-3 py-2 rounded-lg bg-blue-800/50 hover:bg-blue-700/60 disabled:opacity-30 text-white text-sm transition-colors"
                     >
-                      ← Back
+                      <
                     </button>
                 
                     <div className="flex gap-2">
@@ -666,7 +668,7 @@ export default function AIPresentation() {
                       disabled={microStep === microSteps.length - 1}
                       className="px-3 py-2 rounded-lg bg-blue-800/50 hover:bg-blue-700/60 disabled:opacity-30 text-white text-sm transition-colors"
                     >
-                      Next →
+                      >
                     </button>
                   </div>
                 
@@ -674,6 +676,7 @@ export default function AIPresentation() {
                 </div>
                 
                 {/* Progress Indicator */}
+                {/*
                 <div className="mt-4 flex items-center gap-2">
                   <span className="text-sm text-blue-300">Progress:</span>
                   <div className="flex-1 h-2 bg-blue-900/50 rounded-full overflow-hidden">
@@ -686,6 +689,7 @@ export default function AIPresentation() {
                     {Math.round(((activeSection + 1) / sections.length) * 100)}%
                   </span>
                 </div>
+                */}
             </div>
             <div className="col-span-full w-full p-6">
               <TranscriptPanel
