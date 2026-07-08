@@ -647,7 +647,7 @@ export default function AIPresentation() {
                       disabled={microStep === 0}
                       className="px-3 py-2 rounded-lg bg-blue-800/50 hover:bg-blue-700/60 disabled:opacity-30 text-white text-sm transition-colors"
                     >
-                      
+                      ←
                     </button>
                 
                     <div className="flex gap-2">
@@ -668,7 +668,7 @@ export default function AIPresentation() {
                       disabled={microStep === microSteps.length - 1}
                       className="px-3 py-2 rounded-lg bg-blue-800/50 hover:bg-blue-700/60 disabled:opacity-30 text-white text-sm transition-colors"
                     >
-                      >
+                      →
                     </button>
                   </div>
                 
