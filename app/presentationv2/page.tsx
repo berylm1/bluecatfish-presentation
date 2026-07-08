@@ -21,6 +21,7 @@ interface SectionWithBreakdown {
     detailed: string;
     keyTerms: { term: string; definition: string }[];
     realWorldExample: string;
+  quiz: { question: string; options: string[]; correctAnswer: number }[];
   };
 }
 
@@ -244,6 +245,7 @@ export default function AIPresentation() {
   const [isNarrating, setIsNarrating] = useState(false);
   const [showIntro, setShowIntro] = useState(true);
   const [showConclusion, setShowConclusion] = useState(false);
+  const [showQuiz, setShowQuiz] = useState(false);
   
   const { play, pause, resume, stop, isSpeaking, isPaused, currentKey, currentText, currentTime, duration } = useAudioPlayer();
   const { messages, isLoading, input, setInput, sendMessage } = useAIChat();
@@ -323,13 +325,18 @@ export default function AIPresentation() {
 
   const nextSection = () => {
     setMicroStep(0);
+    setShowQuiz(true);
+  };
+
+  const handleQuizContinue = () => {
+    setShowQuiz(false);
     if (activeSection < sections.length - 1) {
       stop();
       const newIndex = activeSection + 1;
       setActiveSection(newIndex);
       setShowConclusion(false);
       setTimeout(() => narrateSection(newIndex), 300);
-    } else if (activeSection === sections.length - 1) {
+    } else {
       stop();
       setShowConclusion(true);
       setTimeout(() => narrateSection(sections.length), 500);
@@ -400,6 +407,102 @@ export default function AIPresentation() {
       <div className="h-screen w-screen flex items-center justify-center text-xl text-white bg-slate-900 text-center p-8">
         Something went wrong loading this lesson: {loadError || 'No sections available'}. Please try refreshing.
       </div>
+    );
+  }
+
+  function QuizModal({
+    quiz,
+    onContinue,
+  }: {
+    quiz: { question: string; options: string[]; correctAnswer: number }[];
+    onContinue: () => void;
+  }) {
+    const [answers, setAnswers] = useState<(number | null)[]>(quiz.map(() => null));
+    const [submitted, setSubmitted] = useState(false);
+  
+    const selectAnswer = (qIdx: number, optIdx: number) => {
+      if (submitted) return;
+      setAnswers((prev) => {
+        const next = [...prev];
+        next[qIdx] = optIdx;
+        return next;
+      });
+    };
+  
+    const allAnswered = answers.every((a) => a !== null);
+    const score = quiz.reduce((total, q, i) => (answers[i] === q.correctAnswer ? total + 1 : total), 0);
+  
+    return createPortal(
+      <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+        <div className="bg-gradient-to-br from-slate-800 to-slate-900 rounded-3xl max-w-2xl w-full max-h-[85vh] overflow-y-auto border border-cyan-500/30 shadow-2xl p-8">
+          <h3 className="text-2xl font-bold text-white mb-1">Quick Check</h3>
+          <p className="text-blue-300 text-sm mb-6">Answer both questions to continue</p>
+  
+          <div className="space-y-6">
+            {quiz.map((q, qIdx) => (
+              <div key={qIdx} className="bg-blue-900/20 rounded-2xl p-5 border border-blue-500/20">
+                <p className="text-white font-semibold mb-4">
+                  {qIdx + 1}. {q.question}
+                </p>
+                <div className="space-y-2">
+                  {q.options.map((opt, optIdx) => {
+                    const isSelected = answers[qIdx] === optIdx;
+                    const isCorrect = optIdx === q.correctAnswer;
+                    const showResult = submitted;
+  
+                    let stateClasses = 'border-blue-700/40 hover:border-blue-500/60 bg-blue-900/10';
+                    if (showResult && isCorrect) {
+                      stateClasses = 'border-green-500 bg-green-900/30';
+                    } else if (showResult && isSelected && !isCorrect) {
+                      stateClasses = 'border-red-500 bg-red-900/30';
+                    } else if (isSelected) {
+                      stateClasses = 'border-cyan-500 bg-cyan-900/20';
+                    }
+  
+                    return (
+                      <button
+                        key={optIdx}
+                        onClick={() => selectAnswer(qIdx, optIdx)}
+                        disabled={submitted}
+                        className={`w-full text-left px-4 py-3 rounded-xl border transition-colors text-blue-100 ${stateClasses}`}
+                      >
+                        {opt}
+                        {showResult && isCorrect && <span className="ml-2">✓</span>}
+                        {showResult && isSelected && !isCorrect && <span className="ml-2">✗</span>}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
+          </div>
+  
+          <div className="mt-6 flex items-center justify-between">
+            {submitted ? (
+              <>
+                <p className="text-cyan-400 font-semibold">
+                  Score: {score} / {quiz.length}
+                </p>
+                <button
+                  onClick={onContinue}
+                  className="px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-semibold transition-colors"
+                >
+                  Continue →
+                </button>
+              </>
+            ) : (
+              <button
+                onClick={() => setSubmitted(true)}
+                disabled={!allAnswered}
+                className="ml-auto px-6 py-3 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white rounded-xl font-semibold transition-colors"
+              >
+                Submit
+              </button>
+            )}
+          </div>
+        </div>
+      </div>,
+      document.body
     );
   }
 
@@ -598,6 +701,9 @@ export default function AIPresentation() {
                   <div className="min-h-[160px]">
                     {microStep === 0 && (
                       <div>
+                        {showQuiz && currentSection.quiz && (
+                          <QuizModal quiz={currentSection.quiz} onContinue={handleQuizContinue} />
+                        )}
                         <p className="text-xl text-blue-100 leading-relaxed mb-4">{currentSection.content}</p>
                         <div className="grid grid-cols-2 gap-4">
                           {currentSection.stats.map((stat, idx) => (
