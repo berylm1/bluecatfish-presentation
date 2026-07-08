@@ -77,7 +77,7 @@ STRICT RULES YOU MUST FOLLOW:
 7. "breakdown.keyTerms" must contain EXACTLY 3 items, each a key word or phrase from this section paired with a plain-language definition:
    { "term": "...", "definition": "..." }
 8. "breakdown.realWorldExample" must explain the concept via an analogy to something unrelated and familiar (e.g. comparing an ecological concept to delivery logistics, sports, cooking, etc.) — NOT another catfish/fish fact. 2-3 sentences.
-
+9. "quiz" must contain EXACTLY 2 multiple-choice questions testing understanding of THIS section's specific content (not other sections). Each question must have exactly 4 "options" and a "correctAnswer" index (0-3) pointing to the correct option. Base both questions strictly on facts present in the SOURCE CONTENT or in the generated section content — do not invent facts or ask about anything not covered in this section.
 Output ONLY a JSON object with key "section" structured EXACTLY like this:
 
 {
@@ -100,7 +100,11 @@ Output ONLY a JSON object with key "section" structured EXACTLY like this:
         { "term": "...", "definition": "..." }
       ],
       "realWorldExample": "analogy to something unrelated, 2-3 sentences"
-    }
+    },
+    "quiz": [
+      { "question": "...", "options": ["...", "...", "...", "..."], "correctAnswer": 0 },
+      { "question": "...", "options": ["...", "...", "...", "..."], "correctAnswer": 0 }
+    ]
   }
 }`,
         },
