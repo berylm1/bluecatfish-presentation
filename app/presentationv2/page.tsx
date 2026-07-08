@@ -610,7 +610,7 @@ export default function AIPresentation() {
                 
                     {microStep === 1 && (
                       <div className="bg-blue-900/30 rounded-xl p-5 border border-blue-500/20">
-                        <p className="text-blue-100 leading-relaxed text-lg">{currentSection.breakdown.simple}</p>
+                        <p className="text-blue-100 leading-relaxed text-xl">{currentSection.breakdown.simple}</p>
                       </div>
                     )}
                 
@@ -618,8 +618,8 @@ export default function AIPresentation() {
                       <div className="space-y-3">
                         {currentSection.breakdown.keyTerms.map((kt, idx) => (
                           <div key={idx} className="bg-blue-900/30 rounded-xl p-4 border border-blue-500/20">
-                            <div className="font-bold text-cyan-400 mb-1">{kt.term}</div>
-                            <div className="text-blue-100 text-sm">{kt.definition}</div>
+                            <div className="font-bold text-cyan-400 mb-1 text-xl">{kt.term}</div>
+                            <div className="text-blue-100 text-md">{kt.definition}</div>
                           </div>
                         ))}
                       </div>
@@ -627,13 +627,13 @@ export default function AIPresentation() {
                 
                     {microStep === 3 && (
                       <div className="bg-amber-900/20 rounded-xl p-5 border border-amber-500/20">
-                        <p className="text-amber-100 leading-relaxed text-lg">{currentSection.breakdown.realWorldExample}</p>
+                        <p className="text-amber-100 leading-relaxed text-xl">{currentSection.breakdown.realWorldExample}</p>
                       </div>
                     )}
                 
                     {microStep === 4 && (
                       <div className="bg-slate-900/40 rounded-xl p-5 border border-cyan-500/20">
-                        <p className="text-blue-100 leading-relaxed">{currentSection.breakdown.detailed}</p>
+                        <p className="text-blue-100 leading-relaxed text-md">{currentSection.breakdown.detailed}</p>
                       </div>
                     )}
                   </div>
