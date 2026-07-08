@@ -247,6 +247,15 @@ export default function AIPresentation() {
   const [showIntro, setShowIntro] = useState(true);
   const [showConclusion, setShowConclusion] = useState(false);
   const [showQuiz, setShowQuiz] = useState(false);
+
+  const handleRestart = () => {
+    stop();
+    setActiveSection(0);
+    setMicroStep(0);
+    setShowConclusion(false);
+    setShowQuiz(false);
+    setShowIntro(true);
+  };
   
   const { play, pause, resume, stop, isSpeaking, isPaused, currentKey, currentText, currentTime, duration } = useAudioPlayer();
   const { messages, isLoading, input, setInput, sendMessage } = useAIChat();
@@ -507,6 +516,34 @@ export default function AIPresentation() {
     );
   }
 
+  function ConclusionScreen({ onRestart }: { onRestart: () => void }) {
+    return (
+      <div className="flex flex-col items-center justify-center text-center py-16 px-8">
+        <div className="text-6xl mb-6">🎓</div>
+        <h2 className="text-3xl md:text-4xl font-bold text-white mb-4">
+          Lesson Complete!
+        </h2>
+        <p className="text-blue-200 text-lg max-w-xl mb-8 leading-relaxed">
+          You've made it through the full story of the Blue Catfish invasion in the Chesapeake Bay —
+          from how they got here, to why they've thrived, to how we might turn the problem into a solution.
+        </p>
+  
+        <div className="flex flex-col sm:flex-row gap-4">
+          <button
+            onClick={onRestart}
+            className="px-6 py-3 bg-blue-800/60 hover:bg-blue-700/70 text-white rounded-xl font-semibold transition-colors border border-blue-500/30"
+          >
+            ↺ Restart Lesson
+          </button>
+        </div>
+  
+        <p className="text-blue-300/70 text-sm mt-8">
+          Still curious about something? Use <span className="text-cyan-400 font-medium">Ask AI</span> up top —
+          Professor Marine is happy to go deeper on anything from the lesson.
+        </p>
+      </div>
+    );
+  }
   // ===================== RENDER =====================
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-blue-900 to-slate-900 flex flex-col">
@@ -595,6 +632,9 @@ export default function AIPresentation() {
 
       {/* Main Content */}
       <main className="flex-1 flex items-center justify-center p-8">
+        {showConclusion ? (
+          <ConclusionScreen onRestart={handleRestart} />
+        ) : (
         <div className="max-w-7xl w-full">
           {/* Progress Bar */}
           <div className="mb-8">
@@ -878,13 +918,13 @@ export default function AIPresentation() {
 
             <button
               onClick={nextSection}
-              disabled={activeSection === sections.length - 1}
-              className="px-8 py-4 bg-gradient-to-r from-blue-600 to-cyan-600 hover:from-blue-700 hover:to-cyan-700 disabled:opacity-30 disabled:cursor-not-allowed text-white font-semibold rounded-full transition-colors flex items-center gap-2"
+              className="px-8 py-4 bg-gradient-to-r from-blue-600 to-cyan-600 hover:from-blue-700 hover:to-cyan-700 text-white font-semibold rounded-full transition-colors flex items-center gap-2"
             >
-              Next →
+              {activeSection < sections.length - 1 ? 'Next →' : 'Finish Lesson →'}
             </button>
           </div>
         </div>
+      )}
       </main>
 
       {/* AI Chat Panel */}
