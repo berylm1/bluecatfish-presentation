@@ -402,6 +402,47 @@ export default function AIPresentation() {
   
   const nextMicroStep = () => goToMicroStep(microStep + 1);
   const prevMicroStep = () => goToMicroStep(microStep - 1);
+
+  // ===================== ANIMATED STAT VALUE =====================
+  // Counts up any leading number in the stat value (e.g. "100+ Million" -> counts 0 to 100,
+  // keeps "+ Million" as a static suffix). Falls back to a plain fade-in for non-numeric
+  // values like "Multiple". Naturally restarts each time it mounts (i.e. each time the
+  // user enters microStep 0), since it's only rendered while that step is visible.
+  function AnimatedStatValue({ value }: { value: string }) {
+    const match = value.match(/^(\d+(?:\.\d+)?)/);
+    const targetNum = match ? parseFloat(match[1]) : null;
+    const suffix = match ? value.slice(match[1].length) : '';
+    const [display, setDisplay] = useState(targetNum !== null ? 0 : null);
+    
+    useEffect(() => {
+      if (targetNum === null) return;
+  
+      let startTime: number | null = null;
+      const duration = 900; // ms
+      let frameId: number;
+  
+      const step = (timestamp: number) => {
+        if (startTime === null) startTime = timestamp;
+        const progress = Math.min((timestamp - startTime) / duration, 1);
+        const eased = 1 - Math.pow(1 - progress, 3); // ease-out cubic
+        setDisplay(Math.round(eased * targetNum));
+        if (progress < 1) {
+          frameId = requestAnimationFrame(step);
+        }
+      };
+      frameId = requestAnimationFrame(step);
+      return () => cancelAnimationFrame(frameId);
+    }, [targetNum]);
+  
+    if (targetNum === null) {
+      // Non-numeric value (e.g. "Multiple") — just render as-is
+      return <>{value}</>;
+    }
+  
+    return <>{display}{suffix}</>;
+  }
+
+
   
   // ---- Loading / error states before rendering the presentation ----
   if (isContentLoading) {
@@ -739,7 +780,7 @@ export default function AIPresentation() {
                 {/* ===================== MINI-SLIDESHOW (replaces old Confused button + modal) ===================== */}
                 <div className="mt-6 pt-4 border-t border-blue-700/30">
                   {/* Step content */}
-                  <div className="min-h-[160px]">
+                  <div key={microstep} className="min-h-[160px] animate-[fadeIn_0.3s_ease-out]">
                     {microStep === 0 && (
                       <div>
                         {showQuiz && currentSection.quiz && (
@@ -749,7 +790,7 @@ export default function AIPresentation() {
                         <div className="grid grid-cols-2 gap-4">
                           {currentSection.stats.map((stat, idx) => (
                             <div key={idx} className="bg-blue-800/50 rounded-xl p-4 text-center border border-cyan-500/30">
-                              <div className="text-2xl font-bold text-cyan-400 mb-1">{stat.value}</div>
+                              <div className="text-2xl font-bold text-cyan-400 mb-1"><AnimatedStatValue value={stat.value}/></div>
                               <div className="text-base text-blue-200">{stat.label}</div>
                             </div>
                           ))}
