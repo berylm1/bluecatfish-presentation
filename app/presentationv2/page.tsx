@@ -233,6 +233,46 @@ const useAIChat = () => {
   return { messages, isLoading, input, setInput, sendMessage };
 };
 
+// ===================== ANIMATED STAT VALUE =====================
+  // Counts up any leading number in the stat value (e.g. "100+ Million" -> counts 0 to 100,
+  // keeps "+ Million" as a static suffix). Falls back to a plain fade-in for non-numeric
+  // values like "Multiple". Naturally restarts each time it mounts (i.e. each time the
+  // user enters microStep 0), since it's only rendered while that step is visible.
+function AnimatedStatValue({ value }: { value: string }) {
+  const match = value.match(/^(\d+(?:\.\d+)?)/);
+  const targetNum = match ? parseFloat(match[1]) : null;
+  const suffix = match ? value.slice(match[1].length) : '';
+  const [display, setDisplay] = useState(targetNum !== null ? 0 : null);
+  const hasAnimated = useRef(false);
+    
+  useEffect(() => {
+    if (targetNum === null || hasAnimated.current) return;
+    hasAnimated.current = true;
+  
+    let startTime: number | null = null;
+    const duration = 900; // ms
+    let frameId: number;
+  
+    const step = (timestamp: number) => {
+      if (startTime === null) startTime = timestamp;
+      const progress = Math.min((timestamp - startTime) / duration, 1);
+      const eased = 1 - Math.pow(1 - progress, 3); // ease-out cubic
+      setDisplay(Math.round(eased * targetNum));
+      if (progress < 1) {
+          frameId = requestAnimationFrame(step);
+      }
+    };
+    frameId = requestAnimationFrame(step);
+    return () => cancelAnimationFrame(frameId);
+  }, [targetNum]);
+  
+  if (targetNum === null) {
+    // Non-numeric value (e.g. "Multiple") — just render as-is
+    return <>{value}</>;
+  }
+  
+  return <>{display}{suffix}</>;
+}
 // ===================== MAIN COMPONENT =====================
 export default function AIPresentation() {
 
@@ -402,48 +442,6 @@ export default function AIPresentation() {
   
   const nextMicroStep = () => goToMicroStep(microStep + 1);
   const prevMicroStep = () => goToMicroStep(microStep - 1);
-
-  // ===================== ANIMATED STAT VALUE =====================
-  // Counts up any leading number in the stat value (e.g. "100+ Million" -> counts 0 to 100,
-  // keeps "+ Million" as a static suffix). Falls back to a plain fade-in for non-numeric
-  // values like "Multiple". Naturally restarts each time it mounts (i.e. each time the
-  // user enters microStep 0), since it's only rendered while that step is visible.
-  function AnimatedStatValue({ value }: { value: string }) {
-    const match = value.match(/^(\d+(?:\.\d+)?)/);
-    const targetNum = match ? parseFloat(match[1]) : null;
-    const suffix = match ? value.slice(match[1].length) : '';
-    const [display, setDisplay] = useState(targetNum !== null ? 0 : null);
-    const hasAnimated = useRef(false);
-    
-    useEffect(() => {
-      if (targetNum === null || hasAnimated.current) return;
-      hasAnimated.current = true;
-  
-      let startTime: number | null = null;
-      const duration = 900; // ms
-      let frameId: number;
-  
-      const step = (timestamp: number) => {
-        if (startTime === null) startTime = timestamp;
-        const progress = Math.min((timestamp - startTime) / duration, 1);
-        const eased = 1 - Math.pow(1 - progress, 3); // ease-out cubic
-        setDisplay(Math.round(eased * targetNum));
-        if (progress < 1) {
-          frameId = requestAnimationFrame(step);
-        }
-      };
-      frameId = requestAnimationFrame(step);
-      return () => cancelAnimationFrame(frameId);
-    }, [targetNum]);
-  
-    if (targetNum === null) {
-      // Non-numeric value (e.g. "Multiple") — just render as-is
-      return <>{value}</>;
-    }
-  
-    return <>{display}{suffix}</>;
-  }
-
 
   
   // ---- Loading / error states before rendering the presentation ----
