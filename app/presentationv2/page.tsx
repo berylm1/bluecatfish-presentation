@@ -780,7 +780,7 @@ export default function AIPresentation() {
                 {/* ===================== MINI-SLIDESHOW (replaces old Confused button + modal) ===================== */}
                 <div className="mt-6 pt-4 border-t border-blue-700/30">
                   {/* Step content */}
-                  <div key={microstep} className="min-h-[160px] animate-[fadeIn_0.3s_ease-out]">
+                  <div key={microStep} className="min-h-[160px] animate-[fadeIn_0.3s_ease-out]">
                     {microStep === 0 && (
                       <div>
                         {showQuiz && currentSection.quiz && (
