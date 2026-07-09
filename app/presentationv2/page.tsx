@@ -416,7 +416,7 @@ export default function AIPresentation() {
     const hasAnimated = useRef(false);
     
     useEffect(() => {
-      if (targetNum === null) return;
+      if (targetNum === null || hasAnimated.current) return;
       hasAnimated.current = true;
   
       let startTime: number | null = null;
