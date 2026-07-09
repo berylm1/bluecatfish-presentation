@@ -413,9 +413,11 @@ export default function AIPresentation() {
     const targetNum = match ? parseFloat(match[1]) : null;
     const suffix = match ? value.slice(match[1].length) : '';
     const [display, setDisplay] = useState(targetNum !== null ? 0 : null);
+    const hasAnimated = useRef(false);
     
     useEffect(() => {
       if (targetNum === null) return;
+      hasAnimated.current = true;
   
       let startTime: number | null = null;
       const duration = 900; // ms
@@ -780,7 +782,7 @@ export default function AIPresentation() {
                 {/* ===================== MINI-SLIDESHOW (replaces old Confused button + modal) ===================== */}
                 <div className="mt-6 pt-4 border-t border-blue-700/30">
                   {/* Step content */}
-                  <div key={microStep} className="min-h-[160px] animate-[fadeIn_0.3s_ease-out]">
+                  <div key={microStep} className="min-h-[160px] animate-[fadeIn_0.8s_ease-out]">
                     {microStep === 0 && (
                       <div>
                         {showQuiz && currentSection.quiz && (
