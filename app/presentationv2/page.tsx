@@ -274,6 +274,25 @@ function AnimatedStatValue({ value }: { value: string }) {
   return <>{display}{suffix}</>;
 }
 
+function QuizModal({
+    quiz,
+    onContinue,
+  }: {
+    quiz: { question: string; options: string[]; correctAnswer: number }[];
+    onContinue: () => void;
+  }) {
+    const [answers, setAnswers] = useState<(number | null)[]>(quiz.map(() => null));
+    const [submitted, setSubmitted] = useState(false);
+  
+    const selectAnswer = (qIdx: number, optIdx: number) => {
+      if (submitted) return;
+      setAnswers((prev) => {
+        const next = [...prev];
+        next[qIdx] = optIdx;
+        return next;
+      });
+    };
+  
 // ===================== TEMPLATE SELECTOR =====================
 // Shown as the very first screen, before the intro.
 function TemplateSelector({ onSelect }: { onSelect: (template: 'classic' | 'split') => void }) {
@@ -831,25 +850,6 @@ export default function AIPresentation() {
   if (!selectedTemplate) {
     return <TemplateSelector onSelect={setSelectedTemplate} />;
   }
-
-  function QuizModal({
-    quiz,
-    onContinue,
-  }: {
-    quiz: { question: string; options: string[]; correctAnswer: number }[];
-    onContinue: () => void;
-  }) {
-    const [answers, setAnswers] = useState<(number | null)[]>(quiz.map(() => null));
-    const [submitted, setSubmitted] = useState(false);
-  
-    const selectAnswer = (qIdx: number, optIdx: number) => {
-      if (submitted) return;
-      setAnswers((prev) => {
-        const next = [...prev];
-        next[qIdx] = optIdx;
-        return next;
-      });
-    };
   
     const allAnswered = answers.every((a) => a !== null);
     const score = quiz.reduce((total, q, i) => (answers[i] === q.correctAnswer ? total + 1 : total), 0);
