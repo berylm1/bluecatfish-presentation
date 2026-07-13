@@ -1124,7 +1124,8 @@ export default function AIPresentation() {
               }
             `}</style>
           </div>
-
+          )}
+        
           {/* Navigation */}
           <div className="flex justify-between items-center mt-8">
             <button
