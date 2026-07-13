@@ -634,6 +634,8 @@ function ClassicLayout(props: {
               goToMicroStep={props.goToMicroStep}
               nextMicroStep={props.nextMicroStep}
               prevMicroStep={props.prevMicroStep}
+              showQuiz={props.showQuiz}
+              handleQuizContinue={props.handleQuizContinue}
             />
           </div>
   
@@ -658,6 +660,7 @@ function ClassicLayout(props: {
         </div>
       </div>
     );
+  }
 // ===================== MAIN COMPONENT =====================
 export default function AIPresentation() {
 
