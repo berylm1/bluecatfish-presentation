@@ -408,6 +408,8 @@ function SectionImageBlock({
     goToMicroStep,
     nextMicroStep,
     prevMicroStep,
+    showQuiz,
+    handleQuizContinue,
   }: {
     currentSection: SectionWithBreakdown;
     microStep: number;
@@ -415,6 +417,8 @@ function SectionImageBlock({
     goToMicroStep: (i: number) => void;
     nextMicroStep: () => void;
     prevMicroStep: () => void;
+    showQuiz: boolean;
+    handleQuizContinue: () => void;
   }) {
     return (
               <div className="p-8 md:p-12 flex flex-col justify-center bg-gradient-to-br from-blue-900/80 to-slate-900/80">
@@ -544,6 +548,8 @@ function ClassicLayout(props: {
     currentTime: number;
     duration: number;
     isSpeaking: boolean;
+    showQuiz: boolean;
+    handleQuizContinue: () => void;
   }) {
     return (
       <div className="bg-white/5 backdrop-blur-md rounded-3xl border border-blue-500/30 shadow-2xl overflow-hidden">
@@ -561,6 +567,8 @@ function ClassicLayout(props: {
               goToMicroStep={props.goToMicroStep}
               nextMicroStep={props.nextMicroStep}
               prevMicroStep={props.prevMicroStep}
+              showQuiz={props.showQuiz}
+              handleQuizContinue={props.handleQuizContinue}
             />
           </div>
         </div>
@@ -591,6 +599,8 @@ function ClassicLayout(props: {
     currentTime: number;
     duration: number;
     isSpeaking: boolean;
+    showQuiz: boolean;
+    handleQuizContinue: () => void;
   }) {
     return (
       <div className="bg-white/5 backdrop-blur-md rounded-3xl border border-blue-500/30 shadow-2xl overflow-hidden">
@@ -1067,6 +1077,8 @@ export default function AIPresentation() {
               currentTime={currentTime}
               duration={duration}
               isSpeaking={isSpeaking}
+              showQuiz={showQuiz}
+              handleQuizContinue={handleQuizContinue}
             />
           ) : (
             <SplitLayout
@@ -1082,6 +1094,8 @@ export default function AIPresentation() {
               currentTime={currentTime}
               duration={duration}
               isSpeaking={isSpeaking}
+              showQuiz={showQuiz}
+              handleQuizContinue={handleQuizContinue}
             />
           )}
           
