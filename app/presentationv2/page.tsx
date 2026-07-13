@@ -292,7 +292,8 @@ function QuizModal({
         return next;
       });
     };
-  
+  }
+
 // ===================== TEMPLATE SELECTOR =====================
 // Shown as the very first screen, before the intro.
 function TemplateSelector({ onSelect }: { onSelect: (template: 'classic' | 'split') => void }) {
@@ -657,7 +658,6 @@ function ClassicLayout(props: {
         </div>
       </div>
     );
-  }
 // ===================== MAIN COMPONENT =====================
 export default function AIPresentation() {
 
