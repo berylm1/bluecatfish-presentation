@@ -1123,8 +1123,6 @@ export default function AIPresentation() {
                 to { opacity: 1; transform: translateY(0); }
               }
             `}</style>
-          </div>
-          )}
         
           {/* Navigation */}
           <div className="flex justify-between items-center mt-8">
