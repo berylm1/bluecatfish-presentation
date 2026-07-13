@@ -317,6 +317,318 @@ function TemplateSelector({ onSelect }: { onSelect: (template: 'classic' | 'spli
   );
 }
 
+function SectionImageBlock({
+    currentSection,
+    activeSection,
+    totalSections,
+  }: {
+    currentSection: SectionWithBreakdown;
+    activeSection: number;
+    totalSections: number;
+  }) {
+    return (
+              <div className="relative h-72 md:h-auto min-h-[500px] bg-gradient-to-br from-blue-800 to-cyan-900 overflow-hidden">
+                {/* Animated Background Elements */}
+                <div className="absolute inset-0 overflow-hidden">
+                  {/* Floating Bubbles */}
+                  <div className="absolute w-4 h-4 bg-cyan-400/20 rounded-full animate-ping" style={{top: '20%', left: '10%', animationDuration: '3s'}} />
+                  <div className="absolute w-6 h-6 bg-blue-400/20 rounded-full animate-ping" style={{top: '60%', left: '80%', animationDuration: '4s', animationDelay: '1s'}} />
+                  <div className="absolute w-3 h-3 bg-cyan-300/30 rounded-full animate-ping" style={{top: '40%', left: '50%', animationDuration: '2.5s', animationDelay: '0.5s'}} />
+                  
+                  {/* Swimming Fish Animation */}
+                  <div className="absolute animate-[swim_8s_ease-in-out_infinite]" style={{top: '30%', left: '-20%'}}>
+                    <svg width="80" height="50" viewBox="0 0 80 50" className="drop-shadow-lg">
+                      <path d="M60 25 Q70 15 80 25 Q70 35 60 25 M0 25 L45 10 L45 40 Z" fill="currentColor" className="text-cyan-300 opacity-80"/>
+                      <circle cx="50" r="3" fill="white"/>
+                    </svg>
+                  </div>
+                  
+                  {/* Second Fish */}
+                  <div className="absolute animate-[swim2_10s_ease-in-out_infinite]" style={{top: '65%', right: '-20%'}}>
+                    <svg width="60" height="40" viewBox="0 0 80 50" className="drop-shadow-lg">
+                      <path d="M60 25 Q70 15 80 25 Q70 35 60 25 M0 25 L45 10 L45 40 Z" fill="currentColor" className="text-blue-300 opacity-70"/>
+                      <circle cx="50" r="2" fill="white"/>
+                    </svg>
+                  </div>
+                </div>
+                
+                {/* Main Image */}
+                {currentSection.image && (
+                  <img 
+                    src={currentSection.image} 
+                    alt={currentSection.title}
+                    className="absolute inset-0 w-full h-full object-contain opacity-80"
+                    onError={(e) => {
+                      e.currentTarget.style.display='none';
+                    }}
+                  />
+                )}
+                
+                {/* Gradient Overlay */}
+                <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-black/30" />
+                
+                {/* Slide Counter Badge */}
+                <div className="absolute top-4 left-4 bg-cyan-500/90 backdrop-blur-sm px-4 py-2 rounded-full shadow-lg">
+                  <span className="font-bold text-white">{activeSection + 1} / {sections.length}</span>
+                </div>
+                
+                {/* Interactive Icon with Hover Effect */}
+                <div className="absolute bottom-4 left-4 group cursor-pointer">
+                  <div className="text-7xl drop-shadow-lg transition-transform duration-300 group-hover:scale-125 group-hover:rotate-12 animate-[float_3s_ease-in-out_infinite]">
+                    {currentSection.icon}
+                  </div>
+                  <div className="absolute -bottom-8 left-0 bg-black/80 px-3 py-1 rounded text-sm text-white opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap">
+                    Click me!
+                  </div>
+                </div>
+                
+                {/* Stats Overlay */}
+                {/*
+                <div className="absolute top-4 right-4 flex flex-col gap-2">
+                  {currentSection.stats.slice(0, 2).map((stat, idx) => (
+                    <div 
+                      key={idx}
+                      className="bg-cyan-500/80 backdrop-blur-sm px-3 py-2 rounded-lg animate-[fadeInUp_0.5s_ease-out_forwards] shadow-lg"
+                      style={{ animationDelay: `${idx * 0.2}s` }}
+                    >
+                      <div className="text-lg font-bold text-white">{stat.value}</div>
+                      <div className="text-xs text-cyan-100">{stat.label}</div>
+                    </div>
+                  ))}
+                </div>
+                */}
+              </div>
+          );
+        }
+
+  function MiniSlideshowBlock({
+    currentSection,
+    microStep,
+    microSteps,
+    goToMicroStep,
+    nextMicroStep,
+    prevMicroStep,
+  }: {
+    currentSection: SectionWithBreakdown;
+    microStep: number;
+    microSteps: MicroStep[];
+    goToMicroStep: (i: number) => void;
+    nextMicroStep: () => void;
+    prevMicroStep: () => void;
+  }) {
+    return (
+              <div className="p-8 md:p-12 flex flex-col justify-center bg-gradient-to-br from-blue-900/80 to-slate-900/80">
+                {/* Animated Title */}
+                <h2 className="text-3xl md:text-4xl font-bold text-white mb-4 animate-[slideInRight_0.6s_ease-out]">
+                  {currentSection.title}
+                </h2>
+                
+                {/* Animated Underline */}
+                <div className="h-1 w-0 bg-gradient-to-r from-cyan-400 to-blue-500 rounded-full mb-6 animate-[expandWidth_0.8s_ease-out_0.3s_forwards]" />
+                
+                {/* ===================== MINI-SLIDESHOW (replaces old Confused button + modal) ===================== */}
+                <div className="mt-6 pt-4 border-t border-blue-700/30">
+                  {/* Step content */}
+                  <div key={microStep} className="min-h-[160px] animate-[fadeIn_0.8s_ease-out]">
+                    {microStep === 0 && (
+                      <div>
+                        {showQuiz && currentSection.quiz && (
+                          <QuizModal quiz={currentSection.quiz} onContinue={handleQuizContinue} />
+                        )}
+                        <p className="text-xl text-blue-100 leading-relaxed mb-4">{currentSection.content}</p>
+                        <div className="grid grid-cols-2 gap-4">
+                          {currentSection.stats.map((stat, idx) => (
+                            <div key={idx} className="bg-blue-800/50 rounded-xl p-4 text-center border border-cyan-500/30">
+                              <div className="text-2xl font-bold text-cyan-400 mb-1"><AnimatedStatValue value={stat.value}/></div>
+                              <div className="text-base text-blue-200">{stat.label}</div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                
+                    {microStep === 1 && (
+                      <div className="bg-blue-900/30 rounded-xl p-5 border border-blue-500/20">
+                        <p className="text-blue-100 leading-relaxed text-xl">{currentSection.breakdown.simple}</p>
+                      </div>
+                    )}
+                
+                    {microStep === 2 && (
+                      <div className="space-y-3">
+                        {currentSection.breakdown.keyTerms.map((kt, idx) => (
+                          <div key={idx} className="bg-blue-900/30 rounded-xl p-4 border border-blue-500/20">
+                            <div className="font-bold text-cyan-400 mb-1 text-xl">{kt.term}</div>
+                            <div className="text-blue-100 text-md">{kt.definition}</div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                
+                    {microStep === 3 && (
+                      <div className="bg-amber-900/20 rounded-xl p-5 border border-amber-500/20">
+                        <p className="text-amber-100 leading-relaxed text-xl">{currentSection.breakdown.realWorldExample}</p>
+                      </div>
+                    )}
+                
+                    {microStep === 4 && (
+                      <div className="bg-slate-900/40 rounded-xl p-5 border border-cyan-500/20">
+                        <p className="text-blue-100 leading-relaxed text-md">{currentSection.breakdown.detailed}</p>
+                      </div>
+                    )}
+                  </div>
+                
+                  {/* Mini-slideshow navigation — always visible */}
+                  <div className="flex items-center justify-between mt-5">
+                    <button
+                      onClick={prevMicroStep}
+                      disabled={microStep === 0}
+                      className="px-3 py-2 rounded-lg bg-blue-800/50 hover:bg-blue-700/60 disabled:opacity-30 text-white text-sm transition-colors"
+                    >
+                      ←
+                    </button>
+                
+                    <div className="flex gap-2">
+                      {microSteps.map((step, idx) => (
+                        <button
+                          key={idx}
+                          onClick={() => goToMicroStep(idx)}
+                          title={step.label}
+                          className={`w-2.5 h-2.5 rounded-full transition-colors ${
+                            idx === microStep ? 'bg-cyan-400' : 'bg-blue-700/50 hover:bg-blue-600/60'
+                          }`}
+                        />
+                      ))}
+                    </div>
+                
+                    <button
+                      onClick={nextMicroStep}
+                      disabled={microStep === microSteps.length - 1}
+                      className="px-3 py-2 rounded-lg bg-blue-800/50 hover:bg-blue-700/60 disabled:opacity-30 text-white text-sm transition-colors"
+                    >
+                      →
+                    </button>
+                  </div>
+                
+                  <p className="text-center text-xs text-blue-300/70 mt-2">{microSteps[microStep].label}</p>
+                </div>
+                
+                {/* Progress Indicator */}
+                {/*
+                <div className="mt-4 flex items-center gap-2">
+                  <span className="text-sm text-blue-300">Progress:</span>
+                  <div className="flex-1 h-2 bg-blue-900/50 rounded-full overflow-hidden">
+                    <div 
+                      className="h-full bg-gradient-to-r from-cyan-400 to-blue-500 transition-all duration-500"
+                      style={{ width: `${((activeSection + 1) / sections.length) * 100}%` }}
+                    />
+                  </div>
+                  <span className="text-sm text-cyan-400 font-medium">
+                    {Math.round(((activeSection + 1) / sections.length) * 100)}%
+                  </span>
+                </div>
+                */}
+            </div>
+        );
+      }
+
+function ClassicLayout(props: {
+    currentSection: SectionWithBreakdown;
+    activeSection: number;
+    totalSections: number;
+    microStep: number;
+    microSteps: MicroStep[];
+    goToMicroStep: (i: number) => void;
+    nextMicroStep: () => void;
+    prevMicroStep: () => void;
+    transcriptText: string;
+    currentTime: number;
+    duration: number;
+    isSpeaking: boolean;
+  }) {
+    return (
+      <div className="bg-white/5 backdrop-blur-md rounded-3xl border border-blue-500/30 shadow-2xl overflow-hidden">
+        <div className="grid md:grid-cols-2 gap-0">
+          <SectionImageBlock
+            currentSection={props.currentSection}
+            activeSection={props.activeSection}
+            totalSections={props.totalSections}
+          />
+          <div className="p-8 md:p-12 flex flex-col justify-center bg-gradient-to-br from-blue-900/80 to-slate-900/80">
+            <MiniSlideshowBlock
+              currentSection={props.currentSection}
+              microStep={props.microStep}
+              microSteps={props.microSteps}
+              goToMicroStep={props.goToMicroStep}
+              nextMicroStep={props.nextMicroStep}
+              prevMicroStep={props.prevMicroStep}
+            />
+          </div>
+        </div>
+  
+        <div className="p-6">
+          <TranscriptPanel
+            text={props.transcriptText}
+            currentTime={props.currentTime}
+            duration={props.duration}
+            isSpeaking={props.isSpeaking}
+          />
+        </div>
+      </div>
+    );
+  }
+  // ===================== TEMPLATE 2: SPLIT (new layout) =====================
+  // Left: mini-slideshow (full height). Right: image on top, transcript below.
+  function SplitLayout(props: {
+    currentSection: SectionWithBreakdown;
+    activeSection: number;
+    totalSections: number;
+    microStep: number;
+    microSteps: MicroStep[];
+    goToMicroStep: (i: number) => void;
+    nextMicroStep: () => void;
+    prevMicroStep: () => void;
+    transcriptText: string;
+    currentTime: number;
+    duration: number;
+    isSpeaking: boolean;
+  }) {
+    return (
+      <div className="bg-white/5 backdrop-blur-md rounded-3xl border border-blue-500/30 shadow-2xl overflow-hidden">
+        <div className="grid md:grid-cols-2 gap-0 min-h-[600px]">
+          {/* Left: mini-slideshow, full height */}
+          <div className="p-8 md:p-12 flex flex-col justify-center bg-gradient-to-br from-blue-900/80 to-slate-900/80">
+            <MiniSlideshowBlock
+              currentSection={props.currentSection}
+              microStep={props.microStep}
+              microSteps={props.microSteps}
+              goToMicroStep={props.goToMicroStep}
+              nextMicroStep={props.nextMicroStep}
+              prevMicroStep={props.prevMicroStep}
+            />
+          </div>
+  
+          {/* Right: image on top, transcript below, stacked */}
+          <div className="flex flex-col">
+            <div className="flex-1 min-h-[260px]">
+              <SectionImageBlock
+                currentSection={props.currentSection}
+                activeSection={props.activeSection}
+                totalSections={props.totalSections}
+              />
+            </div>
+            <div className="p-6 bg-slate-900/40">
+              <TranscriptPanel
+                text={props.transcriptText}
+                currentTime={props.currentTime}
+                duration={props.duration}
+                isSpeaking={props.isSpeaking}
+              />
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
 // ===================== MAIN COMPONENT =====================
 export default function AIPresentation() {
 
@@ -606,219 +918,6 @@ export default function AIPresentation() {
     );
   }
 
-  function SectionImageBlock({
-    currentSection,
-    activeSection,
-    totalSections,
-  }: {
-    currentSection: SectionWithBreakdown;
-    activeSection: number;
-    totalSections: number;
-  }) {
-    return (
-              <div className="relative h-72 md:h-auto min-h-[500px] bg-gradient-to-br from-blue-800 to-cyan-900 overflow-hidden">
-                {/* Animated Background Elements */}
-                <div className="absolute inset-0 overflow-hidden">
-                  {/* Floating Bubbles */}
-                  <div className="absolute w-4 h-4 bg-cyan-400/20 rounded-full animate-ping" style={{top: '20%', left: '10%', animationDuration: '3s'}} />
-                  <div className="absolute w-6 h-6 bg-blue-400/20 rounded-full animate-ping" style={{top: '60%', left: '80%', animationDuration: '4s', animationDelay: '1s'}} />
-                  <div className="absolute w-3 h-3 bg-cyan-300/30 rounded-full animate-ping" style={{top: '40%', left: '50%', animationDuration: '2.5s', animationDelay: '0.5s'}} />
-                  
-                  {/* Swimming Fish Animation */}
-                  <div className="absolute animate-[swim_8s_ease-in-out_infinite]" style={{top: '30%', left: '-20%'}}>
-                    <svg width="80" height="50" viewBox="0 0 80 50" className="drop-shadow-lg">
-                      <path d="M60 25 Q70 15 80 25 Q70 35 60 25 M0 25 L45 10 L45 40 Z" fill="currentColor" className="text-cyan-300 opacity-80"/>
-                      <circle cx="50" r="3" fill="white"/>
-                    </svg>
-                  </div>
-                  
-                  {/* Second Fish */}
-                  <div className="absolute animate-[swim2_10s_ease-in-out_infinite]" style={{top: '65%', right: '-20%'}}>
-                    <svg width="60" height="40" viewBox="0 0 80 50" className="drop-shadow-lg">
-                      <path d="M60 25 Q70 15 80 25 Q70 35 60 25 M0 25 L45 10 L45 40 Z" fill="currentColor" className="text-blue-300 opacity-70"/>
-                      <circle cx="50" r="2" fill="white"/>
-                    </svg>
-                  </div>
-                </div>
-                
-                {/* Main Image */}
-                {currentSection.image && (
-                  <img 
-                    src={currentSection.image} 
-                    alt={currentSection.title}
-                    className="absolute inset-0 w-full h-full object-contain opacity-80"
-                    onError={(e) => {
-                      e.currentTarget.style.display='none';
-                    }}
-                  />
-                )}
-                
-                {/* Gradient Overlay */}
-                <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-black/30" />
-                
-                {/* Slide Counter Badge */}
-                <div className="absolute top-4 left-4 bg-cyan-500/90 backdrop-blur-sm px-4 py-2 rounded-full shadow-lg">
-                  <span className="font-bold text-white">{activeSection + 1} / {sections.length}</span>
-                </div>
-                
-                {/* Interactive Icon with Hover Effect */}
-                <div className="absolute bottom-4 left-4 group cursor-pointer">
-                  <div className="text-7xl drop-shadow-lg transition-transform duration-300 group-hover:scale-125 group-hover:rotate-12 animate-[float_3s_ease-in-out_infinite]">
-                    {currentSection.icon}
-                  </div>
-                  <div className="absolute -bottom-8 left-0 bg-black/80 px-3 py-1 rounded text-sm text-white opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap">
-                    Click me!
-                  </div>
-                </div>
-                
-                {/* Stats Overlay */}
-                {/*
-                <div className="absolute top-4 right-4 flex flex-col gap-2">
-                  {currentSection.stats.slice(0, 2).map((stat, idx) => (
-                    <div 
-                      key={idx}
-                      className="bg-cyan-500/80 backdrop-blur-sm px-3 py-2 rounded-lg animate-[fadeInUp_0.5s_ease-out_forwards] shadow-lg"
-                      style={{ animationDelay: `${idx * 0.2}s` }}
-                    >
-                      <div className="text-lg font-bold text-white">{stat.value}</div>
-                      <div className="text-xs text-cyan-100">{stat.label}</div>
-                    </div>
-                  ))}
-                </div>
-                */}
-              </div>
-          );
-        }
-
-  function MiniSlideshowBlock({
-    currentSection,
-    microStep,
-    microSteps,
-    goToMicroStep,
-    nextMicroStep,
-    prevMicroStep,
-  }: {
-    currentSection: SectionWithBreakdown;
-    microStep: number;
-    microSteps: MicroStep[];
-    goToMicroStep: (i: number) => void;
-    nextMicroStep: () => void;
-    prevMicroStep: () => void;
-  }) {
-    return (
-              <div className="p-8 md:p-12 flex flex-col justify-center bg-gradient-to-br from-blue-900/80 to-slate-900/80">
-                {/* Animated Title */}
-                <h2 className="text-3xl md:text-4xl font-bold text-white mb-4 animate-[slideInRight_0.6s_ease-out]">
-                  {currentSection.title}
-                </h2>
-                
-                {/* Animated Underline */}
-                <div className="h-1 w-0 bg-gradient-to-r from-cyan-400 to-blue-500 rounded-full mb-6 animate-[expandWidth_0.8s_ease-out_0.3s_forwards]" />
-                
-                {/* ===================== MINI-SLIDESHOW (replaces old Confused button + modal) ===================== */}
-                <div className="mt-6 pt-4 border-t border-blue-700/30">
-                  {/* Step content */}
-                  <div key={microStep} className="min-h-[160px] animate-[fadeIn_0.8s_ease-out]">
-                    {microStep === 0 && (
-                      <div>
-                        {showQuiz && currentSection.quiz && (
-                          <QuizModal quiz={currentSection.quiz} onContinue={handleQuizContinue} />
-                        )}
-                        <p className="text-xl text-blue-100 leading-relaxed mb-4">{currentSection.content}</p>
-                        <div className="grid grid-cols-2 gap-4">
-                          {currentSection.stats.map((stat, idx) => (
-                            <div key={idx} className="bg-blue-800/50 rounded-xl p-4 text-center border border-cyan-500/30">
-                              <div className="text-2xl font-bold text-cyan-400 mb-1"><AnimatedStatValue value={stat.value}/></div>
-                              <div className="text-base text-blue-200">{stat.label}</div>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-                
-                    {microStep === 1 && (
-                      <div className="bg-blue-900/30 rounded-xl p-5 border border-blue-500/20">
-                        <p className="text-blue-100 leading-relaxed text-xl">{currentSection.breakdown.simple}</p>
-                      </div>
-                    )}
-                
-                    {microStep === 2 && (
-                      <div className="space-y-3">
-                        {currentSection.breakdown.keyTerms.map((kt, idx) => (
-                          <div key={idx} className="bg-blue-900/30 rounded-xl p-4 border border-blue-500/20">
-                            <div className="font-bold text-cyan-400 mb-1 text-xl">{kt.term}</div>
-                            <div className="text-blue-100 text-md">{kt.definition}</div>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                
-                    {microStep === 3 && (
-                      <div className="bg-amber-900/20 rounded-xl p-5 border border-amber-500/20">
-                        <p className="text-amber-100 leading-relaxed text-xl">{currentSection.breakdown.realWorldExample}</p>
-                      </div>
-                    )}
-                
-                    {microStep === 4 && (
-                      <div className="bg-slate-900/40 rounded-xl p-5 border border-cyan-500/20">
-                        <p className="text-blue-100 leading-relaxed text-md">{currentSection.breakdown.detailed}</p>
-                      </div>
-                    )}
-                  </div>
-                
-                  {/* Mini-slideshow navigation — always visible */}
-                  <div className="flex items-center justify-between mt-5">
-                    <button
-                      onClick={prevMicroStep}
-                      disabled={microStep === 0}
-                      className="px-3 py-2 rounded-lg bg-blue-800/50 hover:bg-blue-700/60 disabled:opacity-30 text-white text-sm transition-colors"
-                    >
-                      ←
-                    </button>
-                
-                    <div className="flex gap-2">
-                      {microSteps.map((step, idx) => (
-                        <button
-                          key={idx}
-                          onClick={() => goToMicroStep(idx)}
-                          title={step.label}
-                          className={`w-2.5 h-2.5 rounded-full transition-colors ${
-                            idx === microStep ? 'bg-cyan-400' : 'bg-blue-700/50 hover:bg-blue-600/60'
-                          }`}
-                        />
-                      ))}
-                    </div>
-                
-                    <button
-                      onClick={nextMicroStep}
-                      disabled={microStep === microSteps.length - 1}
-                      className="px-3 py-2 rounded-lg bg-blue-800/50 hover:bg-blue-700/60 disabled:opacity-30 text-white text-sm transition-colors"
-                    >
-                      →
-                    </button>
-                  </div>
-                
-                  <p className="text-center text-xs text-blue-300/70 mt-2">{microSteps[microStep].label}</p>
-                </div>
-                
-                {/* Progress Indicator */}
-                {/*
-                <div className="mt-4 flex items-center gap-2">
-                  <span className="text-sm text-blue-300">Progress:</span>
-                  <div className="flex-1 h-2 bg-blue-900/50 rounded-full overflow-hidden">
-                    <div 
-                      className="h-full bg-gradient-to-r from-cyan-400 to-blue-500 transition-all duration-500"
-                      style={{ width: `${((activeSection + 1) / sections.length) * 100}%` }}
-                    />
-                  </div>
-                  <span className="text-sm text-cyan-400 font-medium">
-                    {Math.round(((activeSection + 1) / sections.length) * 100)}%
-                  </span>
-                </div>
-                */}
-            </div>
-        );
-      }
   function ConclusionScreen({ onRestart }: { onRestart: () => void }) {
     return (
       <div className="flex flex-col items-center justify-center text-center py-16 px-8">
@@ -847,105 +946,7 @@ export default function AIPresentation() {
       </div>
     );
   }
-
-  function ClassicLayout(props: {
-    currentSection: SectionWithBreakdown;
-    activeSection: number;
-    totalSections: number;
-    microStep: number;
-    microSteps: MicroStep[];
-    goToMicroStep: (i: number) => void;
-    nextMicroStep: () => void;
-    prevMicroStep: () => void;
-    transcriptText: string;
-    currentTime: number;
-    duration: number;
-    isSpeaking: boolean;
-  }) {
-    return (
-      <div className="bg-white/5 backdrop-blur-md rounded-3xl border border-blue-500/30 shadow-2xl overflow-hidden">
-        <div className="grid md:grid-cols-2 gap-0">
-          <SectionImageBlock
-            currentSection={props.currentSection}
-            activeSection={props.activeSection}
-            totalSections={props.totalSections}
-          />
-          <div className="p-8 md:p-12 flex flex-col justify-center bg-gradient-to-br from-blue-900/80 to-slate-900/80">
-            <MiniSlideshowBlock
-              currentSection={props.currentSection}
-              microStep={props.microStep}
-              microSteps={props.microSteps}
-              goToMicroStep={props.goToMicroStep}
-              nextMicroStep={props.nextMicroStep}
-              prevMicroStep={props.prevMicroStep}
-            />
-          </div>
-        </div>
   
-        <div className="p-6">
-          <TranscriptPanel
-            text={props.transcriptText}
-            currentTime={props.currentTime}
-            duration={props.duration}
-            isSpeaking={props.isSpeaking}
-          />
-        </div>
-      </div>
-    );
-  }
-  // ===================== TEMPLATE 2: SPLIT (new layout) =====================
-  // Left: mini-slideshow (full height). Right: image on top, transcript below.
-  function SplitLayout(props: {
-    currentSection: SectionWithBreakdown;
-    activeSection: number;
-    totalSections: number;
-    microStep: number;
-    microSteps: MicroStep[];
-    goToMicroStep: (i: number) => void;
-    nextMicroStep: () => void;
-    prevMicroStep: () => void;
-    transcriptText: string;
-    currentTime: number;
-    duration: number;
-    isSpeaking: boolean;
-  }) {
-    return (
-      <div className="bg-white/5 backdrop-blur-md rounded-3xl border border-blue-500/30 shadow-2xl overflow-hidden">
-        <div className="grid md:grid-cols-2 gap-0 min-h-[600px]">
-          {/* Left: mini-slideshow, full height */}
-          <div className="p-8 md:p-12 flex flex-col justify-center bg-gradient-to-br from-blue-900/80 to-slate-900/80">
-            <MiniSlideshowBlock
-              currentSection={props.currentSection}
-              microStep={props.microStep}
-              microSteps={props.microSteps}
-              goToMicroStep={props.goToMicroStep}
-              nextMicroStep={props.nextMicroStep}
-              prevMicroStep={props.prevMicroStep}
-            />
-          </div>
-  
-          {/* Right: image on top, transcript below, stacked */}
-          <div className="flex flex-col">
-            <div className="flex-1 min-h-[260px]">
-              <SectionImageBlock
-                currentSection={props.currentSection}
-                activeSection={props.activeSection}
-                totalSections={props.totalSections}
-              />
-            </div>
-            <div className="p-6 bg-slate-900/40">
-              <TranscriptPanel
-                text={props.transcriptText}
-                currentTime={props.currentTime}
-                duration={props.duration}
-                isSpeaking={props.isSpeaking}
-              />
-            </div>
-          </div>
-        </div>
-      </div>
-    );
-  }
   // ===================== RENDER =====================
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-blue-900 to-slate-900 flex flex-col">
