@@ -273,6 +273,50 @@ function AnimatedStatValue({ value }: { value: string }) {
   
   return <>{display}{suffix}</>;
 }
+
+// ===================== TEMPLATE SELECTOR =====================
+// Shown as the very first screen, before the intro.
+function TemplateSelector({ onSelect }: { onSelect: (template: 'classic' | 'split') => void }) {
+  return (
+    <div className="h-screen w-screen flex flex-col items-center justify-center bg-gradient-to-br from-blue-950 to-slate-900 p-8">
+      <h1 className="text-3xl md:text-4xl font-bold text-white mb-2 text-center">Choose Your Lesson Style</h1>
+      <p className="text-blue-300 mb-10 text-center">Same lesson, two different layouts — pick whichever you prefer</p>
+
+      <div className="flex flex-col md:flex-row gap-8">
+        {/* Classic template preview card */}
+        <button
+          onClick={() => onSelect('classic')}
+          className="group bg-slate-800/60 hover:bg-slate-800 border border-blue-500/30 hover:border-cyan-400 rounded-3xl p-6 w-72 transition-colors text-left"
+        >
+          <div className="grid grid-cols-2 gap-2 h-32 mb-4">
+            <div className="bg-blue-700/50 rounded-lg" /> {/* image */}
+            <div className="bg-blue-600/50 rounded-lg" /> {/* content/mini-slideshow */}
+          </div>
+          <div className="bg-blue-600/30 rounded-lg h-6 mb-4" /> {/* transcript bar */}
+          <h3 className="text-white font-bold text-lg mb-1">Classic</h3>
+          <p className="text-blue-300 text-sm">Image and content side-by-side, transcript below</p>
+        </button>
+
+        {/* Split template preview card */}
+        <button
+          onClick={() => onSelect('split')}
+          className="group bg-slate-800/60 hover:bg-slate-800 border border-blue-500/30 hover:border-cyan-400 rounded-3xl p-6 w-72 transition-colors text-left"
+        >
+          <div className="grid grid-cols-2 gap-2 h-32 mb-4">
+            <div className="bg-blue-600/50 rounded-lg" /> {/* mini-slideshow, full height */}
+            <div className="flex flex-col gap-2">
+              <div className="bg-blue-700/50 rounded-lg flex-1" /> {/* image, top */}
+              <div className="bg-blue-500/30 rounded-lg flex-1" /> {/* transcript, bottom */}
+            </div>
+          </div>
+          <h3 className="text-white font-bold text-lg mb-1">Split View</h3>
+          <p className="text-blue-300 text-sm">Content on the left, image and transcript stacked on the right</p>
+        </button>
+      </div>
+    </div>
+  );
+}
+
 // ===================== MAIN COMPONENT =====================
 export default function AIPresentation() {
 
@@ -287,6 +331,7 @@ export default function AIPresentation() {
   const [showIntro, setShowIntro] = useState(true);
   const [showConclusion, setShowConclusion] = useState(false);
   const [showQuiz, setShowQuiz] = useState(false);
+  const [selectedTemplate, setSelectedTemplate] = useState<'classic' | 'split' | null>(null);
 
   const handleRestart = () => {
     stop();
@@ -461,6 +506,10 @@ export default function AIPresentation() {
     );
   }
 
+  if (!selectedTemplate) {
+    return <TemplateSelector onSelect={setSelectedTemplate} />;
+  }
+
   function QuizModal({
     quiz,
     onContinue,
@@ -557,144 +606,16 @@ export default function AIPresentation() {
     );
   }
 
-  function ConclusionScreen({ onRestart }: { onRestart: () => void }) {
+  function SectionImageBlock({
+    currentSection,
+    activeSection,
+    totalSections,
+  }: {
+    currentSection: SectionWithBreakdown;
+    activeSection: number;
+    totalSections: number;
+  }) {
     return (
-      <div className="flex flex-col items-center justify-center text-center py-16 px-8">
-        <div className="text-6xl mb-6">🎓</div>
-        <h2 className="text-3xl md:text-4xl font-bold text-white mb-4">
-          Lesson Complete!
-        </h2>
-        <p className="text-blue-200 text-lg max-w-xl mb-8 leading-relaxed">
-          You've made it through the full story of the Blue Catfish invasion in the Chesapeake Bay —
-          from how they got here, to why they've thrived, to how we might turn the problem into a solution.
-        </p>
-  
-        <div className="flex flex-col sm:flex-row gap-4">
-          <button
-            onClick={onRestart}
-            className="px-6 py-3 bg-blue-800/60 hover:bg-blue-700/70 text-white rounded-xl font-semibold transition-colors border border-blue-500/30"
-          >
-            ↺ Restart Lesson
-          </button>
-        </div>
-  
-        <p className="text-blue-300/70 text-sm mt-8">
-          Still curious about something? Use <span className="text-cyan-400 font-medium">Ask AI</span> up top —
-          Professor Marine is happy to go deeper on anything from the lesson.
-        </p>
-      </div>
-    );
-  }
-  // ===================== RENDER =====================
-  return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-blue-900 to-slate-900 flex flex-col">
-      {/* Header */}
-      <header className="bg-black/30 backdrop-blur-sm border-b border-blue-500/30 p-4">
-        <div className="max-w-7xl mx-auto flex items-center justify-between">
-          {/* Professor Badge */}
-          <div className="flex items-center gap-4">
-            <div className="w-10 h-10 rounded-full bg-gradient-to-br from-cyan-400 to-blue-600 flex items-center justify-center">
-              <span className="text-xl">👨‍🏫</span>
-            </div>
-            <div>
-              <h1 className="text-lg font-bold text-white">
-                {PRESENTATION.professor.name}
-              </h1>
-              <p className="text-xs text-cyan-400">
-                {PRESENTATION.title}
-              </p>
-            </div>
-          </div>
-          
-          <div className="flex items-center gap-3">
-            {/* Speaking Indicator */}
-            {isSpeaking && (
-              <div className="flex items-center gap-2 bg-cyan-500/20 px-4 py-2 rounded-full">
-                <div className="flex gap-1">
-                  {[...Array(3)].map((_, i) => (
-                    <div 
-                      key={i}
-                      className="w-1 h-4 bg-cyan-400 rounded-full animate-pulse"
-                      style={{ animationDelay: `${i * 0.15}s` }}
-                    />
-                  ))}
-                </div>
-                <span className="text-cyan-400 text-sm font-medium">
-                  {isPaused ? 'Paused' : 'Teaching...'}
-                </span>
-              </div>
-            )}
-            
-            {/* Voice Controls */}
-            <div className="flex items-center gap-2 bg-black/30 rounded-full px-4 py-2">
-              <button
-                onClick={() => isSpeaking ? (isPaused ? resume() : pause()) : narrateSection(activeSection)}
-                className="w-10 h-10 rounded-full bg-blue-600 hover:bg-blue-700 text-white flex items-center justify-center transition-colors shadow-lg"
-                title={isSpeaking ? (isPaused ? 'Resume' : 'Pause') : 'Play Narration'}
-              >
-                {isSpeaking && !isPaused ? '⏸️' : '▶️'}
-              </button>
-              <button
-                onClick={stop}
-                disabled={!isSpeaking}
-                className="w-10 h-10 rounded-full bg-red-600 hover:bg-red-700 disabled:bg-gray-600 text-white flex items-center justify-center transition-colors shadow-lg"
-                title="Stop"
-              >
-                ⏹️
-              </button>
-              {/* 
-              <select
-                value={speechRate}
-                onChange={(e) => changeRate(parseFloat(e.target.value))}
-                className="bg-slate-700 text-white text-sm rounded px-2 py-1"
-                title="Speech Speed"
-              >
-                <option value="0.7">0.7x</option>
-                <option value="0.85">0.85x</option>
-                <option value="1.0">1.0x</option>
-              </select>
-              */}
-            </div>
-            
-            {/* Chat Toggle */}
-            <button
-              onClick={() => setShowChat(!showChat)}
-              className={`px-4 py-2 rounded-full font-semibold transition-colors ${
-                showChat 
-                  ? 'bg-cyan-500 text-white' 
-                  : 'bg-blue-600 hover:bg-blue-700 text-white'
-              }`}
-            >
-              💬 Ask AI
-            </button>
-          </div>
-        </div>
-      </header>
-
-      {/* Main Content */}
-      <main className="flex-1 flex items-center justify-center p-8">
-        {showConclusion ? (
-          <ConclusionScreen onRestart={handleRestart} />
-        ) : (
-        <div className="max-w-7xl w-full">
-          {/* Progress Bar */}
-          <div className="mb-8">
-            <div className="flex justify-between text-blue-200 text-sm mb-2">
-              <span>Section {activeSection + 1} of {sections.length}</span>
-              <span>{Math.round(((activeSection + 1) / sections.length) * 100)}%</span>
-            </div>
-            <div className="h-2 bg-blue-900/50 rounded-full overflow-hidden">
-              <div 
-                className="h-full bg-gradient-to-r from-blue-500 to-cyan-400 transition-all duration-500"
-                style={{ width: `${((activeSection + 1) / sections.length) * 100}%` }}
-              />
-            </div>
-          </div>
-
-          {/* Two Column Layout - Image Left, Content Right */}
-          <div className="bg-white/5 backdrop-blur-md rounded-3xl border border-blue-500/30 shadow-2xl overflow-hidden">
-            <div className="grid md:grid-cols-2 lg:grid-cols--[1.05fr_1.4fr_0.7fr] gap-0">
-              {/* Left: Interactive Animated Graphics */}
               <div className="relative h-72 md:h-auto min-h-[500px] bg-gradient-to-br from-blue-800 to-cyan-900 overflow-hidden">
                 {/* Animated Background Elements */}
                 <div className="absolute inset-0 overflow-hidden">
@@ -766,8 +687,25 @@ export default function AIPresentation() {
                 </div>
                 */}
               </div>
-              
-              {/* Right: Content with Animations */}
+          );
+        }
+
+  function MiniSlideshowBlock({
+    currentSection,
+    microStep,
+    microSteps,
+    goToMicroStep,
+    nextMicroStep,
+    prevMicroStep,
+  }: {
+    currentSection: SectionWithBreakdown;
+    microStep: number;
+    microSteps: MicroStep[];
+    goToMicroStep: (i: number) => void;
+    nextMicroStep: () => void;
+    prevMicroStep: () => void;
+  }) {
+    return (
               <div className="p-8 md:p-12 flex flex-col justify-center bg-gradient-to-br from-blue-900/80 to-slate-900/80">
                 {/* Animated Title */}
                 <h2 className="text-3xl md:text-4xl font-bold text-white mb-4 animate-[slideInRight_0.6s_ease-out]">
@@ -879,15 +817,274 @@ export default function AIPresentation() {
                 </div>
                 */}
             </div>
-            <div className="col-span-full w-full p-6">
+          </div>
+        );
+      }
+  function ConclusionScreen({ onRestart }: { onRestart: () => void }) {
+    return (
+      <div className="flex flex-col items-center justify-center text-center py-16 px-8">
+        <div className="text-6xl mb-6">🎓</div>
+        <h2 className="text-3xl md:text-4xl font-bold text-white mb-4">
+          Lesson Complete!
+        </h2>
+        <p className="text-blue-200 text-lg max-w-xl mb-8 leading-relaxed">
+          You've made it through the full story of the Blue Catfish invasion in the Chesapeake Bay —
+          from how they got here, to why they've thrived, to how we might turn the problem into a solution.
+        </p>
+  
+        <div className="flex flex-col sm:flex-row gap-4">
+          <button
+            onClick={onRestart}
+            className="px-6 py-3 bg-blue-800/60 hover:bg-blue-700/70 text-white rounded-xl font-semibold transition-colors border border-blue-500/30"
+          >
+            ↺ Restart Lesson
+          </button>
+        </div>
+  
+        <p className="text-blue-300/70 text-sm mt-8">
+          Still curious about something? Use <span className="text-cyan-400 font-medium">Ask AI</span> up top —
+          Professor Marine is happy to go deeper on anything from the lesson.
+        </p>
+      </div>
+    );
+  }
+
+  function ClassicLayout(props: {
+    currentSection: SectionWithBreakdown;
+    activeSection: number;
+    totalSections: number;
+    microStep: number;
+    microSteps: MicroStep[];
+    goToMicroStep: (i: number) => void;
+    nextMicroStep: () => void;
+    prevMicroStep: () => void;
+    transcriptText: string;
+    currentTime: number;
+    duration: number;
+    isSpeaking: boolean;
+  }) {
+    return (
+      <div className="bg-white/5 backdrop-blur-md rounded-3xl border border-blue-500/30 shadow-2xl overflow-hidden">
+        <div className="grid md:grid-cols-2 gap-0">
+          <SectionImageBlock
+            currentSection={props.currentSection}
+            activeSection={props.activeSection}
+            totalSections={props.totalSections}
+          />
+          <div className="p-8 md:p-12 flex flex-col justify-center bg-gradient-to-br from-blue-900/80 to-slate-900/80">
+            <MiniSlideshowBlock
+              currentSection={props.currentSection}
+              microStep={props.microStep}
+              microSteps={props.microSteps}
+              goToMicroStep={props.goToMicroStep}
+              nextMicroStep={props.nextMicroStep}
+              prevMicroStep={props.prevMicroStep}
+            />
+          </div>
+        </div>
+  
+        <div className="p-6">
+          <TranscriptPanel
+            text={props.transcriptText}
+            currentTime={props.currentTime}
+            duration={props.duration}
+            isSpeaking={props.isSpeaking}
+          />
+        </div>
+      </div>
+    );
+  }
+  // ===================== TEMPLATE 2: SPLIT (new layout) =====================
+  // Left: mini-slideshow (full height). Right: image on top, transcript below.
+  function SplitLayout(props: {
+    currentSection: SectionWithBreakdown;
+    activeSection: number;
+    totalSections: number;
+    microStep: number;
+    microSteps: MicroStep[];
+    goToMicroStep: (i: number) => void;
+    nextMicroStep: () => void;
+    prevMicroStep: () => void;
+    transcriptText: string;
+    currentTime: number;
+    duration: number;
+    isSpeaking: boolean;
+  }) {
+    return (
+      <div className="bg-white/5 backdrop-blur-md rounded-3xl border border-blue-500/30 shadow-2xl overflow-hidden">
+        <div className="grid md:grid-cols-2 gap-0 min-h-[600px]">
+          {/* Left: mini-slideshow, full height */}
+          <div className="p-8 md:p-12 flex flex-col justify-center bg-gradient-to-br from-blue-900/80 to-slate-900/80">
+            <MiniSlideshowBlock
+              currentSection={props.currentSection}
+              microStep={props.microStep}
+              microSteps={props.microSteps}
+              goToMicroStep={props.goToMicroStep}
+              nextMicroStep={props.nextMicroStep}
+              prevMicroStep={props.prevMicroStep}
+            />
+          </div>
+  
+          {/* Right: image on top, transcript below, stacked */}
+          <div className="flex flex-col">
+            <div className="flex-1 min-h-[260px]">
+              <SectionImageBlock
+                currentSection={props.currentSection}
+                activeSection={props.activeSection}
+                totalSections={props.totalSections}
+              />
+            </div>
+            <div className="p-6 bg-slate-900/40">
               <TranscriptPanel
-                text={getMicroStepText(currentSection, microStep)}
-                currentTime={currentTime}
-                duration={duration}
-                isSpeaking={isSpeaking}
+                text={props.transcriptText}
+                currentTime={props.currentTime}
+                duration={props.duration}
+                isSpeaking={props.isSpeaking}
               />
             </div>
           </div>
+        </div>
+      </div>
+    );
+  }
+  // ===================== RENDER =====================
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-blue-900 to-slate-900 flex flex-col">
+      {/* Header */}
+      <header className="bg-black/30 backdrop-blur-sm border-b border-blue-500/30 p-4">
+        <div className="max-w-7xl mx-auto flex items-center justify-between">
+          {/* Professor Badge */}
+          <div className="flex items-center gap-4">
+            <div className="w-10 h-10 rounded-full bg-gradient-to-br from-cyan-400 to-blue-600 flex items-center justify-center">
+              <span className="text-xl">👨‍🏫</span>
+            </div>
+            <div>
+              <h1 className="text-lg font-bold text-white">
+                {PRESENTATION.professor.name}
+              </h1>
+              <p className="text-xs text-cyan-400">
+                {PRESENTATION.title}
+              </p>
+            </div>
+          </div>
+          
+          <div className="flex items-center gap-3">
+            {/* Speaking Indicator */}
+            {isSpeaking && (
+              <div className="flex items-center gap-2 bg-cyan-500/20 px-4 py-2 rounded-full">
+                <div className="flex gap-1">
+                  {[...Array(3)].map((_, i) => (
+                    <div 
+                      key={i}
+                      className="w-1 h-4 bg-cyan-400 rounded-full animate-pulse"
+                      style={{ animationDelay: `${i * 0.15}s` }}
+                    />
+                  ))}
+                </div>
+                <span className="text-cyan-400 text-sm font-medium">
+                  {isPaused ? 'Paused' : 'Teaching...'}
+                </span>
+              </div>
+            )}
+            
+            {/* Voice Controls */}
+            <div className="flex items-center gap-2 bg-black/30 rounded-full px-4 py-2">
+              <button
+                onClick={() => isSpeaking ? (isPaused ? resume() : pause()) : narrateSection(activeSection)}
+                className="w-10 h-10 rounded-full bg-blue-600 hover:bg-blue-700 text-white flex items-center justify-center transition-colors shadow-lg"
+                title={isSpeaking ? (isPaused ? 'Resume' : 'Pause') : 'Play Narration'}
+              >
+                {isSpeaking && !isPaused ? '⏸️' : '▶️'}
+              </button>
+              <button
+                onClick={stop}
+                disabled={!isSpeaking}
+                className="w-10 h-10 rounded-full bg-red-600 hover:bg-red-700 disabled:bg-gray-600 text-white flex items-center justify-center transition-colors shadow-lg"
+                title="Stop"
+              >
+                ⏹️
+              </button>
+              {/* 
+              <select
+                value={speechRate}
+                onChange={(e) => changeRate(parseFloat(e.target.value))}
+                className="bg-slate-700 text-white text-sm rounded px-2 py-1"
+                title="Speech Speed"
+              >
+                <option value="0.7">0.7x</option>
+                <option value="0.85">0.85x</option>
+                <option value="1.0">1.0x</option>
+              </select>
+              */}
+            </div>
+            
+            {/* Chat Toggle */}
+            <button
+              onClick={() => setShowChat(!showChat)}
+              className={`px-4 py-2 rounded-full font-semibold transition-colors ${
+                showChat 
+                  ? 'bg-cyan-500 text-white' 
+                  : 'bg-blue-600 hover:bg-blue-700 text-white'
+              }`}
+            >
+              💬 Ask AI
+            </button>
+          </div>
+        </div>
+      </header>
+
+      {/* Main Content */}
+      <main className="flex-1 flex items-center justify-center p-8">
+        {showConclusion ? (
+          <ConclusionScreen onRestart={handleRestart} />
+        ) : (
+        <div className="max-w-7xl w-full">
+          {/* Progress Bar */}
+          <div className="mb-8">
+            <div className="flex justify-between text-blue-200 text-sm mb-2">
+              <span>Section {activeSection + 1} of {sections.length}</span>
+              <span>{Math.round(((activeSection + 1) / sections.length) * 100)}%</span>
+            </div>
+            <div className="h-2 bg-blue-900/50 rounded-full overflow-hidden">
+              <div 
+                className="h-full bg-gradient-to-r from-blue-500 to-cyan-400 transition-all duration-500"
+                style={{ width: `${((activeSection + 1) / sections.length) * 100}%` }}
+              />
+            </div>
+          </div>
+
+          {selectedTemplate === 'classic' ? (
+            <ClassicLayout
+              currentSection={currentSection}
+              activeSection={activeSection}
+              totalSections={sections.length}
+              microStep={microStep}
+              microSteps={microSteps}
+              goToMicroStep={goToMicroStep}
+              nextMicroStep={nextMicroStep}
+              prevMicroStep={prevMicroStep}
+              transcriptText={getMicroStepText(currentSection, microStep)}
+              currentTime={currentTime}
+              duration={duration}
+              isSpeaking={isSpeaking}
+            />
+          ) : (
+            <SplitLayout
+              currentSection={currentSection}
+              activeSection={activeSection}
+              totalSections={sections.length}
+              microStep={microStep}
+              microSteps={microSteps}
+              goToMicroStep={goToMicroStep}
+              nextMicroStep={nextMicroStep}
+              prevMicroStep={prevMicroStep}
+              transcriptText={getMicroStepText(currentSection, microStep)}
+              currentTime={currentTime}
+              duration={duration}
+              isSpeaking={isSpeaking}
+            />
+          )}
+          
             {/* Custom Keyframe Animations */}
             <style jsx>{`
               @keyframes swim {
