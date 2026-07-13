@@ -817,7 +817,6 @@ export default function AIPresentation() {
                 </div>
                 */}
             </div>
-          </div>
         );
       }
   function ConclusionScreen({ onRestart }: { onRestart: () => void }) {
