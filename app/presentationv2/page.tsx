@@ -42,8 +42,6 @@ const PRESENTATION = {
 };
 
 // ===================== AUDIO PLAYER HOOK (updated) =====================
-// Now tracks currentText + currentTime/duration so the transcript panel
-// can estimate which word is currently being spoken.
 const useAudioPlayer = () => {
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
@@ -557,7 +555,6 @@ function SectionImageBlock({
                           isActive={currentKey === `section${0}_overview` || currentKey?.endsWith('_overview')}
                           className="text-xl text-blue-100 leading-relaxed mb-4"
                         />
-                        <p className="text-xl text-blue-100 leading-relaxed mb-4">{currentSection.content}</p>
                         <div className="grid grid-cols-2 gap-4">
                           {currentSection.stats.map((stat, idx) => (
                             <div key={idx} className="bg-blue-800/50 rounded-xl p-4 text-center border border-cyan-500/30">
@@ -579,7 +576,6 @@ function SectionImageBlock({
                           isActive={currentKey === `section${0}_simple` || currentKey?.endsWith('_simple')}
                           className="text-xl text-blue-100 leading-relaxed mb-4"
                         />
-                        <p className="text-blue-100 leading-relaxed text-xl">{currentSection.breakdown.simple}</p>
                       </div>
                     )}
                 
@@ -604,8 +600,6 @@ function SectionImageBlock({
                           isActive={currentKey === `section${0}_example` || currentKey?.endsWith('_example')}
                           className="text-xl text-blue-100 leading-relaxed mb-4"
                         />
-
-                        <p className="text-amber-100 leading-relaxed text-xl">{currentSection.breakdown.realWorldExample}</p>
                       </div>
                     )}
                   </div>
@@ -673,12 +667,12 @@ function ClassicLayout(props: {
     goToMicroStep: (i: number) => void;
     nextMicroStep: () => void;
     prevMicroStep: () => void;
-    transcriptText: string;
     currentTime: number;
     duration: number;
     isSpeaking: boolean;
     showQuiz: boolean;
     handleQuizContinue: () => void;
+    currentKey: string | null;
   }) {
     return (
       <div className="bg-white/5 backdrop-blur-md rounded-3xl border border-blue-500/30 shadow-2xl overflow-hidden">
@@ -698,6 +692,7 @@ function ClassicLayout(props: {
               prevMicroStep={props.prevMicroStep}
               showQuiz={props.showQuiz}
               handleQuizContinue={props.handleQuizContinue}
+              currentKey={props.currentKey}
             />
           </div>
         </div>
@@ -715,7 +710,7 @@ function ClassicLayout(props: {
     goToMicroStep: (i: number) => void;
     nextMicroStep: () => void;
     prevMicroStep: () => void;
-    transcriptText: string;
+    currentKey: string | null;
     currentTime: number;
     duration: number;
     isSpeaking: boolean;
@@ -736,6 +731,7 @@ function ClassicLayout(props: {
               prevMicroStep={props.prevMicroStep}
               showQuiz={props.showQuiz}
               handleQuizContinue={props.handleQuizContinue}
+              currentKey={props.currentKey}
             />
           </div>
   
@@ -1090,6 +1086,7 @@ export default function AIPresentation() {
               goToMicroStep={goToMicroStep}
               nextMicroStep={nextMicroStep}
               prevMicroStep={prevMicroStep}
+              currentKey={currentKey}
               currentTime={currentTime}
               duration={duration}
               isSpeaking={isSpeaking}
