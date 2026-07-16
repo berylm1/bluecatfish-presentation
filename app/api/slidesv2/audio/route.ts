@@ -7,7 +7,7 @@ const supabase = createClient(
 );
 
 const BUCKET = "slide-audio";
-const FOLDER = "sections_v3";
+const FOLDER = "sections_v4";
 
 async function generateAndUpload(text: string, fileName: string): Promise<string> {
   // Skip regenerating if it already exists in Storage
