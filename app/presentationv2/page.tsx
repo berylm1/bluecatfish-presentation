@@ -512,6 +512,10 @@ function SectionImageBlock({
     prevMicroStep,
     showQuiz,
     handleQuizContinue,
+    currentTime,
+    duration,
+    isSpeaking,
+    currentKey,
   }: {
     currentSection: SectionWithBreakdown;
     microStep: number;
@@ -521,6 +525,10 @@ function SectionImageBlock({
     prevMicroStep: () => void;
     showQuiz: boolean;
     handleQuizContinue: () => void;
+    currentTime: number;
+    duration: number;
+    isSpeaking: boolean;
+    currentKey: string | null;
   }) {
     return (
               <div className="p-8 md:p-12 flex flex-col justify-center bg-gradient-to-br from-blue-900/80 to-slate-900/80">
@@ -541,6 +549,14 @@ function SectionImageBlock({
                         {showQuiz && currentSection.quiz && (
                           <QuizModal quiz={currentSection.quiz} onContinue={handleQuizContinue} />
                         )}
+                        <HighlightedText
+                          text={currentSection.content}
+                          currentTime={currentTime}
+                          duration={duration}
+                          isSpeaking={isSpeaking}
+                          isActive={currentKey === `section${0}_overview` || currentKey?.endsWith('_overview')}
+                          className="text-xl text-blue-100 leading-relaxed mb-4"
+                        />
                         <p className="text-xl text-blue-100 leading-relaxed mb-4">{currentSection.content}</p>
                         <div className="grid grid-cols-2 gap-4">
                           {currentSection.stats.map((stat, idx) => (
@@ -555,6 +571,14 @@ function SectionImageBlock({
                 
                     {microStep === 1 && (
                       <div className="bg-blue-900/30 rounded-xl p-5 border border-blue-500/20">
+                        <HighlightedText
+                          text={currentSection.content}
+                          currentTime={currentTime}
+                          duration={duration}
+                          isSpeaking={isSpeaking}
+                          isActive={currentKey === `section${0}_overview` || currentKey?.endsWith('_overview')}
+                          className="text-xl text-blue-100 leading-relaxed mb-4"
+                        />
                         <p className="text-blue-100 leading-relaxed text-xl">{currentSection.breakdown.simple}</p>
                       </div>
                     )}
@@ -572,13 +596,16 @@ function SectionImageBlock({
                 
                     {microStep === 3 && (
                       <div className="bg-amber-900/20 rounded-xl p-5 border border-amber-500/20">
+                        <HighlightedText
+                          text={currentSection.content}
+                          currentTime={currentTime}
+                          duration={duration}
+                          isSpeaking={isSpeaking}
+                          isActive={currentKey === `section${0}_overview` || currentKey?.endsWith('_overview')}
+                          className="text-xl text-blue-100 leading-relaxed mb-4"
+                        />
+
                         <p className="text-amber-100 leading-relaxed text-xl">{currentSection.breakdown.realWorldExample}</p>
-                      </div>
-                    )}
-                
-                    {microStep === 4 && (
-                      <div className="bg-slate-900/40 rounded-xl p-5 border border-cyan-500/20">
-                        <p className="text-blue-100 leading-relaxed text-md">{currentSection.breakdown.detailed}</p>
                       </div>
                     )}
                   </div>
