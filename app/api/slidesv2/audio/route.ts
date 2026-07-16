@@ -77,8 +77,8 @@ export async function POST(req: Request) {
       const section = sections[i];
 
       if (section.narration) {
-        audioUrls[`section${i}_narration`] = await generateAndUpload(
-          section.narration,
+        audioUrls[`section${i}_overview`] = await generateAndUpload(
+          section.content,
           `${FOLDER}/section${i + 1}_narration.mp3`
         );
       }
@@ -87,13 +87,6 @@ export async function POST(req: Request) {
         audioUrls[`section${i}_simple`] = await generateAndUpload(
           section.breakdown.simple,
           `${FOLDER}/section${i + 1}_simple.mp3`
-        );
-      }
-
-      if (section.breakdown?.detailed) {
-        audioUrls[`section${i}_detailed`] = await generateAndUpload(
-          section.breakdown.detailed,
-          `${FOLDER}/section${i + 1}_detailed.mp3`
         );
       }
       
