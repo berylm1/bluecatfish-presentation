@@ -65,19 +65,17 @@ SOURCE CONTENT:
 """${ragContext}"""
 
 STRICT RULES YOU MUST FOLLOW:
-1. "content" must be exactly 2 sentences — an informative on-screen paragraph summarizing this section's core idea.
-2. "narration" must be a DIFFERENT script than "content" — written for natural spoken delivery (this feeds a text-to-speech pipeline), covering the same topic with different phrasing/pacing. Roughly 2-4 sentences.
-3. "stats" must contain EXACTLY 2 items, each a short quantitative or date-based fact from the source content, styled like:
+1. "content" must be exactly 2 sentences — an informative on-screen short-paragraph summarizing this section's core idea.
+2. "stats" must contain EXACTLY 2 items, each a short quantitative or date-based fact from the source content, styled like:
    { "value": "100+ Million", "label": "Estimated population in Bay" }
    { "value": "1970s-80s", "label": "When they were introduced" }
    "value" is the short number/date/quantity. "label" is a small caption explaining what it refers to (3-6 words).
-4. "icon" must be a single emoji character that visually represents this section's topic.
-5. "breakdown.simple" must be exactly 2 sentences, explaining the topic in the SIMPLEST possible terms for a confused learner — must use DIFFERENT wording and framing than "content", not just a shorter version of it.
-6. "breakdown.detailed" must be 4-5 sentences of deeper, more scientific/technical explanation, still strictly grounded in the source content, for a learner who wants more depth.
-7. "breakdown.keyTerms" must contain EXACTLY 3 items, each a key word or phrase from this section paired with a plain-language definition:
+3. "icon" must be a single emoji character that visually represents this section's topic.
+4. "breakdown.simple" must be exactly 2 sentences, explaining the topic in the SIMPLEST possible terms for a confused learner — must use DIFFERENT wording and framing than "content", not just a shorter version of it.
+5. "breakdown.keyTerms" must contain EXACTLY 3 items, each a key word or phrase from this section paired with a plain-language definition:
    { "term": "...", "definition": "..." }
-8. "breakdown.realWorldExample" must explain the concept via an analogy to something unrelated and familiar (e.g. comparing an ecological concept to delivery logistics, sports, cooking, etc.) — NOT another catfish/fish fact. 2-3 sentences.
-9. "quiz" must contain EXACTLY 2 multiple-choice questions testing understanding of THIS section's specific content (not other sections). Each question must have exactly 4 "options" and a "correctAnswer" index (0-3) pointing to the correct option. Base both questions strictly on facts present in the SOURCE CONTENT or in the generated section content — do not invent facts or ask about anything not covered in this section.
+6. "breakdown.realWorldExample" must explain the concept via an analogy to something unrelated and familiar (e.g. comparing an ecological concept to delivery logistics, sports, cooking, etc.) — NOT another catfish/fish fact. 2-3 sentences.
+7. "quiz" must contain EXACTLY 2 multiple-choice questions testing understanding of THIS section's specific content (not other sections). Each question must have exactly 4 "options" and a "correctAnswer" index (0-3) pointing to the correct option. Base both questions strictly on facts present in the SOURCE CONTENT or in the generated section content — do not invent facts or ask about anything not covered in this section.
 Output ONLY a JSON object with key "section" structured EXACTLY like this:
 
 {
@@ -90,10 +88,8 @@ Output ONLY a JSON object with key "section" structured EXACTLY like this:
       { "value": "...", "label": "..." },
       { "value": "...", "label": "..." }
     ],
-    "narration": "TTS script, different wording than content",
     "breakdown": {
       "simple": "2 sentences, different angle than content",
-      "detailed": "4-5 sentences, scientific depth",
       "keyTerms": [
         { "term": "...", "definition": "..." },
         { "term": "...", "definition": "..." },
@@ -163,7 +159,7 @@ async function assignUniqueImages(sections: any[], sectionTopics: string[]) {
 
 export async function POST(req: Request) {
   try {
-    const cacheKey = `bluecatfish_sections_ai_v1`;
+    const cacheKey = `bluecatfish_sections_ai_v2`;
 
     const cachedRaw = await getValue(cacheKey);
     if (cachedRaw) {
