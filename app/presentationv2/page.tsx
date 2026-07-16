@@ -129,7 +129,7 @@ type MicroStep = {
 
 function getMicroSteps(sectionIndex: number): MicroStep[] {
   return [
-    { label: 'Overview', audioKey: `section${sectionIndex}_narration` },
+    { label: 'Overview', audioKey: `section${sectionIndex}_overview` },
     { label: 'Simple Explanation', audioKey: `section${sectionIndex}_simple` },
     { label: 'Key Terms', audioKey: null }, // visual only, no audio
     { label: 'Real World Example', audioKey: `section${sectionIndex}_example` },
@@ -576,7 +576,7 @@ function SectionImageBlock({
                           currentTime={currentTime}
                           duration={duration}
                           isSpeaking={isSpeaking}
-                          isActive={currentKey === `section${0}_overview` || currentKey?.endsWith('_overview')}
+                          isActive={currentKey === `section${0}_simple` || currentKey?.endsWith('_simple')}
                           className="text-xl text-blue-100 leading-relaxed mb-4"
                         />
                         <p className="text-blue-100 leading-relaxed text-xl">{currentSection.breakdown.simple}</p>
@@ -601,7 +601,7 @@ function SectionImageBlock({
                           currentTime={currentTime}
                           duration={duration}
                           isSpeaking={isSpeaking}
-                          isActive={currentKey === `section${0}_overview` || currentKey?.endsWith('_overview')}
+                          isActive={currentKey === `section${0}_example` || currentKey?.endsWith('_example')}
                           className="text-xl text-blue-100 leading-relaxed mb-4"
                         />
 
@@ -748,14 +748,6 @@ function ClassicLayout(props: {
                 totalSections={props.totalSections}
               />
             </div>
-            <div className="p-6 bg-slate-900/40">
-              <TranscriptPanel
-                text={props.transcriptText}
-                currentTime={props.currentTime}
-                duration={props.duration}
-                isSpeaking={props.isSpeaking}
-              />
-            </div>
           </div>
         </div>
       </div>
@@ -837,7 +829,7 @@ export default function AIPresentation() {
   // ---- Narration handlers ----
   const narrateSection = (index: number) => {
     if (index < sections.length) {
-      play(audioUrls[`section${index}_narration`], `section${index}_narration`);
+      play(audioUrls[`section${index}_overview`], `section${index}_overview`);
       setIsNarrating(true);
       setShowConclusion(false);
     } else {
@@ -906,11 +898,10 @@ export default function AIPresentation() {
   
   function getMicroStepText(section: SectionWithBreakdown, stepIndex: number): string {
     switch (stepIndex) {
-      case 0: return section.narration;
+      case 0: return section.overview;
       case 1: return section.breakdown.simple;
       case 2: return ''; // key terms — rendered as a list, no single narrated text
       case 3: return section.breakdown.realWorldExample;
-      case 4: return section.breakdown.detailed;
       default: return '';
     }
   }
