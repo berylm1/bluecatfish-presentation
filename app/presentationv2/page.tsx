@@ -569,7 +569,7 @@ function SectionImageBlock({
                     {microStep === 1 && (
                       <div className="bg-blue-900/30 rounded-xl p-5 border border-blue-500/20">
                         <HighlightedText
-                          text={currentSection.simple}
+                          text={currentSection.breakdown.simple}
                           currentTime={currentTime}
                           duration={duration}
                           isSpeaking={isSpeaking}
@@ -593,7 +593,7 @@ function SectionImageBlock({
                     {microStep === 3 && (
                       <div className="bg-amber-900/20 rounded-xl p-5 border border-amber-500/20">
                         <HighlightedText
-                          text={currentSection.example}
+                          text={currentSection.breakdown.realWorldExample}
                           currentTime={currentTime}
                           duration={duration}
                           isSpeaking={isSpeaking}
