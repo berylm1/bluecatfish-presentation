@@ -693,6 +693,9 @@ function ClassicLayout(props: {
               showQuiz={props.showQuiz}
               handleQuizContinue={props.handleQuizContinue}
               currentKey={props.currentKey}
+              currentTime={props.currentTime}
+              duration={props.duration}
+              isSpeaking={props.isSpeaking}
             />
           </div>
         </div>
@@ -732,6 +735,9 @@ function ClassicLayout(props: {
               showQuiz={props.showQuiz}
               handleQuizContinue={props.handleQuizContinue}
               currentKey={props.currentKey}
+              currentTime={props.currentTime}
+              duration={props.duration}
+              isSpeaking={props.isSpeaking}
             />
           </div>
   
