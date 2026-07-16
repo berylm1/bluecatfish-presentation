@@ -76,7 +76,7 @@ export async function POST(req: Request) {
     for (let i = 0; i < sections.length; i++) {
       const section = sections[i];
 
-      if (section.narration) {
+      if (section.content) {
         audioUrls[`section${i}_overview`] = await generateAndUpload(
           section.content,
           `${FOLDER}/section${i + 1}_overview.mp3`
