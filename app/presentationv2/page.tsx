@@ -123,51 +123,6 @@ const useAudioPlayer = () => {
   return { play, pause, resume, stop, isSpeaking, isPaused, currentKey, currentText, currentTime, duration };
 };
 
-// ===================== TRANSCRIPT PANEL =====================
-// Highlights the word currently "being spoken" by estimating position
-// from currentTime / duration (approximate, not exact word-timing).
-function TranscriptPanel({
-  text,
-  currentTime,
-  duration,
-  isSpeaking,
-}: {
-  text: string;
-  currentTime: number;
-  duration: number;
-  isSpeaking: boolean;
-}) {
-  const words = text ? text.split(/\s+/) : [];
-  const activeIndex =
-    isSpeaking && duration > 0
-      ? Math.min(words.length - 1, Math.floor((currentTime / duration) * words.length))
-      : -1;
-
-  return (
-    <div className="bg-slate-900/60 backdrop-blur-md rounded-3xl border border-blue-500/20 p-8 max-w-4xl mx-auto text-center">
-      <h4 className="text-cyan-400 font-bold mb-4 text-sm uppercase tracking-wide">Transcript</h4>
-      {words.length > 0 ? (
-        <p className="text-blue-100 leading-relaxed text-xl md:text-2xl">
-          {words.map((word, i) => (
-            <span
-              key={i}
-              className={
-                i === activeIndex
-                  ? 'bg-cyan-500/40 text-white rounded px-1.5 transition-colors'
-                  : 'transition-colors'
-              }
-            >
-              {word}{' '}
-            </span>
-          ))}
-        </p>
-      ) : (
-        <p className="text-blue-300/60 italic text-lg">Press play to see the transcript here.</p>
-      )}
-    </div>
-  );
-}
-
 // ===================== MICRO-STEP (mini-slideshow) CONFIG =====================
 type MicroStep = {
   label: string;
@@ -668,15 +623,6 @@ function ClassicLayout(props: {
             />
           </div>
         </div>
-  
-        <div className="p-6">
-          <TranscriptPanel
-            text={props.transcriptText}
-            currentTime={props.currentTime}
-            duration={props.duration}
-            isSpeaking={props.isSpeaking}
-          />
-        </div>
       </div>
     );
   }
@@ -1075,7 +1021,6 @@ export default function AIPresentation() {
               goToMicroStep={goToMicroStep}
               nextMicroStep={nextMicroStep}
               prevMicroStep={prevMicroStep}
-              transcriptText={getMicroStepText(currentSection, microStep)}
               currentTime={currentTime}
               duration={duration}
               isSpeaking={isSpeaking}
@@ -1092,7 +1037,7 @@ export default function AIPresentation() {
               goToMicroStep={goToMicroStep}
               nextMicroStep={nextMicroStep}
               prevMicroStep={prevMicroStep}
-              transcriptText={getMicroStepText(currentSection, microStep)}
+              currentKey={currentKey}
               currentTime={currentTime}
               duration={duration}
               isSpeaking={isSpeaking}
