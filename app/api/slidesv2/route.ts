@@ -110,7 +110,7 @@ Output ONLY a JSON object with key "section" structured EXACTLY like this:
         },
       ],
       temperature: 0.7,
-      max_tokens: 2400,
+      max_tokens: 3200,
     }),
   });
 
@@ -124,7 +124,7 @@ Output ONLY a JSON object with key "section" structured EXACTLY like this:
   const validKeyTerms = section.breakdown?.keyTerms?.length === 3;
   const validStats = section.stats?.length === 2;
 
-  if ((!validKeyTerms || !validStats) && attempt < 2) {
+  if ((!validKeyTerms || !validStats) && attempt < 3) {
     console.warn(`Section ${sectionNum} malformed (keyTerms/stats), retrying...`);
     return generateSingleSection(ragContext, sectionTopic, sectionNum, attempt + 1);
   }
