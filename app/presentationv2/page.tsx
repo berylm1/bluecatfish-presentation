@@ -852,7 +852,11 @@ export default function AIPresentation() {
 
   const nextSection = () => {
     setMicroStep(0);
-    setShowQuiz(true);
+    if (currentSection.quiz && currentSection.quiz.length === 2) {
+      setShowQuiz(true);
+    } else {
+    handleQuizContinue(); // no valid quiz for this section — just advance
+    }
   };
 
   const handleQuizContinue = () => {
