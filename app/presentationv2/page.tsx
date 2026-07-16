@@ -212,7 +212,7 @@ const useAIChat = () => {
         body: JSON.stringify({
           userText: text,
           topic: 'Blue Catfish invasion in the Chesapeake Bay',
-          systemPrompt: `You are "${PRESENTATION.professor.name}", a university professor specializing in Marine Biology and Conservation. Your teaching style is engaging, academic yet accessible, and you use real-world examples to illustrate complex concepts.`,
+          systemPrompt: `You are "${PRESENTATION.professor.name}", a university professor specializing in Marine Biology and Conservation. The student is currently viewing a slide titled "${currentSection.title}" which covers: ${currentSection.content} Answer questions with awareness of what they're currently looking at, and relate your answers back to this section when relevant, like a professor referencing the current lecture slide.`,
           conversation: messages.map(m => ({
             role: m.role === 'ai' ? 'assistant' : 'user',
             content: m.text,
