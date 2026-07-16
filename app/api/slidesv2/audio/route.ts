@@ -79,7 +79,7 @@ export async function POST(req: Request) {
       if (section.narration) {
         audioUrls[`section${i}_overview`] = await generateAndUpload(
           section.content,
-          `${FOLDER}/section${i + 1}_narration.mp3`
+          `${FOLDER}/section${i + 1}_overview.mp3`
         );
       }
 
