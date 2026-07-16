@@ -16,10 +16,8 @@ interface SectionWithBreakdown {
   image: string;
   content: string;
   stats: { value: string; label: string }[];
-  narration: string;
   breakdown: {
     simple: string;
-    detailed: string;
     keyTerms: { term: string; definition: string }[];
     realWorldExample: string;
   quiz: { question: string; options: string[]; correctAnswer: number }[];
@@ -135,8 +133,61 @@ function getMicroSteps(sectionIndex: number): MicroStep[] {
     { label: 'Simple Explanation', audioKey: `section${sectionIndex}_simple` },
     { label: 'Key Terms', audioKey: null }, // visual only, no audio
     { label: 'Real World Example', audioKey: `section${sectionIndex}_example` },
-    { label: 'Dive Deeper', audioKey: `section${sectionIndex}_detailed` },
   ];
+}
+
+function getMicroStepText(section: SectionWithBreakdown, stepIndex: number): string {
+  switch (stepIndex) {
+    case 0: return section.content;
+    case 1: return section.breakdown.simple;
+    case 2: return ''; // key terms — list, not narrated
+    case 3: return section.breakdown.realWorldExample;
+    default: return '';
+  }
+}
+
+function HighlightedText({
+  text,
+  currentTime,
+  duration,
+  isSpeaking,
+  isActive, // true only if THIS text is what's currently playing
+  className,
+}: {
+  text: string;
+  currentTime: number;
+  duration: number;
+  isSpeaking: boolean;
+  isActive: boolean;
+  className?: string;
+}) {
+  const words = text ? text.split(/\s+/) : [];
+  const activeIndex =
+    isActive && isSpeaking && duration > 0
+      ? (() => {
+          const totalChars = words.reduce((sum, w) => sum + w.length, 0);
+          const targetChars = (currentTime / duration) * totalChars;
+          let cumulative = 0;
+          for (let i = 0; i < words.length; i++) {
+            cumulative += words[i].length;
+            if (cumulative >= targetChars) return i;
+          }
+          return words.length - 1;
+        })()
+      : -1;
+
+  return (
+    <p className={className}>
+      {words.map((word, i) => (
+        <span
+          key={i}
+          className={i === activeIndex ? 'bg-cyan-400/40 rounded px-1 transition-colors' : 'transition-colors'}
+        >
+          {word}{' '}
+        </span>
+      ))}
+    </p>
+  );
 }
 
 // ===================== AI CHAT HOOK =====================
