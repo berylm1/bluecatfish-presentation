@@ -302,7 +302,7 @@ function QuizSlide({
 
   return (
     <div className="bg-gradiant-to-br from-mist-50/70 to-mist-400/70 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-      <div className="bg-gradiant-to-br from-mist-200/70 to-mist-400/70 rounded-3xl max-w-2xl w-full max-h-[85vh] overflow-y-auto border border-white/30 shadow-2xl p-8">
+      <div className="bg-gradiant-to-br from-mist-400/70 via-mist-300/70 to-mist-400/70 rounded-3xl max-w-2xl w-full max-h-[85vh] overflow-y-auto border border-white/30 shadow-2xl p-8">
         <h3 className="text-2xl font-bold text-black mb-1">Quick Check</h3>
         <p className="text-black text-sm mb-6">Answer both questions to continue</p>
 
@@ -324,7 +324,7 @@ function QuizSlide({
                   } else if (showResult && isSelected && !isCorrect) {
                     stateClasses = 'border-red-500 bg-red-900/30';
                   } else if (isSelected) {
-                    stateClasses = 'border-white/70 bg-mist-50/20';
+                    stateClasses = 'border-white/70 bg-mist-400/20';
                   }
 
                   return (
@@ -392,8 +392,8 @@ function TemplateSelector({ onSelect }: { onSelect: (template: 'classic' | 'spli
             <div className="bg-blue-600/50 rounded-lg" /> {/* content/mini-slideshow */}
           </div>
           <div className="bg-blue-600/30 rounded-lg h-6 mb-4" /> {/* transcript bar */}
-          <h3 className="text-white font-bold text-lg mb-1">Classic</h3>
-          <p className="text-blue-300 text-sm">Image and content side-by-side, transcript below</p>
+          <h3 className="text-black font-bold text-lg mb-1">Classic</h3>
+          <p className="text-blue-500 text-sm">Image and content side-by-side, transcript below</p>
         </button>
 
         {/* Split template preview card */}
@@ -408,8 +408,8 @@ function TemplateSelector({ onSelect }: { onSelect: (template: 'classic' | 'spli
               <div className="bg-blue-500/30 rounded-lg flex-1" /> {/* transcript, bottom */}
             </div>
           </div>
-          <h3 className="text-white font-bold text-lg mb-1">Split View</h3>
-          <p className="text-blue-300 text-sm">Content on the left, image and transcript stacked on the right</p>
+          <h3 className="text-black font-bold text-lg mb-1">Split View</h3>
+          <p className="text-blue-500 text-sm">Content on the left, image and transcript stacked on the right</p>
         </button>
       </div>
     </div>
@@ -739,13 +739,11 @@ function ClassicLayout(props: {
   
           {/* Right: image on top, transcript below, stacked */}
           <div className="flex flex-col">
-            <div className="flex-1 min-h-[260px]">
-              <SectionImageBlock
-                currentSection={props.currentSection}
-                activeSection={props.activeSection}
-                totalSections={props.totalSections}
-              />
-            </div>
+            <SectionImageBlock
+              currentSection={props.currentSection}
+              activeSection={props.activeSection}
+              totalSections={props.totalSections}
+            />
           </div>
         </div>
       </div>
@@ -942,7 +940,7 @@ export default function AIPresentation() {
   // ---- Loading / error states before rendering the presentation ----
   if (isContentLoading) {
     return (
-      <div className="h-screen w-screen flex items-center justify-center text-2xl font-semibold text-white bg-mist-300">
+      <div className="h-screen w-screen flex items-center justify-center text-2xl font-semibold text-black bg-mist-300">
         Generating your lesson...
       </div>
     );
@@ -1235,7 +1233,7 @@ export default function AIPresentation() {
 
       {/* AI Chat Panel */}
       {showChat && (
-        <div className="fixed right-6 bottom-6 w-[26rem] max-h-[70vh] bg-slate-900/95 backdrop-blur-lg rounded-2xl shadow-2xl border border-blue-500/30 flex flex-col overflow-hidden z-50">
+        <div className="fixed right-6 bottom-6 w-[26rem] max-h-[70vh] bg-mist-500/95 backdrop-blur-lg rounded-2xl shadow-2xl border border-blue-500/30 flex flex-col overflow-hidden z-50">
           {/* Chat Header */}
           <div className="bg-gradient-to-r from-blue-600 to-cyan-600 p-4 flex items-center justify-between">
             <div className="flex items-center gap-2">
@@ -1264,7 +1262,7 @@ export default function AIPresentation() {
                   className={`max-w-[75%] rounded-2xl px-4 py-3 ${
                     msg.role === 'user'
                       ? 'bg-blue-600 text-white rounded-br-none'
-                      : 'bg-slate-700 text-gray-100 rounded-bl-none'
+                      : 'bg-mist-300 text-black rounded-bl-none'
                   }`}
                 >
                   <p className="text-sm">{msg.text}</p>
@@ -1284,7 +1282,7 @@ export default function AIPresentation() {
           </div>
 
           {/* Chat Input */}
-          <div className="p-4 border-t border-slate-700">
+          <div className="p-4 border-t border-white">
             <div className="flex gap-2">
               <input
                 type="text"
@@ -1292,7 +1290,7 @@ export default function AIPresentation() {
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && !isLoading && sendMessage(input)}
                 placeholder="Ask about Blue Catfish..."
-                className="flex-1 bg-slate-700 text-white rounded-full px-[21px] py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="flex-1 bg-mist-300 text-black rounded-full px-[21px] py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
                 disabled={isLoading}
               />
               <button
