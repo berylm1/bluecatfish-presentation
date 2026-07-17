@@ -767,7 +767,8 @@ export default function AIPresentation() {
   const [showConclusion, setShowConclusion] = useState(false);
   const [showQuiz, setShowQuiz] = useState(false);
   const [selectedTemplate, setSelectedTemplate] = useState<'classic' | 'split' | null>(null);
-
+  const [completedQuizzes, setCompletedQuizzes] = useState<Set<number>>(new Set());
+  
   const handleRestart = () => {
     stop();
     setActiveSection(0);
