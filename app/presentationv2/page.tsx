@@ -300,7 +300,7 @@ function QuizModal({
   const allAnswered = answers.every((a) => a !== null);
   const score = quiz.reduce((total, q, i) => (answers[i] === q.correctAnswer ? total + 1 : total), 0);
 
-  return createPortal(
+  return (
     <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-4">
       <div className="bg-gradient-to-br from-slate-800 to-slate-900 rounded-3xl max-w-2xl w-full max-h-[85vh] overflow-y-auto border border-cyan-500/30 shadow-2xl p-8">
         <h3 className="text-2xl font-bold text-white mb-1">Quick Check</h3>
@@ -370,7 +370,6 @@ function QuizModal({
         </div>
       </div>
     </div>,
-    document.body
   );
 }
 
@@ -544,9 +543,6 @@ function SectionImageBlock({
                   <div key={microStep} className="min-h-[160px] animate-[fadeIn_0.8s_ease-out]">
                     {microStep === 0 && (
                       <div>
-                        {showQuiz && currentSection.quiz && (
-                          <QuizModal quiz={currentSection.quiz} onContinue={handleQuizContinue} />
-                        )}
                         <HighlightedText
                           text={currentSection.content}
                           currentTime={currentTime}
@@ -591,7 +587,7 @@ function SectionImageBlock({
                     )}
                 
                     {microStep === 3 && (
-                      <div className="bg-amber-900/20 rounded-xl p-5 border border-amber-700/40">
+                      <div className="bg-amber-900/30 rounded-xl p-5 border border-amber-700/40">
                         <HighlightedText
                           text={currentSection.breakdown.realWorldExample}
                           currentTime={currentTime}
@@ -868,7 +864,9 @@ export default function AIPresentation() {
   };
 
   const handleQuizContinue = () => {
+    setCompletedQuizzes((prev) => new Set([...prev, activeSection]));
     setShowQuiz(false);
+    
     if (activeSection < sections.length - 1) {
       stop();
       const newIndex = activeSection + 1;
@@ -1014,7 +1012,7 @@ export default function AIPresentation() {
                     />
                   ))}
                 </div>
-                <span className="text-cyan-400 text-sm font-medium">
+                <span className="text-blue-700 text-sm font-medium">
                   {isPaused ? 'Paused' : 'Teaching...'}
                 </span>
               </div>
@@ -1086,7 +1084,9 @@ export default function AIPresentation() {
             </div>
           </div>
 
-          {selectedTemplate === 'classic' ? (
+          {showQuiz ? (
+            <QuizSlide quiz={currentSection.quiz} onContinue={handleQuizContinue} /> 
+          ) : selectedTemplate === 'classic' ? (
             <ClassicLayout
               currentSection={currentSection}
               activeSection={activeSection}
@@ -1173,21 +1173,33 @@ export default function AIPresentation() {
             </button>
             
             <div className="flex gap-2">
-              {sections.map((_, idx) => (
-                <button
-                  key={idx}
-                  onClick={() => {
-                    stop();
-                    setActiveSection(idx);
-                    setTimeout(() => narrateSection(idx), 300);
-                  }}
-                  className={`w-3 h-3 rounded-full transition-colors ${
-                    idx === activeSection 
-                      ? 'bg-cyan-500' 
-                      : 'bg-blue-600 hover:bg-blue-400'
-                  }`}
-                />
-              ))}
+              {sections.map((_, idx) => {
+                const isCompleted = completedQuizzes.has(idx);
+                const isActive = idx === activeSection;
+
+                let dotClasses = 'w-3 h-3 rounded-full transition-colors ';
+                if (!isCompleted) {
+                  dotClasses += 'bg-slate-300 hover:bg-slate-400';
+                } else if (isActive) {
+                  dotClasses += 'bg-cyan-500';
+                } else if (isCompleted) {
+                    dotClasses += 'bg-green-500 hover:bg-green-400';
+                } else {
+                  dotClasses += 'bg-blue-600 hover:bg-blue-400';
+                }
+
+                return (
+                  <button
+                    key={idx}
+                    onClick={() => {
+                      stop();
+                      setActiveSection(idx);
+                      setTimeout(() => narrateSection(idx), 300);
+                    }}
+                    className={dotClasses}
+                  />
+                );
+              })}
             </div>
 
             <button
