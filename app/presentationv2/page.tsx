@@ -554,7 +554,7 @@ function SectionImageBlock({
                         <div className="grid grid-cols-2 gap-4">
                           {currentSection.stats.map((stat, idx) => (
                             <div key={idx} className="bg-blue-700/20 rounded-xl p-5 text-center border border-black/40">
-                              <div className="text-2xl font-bold text-black mb-1"><AnimatedStatValue value={stat.value}/></div>
+                              <div className="text-2xl font-bold text-blue-800 mb-1"><AnimatedStatValue value={stat.value}/></div>
                               <div className="text-base text-black">{stat.label}</div>
                             </div>
                           ))}
