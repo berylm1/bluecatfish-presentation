@@ -465,7 +465,7 @@ function SectionImageBlock({
                 )}
                 
                 {/* Gradient Overlay */}
-                <div className="absolute inset-0 bg-gradient-to-t from-mist-400/70 via-transparent to-mist-500/30" />
+                <div className="absolute inset-0 bg-gradient-to-t from-mist-400/70 via-transparent to-mist-500/70" />
                 
                 {/* Slide Counter Badge */}
                 <div className="absolute top-4 left-4 bg-cyan-500/90 backdrop-blur-sm px-4 py-2 rounded-full shadow-lg">
@@ -529,7 +529,7 @@ function SectionImageBlock({
     currentKey: string | null;
   }) {
     return (
-              <div className="p-8 md:p-12 flex flex-col justify-center bg-gradient-to-br from-mist-50-50/80 to-mist-400/80">
+              <div className="p-8 md:p-12 flex flex-col justify-center bg-gradient-to-br from-mauve-400/70 to-mauve-500/70 rounded-3xl border border-white-500/30">
                 {/* Animated Title */}
                 <h2 className="text-3xl md:text-4xl font-bold text-black mb-4 animate-[slideInRight_0.6s_ease-out]">
                   {currentSection.title}
@@ -539,7 +539,7 @@ function SectionImageBlock({
                 <div className="h-1 w-0 bg-gradient-to-r from-cyan-700 to-blue-700 rounded-full mb-6 animate-[expandWidth_0.8s_ease-out_0.3s_forwards]" />
                 
                 {/* ===================== MINI-SLIDESHOW (replaces old Confused button + modal) ===================== */}
-                <div className="mt-6 pt-4 border-t border-blue-300/30">
+                <div className="mt-6 pt-4 border-t border-blue-700/30">
                   {/* Step content */}
                   <div key={microStep} className="min-h-[160px] animate-[fadeIn_0.8s_ease-out]">
                     {microStep === 0 && (
@@ -557,7 +557,7 @@ function SectionImageBlock({
                         />
                         <div className="grid grid-cols-2 gap-4">
                           {currentSection.stats.map((stat, idx) => (
-                            <div key={idx} className="bg-blue-900/50 rounded-xl p-5 text-center border border-black/60">
+                            <div key={idx} className="bg-blue-700/40 rounded-xl p-5 text-center border border-black/40">
                               <div className="text-2xl font-bold text-black mb-1"><AnimatedStatValue value={stat.value}/></div>
                               <div className="text-base text-black">{stat.label}</div>
                             </div>
@@ -567,7 +567,7 @@ function SectionImageBlock({
                     )}
                 
                     {microStep === 1 && (
-                      <div className="bg-blue-900/60 rounded-xl p-5 border border-blue-500/40">
+                      <div className="bg-blue-700/40 rounded-xl p-5 border border-blue-500/40">
                         <HighlightedText
                           text={currentSection.breakdown.simple}
                           currentTime={currentTime}
@@ -582,8 +582,8 @@ function SectionImageBlock({
                     {microStep === 2 && (
                       <div className="space-y-3">
                         {currentSection.breakdown.keyTerms.map((kt, idx) => (
-                          <div key={idx} className="bg-blue-900/60 rounded-xl p-5 border border-blue-600/40">
-                            <div className="font-bold text-blue-700 mb-1 text-xl">{kt.term}</div>
+                          <div key={idx} className="bg-blue-700/40 rounded-xl p-5 border border-blue-600/40">
+                            <div className="font-bold text-blue-800 mb-1 text-xl">{kt.term}</div>
                             <div className="text-black text-md">{kt.definition}</div>
                           </div>
                         ))}
@@ -591,7 +591,7 @@ function SectionImageBlock({
                     )}
                 
                     {microStep === 3 && (
-                      <div className="bg-amber-900/60 rounded-xl p-5 border border-amber-700/40">
+                      <div className="bg-amber-900/40 rounded-xl p-5 border border-amber-700/40">
                         <HighlightedText
                           text={currentSection.breakdown.realWorldExample}
                           currentTime={currentTime}
@@ -682,7 +682,7 @@ function ClassicLayout(props: {
             activeSection={props.activeSection}
             totalSections={props.totalSections}
           />
-          <div className="p-8 md:p-12 flex flex-col justify-center bg-gradient-to-br from-mist-400/80 to-mist-500/80">
+          <div className="p-8 md:p-12 flex flex-col justify-center bg-gradient-to-br from-mist-400/70 to-mist-500/70">
             <MiniSlideshowBlock
               currentSection={props.currentSection}
               microStep={props.microStep}
@@ -982,7 +982,7 @@ export default function AIPresentation() {
   
   // ===================== RENDER =====================
   return (
-    <div className="min-h-screen bg-gradient-to-br from-mist-400 via-mist-50 to-mist-400 flex flex-col">
+    <div className="min-h-screen bg-gradient-to-br from-white/30 to-grey-500 flex flex-col">
       {/* Header */}
       <header className="bg-white/30 backdrop-blur-sm border-b border-grey-500/30 p-4">
         <div className="max-w-7xl mx-auto flex items-center justify-between">
@@ -1167,7 +1167,7 @@ export default function AIPresentation() {
             <button
               onClick={prevSection}
               disabled={activeSection === 0}
-              className="px-8 py-4 bg-white/10 hover:bg-white/20 disabled:opacity-30 disabled:cursor-not-allowed text-white font-semibold rounded-full transition-colors flex items-center gap-2"
+              className="px-8 py-4 bg-black/10 hover:bg-black/20 disabled:opacity-30 disabled:cursor-not-allowed text-white font-semibold rounded-full transition-colors flex items-center gap-2"
             >
               ← Previous
             </button>
