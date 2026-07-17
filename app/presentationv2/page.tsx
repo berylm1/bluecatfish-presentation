@@ -188,55 +188,6 @@ function HighlightedText({
   );
 }
 
-// ===================== AI CHAT HOOK =====================
-const useAIChat = () => {
-  const [messages, setMessages] = useState<Message[]>([
-    { role: 'ai', text: `Good day! I'm ${PRESENTATION.professor.name}, and I'll be your guide through today's lecture on the Blue Catfish invasion in the Chesapeake Bay. Feel free to ask me any questions as we go through the material. What would you like to explore first?` }
-  ]);
-  const [isLoading, setIsLoading] = useState(false);
-  const [input, setInput] = useState('');
-
-  const sendMessage = async (text: string) => {
-    if (!text.trim()) return;
-    const userMessage: Message = { role: 'user', text };
-    setMessages(prev => [...prev, userMessage]);
-    setInput('');
-    setIsLoading(true);
-
-    try {
-      const response = await fetch('/api/conversational/respond', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          userText: text,
-          topic: 'Blue Catfish invasion in the Chesapeake Bay',
-          systemPrompt: `You are "${PRESENTATION.professor.name}", a university professor specializing in Marine Biology and Conservation. The student is currently viewing a slide titled "${currentSection.title}" which covers: ${currentSection.content} Answer questions with awareness of what they're currently looking at, and relate your answers back to this section when relevant, like a professor referencing the current lecture slide.`,
-          conversation: messages.map(m => ({
-            role: m.role === 'ai' ? 'assistant' : 'user',
-            content: m.text,
-          })),
-        }),
-      });
-
-      const data = await response.json();
-
-      if (data.reply) {
-        setMessages(prev => [...prev, { role: 'ai', text: data.reply }]);
-      } else {
-        console.error('No reply in response:', data);
-        setMessages(prev => [...prev, { role: 'ai', text: "Sorry, I couldn't generate a response. Please try again." }]);
-      }
-    } catch (err) {
-      console.error('RAG chat failed:', err);
-      setMessages(prev => [...prev, { role: 'ai', text: "Sorry, I'm having trouble responding right now. Please try again." }]);
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  return { messages, isLoading, input, setInput, sendMessage };
-};
-
 // ===================== ANIMATED STAT VALUE =====================
   // Counts up any leading number in the stat value (e.g. "100+ Million" -> counts 0 to 100,
   // keeps "+ Million" as a static suffix). Falls back to a plain fade-in for non-numeric
@@ -755,6 +706,7 @@ function ClassicLayout(props: {
       </div>
     );
   }
+
 // ===================== MAIN COMPONENT =====================
 export default function AIPresentation() {
 
@@ -781,7 +733,7 @@ export default function AIPresentation() {
   };
   
   const { play, pause, resume, stop, isSpeaking, isPaused, currentKey, currentText, currentTime, duration } = useAudioPlayer();
-  const { messages, isLoading, input, setInput, sendMessage } = useAIChat();
+  const { messages, isLoading, input, setInput, sendMessage } = useAIChat(currentSection);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -980,6 +932,54 @@ export default function AIPresentation() {
     );
   }
   
+// ===================== AI CHAT HOOK =====================
+const useAIChat = (currentSection: SectionWithBreakdown | undefined) => {
+  const [messages, setMessages] = useState<Message[]>([
+    { role: 'ai', text: `Good day! I'm ${PRESENTATION.professor.name}, and I'll be your guide through today's lecture on the Blue Catfish invasion in the Chesapeake Bay. Feel free to ask me any questions as we go through the material. What would you like to explore first?` }
+  ]);
+  const [isLoading, setIsLoading] = useState(false);
+  const [input, setInput] = useState('');
+
+  const sendMessage = async (text: string) => {
+    if (!text.trim()) return;
+    const userMessage: Message = { role: 'user', text };
+    setMessages(prev => [...prev, userMessage]);
+    setInput('');
+    setIsLoading(true);
+
+    try {
+      const response = await fetch('/api/conversational/respond', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userText: text,
+          topic: 'Blue Catfish invasion in the Chesapeake Bay',
+          systemPrompt: `You are "${PRESENTATION.professor.name}", a university professor specializing in Marine Biology and Conservation. The student is currently viewing a slide titled "${currentSection.title}" which covers: ${currentSection.content} Answer questions with awareness of what they're currently looking at, and relate your answers back to this section when relevant, like a professor referencing the current lecture slide.`,
+          conversation: messages.map(m => ({
+            role: m.role === 'ai' ? 'assistant' : 'user',
+            content: m.text,
+          })),
+        }),
+      });
+
+      const data = await response.json();
+
+      if (data.reply) {
+        setMessages(prev => [...prev, { role: 'ai', text: data.reply }]);
+      } else {
+        console.error('No reply in response:', data);
+        setMessages(prev => [...prev, { role: 'ai', text: "Sorry, I couldn't generate a response. Please try again." }]);
+      }
+    } catch (err) {
+      console.error('RAG chat failed:', err);
+      setMessages(prev => [...prev, { role: 'ai', text: "Sorry, I'm having trouble responding right now. Please try again." }]);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  return { messages, isLoading, input, setInput, sendMessage };
+};
   // ===================== RENDER =====================
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-blue-900 to-slate-900 flex flex-col">
