@@ -302,13 +302,13 @@ function QuizSlide({
 
   return (
     <div className="bg-gradiant-to-br from-mist-50/70 to-mist-400/70 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-      <div className="bg-gradiant-to-br from-mist-50/70 to-mist-400/70 rounded-3xl max-w-2xl w-full max-h-[85vh] overflow-y-auto border border-white/30 shadow-2xl p-8">
+      <div className="bg-gradiant-to-br from-mist-200/70 to-mist-400/70 rounded-3xl max-w-2xl w-full max-h-[85vh] overflow-y-auto border border-white/30 shadow-2xl p-8">
         <h3 className="text-2xl font-bold text-black mb-1">Quick Check</h3>
         <p className="text-black text-sm mb-6">Answer both questions to continue</p>
 
         <div className="space-y-6">
           {quiz.map((q, qIdx) => (
-            <div key={qIdx} className="bg-gradient-to-br from-mauve-200/30 to-mauve-400/30 rounded-2xl p-5 border border-white/20">
+            <div key={qIdx} className="bg-gradient-to-br from-mauve-300/30 to-mauve-500/30 rounded-2xl p-5 border border-white/20">
               <p className="text-black font-semibold mb-4">
                 {qIdx + 1}. {q.question}
               </p>
@@ -318,7 +318,7 @@ function QuizSlide({
                   const isCorrect = optIdx === q.correctAnswer;
                   const showResult = submitted;
 
-                  let stateClasses = 'border-grey/40 hover:border-white/30 bg-mist-700/30';
+                  let stateClasses = 'border-white/30 bg-mist-200/30 hover:border-black/20 hover:bg-mist-500/30';
                   if (showResult && isCorrect) {
                     stateClasses = 'border-green-500 bg-green-900/30';
                   } else if (showResult && isSelected && !isCorrect) {
@@ -332,7 +332,7 @@ function QuizSlide({
                       key={optIdx}
                       onClick={() => selectAnswer(qIdx, optIdx)}
                       disabled={submitted}
-                      className={`w-full text-left px-4 py-3 rounded-xl border transition-colors text-blue-100 ${stateClasses}`}
+                      className={`w-full text-left px-4 py-3 rounded-xl border transition-colors text-black ${stateClasses}`}
                     >
                       {opt}
                       {showResult && isCorrect && <span className="ml-2">✓</span>}
