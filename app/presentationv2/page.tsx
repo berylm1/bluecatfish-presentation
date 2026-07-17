@@ -893,8 +893,6 @@ export default function AIPresentation() {
   };
 
   // ===================== IN AIPresentation COMPONENT ====================
-  const currentSection = sections[activeSection];
-  
   const [microStep, setMicroStep] = useState(0);
   const microSteps = getMicroSteps(activeSection);
   
