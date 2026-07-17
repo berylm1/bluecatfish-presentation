@@ -553,7 +553,7 @@ function SectionImageBlock({
                           duration={duration}
                           isSpeaking={isSpeaking}
                           isActive={currentKey === `section${0}_overview` || currentKey?.endsWith('_overview')}
-                          className="text-xl text-blue-100 leading-relaxed mb-4"
+                          className="text-xl text-black leading-relaxed mb-4"
                         />
                         <div className="grid grid-cols-2 gap-4">
                           {currentSection.stats.map((stat, idx) => (
@@ -636,7 +636,7 @@ function SectionImageBlock({
                     </button>
                   </div>
                 
-                  <p className="text-center text-xs text-blue-300/70 mt-2">{microSteps[microStep].label}</p>
+                  <p className="text-center text-xs text-blue-700/70 mt-2">{microSteps[microStep].label}</p>
                 </div>
                 
                 {/* Progress Indicator */}
@@ -682,7 +682,7 @@ function ClassicLayout(props: {
             activeSection={props.activeSection}
             totalSections={props.totalSections}
           />
-          <div className="p-8 md:p-12 flex flex-col justify-center bg-gradient-to-br from-blue-50/80 to-blue-200/80">
+          <div className="p-8 md:p-12 flex flex-col justify-center bg-gradient-to-br from-mist-50/80 to-mist-400/80">
             <MiniSlideshowBlock
               currentSection={props.currentSection}
               microStep={props.microStep}
@@ -1276,7 +1276,7 @@ export default function AIPresentation() {
       )}
 
       {/* Source Attribution */}
-      <footer className="text-center py-4 text-blue-300 text-sm">
+      <footer className="text-center py-4 text-blue-700 text-sm">
         <p>
           Source: University of Maryland Extension - 
           <a 
