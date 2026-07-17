@@ -1074,7 +1074,7 @@ export default function AIPresentation() {
         <div className="max-w-7xl w-full">
           {/* Progress Bar */}
           <div className="mb-8">
-            <div className="flex justify-between text-blue-200 text-sm mb-2">
+            <div className="flex justify-between text-black text-sm mb-2">
               <span>Section {activeSection + 1} of {sections.length}</span>
               <span>{Math.round(((activeSection + 1) / sections.length) * 100)}%</span>
             </div>
