@@ -427,7 +427,7 @@ function SectionImageBlock({
     totalSections: number;
   }) {
     return (
-              <div className="relative h-72 md:h-auto min-h-[500px] bg-gradient-to-br from-blue-800 to-cyan-900 overflow-hidden">
+              <div className="relative h-72 md:h-auto min-h-[500px] bg-gradient-to-br from-blue-50 to-blue-200 overflow-hidden">
                 {/* Animated Background Elements */}
                 <div className="absolute inset-0 overflow-hidden">
                   {/* Floating Bubbles */}
@@ -529,7 +529,7 @@ function SectionImageBlock({
     currentKey: string | null;
   }) {
     return (
-              <div className="p-8 md:p-12 flex flex-col justify-center bg-gradient-to-br from-blue-900/80 to-slate-900/80">
+              <div className="p-8 md:p-12 flex flex-col justify-center bg-gradient-to-br from-blue-50/80 to-blue-200/80">
                 {/* Animated Title */}
                 <h2 className="text-3xl md:text-4xl font-bold text-white mb-4 animate-[slideInRight_0.6s_ease-out]">
                   {currentSection.title}
@@ -539,7 +539,7 @@ function SectionImageBlock({
                 <div className="h-1 w-0 bg-gradient-to-r from-cyan-400 to-blue-500 rounded-full mb-6 animate-[expandWidth_0.8s_ease-out_0.3s_forwards]" />
                 
                 {/* ===================== MINI-SLIDESHOW (replaces old Confused button + modal) ===================== */}
-                <div className="mt-6 pt-4 border-t border-blue-700/30">
+                <div className="mt-6 pt-4 border-t border-blue-300/30">
                   {/* Step content */}
                   <div key={microStep} className="min-h-[160px] animate-[fadeIn_0.8s_ease-out]">
                     {microStep === 0 && (
@@ -675,14 +675,14 @@ function ClassicLayout(props: {
     currentKey: string | null;
   }) {
     return (
-      <div className="bg-white/5 backdrop-blur-md rounded-3xl border border-blue-500/30 shadow-2xl overflow-hidden">
+      <div className="bg-white/5 backdrop-blur-md rounded-3xl border border-white-500/30 shadow-2xl overflow-hidden">
         <div className="grid md:grid-cols-2 gap-0">
           <SectionImageBlock
             currentSection={props.currentSection}
             activeSection={props.activeSection}
             totalSections={props.totalSections}
           />
-          <div className="p-8 md:p-12 flex flex-col justify-center bg-gradient-to-br from-blue-900/80 to-slate-900/80">
+          <div className="p-8 md:p-12 flex flex-col justify-center bg-gradient-to-br from-blue-50/80 to-blue-200/80">
             <MiniSlideshowBlock
               currentSection={props.currentSection}
               microStep={props.microStep}
@@ -984,7 +984,7 @@ export default function AIPresentation() {
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-blue-900 to-slate-900 flex flex-col">
       {/* Header */}
-      <header className="bg-black/30 backdrop-blur-sm border-b border-blue-500/30 p-4">
+      <header className="bg-white/30 backdrop-blur-sm border-b border-grey-500/30 p-4">
         <div className="max-w-7xl mx-auto flex items-center justify-between">
           {/* Professor Badge */}
           <div className="flex items-center gap-4">
