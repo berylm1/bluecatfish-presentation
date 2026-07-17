@@ -738,7 +738,7 @@ function ClassicLayout(props: {
           </div>
   
           {/* Right: image on top, transcript below, stacked */}
-          <div className="grid md:grid-cols-2 gap-0">
+          <div className="grid md:grid-cols-1 gap-0 min-h-[600px]">
             <SectionImageBlock
               currentSection={props.currentSection}
               activeSection={props.activeSection}
