@@ -529,7 +529,7 @@ function SectionImageBlock({
     currentKey: string | null;
   }) {
     return (
-              <div className="p-8 md:p-12 flex flex-col justify-center bg-gradient-to-br from-mauve-200/70 to-mauve-400/70 rounded-3xl border border-white-500/30">
+              <div className="p-8 md:p-12 flex flex-col justify-center bg-gradient-to-br from-mauve-200/70 to-mauve-300/70 rounded-3xl border border-white-500/30">
                 {/* Animated Title */}
                 <h2 className="text-3xl md:text-4xl font-bold text-black mb-4 animate-[slideInRight_0.6s_ease-out]">
                   {currentSection.title}
@@ -557,7 +557,7 @@ function SectionImageBlock({
                         />
                         <div className="grid grid-cols-2 gap-4">
                           {currentSection.stats.map((stat, idx) => (
-                            <div key={idx} className="bg-blue-700/30 rounded-xl p-5 text-center border border-black/40">
+                            <div key={idx} className="bg-blue-700/20 rounded-xl p-5 text-center border border-black/40">
                               <div className="text-2xl font-bold text-black mb-1"><AnimatedStatValue value={stat.value}/></div>
                               <div className="text-base text-black">{stat.label}</div>
                             </div>
@@ -567,7 +567,7 @@ function SectionImageBlock({
                     )}
                 
                     {microStep === 1 && (
-                      <div className="bg-blue-700/30 rounded-xl p-5 border border-blue-500/40">
+                      <div className="bg-blue-700/20 rounded-xl p-5 border border-blue-500/40">
                         <HighlightedText
                           text={currentSection.breakdown.simple}
                           currentTime={currentTime}
@@ -582,7 +582,7 @@ function SectionImageBlock({
                     {microStep === 2 && (
                       <div className="space-y-3">
                         {currentSection.breakdown.keyTerms.map((kt, idx) => (
-                          <div key={idx} className="bg-blue-700/30 rounded-xl p-5 border border-blue-600/40">
+                          <div key={idx} className="bg-blue-700/20 rounded-xl p-5 border border-blue-600/40">
                             <div className="font-bold text-blue-800 mb-1 text-xl">{kt.term}</div>
                             <div className="text-black text-md">{kt.definition}</div>
                           </div>
@@ -591,7 +591,7 @@ function SectionImageBlock({
                     )}
                 
                     {microStep === 3 && (
-                      <div className="bg-amber-900/30 rounded-xl p-5 border border-amber-700/40">
+                      <div className="bg-amber-900/20 rounded-xl p-5 border border-amber-700/40">
                         <HighlightedText
                           text={currentSection.breakdown.realWorldExample}
                           currentTime={currentTime}
@@ -1067,7 +1067,7 @@ export default function AIPresentation() {
       </header>
 
       {/* Main Content */}
-      <main className="flex-1 flex items-center justify-center p-8">
+      <main className="flex-1 flex items-center justify-center p-8 bg-mist-300/50">
         {showConclusion ? (
           <ConclusionScreen onRestart={handleRestart} />
         ) : (
@@ -1167,7 +1167,7 @@ export default function AIPresentation() {
             <button
               onClick={prevSection}
               disabled={activeSection === 0}
-              className="px-8 py-4 bg-black/30 hover:bg-black/50 disabled:opacity-30 disabled:cursor-not-allowed text-white font-semibold rounded-full transition-colors flex items-center gap-2"
+              className="px-8 py-4 bg-black/50 hover:bg-black/80 disabled:opacity-30 disabled:cursor-not-allowed text-white font-semibold rounded-full transition-colors flex items-center gap-2"
             >
               ← Previous
             </button>
