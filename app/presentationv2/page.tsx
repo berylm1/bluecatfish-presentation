@@ -377,15 +377,15 @@ function QuizSlide({
 // Shown as the very first screen, before the intro.
 function TemplateSelector({ onSelect }: { onSelect: (template: 'classic' | 'split') => void }) {
   return (
-    <div className="h-screen w-screen flex flex-col items-center justify-center bg-gradient-to-br from-blue-950 to-slate-900 p-8">
-      <h1 className="text-3xl md:text-4xl font-bold text-white mb-2 text-center">Choose Your Lesson Style</h1>
-      <p className="text-blue-300 mb-10 text-center">Same lesson, two different layouts — pick whichever you prefer</p>
+    <div className="h-screen w-screen flex flex-col items-center justify-center bg-gradient-to-br from-mist-50 to-mist-400 p-8">
+      <h1 className="text-3xl md:text-4xl font-bold text-black mb-2 text-center">Choose Your Lesson Style</h1>
+      <p className="text-blue-500 mb-10 text-center">Same lesson, two different layouts — pick whichever you prefer</p>
 
       <div className="flex flex-col md:flex-row gap-8">
         {/* Classic template preview card */}
         <button
           onClick={() => onSelect('classic')}
-          className="group bg-slate-800/60 hover:bg-slate-800 border border-blue-500/30 hover:border-cyan-400 rounded-3xl p-6 w-72 transition-colors text-left"
+          className="group bg-mist-500/60 hover:bg-mist-200 border border-grey/50 hover:border-white rounded-3xl p-6 w-72 transition-colors text-left"
         >
           <div className="grid grid-cols-2 gap-2 h-32 mb-4">
             <div className="bg-blue-700/50 rounded-lg" /> {/* image */}
@@ -399,7 +399,7 @@ function TemplateSelector({ onSelect }: { onSelect: (template: 'classic' | 'spli
         {/* Split template preview card */}
         <button
           onClick={() => onSelect('split')}
-          className="group bg-slate-800/60 hover:bg-slate-800 border border-blue-500/30 hover:border-cyan-400 rounded-3xl p-6 w-72 transition-colors text-left"
+          className="group bg-mist-500/60 hover:bg-mist-200 border border-grey/50 hover:border-white rounded-3xl p-6 w-72 transition-colors text-left"
         >
           <div className="grid grid-cols-2 gap-2 h-32 mb-4">
             <div className="bg-blue-600/50 rounded-lg" /> {/* mini-slideshow, full height */}
@@ -717,10 +717,10 @@ function ClassicLayout(props: {
     handleQuizContinue: () => void;
   }) {
     return (
-      <div className="bg-white/5 backdrop-blur-md rounded-3xl border border-blue-500/30 shadow-2xl overflow-hidden">
+      <div className="bg-white/5 backdrop-blur-md rounded-3xl border border-white-500/30 shadow-2xl overflow-hidden">
         <div className="grid md:grid-cols-2 gap-0 min-h-[600px]">
           {/* Left: mini-slideshow, full height */}
-          <div className="p-8 md:p-12 flex flex-col justify-center bg-gradient-to-br from-blue-900/80 to-slate-900/80">
+          <div className="p-8 md:p-12 flex flex-col justify-center bg-gradient-to-br from-mist-400/50 to-mist-500/50">
             <MiniSlideshowBlock
               currentSection={props.currentSection}
               microStep={props.microStep}
@@ -942,7 +942,7 @@ export default function AIPresentation() {
   // ---- Loading / error states before rendering the presentation ----
   if (isContentLoading) {
     return (
-      <div className="h-screen w-screen flex items-center justify-center text-2xl font-semibold text-white bg-slate-900">
+      <div className="h-screen w-screen flex items-center justify-center text-2xl font-semibold text-white bg-mist-300">
         Generating your lesson...
       </div>
     );
