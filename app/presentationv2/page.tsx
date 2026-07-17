@@ -318,13 +318,13 @@ function QuizSlide({
                   const isCorrect = optIdx === q.correctAnswer;
                   const showResult = submitted;
 
-                  let stateClasses = 'border-white/30 bg-mist-200/30 hover:border-black/20 hover:bg-mist-500/30';
+                  let stateClasses = 'border-white/30 bg-mist-200/30 hover:border-black/20 hover:bg-mist-400/40';
                   if (showResult && isCorrect) {
                     stateClasses = 'border-green-500 bg-green-900/30';
                   } else if (showResult && isSelected && !isCorrect) {
                     stateClasses = 'border-red-500 bg-red-900/30';
                   } else if (isSelected) {
-                    stateClasses = 'border-white/70 bg-mist-400/20';
+                    stateClasses = 'border-white/70 bg-mist-500/50';
                   }
 
                   return (
@@ -1074,7 +1074,7 @@ export default function AIPresentation() {
       </header>
 
       {/* Main Content */}
-      <main className="flex-1 flex items-center justify-center p-8 bg-mist-300/50">
+      <main className="flex-1 flex items-center justify-center p-8 bg-gradiant-to-br from-mist-400/70 via-mist-300/70 to-mist-400/70">
         {showConclusion ? (
           <ConclusionScreen onRestart={handleRestart} />
         ) : (
