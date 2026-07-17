@@ -302,7 +302,7 @@ function QuizSlide({
 
   return (
     <div className="bg-gradiant-to-br from-mist-50/70 to-mist-400/70 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-      <div className="bg-gradient-to-br from-slate-800 to-slate-900 rounded-3xl max-w-2xl w-full max-h-[85vh] overflow-y-auto border border-white/30 shadow-2xl p-8">
+      <div className="bg-gradiant-to-br from-mist-50/70 to-mist-400/70 rounded-3xl max-w-2xl w-full max-h-[85vh] overflow-y-auto border border-white/30 shadow-2xl p-8">
         <h3 className="text-2xl font-bold text-black mb-1">Quick Check</h3>
         <p className="text-black text-sm mb-6">Answer both questions to continue</p>
 
@@ -318,13 +318,13 @@ function QuizSlide({
                   const isCorrect = optIdx === q.correctAnswer;
                   const showResult = submitted;
 
-                  let stateClasses = 'border-grey/40 hover:border-white/60 bg-mist-700/10';
+                  let stateClasses = 'border-grey/40 hover:border-white/30 bg-mist-700/30';
                   if (showResult && isCorrect) {
                     stateClasses = 'border-green-500 bg-green-900/30';
                   } else if (showResult && isSelected && !isCorrect) {
                     stateClasses = 'border-red-500 bg-red-900/30';
                   } else if (isSelected) {
-                    stateClasses = 'border-white/30 bg-mist-700/20';
+                    stateClasses = 'border-white/70 bg-mist-50/20';
                   }
 
                   return (
@@ -779,6 +779,16 @@ export default function AIPresentation() {
   };
 
   const currentSection = sections[activeSection];
+
+  const flowSteps = sections.flatMap((_, idx) => [
+    { type: 'section' as const, index: idx },
+    { type: 'quiz' as const, index: idx },
+  ]);
+
+  const currentFlowIndex = flowSteps.findIndex(
+    (step) => step.index === activeSection && step.type === (showQuiz ? 'quiz' : 'section')
+  );
+  
   const { play, pause, resume, stop, isSpeaking, isPaused, currentKey, currentText, currentTime, duration } = useAudioPlayer();
   const { messages, isLoading, input, setInput, sendMessage } = useAIChat(currentSection);
 
@@ -954,10 +964,10 @@ export default function AIPresentation() {
     return (
       <div className="flex flex-col items-center justify-center text-center py-16 px-8">
         <div className="text-6xl mb-6">🎓</div>
-        <h2 className="text-3xl md:text-4xl font-bold text-white mb-4">
+        <h2 className="text-3xl md:text-4xl font-bold text-black mb-4">
           Lesson Complete!
         </h2>
-        <p className="text-blue-200 text-lg max-w-xl mb-8 leading-relaxed">
+        <p className="text-blue-700 text-lg max-w-xl mb-8 leading-relaxed">
           You've made it through the full story of the Blue Catfish invasion in the Chesapeake Bay —
           from how they got here, to why they've thrived, to how we might turn the problem into a solution.
         </p>
@@ -971,8 +981,8 @@ export default function AIPresentation() {
           </button>
         </div>
   
-        <p className="text-blue-300/70 text-sm mt-8">
-          Still curious about something? Use <span className="text-cyan-400 font-medium">Ask AI</span> up top —
+        <p className="text-blue-700/70 text-sm mt-8">
+          Still curious about something? Use <span className="text-cyan-500 font-medium">Ask AI</span> up top —
           Professor Marine is happy to go deeper on anything from the lesson.
         </p>
       </div>
@@ -1173,29 +1183,38 @@ export default function AIPresentation() {
               ← Previous
             </button>
             
-            <div className="flex gap-2">
-              {sections.map((_, idx) => {
-                const isCompleted = completedQuizzes.has(idx);
-                const isActive = idx === activeSection;
+            <div className="flex gap-2 flex-wrap justify-center max-w-md">
+              {flowSteps.map((step, i) => {
+                const isActive = i === currentFlowIndex;
+                const isQuizDone = step.type === 'quiz' ? completedQuizzes.has(step.index) : true;
 
-                let dotClasses = 'w-3 h-3 rounded-full transition-colors ';
-                if (!isCompleted) {
-                  dotClasses += 'bg-slate-300 hover:bg-slate-400';
-                } else if (isActive) {
-                  dotClasses += 'bg-cyan-500';
-                } else if (isCompleted) {
-                    dotClasses += 'bg-green-500 hover:bg-green-400';
+                let dotClasses = 'transition-colors ';
+
+                if (step.type === 'section') {
+                  dotClasses += `w-3 h-3 rounded-full ${isActive ? 'bg-cyan-500' : 'bg-blue-600 hover:bg-blue-400'}`;
                 } else {
-                  dotClasses += 'bg-blue-600 hover:bg-blue-400';
+                  dotClasses += `w-3 h-3 rotate-45 ${
+                    !isQuizDone
+                      ? 'bg-black/30 hover:bg-black/60'
+                      : isActive
+                      ? 'bg-cyan-500'
+                      : 'bg-green-500 hover:bg-green-400'
+                  }`;
                 }
-
+                
                 return (
                   <button
-                    key={idx}
+                    key={i}
+                    title={step.type === 'quiz' ? `Quiz ${step.index + 1}` : `Section ${step.index + 1}`}
                     onClick={() => {
                       stop();
-                      setActiveSection(idx);
-                      setTimeout(() => narrateSection(idx), 300);
+                      setActiveSection(step.index);
+                      if (step.type === 'quiz') {
+                        setShowQuiz(true);
+                      } else {
+                        setShowQuiz(false);
+                        setTimeout(() => narrateSection(step.index), 300);
+                      }
                     }}
                     className={dotClasses}
                   />
