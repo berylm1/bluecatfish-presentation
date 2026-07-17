@@ -465,7 +465,7 @@ function SectionImageBlock({
                 )}
                 
                 {/* Gradient Overlay */}
-                <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-black/30" />
+                <div className="absolute inset-0 bg-gradient-to-t from-mist-400/70 via-transparent to-mist-500/30" />
                 
                 {/* Slide Counter Badge */}
                 <div className="absolute top-4 left-4 bg-cyan-500/90 backdrop-blur-sm px-4 py-2 rounded-full shadow-lg">
@@ -529,7 +529,7 @@ function SectionImageBlock({
     currentKey: string | null;
   }) {
     return (
-              <div className="p-8 md:p-12 flex flex-col justify-center bg-gradient-to-br from-blue-50/80 to-blue-200/80">
+              <div className="p-8 md:p-12 flex flex-col justify-center bg-gradient-to-br from-mist-50-50/80 to-mist-400/80">
                 {/* Animated Title */}
                 <h2 className="text-3xl md:text-4xl font-bold text-black mb-4 animate-[slideInRight_0.6s_ease-out]">
                   {currentSection.title}
@@ -557,9 +557,9 @@ function SectionImageBlock({
                         />
                         <div className="grid grid-cols-2 gap-4">
                           {currentSection.stats.map((stat, idx) => (
-                            <div key={idx} className="bg-blue-mist-50/50 rounded-xl p-4 text-center border border-mist-400/30">
+                            <div key={idx} className="bg-blue-900/50 rounded-xl p-5 text-center border border-black/60">
                               <div className="text-2xl font-bold text-black mb-1"><AnimatedStatValue value={stat.value}/></div>
-                              <div className="text-base text-blue-500">{stat.label}</div>
+                              <div className="text-base text-black">{stat.label}</div>
                             </div>
                           ))}
                         </div>
@@ -567,14 +567,14 @@ function SectionImageBlock({
                     )}
                 
                     {microStep === 1 && (
-                      <div className="bg-blue-900/30 rounded-xl p-5 border border-blue-500/20">
+                      <div className="bg-blue-900/60 rounded-xl p-5 border border-blue-500/40">
                         <HighlightedText
                           text={currentSection.breakdown.simple}
                           currentTime={currentTime}
                           duration={duration}
                           isSpeaking={isSpeaking}
                           isActive={currentKey === `section${0}_simple` || currentKey?.endsWith('_simple')}
-                          className="text-xl text-blue-100 leading-relaxed mb-4"
+                          className="text-xl text-black leading-relaxed mb-4"
                         />
                       </div>
                     )}
@@ -582,23 +582,23 @@ function SectionImageBlock({
                     {microStep === 2 && (
                       <div className="space-y-3">
                         {currentSection.breakdown.keyTerms.map((kt, idx) => (
-                          <div key={idx} className="bg-blue-900/30 rounded-xl p-4 border border-blue-500/20">
-                            <div className="font-bold text-cyan-400 mb-1 text-xl">{kt.term}</div>
-                            <div className="text-blue-100 text-md">{kt.definition}</div>
+                          <div key={idx} className="bg-blue-900/60 rounded-xl p-5 border border-blue-600/40">
+                            <div className="font-bold text-blue-700 mb-1 text-xl">{kt.term}</div>
+                            <div className="text-black text-md">{kt.definition}</div>
                           </div>
                         ))}
                       </div>
                     )}
                 
                     {microStep === 3 && (
-                      <div className="bg-amber-900/20 rounded-xl p-5 border border-amber-500/20">
+                      <div className="bg-amber-900/60 rounded-xl p-5 border border-amber-700/40">
                         <HighlightedText
                           text={currentSection.breakdown.realWorldExample}
                           currentTime={currentTime}
                           duration={duration}
                           isSpeaking={isSpeaking}
                           isActive={currentKey === `section${0}_example` || currentKey?.endsWith('_example')}
-                          className="text-xl text-blue-100 leading-relaxed mb-4"
+                          className="text-xl text-black leading-relaxed mb-4"
                         />
                       </div>
                     )}
@@ -609,7 +609,7 @@ function SectionImageBlock({
                     <button
                       onClick={prevMicroStep}
                       disabled={microStep === 0}
-                      className="px-3 py-2 rounded-lg bg-blue-800/50 hover:bg-blue-700/60 disabled:opacity-30 text-white text-sm transition-colors"
+                      className="px-3 py-2 rounded-lg bg-blue-800/70 hover:bg-blue-700/80 disabled:opacity-30 text-white text-sm transition-colors"
                     >
                       ←
                     </button>
@@ -621,7 +621,7 @@ function SectionImageBlock({
                           onClick={() => goToMicroStep(idx)}
                           title={step.label}
                           className={`w-2.5 h-2.5 rounded-full transition-colors ${
-                            idx === microStep ? 'bg-cyan-400' : 'bg-blue-700/50 hover:bg-blue-600/60'
+                            idx === microStep ? 'bg-cyan-500' : 'bg-blue-700/60 hover:bg-blue-600/70'
                           }`}
                         />
                       ))}
@@ -636,7 +636,7 @@ function SectionImageBlock({
                     </button>
                   </div>
                 
-                  <p className="text-center text-xs text-blue-700/70 mt-2">{microSteps[microStep].label}</p>
+                  <p className="text-center text-xs text-blue-700/80 mt-2">{microSteps[microStep].label}</p>
                 </div>
                 
                 {/* Progress Indicator */}
@@ -682,7 +682,7 @@ function ClassicLayout(props: {
             activeSection={props.activeSection}
             totalSections={props.totalSections}
           />
-          <div className="p-8 md:p-12 flex flex-col justify-center bg-gradient-to-br from-mist-50/80 to-mist-400/80">
+          <div className="p-8 md:p-12 flex flex-col justify-center bg-gradient-to-br from-mist-400/80 to-mist-500/80">
             <MiniSlideshowBlock
               currentSection={props.currentSection}
               microStep={props.microStep}
@@ -988,14 +988,14 @@ export default function AIPresentation() {
         <div className="max-w-7xl mx-auto flex items-center justify-between">
           {/* Professor Badge */}
           <div className="flex items-center gap-4">
-            <div className="w-10 h-10 rounded-full bg-gradient-to-br from-cyan-400 to-blue-600 flex items-center justify-center">
+            <div className="w-10 h-10 rounded-full bg-gradient-to-br from-cyan-600 to-blue-700 flex items-center justify-center">
               <span className="text-xl">👨‍🏫</span>
             </div>
             <div>
-              <h1 className="text-lg font-bold text-white">
+              <h1 className="text-lg font-bold text-black">
                 {PRESENTATION.professor.name}
               </h1>
-              <p className="text-xs text-cyan-400">
+              <p className="text-xs text-cyan-600">
                 {PRESENTATION.title}
               </p>
             </div>
@@ -1183,8 +1183,8 @@ export default function AIPresentation() {
                   }}
                   className={`w-3 h-3 rounded-full transition-colors ${
                     idx === activeSection 
-                      ? 'bg-cyan-400' 
-                      : 'bg-blue-700 hover:bg-blue-600'
+                      ? 'bg-cyan-500' 
+                      : 'bg-blue-600 hover:bg-blue-400'
                   }`}
                 />
               ))}
