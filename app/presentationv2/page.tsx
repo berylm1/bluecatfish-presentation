@@ -427,7 +427,7 @@ function SectionImageBlock({
     totalSections: number;
   }) {
     return (
-              <div className="relative h-72 md:h-auto min-h-[500px] bg-gradient-to-br from-blue-50 to-blue-200 overflow-hidden">
+              <div className="relative h-72 md:h-auto min-h-[500px] bg-gradient-to-br from-mist-50 to-mist-400 overflow-hidden">
                 {/* Animated Background Elements */}
                 <div className="absolute inset-0 overflow-hidden">
                   {/* Floating Bubbles */}
@@ -531,12 +531,12 @@ function SectionImageBlock({
     return (
               <div className="p-8 md:p-12 flex flex-col justify-center bg-gradient-to-br from-blue-50/80 to-blue-200/80">
                 {/* Animated Title */}
-                <h2 className="text-3xl md:text-4xl font-bold text-white mb-4 animate-[slideInRight_0.6s_ease-out]">
+                <h2 className="text-3xl md:text-4xl font-bold text-black mb-4 animate-[slideInRight_0.6s_ease-out]">
                   {currentSection.title}
                 </h2>
                 
                 {/* Animated Underline */}
-                <div className="h-1 w-0 bg-gradient-to-r from-cyan-400 to-blue-500 rounded-full mb-6 animate-[expandWidth_0.8s_ease-out_0.3s_forwards]" />
+                <div className="h-1 w-0 bg-gradient-to-r from-cyan-700 to-blue-700 rounded-full mb-6 animate-[expandWidth_0.8s_ease-out_0.3s_forwards]" />
                 
                 {/* ===================== MINI-SLIDESHOW (replaces old Confused button + modal) ===================== */}
                 <div className="mt-6 pt-4 border-t border-blue-300/30">
@@ -557,9 +557,9 @@ function SectionImageBlock({
                         />
                         <div className="grid grid-cols-2 gap-4">
                           {currentSection.stats.map((stat, idx) => (
-                            <div key={idx} className="bg-blue-800/50 rounded-xl p-4 text-center border border-cyan-500/30">
-                              <div className="text-2xl font-bold text-cyan-400 mb-1"><AnimatedStatValue value={stat.value}/></div>
-                              <div className="text-base text-blue-200">{stat.label}</div>
+                            <div key={idx} className="bg-blue-mist-50/50 rounded-xl p-4 text-center border border-mist-400/30">
+                              <div className="text-2xl font-bold text-black mb-1"><AnimatedStatValue value={stat.value}/></div>
+                              <div className="text-base text-blue-500">{stat.label}</div>
                             </div>
                           ))}
                         </div>
@@ -982,7 +982,7 @@ export default function AIPresentation() {
   
   // ===================== RENDER =====================
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-blue-900 to-slate-900 flex flex-col">
+    <div className="min-h-screen bg-gradient-to-br from-mist-400 via-mist-50 to-mist-400 flex flex-col">
       {/* Header */}
       <header className="bg-white/30 backdrop-blur-sm border-b border-grey-500/30 p-4">
         <div className="max-w-7xl mx-auto flex items-center justify-between">
