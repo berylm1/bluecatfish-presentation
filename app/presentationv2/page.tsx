@@ -278,7 +278,7 @@ function AnimatedStatValue({ value }: { value: string }) {
   return <>{display}{suffix}</>;
 }
 
-function QuizModal({
+function QuizSlide({
   quiz,
   onContinue,
 }: {
@@ -301,15 +301,15 @@ function QuizModal({
   const score = quiz.reduce((total, q, i) => (answers[i] === q.correctAnswer ? total + 1 : total), 0);
 
   return (
-    <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-      <div className="bg-gradient-to-br from-slate-800 to-slate-900 rounded-3xl max-w-2xl w-full max-h-[85vh] overflow-y-auto border border-cyan-500/30 shadow-2xl p-8">
-        <h3 className="text-2xl font-bold text-white mb-1">Quick Check</h3>
-        <p className="text-blue-300 text-sm mb-6">Answer both questions to continue</p>
+    <div className="bg-gradiant-to-br from-mist-50/70 to-mist-400/70 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+      <div className="bg-gradient-to-br from-slate-800 to-slate-900 rounded-3xl max-w-2xl w-full max-h-[85vh] overflow-y-auto border border-white/30 shadow-2xl p-8">
+        <h3 className="text-2xl font-bold text-black mb-1">Quick Check</h3>
+        <p className="text-black text-sm mb-6">Answer both questions to continue</p>
 
         <div className="space-y-6">
           {quiz.map((q, qIdx) => (
-            <div key={qIdx} className="bg-blue-900/20 rounded-2xl p-5 border border-blue-500/20">
-              <p className="text-white font-semibold mb-4">
+            <div key={qIdx} className="bg-gradient-to-br from-mauve-200/30 to-mauve-400/30 rounded-2xl p-5 border border-white/20">
+              <p className="text-black font-semibold mb-4">
                 {qIdx + 1}. {q.question}
               </p>
               <div className="space-y-2">
@@ -318,13 +318,13 @@ function QuizModal({
                   const isCorrect = optIdx === q.correctAnswer;
                   const showResult = submitted;
 
-                  let stateClasses = 'border-blue-700/40 hover:border-blue-500/60 bg-blue-900/10';
+                  let stateClasses = 'border-grey/40 hover:border-white/60 bg-mist-700/10';
                   if (showResult && isCorrect) {
                     stateClasses = 'border-green-500 bg-green-900/30';
                   } else if (showResult && isSelected && !isCorrect) {
                     stateClasses = 'border-red-500 bg-red-900/30';
                   } else if (isSelected) {
-                    stateClasses = 'border-cyan-500 bg-cyan-900/20';
+                    stateClasses = 'border-white/30 bg-mist-700/20';
                   }
 
                   return (
