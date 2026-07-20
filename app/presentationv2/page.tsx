@@ -238,10 +238,6 @@ const useAIChat = (currentSection: SectionWithBreakdown | undefined) => {
 };
 
 // ===================== ANIMATED STAT VALUE =====================
-  // Counts up any leading number in the stat value (e.g. "100+ Million" -> counts 0 to 100,
-  // keeps "+ Million" as a static suffix). Falls back to a plain fade-in for non-numeric
-  // values like "Multiple". Naturally restarts each time it mounts (i.e. each time the
-  // user enters microStep 0), since it's only rendered while that step is visible.
 function AnimatedStatValue({ value }: { value: string }) {
   const match = value.match(/^(\d+(?:\.\d+)?)/);
   const targetNum = match ? parseFloat(match[1]) : null;
@@ -260,7 +256,7 @@ function AnimatedStatValue({ value }: { value: string }) {
     const step = (timestamp: number) => {
       if (startTime === null) startTime = timestamp;
       const progress = Math.min((timestamp - startTime) / duration, 1);
-      const eased = 1 - Math.pow(1 - progress, 3); // ease-out cubic
+      const eased = 1 - Math.pow(1 - progress, 3); 
       setDisplay(Math.round(eased * targetNum));
       if (progress < 1) {
           frameId = requestAnimationFrame(step);
@@ -271,7 +267,6 @@ function AnimatedStatValue({ value }: { value: string }) {
   }, [targetNum]);
   
   if (targetNum === null) {
-    // Non-numeric value (e.g. "Multiple") — just render as-is
     return <>{value}</>;
   }
   
@@ -393,7 +388,7 @@ function TemplateSelector({ onSelect }: { onSelect: (template: 'classic' | 'spli
           </div>
           <div className="bg-blue-600/30 rounded-lg h-6 mb-4" /> {/* transcript bar */}
           <h3 className="text-black font-bold text-lg mb-1">Classic</h3>
-          <p className="text-blue-500 text-sm">Image and content side-by-side, transcript below</p>
+          <p className="text-blue-500 text-sm">Image on left and content on right</p>
         </button>
 
         {/* Split template preview card */}
@@ -409,7 +404,7 @@ function TemplateSelector({ onSelect }: { onSelect: (template: 'classic' | 'spli
             </div>
           </div>
           <h3 className="text-black font-bold text-lg mb-1">Split View</h3>
-          <p className="text-blue-500 text-sm">Content on the left, image and transcript stacked on the right</p>
+          <p className="text-blue-500 text-sm">Content on the left, image on the right</p>
         </button>
       </div>
     </div>
@@ -635,21 +630,6 @@ function SectionImageBlock({
                   <p className="text-center text-xs text-blue-700/80 mt-2">{microSteps[microStep].label}</p>
                 </div>
                 
-                {/* Progress Indicator */}
-                {/*
-                <div className="mt-4 flex items-center gap-2">
-                  <span className="text-sm text-blue-300">Progress:</span>
-                  <div className="flex-1 h-2 bg-blue-900/50 rounded-full overflow-hidden">
-                    <div 
-                      className="h-full bg-gradient-to-r from-cyan-400 to-blue-500 transition-all duration-500"
-                      style={{ width: `${((activeSection + 1) / sections.length) * 100}%` }}
-                    />
-                  </div>
-                  <span className="text-sm text-cyan-400 font-medium">
-                    {Math.round(((activeSection + 1) / sections.length) * 100)}%
-                  </span>
-                </div>
-                */}
             </div>
         );
       }
@@ -699,7 +679,6 @@ function ClassicLayout(props: {
     );
   }
   // ===================== TEMPLATE 2: SPLIT (new layout) =====================
-  // Left: mini-slideshow (full height). Right: image on top, transcript below.
   function SplitLayout(props: {
     currentSection: SectionWithBreakdown;
     activeSection: number;
@@ -1044,18 +1023,6 @@ export default function AIPresentation() {
               >
                 ⏹️
               </button>
-              {/* 
-              <select
-                value={speechRate}
-                onChange={(e) => changeRate(parseFloat(e.target.value))}
-                className="bg-slate-700 text-white text-sm rounded px-2 py-1"
-                title="Speech Speed"
-              >
-                <option value="0.7">0.7x</option>
-                <option value="0.85">0.85x</option>
-                <option value="1.0">1.0x</option>
-              </select>
-              */}
             </div>
             
             {/* Chat Toggle */}
