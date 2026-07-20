@@ -386,7 +386,7 @@ function TemplateSelector({ onSelect }: { onSelect: (template: 'classic' | 'spli
             <div className="bg-blue-700/50 rounded-lg" /> {/* image */}
             <div className="bg-blue-600/50 rounded-lg" /> {/* content/mini-slideshow */}
           </div>
-          <div className="bg-blue-600/30 rounded-lg h-6 mb-4" /> {/* transcript bar */}
+          {/*<div className="bg-blue-600/30 rounded-lg h-6 mb-4" /> {/* transcript bar */}
           <h3 className="text-black font-bold text-lg mb-1">Classic</h3>
           <p className="text-blue-500 text-sm">Image on left and content on right</p>
         </button>
@@ -400,7 +400,7 @@ function TemplateSelector({ onSelect }: { onSelect: (template: 'classic' | 'spli
             <div className="bg-blue-600/50 rounded-lg" /> {/* mini-slideshow, full height */}
             <div className="flex flex-col gap-2">
               <div className="bg-blue-700/50 rounded-lg flex-1" /> {/* image, top */}
-              <div className="bg-blue-500/30 rounded-lg flex-1" /> {/* transcript, bottom */}
+              {/*<div className="bg-blue-500/30 rounded-lg flex-1" /> {/* transcript, bottom */}
             </div>
           </div>
           <h3 className="text-black font-bold text-lg mb-1">Split View</h3>
