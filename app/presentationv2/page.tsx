@@ -380,13 +380,12 @@ function TemplateSelector({ onSelect }: { onSelect: (template: 'classic' | 'spli
         {/* Classic template preview card */}
         <button
           onClick={() => onSelect('classic')}
-          className="group bg-mist-500/60 hover:bg-mist-200 border border-grey/50 hover:border-white rounded-3xl p-6 w-72 transition-colors text-left"
+          className="group bg-mist-400/60 hover:bg-mist-200 border border-grey/50 hover:border-white rounded-3xl p-6 w-72 transition-colors text-left"
         >
           <div className="grid grid-cols-2 gap-2 h-32 mb-4">
             <div className="bg-blue-700/50 rounded-lg" /> {/* image */}
             <div className="bg-blue-600/50 rounded-lg" /> {/* content/mini-slideshow */}
           </div>
-          {/*<div className="bg-blue-600/30 rounded-lg h-6 mb-4" /> {/* transcript bar */}
           <h3 className="text-black font-bold text-lg mb-1">Classic</h3>
           <p className="text-blue-500 text-sm">Image on left and content on right</p>
         </button>
@@ -394,14 +393,11 @@ function TemplateSelector({ onSelect }: { onSelect: (template: 'classic' | 'spli
         {/* Split template preview card */}
         <button
           onClick={() => onSelect('split')}
-          className="group bg-mist-500/60 hover:bg-mist-200 border border-grey/50 hover:border-white rounded-3xl p-6 w-72 transition-colors text-left"
+          className="group bg-mist-400/60 hover:bg-mist-200 border border-grey/50 hover:border-white rounded-3xl p-6 w-72 transition-colors text-left"
         >
           <div className="grid grid-cols-2 gap-2 h-32 mb-4">
             <div className="bg-blue-600/50 rounded-lg" /> {/* mini-slideshow, full height */}
-            <div className="flex flex-col gap-2">
-              <div className="bg-blue-700/50 rounded-lg flex-1" /> {/* image, top */}
-              {/*<div className="bg-blue-500/30 rounded-lg flex-1" /> {/* transcript, bottom */}
-            </div>
+            <div className="bg-blue-700/50 rounded-lg flex-1" /> {/* image, top */}
           </div>
           <h3 className="text-black font-bold text-lg mb-1">Split View</h3>
           <p className="text-blue-500 text-sm">Content on the left, image on the right</p>
