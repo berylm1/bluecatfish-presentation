@@ -755,13 +755,13 @@ export default function AIPresentation() {
   const playMicroStepAudio = (sectionIndex: number, stepIndex: number, transitionType: 'means' | 'analogy' | null) => {
     const section = sections[sectionIndex];
     const steps = getMicroSteps(sectionIndex);
-    const step = microSteps[stepIndex];
-    const text = getMicroStepText(currentSection, stepIndex);
+    const step = steps[stepIndex];
+    const text = getMicroStepText(section, stepIndex);
   
     const playActualStep = () => {
       if (step.audioKey) {
         play(audioUrls[step.audioKey], step.audioKey, text, () => {
-          autoAdvanceFrom(stepIndex);
+          autoAdvanceFrom(sectionIndex, stepIndex);
         });
       } else {
         if (keyTermsTimerRef.current) clearTimeout(keyTermsTimerRef.current); 
@@ -784,7 +784,7 @@ export default function AIPresentation() {
   
   const autoAdvanceFrom = (sectionIndex: number, fromStep: number) => {
     const steps = getMicroSteps(sectionIndex);
-    if (fromStep < microSteps.length - 1) {
+    if (fromStep < steps.length - 1) {
       const next = fromStep + 1;
       setMicroStep(next);
 
