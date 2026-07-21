@@ -113,7 +113,14 @@ export async function POST(req: Request) {
           `${FOLDER}/section${i + 1}_simple.mp3`
         );
       }
-      
+      if (section.breakdown?.keyTerms?.length === 3) {
+        const kt = section.breakdown.keyTerms;
+        const keyTermsText = `Let's go over some key terms. First, ${kt[0].term}: ${kt[0].definition}. Next, ${kt[1].term}: ${kt[1].definition}. Finally, ${kt[2].term}: ${kt[2].definition}.`;
+    
+        audioUrls[`section${i}_keyterms`] = await generateAndUpload(
+          keyTermsText,
+          `${FOLDER}/section${i + 1}_keyterms.mp3`
+        );
       if (section.breakdown?.realWorldExample) {
         audioUrls[`section${i}_example`] = await generateAndUpload(
           section.breakdown.realWorldExample,
