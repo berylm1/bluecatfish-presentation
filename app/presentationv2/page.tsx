@@ -949,16 +949,6 @@ export default function AIPresentation() {
     playMicroStepAudio(index, false);
   };
   
-    const step = microSteps[index];
-    const text = getMicroStepText(currentSection, index);
-  
-    if (step.audioKey) {
-      play(audioUrls[step.audioKey], step.audioKey, text);
-    } else {
-      stop(); // key terms step has no audio — stop whatever was playing
-    }
-  };
-  
   const nextMicroStep = () => goToMicroStep(microStep + 1);
   const prevMicroStep = () => goToMicroStep(microStep - 1);
 
