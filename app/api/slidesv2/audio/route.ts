@@ -8,10 +8,22 @@ const supabase = createClient(
 
 const BUCKET = "slide-audio";
 const FOLDER = "sections_v6";
+
 const TRANSITION_PHRASES = [
   "This means...",
   "In other words...",
   "Put simply...",
+];
+
+const LAYOUT_DESCRIPTIONS = {
+  classic: "As we go through the lesson, you'll see the image on your left and the content on your right.",
+  split: "As we go through the lesson, you'll see the content on your left and the image on your right.",
+};
+
+const EXAMPLE_TRANSITION_PHRASES = [
+  "A good analogy is...",
+  "Think of it this way...",
+  "Here's a way to picture it...",
 ];
 
 function slugify(text: string): string {
@@ -89,6 +101,17 @@ export async function POST(req: Request) {
       audioUrls["conclusion"] = await generateAndUpload(conclusion, `${FOLDER}/conclusion.mp3`);
     }
 
+    for (const [template, text] of Object.entries(LAYOUT_DESCRIPTIONS)) {
+      audioUrls[`layout_${template}`] = await generateAndUpload(text, `${FOLDER}/layout-${template}.mp3`);
+    }
+    
+    for (let t = 0; t < EXAMPLE_TRANSITION_PHRASES.length; t++) {
+      audioUrls[`exampleTransition${t}`] = await generateAndUpload(
+        EXAMPLE_TRANSITION_PHRASES[t],
+        `${FOLDER}/example-transition-${t}.mp3`
+      );
+    }
+    
     for (let t = 0; t < TRANSITION_PHRASES.length; t++) {
       audioUrls[`transition${t}`] = await generateAndUpload(
         TRANSITION_PHRASES[t],
