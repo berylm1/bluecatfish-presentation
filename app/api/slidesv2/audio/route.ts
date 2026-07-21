@@ -121,6 +121,7 @@ export async function POST(req: Request) {
           keyTermsText,
           `${FOLDER}/section${i + 1}_keyterms.mp3`
         );
+      }
       if (section.breakdown?.realWorldExample) {
         audioUrls[`section${i}_example`] = await generateAndUpload(
           section.breakdown.realWorldExample,
