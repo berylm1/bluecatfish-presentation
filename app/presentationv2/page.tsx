@@ -793,7 +793,7 @@ export default function AIPresentation() {
       } else if (fromStep === 2) {
         playMicroStepAudio(sectionIndex, next, 'analogy');
       } else {
-        playMicroStepAudio(sectionIndex, (next, null);
+        playMicroStepAudio(sectionIndex, next, null);
       }
     }
   };
