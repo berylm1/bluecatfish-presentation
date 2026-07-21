@@ -740,6 +740,7 @@ export default function AIPresentation() {
   const [showQuiz, setShowQuiz] = useState(false);
   const [selectedTemplate, setSelectedTemplate] = useState<'classic' | 'split' | null>(null);
   const [completedQuizzes, setCompletedQuizzes] = useState<Set<number>>(new Set());
+  const keyTermsTimerRef = useRef<NodeJS.Timeout | null>(null);
   
   const handleRestart = () => {
     stop();
@@ -752,6 +753,41 @@ export default function AIPresentation() {
 
   const currentSection = sections[activeSection];
 
+  const playMicroStepAudio = (stepIndex: number, withLeadIn: boolean) => {
+    const step = microSteps[stepIndex];
+    const text = getMicroStepText(currentSection, stepIndex);
+  
+    const playActualStep = () => {
+      if (step.audioKey) {
+        play(audioUrls[step.audioKey], step.audioKey, text, () => {
+          autoAdvanceFrom(stepIndex);
+        });
+      } else {
+        if (keyTermsTimerRef.current) clearTimeout(keyTermsTimerRef.current);
+        keyTermsTimerRef.current = setTimeout(() => {
+          autoAdvanceFrom(stepIndex);
+        }, 8000);
+      }
+    };
+  
+    if (withLeadIn && stepIndex > 0) {
+      const randomIdx = Math.floor(Math.random() * 3);
+      const transitionKey = `transition${randomIdx}`;
+      play(audioUrls[transitionKey], transitionKey, '', playActualStep);
+    } else {
+      playActualStep();
+    }
+  };
+  
+  const autoAdvanceFrom = (fromStep: number) => {
+    if (fromStep < microSteps.length - 1) {
+      const next = fromStep + 1;
+      setMicroStep(next);
+      const useLeadIn = fromStep === 0;
+      playMicroStepAudio(next, true);
+    }
+  };
+  
   const flowSteps = sections.flatMap((_, idx) => [
     { type: 'section' as const, index: idx },
     { type: 'quiz' as const, index: idx },
@@ -809,15 +845,22 @@ export default function AIPresentation() {
     loadPresentation();
   }, []);
 
-  // Scroll to bottom of chat
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages]);
+    return () => {
+      if (keyTermsTimerRef.current) clearTimeout(keyTermsTimerRef.current);
+    };
+  }, [activeSection]);
+  
+    // Scroll to bottom of chat
+    useEffect(() => {
+      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }, [messages]);
 
   // ---- Narration handlers ----
   const narrateSection = (index: number) => {
     if (index < sections.length) {
-      play(audioUrls[`section${index}_overview`], `section${index}_overview`);
+      setMicroStep(0);
+      playMicroStepAudio(0, false);
       setIsNarrating(true);
       setShowConclusion(false);
     } else {
@@ -901,7 +944,10 @@ export default function AIPresentation() {
   
   const goToMicroStep = (index: number) => {
     if (index < 0 || index >= microSteps.length) return;
+    if (keyTermsTimerRef.current) clearTimeout(keyTermsTimerRef.current);
     setMicroStep(index);
+    playMicroStepAudio(index, false);
+  };
   
     const step = microSteps[index];
     const text = getMicroStepText(currentSection, index);
