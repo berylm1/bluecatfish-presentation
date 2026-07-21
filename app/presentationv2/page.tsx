@@ -736,7 +736,6 @@ export default function AIPresentation() {
   const [activeSection, setActiveSection] = useState(0);
   const [showChat, setShowChat] = useState(false);
   const [isNarrating, setIsNarrating] = useState(false);
-  const [showIntro, setShowIntro] = useState(true);
   const [showConclusion, setShowConclusion] = useState(false);
   const [showQuiz, setShowQuiz] = useState(false);
   const [selectedTemplate, setSelectedTemplate] = useState<'classic' | 'split' | null>(null);
@@ -749,7 +748,6 @@ export default function AIPresentation() {
     setMicroStep(0);
     setShowConclusion(false);
     setShowQuiz(false);
-    setShowIntro(true);
   };
 
   const currentSection = sections[activeSection];
@@ -787,6 +785,13 @@ export default function AIPresentation() {
       const useLeadIn = fromStep === 0;
       playMicroStepAudio(next, useLeadIn);
     }
+  };
+
+  const handleTemplateSelect = (template: 'classic' | 'split') => {
+    setSelectedTemplate(template);
+    setActiveSection(0);
+    setShowConclusion(false);
+    playIntroduction();
   };
   
   const flowSteps = sections.flatMap((_, idx) => [
@@ -878,15 +883,6 @@ export default function AIPresentation() {
     setIsNarrating(true);
   };
 
-  const startPresentation = () => {
-    setShowIntro(false);
-    setActiveSection(0);
-    setShowConclusion(false);
-    setTimeout(() => {
-      playIntroduction();
-    }, 500);
-  };
-
   const nextSection = () => {
     setMicroStep(0);
     if (currentSection.quiz && currentSection.quiz.length === 2) {
@@ -972,7 +968,7 @@ export default function AIPresentation() {
   }
 
   if (!selectedTemplate) {
-    return <TemplateSelector onSelect={setSelectedTemplate} />;
+    return <TemplateSelector onSelect={handleTemplateSelect} />;
   }   
 
   function ConclusionScreen({ onRestart }: { onRestart: () => void }) {
