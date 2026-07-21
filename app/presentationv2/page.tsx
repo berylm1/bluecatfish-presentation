@@ -188,6 +188,23 @@ function HighlightedText({
   );
 }
 
+function ReviewSlide({ onContinue }: { onContinue: () => void }) {
+  return (
+    <div className="bg-gradiant-to-br from-mist-400 via-mist-300 to-mist-400 rounded-3xl border border-slate-200 shadow-2xl p-8 max-w-2xl mx-auto text-center">
+      <h3 className="text-2xl font-bold text-slate-900 mb-4">Let's Review</h3>
+      <p className="text-slate-500 mb-8">
+        This section is still under construction — more review content coming soon.
+      </p>
+      <button
+        onClick={onContinue}
+        className="px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-semibold transition-colors"
+      >
+        Continue →
+      </button>
+    </div>
+  );
+}
+
 // ===================== AI CHAT HOOK =====================
 const useAIChat = (currentSection: SectionWithBreakdown | undefined) => {
   const [messages, setMessages] = useState<Message[]>([
@@ -293,23 +310,6 @@ function QuizSlide({
       return next;
     });
   };
-
-  function ReviewSlide({ onContinue }: { onContinue: () => void }) {
-    return (
-      <div className="bg-gradiant-to-br from-mist-400 via-mist-300 to-mist-400 rounded-3xl border border-slate-200 shadow-2xl p-8 max-w-2xl mx-auto text-center">
-        <h3 className="text-2xl font-bold text-slate-900 mb-4">Let's Review</h3>
-        <p className="text-slate-500 mb-8">
-          This section is still under construction — more review content coming soon.
-        </p>
-        <button
-          onClick={onContinue}
-          className="px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-semibold transition-colors"
-        >
-          Continue →
-        </button>
-      </div>
-    );
-  }
 
   const allAnswered = answers.every((a) => a !== null);
   const score = quiz.reduce((total, q, i) => (answers[i] === q.correctAnswer ? total + 1 : total), 0);
