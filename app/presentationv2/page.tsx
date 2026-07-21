@@ -785,7 +785,7 @@ export default function AIPresentation() {
       const next = fromStep + 1;
       setMicroStep(next);
       const useLeadIn = fromStep === 0;
-      playMicroStepAudio(next, true);
+      playMicroStepAudio(next, useLeadIn);
     }
   };
   
