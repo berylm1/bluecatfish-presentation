@@ -795,6 +795,8 @@ export default function AIPresentation() {
       } else {
         playMicroStepAudio(sectionIndex, next, null);
       }
+    } else {
+      play(audioUrls['wrapup'], 'wrapup', '');
     }
   };
 
