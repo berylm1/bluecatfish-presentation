@@ -752,7 +752,7 @@ export default function AIPresentation() {
 
   const currentSection = sections[activeSection];
 
-  const playMicroStepAudio = (stepIndex: number, withLeadIn: boolean) => {
+  const playMicroStepAudio = (stepIndex: number, transitionType: 'means' | 'analogy' | null) => {
     const step = microSteps[stepIndex];
     const text = getMicroStepText(currentSection, stepIndex);
   
@@ -762,17 +762,19 @@ export default function AIPresentation() {
           autoAdvanceFrom(stepIndex);
         });
       } else {
-        if (keyTermsTimerRef.current) clearTimeout(keyTermsTimerRef.current);
-        keyTermsTimerRef.current = setTimeout(() => {
-          autoAdvanceFrom(stepIndex);
-        }, 8000);
+        if (keyTermsTimerRef.current) clearTimeout(keyTermsTimerRef.current); 
+        keyTermsTimerRef.current = setTimeout(() => autoAdvanceFrom(stepIndex), 8000);
       }
     };
   
-    if (withLeadIn && stepIndex > 0) {
-      const randomIdx = Math.floor(Math.random() * 3);
-      const transitionKey = `transition${randomIdx}`;
-      play(audioUrls[transitionKey], transitionKey, '', playActualStep);
+    if (transitionType === 'means') {
+      const idx = Math.floor(Math.random() * 3);
+      const key = `transition${idx}`;
+      play(audioUrls[key], key, '', playActualStep);
+    } else if (transitionType === 'analogy') {
+      const idx = Math.floor(Math.random() * 3);
+      const key = `exampleTransition${idx}`;
+      play(audioUrls[key], key, '', playActualStep);
     } else {
       playActualStep();
     }
@@ -782,8 +784,14 @@ export default function AIPresentation() {
     if (fromStep < microSteps.length - 1) {
       const next = fromStep + 1;
       setMicroStep(next);
-      const useLeadIn = fromStep === 0;
-      playMicroStepAudio(next, useLeadIn);
+
+      if (fromStep === 0) {
+        playMicroStepAudio(next, 'means');
+      } else if (fromStep === 2) {
+        playMicroStepAudio(next, 'analogy');
+      } else {
+        playMicroStepAudio(next, null);
+      }
     }
   };
 
@@ -791,7 +799,7 @@ export default function AIPresentation() {
     setSelectedTemplate(template);
     setActiveSection(0);
     setShowConclusion(false);
-    playIntroduction();
+    playIntroduction(template);
   };
   
   const flowSteps = sections.flatMap((_, idx) => [
@@ -866,7 +874,7 @@ export default function AIPresentation() {
   const narrateSection = (index: number) => {
     if (index < sections.length) {
       setMicroStep(0);
-      playMicroStepAudio(0, false);
+      playMicroStepAudio(0, null);
       setIsNarrating(true);
       setShowConclusion(false);
     } else {
@@ -878,7 +886,10 @@ export default function AIPresentation() {
 
   const playIntroduction = () => {
     play(audioUrls['intro'], 'intro', introText, () => {
-      narrateSection(0);
+      const layoutKey = `layout_${template}`;
+      play(audioUrls[layoutKey], layoutKey, '', () => {
+        narrateSection(0);
+      });
     });
     setIsNarrating(true);
   };
@@ -943,7 +954,7 @@ export default function AIPresentation() {
     if (index < 0 || index >= microSteps.length) return;
     if (keyTermsTimerRef.current) clearTimeout(keyTermsTimerRef.current);
     setMicroStep(index);
-    playMicroStepAudio(index, false);
+    playMicroStepAudio(index, null);
   };
   
   const nextMicroStep = () => goToMicroStep(microStep + 1);
