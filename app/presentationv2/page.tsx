@@ -781,7 +781,7 @@ export default function AIPresentation() {
         setSections(sectionsData.sections);
 
         const firstTopic = sectionsData.sections[0]?.title || 'the Blue Catfish invasion';
-        const builtIntro = `Hello everyone, and welcome! I'm Professor Marine, and today we're diving into the story of the Blue Catfish invasion in the Chesapeake Bay. By the time we're done, you'll all be experts on the subject. Let's get started with our first topic: ${firstTopic}.`;
+        const builtIntro = `Hello everyone, and welcome! I'm Professor Marine, and today we're diving into the story of the Blue Catfish invasion in the Chesapeake Bay. By the time we're done, you'll all be experts on the subject. Let's get right into the material — starting with our first topic: ${firstTopic}.`;
         setIntroText(builtIntro);
         
         const audioRes = await fetch('/api/slidesv2/audio', {
