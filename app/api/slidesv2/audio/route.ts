@@ -117,10 +117,10 @@ export async function POST(req: Request) {
     
     for (let t = 0; t < TRANSITION_PHRASES.length; t++) {
       audioUrls[`transition${t}`] = await generateAndUpload(TRANSITION_PHRASES[t], `${FOLDER}/transition-${t}.mp3`
-      audioUrls['wrapup'] = await generateAndUpload(WRAP_UP_TEXT, `${FOLDER}/wrapup.mp3`);
       );
     }
 
+    audioUrls['wrapup'] = await generateAndUpload(WRAP_UP_TEXT, `${FOLDER}/wrapup.mp3`);
     // Per-section narration + breakdown audio
     for (let i = 0; i < sections.length; i++) {
       const section = sections[i];
