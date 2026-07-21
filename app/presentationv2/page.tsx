@@ -26,7 +26,6 @@ interface SectionWithBreakdown {
 
 // ===================== STATIC INTRO/CONCLUSION SCRIPTS =====================
 const LECTURE_SCRIPTS = {
-  intro: `Welcome to this presentation on Blue Catfish invasion in the Chesapeake Bay. I'm your professor, and today we'll explore one of the most significant ecological challenges facing the Bay ecosystem. Blue Catfish, once introduced for recreational fishing, have become an invasive species with far-reaching consequences. Let's dive in.`,
   conclusion: `So to summarize what we've learned today: Blue Catfish are an invasive species that were introduced for recreational fishing but have since become a major ecological threat. They eat enormous quantities of native species, make up the majority of fish biomass in many rivers, and have no natural predators to keep their numbers in check. However, there's hope. By commercial harvesting and encouraging consumption of Blue Catfish, we can reduce their population while enjoying a sustainable and delicious food source. Thank you for joining me in this presentation about the Chesapeake Bay's Blue Catfish invasion. Remember, sometimes the solution to an ecological problem can be found on our dinner plates.`
 };
 
@@ -51,7 +50,7 @@ const useAudioPlayer = () => {
   const [duration, setDuration] = useState(0);
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
-  const play = useCallback((url: string | undefined, key: string, text: string = '') => {
+  const play = useCallback((url: string | undefined, key: string, text: string = '', onComplete?: () => void) => {
     if (!url) {
       console.warn(`No audio URL found for "${key}"`);
       return;
@@ -764,6 +763,7 @@ export default function AIPresentation() {
   
   const { play, pause, resume, stop, isSpeaking, isPaused, currentKey, currentText, currentTime, duration } = useAudioPlayer();
   const { messages, isLoading, input, setInput, sendMessage } = useAIChat(currentSection);
+  const [introText, setIntroText] = useState('');
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -780,6 +780,10 @@ export default function AIPresentation() {
 
         setSections(sectionsData.sections);
 
+        const firstTopic = sectionsData.sections[0]?.title || 'the Blue Catfish invasion';
+        const builtIntro = `Hello everyone, and welcome! I'm Professor Marine, and today we're diving into the story of the Blue Catfish invasion in the Chesapeake Bay. By the time we're done, you'll all be experts on the subject. Let's get started with our first topic: ${firstTopic}.`;
+        setIntroText(builtIntro);
+        
         const audioRes = await fetch('/api/slidesv2/audio', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -824,7 +828,9 @@ export default function AIPresentation() {
   };
 
   const playIntroduction = () => {
-    play(audioUrls['intro'], 'intro');
+    play(audioUrls['intro'], 'intro', introText, () => {
+      narrateSection(0);
+    });
     setIsNarrating(true);
   };
 
@@ -834,7 +840,6 @@ export default function AIPresentation() {
     setShowConclusion(false);
     setTimeout(() => {
       playIntroduction();
-      setTimeout(() => narrateSection(0), 5000);
     }, 500);
   };
 
