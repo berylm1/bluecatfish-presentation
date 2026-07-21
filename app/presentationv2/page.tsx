@@ -76,6 +76,7 @@ const useAudioPlayer = () => {
       setIsSpeaking(false);
       setIsPaused(false);
       setCurrentKey(null);
+      if (onComplete) onComplete();
     };
 
     audio.onerror = () => {
@@ -825,7 +826,7 @@ export default function AIPresentation() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             sections: sectionsData.sections,
-            intro: LECTURE_SCRIPTS.intro,
+            intro: builtIntro
             conclusion: LECTURE_SCRIPTS.conclusion,
           }),
         });
