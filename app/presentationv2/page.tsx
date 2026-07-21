@@ -128,7 +128,7 @@ function getMicroSteps(sectionIndex: number): MicroStep[] {
   return [
     { label: 'Overview', audioKey: `section${sectionIndex}_overview` },
     { label: 'Simple Explanation', audioKey: `section${sectionIndex}_simple` },
-    { label: 'Key Terms', audioKey: null }, // visual only, no audio
+    { label: 'Key Terms', audioKey: `section${sectionIndex}_keyterms` },
     { label: 'Real World Example', audioKey: `section${sectionIndex}_example` },
   ];
 }
