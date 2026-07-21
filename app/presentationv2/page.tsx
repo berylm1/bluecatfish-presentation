@@ -884,7 +884,7 @@ export default function AIPresentation() {
     }
   };
 
-  const playIntroduction = () => {
+  const playIntroduction = (template: 'classic' | 'split') => {
     play(audioUrls['intro'], 'intro', introText, () => {
       const layoutKey = `layout_${template}`;
       play(audioUrls[layoutKey], layoutKey, '', () => {
