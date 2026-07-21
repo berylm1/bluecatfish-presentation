@@ -276,9 +276,11 @@ function AnimatedStatValue({ value }: { value: string }) {
 function QuizSlide({
   quiz,
   onContinue,
+  onReview,
 }: {
   quiz: { question: string; options: string[]; correctAnswer: number }[];
   onContinue: () => void;
+  onReview: () => void;
 }) {
   const [answers, setAnswers] = useState<(number | null)[]>(quiz.map(() => null));
   const [submitted, setSubmitted] = useState(false);
@@ -291,6 +293,23 @@ function QuizSlide({
       return next;
     });
   };
+
+  function ReviewSlide({ onContinue }: { onContinue: () => void }) {
+    return (
+      <div className="bg-gradiant-to-br from-mist-400 via-mist-300 to-mist-400 rounded-3xl border border-slate-200 shadow-2xl p-8 max-w-2xl mx-auto text-center">
+        <h3 className="text-2xl font-bold text-slate-900 mb-4">Let's Review</h3>
+        <p className="text-slate-500 mb-8">
+          This section is still under construction — more review content coming soon.
+        </p>
+        <button
+          onClick={onContinue}
+          className="px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-semibold transition-colors"
+        >
+          Continue →
+        </button>
+      </div>
+    );
+  }
 
   const allAnswered = answers.every((a) => a !== null);
   const score = quiz.reduce((total, q, i) => (answers[i] === q.correctAnswer ? total + 1 : total), 0);
@@ -346,21 +365,30 @@ function QuizSlide({
               <p className="text-cyan-400 font-semibold">
                 Score: {score} / {quiz.length}
               </p>
-              <button
-                onClick={onContinue}
-                className="px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-semibold transition-colors"
-              >
-                Continue →
-              </button>
+              {score === quiz.length ? (
+                <button
+                  onClick={onContinue}
+                  className="px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-semibold transition-colors"
+                >
+                  Continue →
+                </button>
+              ) : (
+                <button
+                  onClick={onReview}
+                  className="px-6 py-3 bg-amber-500 hover:bg-amber-600 text-white rounded-xl font-semibold transition-colors"
+                >
+                  Review →
+                </button>
+              )}
             </>
           ) : (
-            <button
-              onClick={() => setSubmitted(true)}
-              disabled={!allAnswered}
-              className="ml-auto px-6 py-3 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white rounded-xl font-semibold transition-colors"
-            >
-              Submit
-            </button>
+              <button
+                onClick={() => setSubmitted(true)}
+                disabled={!allAnswered}
+                className="ml-auto px-6 py-3 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white rounded-xl font-semibold transition-colors"
+              >
+                Submit
+              </button>
           )}
         </div>
       </div>
@@ -740,7 +768,9 @@ export default function AIPresentation() {
   const [showQuiz, setShowQuiz] = useState(false);
   const [selectedTemplate, setSelectedTemplate] = useState<'classic' | 'split' | null>(null);
   const [completedQuizzes, setCompletedQuizzes] = useState<Set<number>>(new Set());
+  const [showReview, setShowReview] = useState(false);
   const keyTermsTimerRef = useRef<NodeJS.Timeout | null>(null);
+  
   
   const handleRestart = () => {
     stop();
@@ -815,6 +845,16 @@ export default function AIPresentation() {
   const currentFlowIndex = flowSteps.findIndex(
     (step) => step.index === activeSection && step.type === (showQuiz ? 'quiz' : 'section')
   );
+
+  const handleQuizReview = () => {
+    setShowQuiz(false);
+    setShowReview(true);
+  };
+  
+  const handleReviewContinue = () => {
+    setShowReview(false);
+    handleQuizContinue();
+  };
   
   const { play, pause, resume, stop, isSpeaking, isPaused, currentKey, currentText, currentTime, duration } = useAudioPlayer();
   const { messages, isLoading, input, setInput, sendMessage } = useAIChat(currentSection);
@@ -1110,8 +1150,10 @@ export default function AIPresentation() {
             </div>
           </div>
 
-          {showQuiz ? (
-            <QuizSlide quiz={currentSection.quiz} onContinue={handleQuizContinue} /> 
+          {showReview ? (
+            <ReviewSlide onContinue={handleReviewContinue} />
+          ) : showQuiz ? (
+            <QuizSlide quiz={currentSection.quiz} onContinue={handleQuizContinue} onReview={handleQuizReview} /> 
           ) : selectedTemplate === 'classic' ? (
             <ClassicLayout
               currentSection={currentSection}
