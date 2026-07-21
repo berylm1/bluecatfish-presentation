@@ -9,6 +9,14 @@ const supabase = createClient(
 const BUCKET = "slide-audio";
 const FOLDER = "sections_v5";
 
+function slugify(text: string): string {
+  return text
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/(^-|-$)/g, '')
+    .slice(0, 40);
+}
+
 async function generateAndUpload(text: string, fileName: string): Promise<string> {
   // Skip regenerating if it already exists in Storage
   const { data: existing } = await supabase.storage
@@ -64,7 +72,11 @@ export async function POST(req: Request) {
 
     // Intro narration
     if (intro) {
-      audioUrls["intro"] = await generateAndUpload(intro, `${FOLDER}/intro.mp3`);
+      const firstTopicSlug = slugify(sections?.[0]?.title || 'default');
+      audioUrls["intro"] = await generateAndUpload(
+        intro,
+        `${FOLDER}/intro-${firstTopicSlug}.mp3`
+        );
     }
 
     // Conclusion narration
