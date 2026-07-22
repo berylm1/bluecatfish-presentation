@@ -820,6 +820,8 @@ export default function AIPresentation() {
   const [completedQuizzes, setCompletedQuizzes] = useState<Set<number>>(new Set());
   const [showReview, setShowReview] = useState(false);
   const [missedQuestions, setMissedQuestions] = useState<{ question: string; options: string[]; correctAnswer: number; userAnswer: number | null }[]>([]);
+  const [loadingPhase, setLoadingPhase] = useState<'content' | 'audio'>('content');
+  const [sectionScores, setSectionScores] = useState<Record<number, number>>({});
   const keyTermsTimerRef = useRef<NodeJS.Timeout | null>(null);
   
   
@@ -829,6 +831,8 @@ export default function AIPresentation() {
     setMicroStep(0);
     setShowConclusion(false);
     setShowQuiz(false);
+    setSectionScores({});
+    setCompletedQuizzes(new Set());
   };
 
   const currentSection = sections[activeSection];
@@ -917,6 +921,7 @@ export default function AIPresentation() {
   useEffect(() => {
     async function loadPresentation() {
       try {
+        setLoadingPhase('content');
         const sectionsRes = await fetch('/api/slidesv2', { method: 'POST' });
         const sectionsData = await sectionsRes.json();
 
@@ -929,7 +934,8 @@ export default function AIPresentation() {
         const firstTopic = sectionsData.sections[0]?.title || 'the Blue Catfish invasion';
         const builtIntro = `Hello everyone, and welcome! I'm Professor Marine, and today we're diving into the story of the Blue Catfish invasion in the Chesapeake Bay. By the time we're done, you'll all be experts on the subject. Let's get right into the material — starting with our first topic: ${firstTopic}.`;
         setIntroText(builtIntro);
-        
+
+        setLoadingPhase('audio');
         const audioRes = await fetch('/api/slidesv2/audio', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -1060,9 +1066,16 @@ export default function AIPresentation() {
   // ---- Loading / error states before rendering the presentation ----
   if (isContentLoading) {
     return (
-      <div className="h-screen w-screen flex items-center justify-center text-2xl font-semibold text-black bg-mist-300">
-        Generating your lesson...
+      <div className="h-screen w-screen flex flex-col items-center justify-center text-black bg-mist-300 gap-4">
+      <div className="text-2xl font-semibold">
+        {loadingPhase === 'content' ? 'Writing your lecture...' : 'Recording narration...'}
       </div>
+      <div className="text-sm text-slate-400">
+        {loadingPhase === 'content'
+          ? 'Generating lesson content for all sections'
+          : 'Generating audio narration — this takes a moment'}
+      </div>
+    </div>
     );
   }
 
@@ -1078,7 +1091,17 @@ export default function AIPresentation() {
     return <TemplateSelector onSelect={handleTemplateSelect} />;
   }   
 
-  function ConclusionScreen({ onRestart }: { onRestart: () => void }) {
+  function ConclusionScreen({
+    onRestart,
+    sectionScores,
+    totalQuestions,
+  }: {
+    onRestart: () => void;
+    sectionScores: Record<number, number>;
+    totalQuestions: number;
+  }) {
+    const totalScore = Object.values(sectionScores).reduce((sum, s) => sum + s, 0);
+    
     return (
       <div className="flex flex-col items-center justify-center text-center py-16 px-8">
         <div className="text-6xl mb-6">🎓</div>
@@ -1088,6 +1111,9 @@ export default function AIPresentation() {
         <p className="text-blue-700 text-lg max-w-xl mb-8 leading-relaxed">
           You've made it through the full story of the Blue Catfish invasion in the Chesapeake Bay —
           from how they got here, to why they've thrived, to how we might turn the problem into a solution.
+        </p>
+        <p className="text-2xl font-bold text-cyan-400 mb-8">
+        Final Score: {totalScore} / {totalQuestions}
         </p>
   
         <div className="flex flex-col sm:flex-row gap-4">
@@ -1184,7 +1210,11 @@ export default function AIPresentation() {
       {/* Main Content */}
       <main className="flex-1 flex items-center justify-center p-8 bg-gradient-to-br from-mist-400/70 via-mist-300/70 to-mist-400/70">
         {showConclusion ? (
-          <ConclusionScreen onRestart={handleRestart} />
+          <ConclusionScreen 
+            onRestart={handleRestart}
+            sectionScores={sectionScores}
+            totalQuestions={sections.length * 2}
+          />
         ) : (
         <div className="max-w-7xl w-full">
           {/* Progress Bar */}
@@ -1213,6 +1243,9 @@ export default function AIPresentation() {
               onContinue={handleQuizContinue} 
               onReview={handleQuizReview} 
               onSubmitResult={(passed, missed) => {
+                const score = currentSection.quiz.length - missed.length;
+                setSectionScores((prev) => ({ ...prev, [activeSection]: score }));
+                setMissedQuestions(missed);
                 if (passed) {
                   const key = `section${activeSection}_quizsuccess`;
                   play(audioUrls[key], key, '');
