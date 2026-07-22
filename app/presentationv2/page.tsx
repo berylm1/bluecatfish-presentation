@@ -1195,7 +1195,7 @@ export default function AIPresentation() {
 
           {showReview ? (
             <ReviewSlide
-              onContinue={handleReviewContinue}
+              missedQuestions={missedQuestions}
               section={currentSection}
               onContinue={handleReviewContinue}
             />
