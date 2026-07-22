@@ -239,7 +239,7 @@ function ReviewSlide({
 }
 
 // ===================== AI CHAT HOOK =====================
-const useAIChat = (currentSection: SectionWithBreakdown | undefined, missedQuestions: {...}[]) => {
+const useAIChat = (currentSection: SectionWithBreakdown | undefined, missedQuestions: { question: string; options: string[]; correctAnswer: number; explanation: string }[]) => {
   const [messages, setMessages] = useState<Message[]>([
     { role: 'ai', text: `Good day! I'm ${PRESENTATION.professor.name}, and I'll be your guide through today's lecture on the Blue Catfish invasion in the Chesapeake Bay. Feel free to ask me any questions as we go through the material. What would you like to explore first?` }
   ]);
