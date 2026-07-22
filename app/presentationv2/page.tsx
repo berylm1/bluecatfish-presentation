@@ -188,19 +188,47 @@ function HighlightedText({
   );
 }
 
-function ReviewSlide({ onContinue }: { onContinue: () => void }) {
+function ReviewSlide({
+  missedQuestions,
+  section,
+  onContinue,
+}: {
+  missedQuestions: { question: string; options: string[]; correctAnswer: number; userAnswer: number | null }[];
+  section: SectionWithBreakdown;
+  onContinue: () => void;
+}) {
   return (
-    <div className="bg-gradiant-to-br from-mist-400 via-mist-300 to-mist-400 rounded-3xl border border-slate-200 shadow-2xl p-8 max-w-2xl mx-auto text-center">
+    <div className="bg-gradient-to-br from-mist-400 via-mist-300 to-mist-400 rounded-3xl border border-slate-200 shadow-2xl p-8 max-w-2xl mx-auto text-center">
       <h3 className="text-2xl font-bold text-slate-900 mb-4">Let's Review</h3>
-      <p className="text-slate-500 mb-8">
-        This section is still under construction — more review content coming soon.
-      </p>
-      <button
-        onClick={onContinue}
-        className="px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-semibold transition-colors"
-      >
-        Continue →
-      </button>
+        
+        <div className="space-y-5 mb-6">
+          {missedQuestions.map((q, idx) => (
+            <div key={idx} className="bg-red-50 rounded-2xl p-5 border border-red-200">
+              <p className="text-slate-900 font-semibold mb-2">{q.question}</p>
+              <p className="text-red-600 text-sm mb-1">
+                You answered: {q.userAnswer !== null ? q.options[q.userAnswer] : '(no answer)'}
+              </p>
+              <p className="text-green-700 text-sm font-medium">
+                Correct answer: {q.options[q.correctAnswer]}
+              </p>
+            </div>
+          ))}
+        </div>
+
+      <div className="bg-blue-50 rounded-2xl p-5 border border-blue-200 mb-6">
+        <p className="text-blue-900 font-semibold mb-2">Refresher</p>
+        <p className="text-slate-700 leading-relaxed mb-3">{section.content}</p>
+        <p className="text-slate-700 leading-relaxed">{section.breakdown.simple}</p>
+      </div>
+
+      <div className="flex justify-end">
+        <button
+          onClick={onContinue}
+          className="px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-semibold transition-colors"
+        >
+          Continue →
+        </button>
+      </div>
     </div>
   );
 }
@@ -316,9 +344,18 @@ function QuizSlide({
   const allAnswered = answers.every((a) => a !== null);
   const score = quiz.reduce((total, q, i) => (answers[i] === q.correctAnswer ? total + 1 : total), 0);
 
+  const handleSubmit = () => {
+    setSubmitted(true);
+    const passed = score === quiz.length;
+    const missed = quiz
+      .map((q, i) => ({ ...q, userAnswer: answers[i] }))
+      .filter((q, i) => answers[i] !== q.correctAnswer);
+    onSubmitResult(passed, missed);
+  };
+  
   return (
-    <div className="bg-gradiant-to-br from-mist-50/70 to-mist-400/70 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-      <div className="bg-gradiant-to-br from-mist-400/70 via-mist-300/70 to-mist-400/70 rounded-3xl max-w-2xl w-full max-h-[85vh] overflow-y-auto border border-white/30 shadow-2xl p-8">
+    <div className="bg-gradient-to-br from-mist-50/70 to-mist-400/70 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+      <div className="bg-gradient-to-br from-mist-400/70 via-mist-300/70 to-mist-400/70 rounded-3xl max-w-2xl w-full max-h-[85vh] overflow-y-auto border border-white/30 shadow-2xl p-8">
         <h3 className="text-2xl font-bold text-black mb-1">Quick Check</h3>
         <p className="text-black text-sm mb-6">Answer both questions to continue</p>
 
@@ -774,6 +811,7 @@ export default function AIPresentation() {
   const [selectedTemplate, setSelectedTemplate] = useState<'classic' | 'split' | null>(null);
   const [completedQuizzes, setCompletedQuizzes] = useState<Set<number>>(new Set());
   const [showReview, setShowReview] = useState(false);
+  const [missedQuestions, setMissedQuestions] = useState<{ question: string; options: string[]; correctAnswer: number; userAnswer: number | null }[]>([]);
   const keyTermsTimerRef = useRef<NodeJS.Timeout | null>(null);
   
   
@@ -1136,7 +1174,7 @@ export default function AIPresentation() {
       </header>
 
       {/* Main Content */}
-      <main className="flex-1 flex items-center justify-center p-8 bg-gradiant-to-br from-mist-400/70 via-mist-300/70 to-mist-400/70">
+      <main className="flex-1 flex items-center justify-center p-8 bg-gradient-to-br from-mist-400/70 via-mist-300/70 to-mist-400/70">
         {showConclusion ? (
           <ConclusionScreen onRestart={handleRestart} />
         ) : (
@@ -1156,13 +1194,17 @@ export default function AIPresentation() {
           </div>
 
           {showReview ? (
-            <ReviewSlide onContinue={handleReviewContinue} />
+            <ReviewSlide
+              onContinue={handleReviewContinue}
+              section={currentSection}
+              onContinue={handleReviewContinue}
+            />
           ) : showQuiz ? (
             <QuizSlide 
               quiz={currentSection.quiz} 
               onContinue={handleQuizContinue} 
               onReview={handleQuizReview} 
-              onSubmitResult={(passed) => {
+              onSubmitResult={(passed, missed) => {
                 if (passed) {
                   const key = `section${activeSection}_quizsuccess`;
                   play(audioUrls[key], key, '');
