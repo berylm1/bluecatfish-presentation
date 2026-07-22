@@ -138,17 +138,26 @@ export async function POST(req: Request) {
       );
       
       if (section.content) {
-        const statsLine = section.stats?.length === 2
-          ? ` For example, ${section.stats[0].label} is ${section.stats[0].value}, and ${section.stats[1].label} is ${section.stats[1].value}.`
-          : '';
-        const overviewText = `${section.content}${statsLine}`;
-        
         audioUrls[`section${i}_overview`] = await generateAndUpload(
-          overviewText,
+          section.content,
           `${FOLDER}/section${i + 1}_overview.mp3`
         );
       }
 
+      if (section.stats?.length === 2) {
+        const fact1Text = `One fun fact is ${section.stats[0].value}: ${section.stats[0].label}.`;
+        const fact2Text = `Another fact is ${section.stats[1].value}: ${section.stats[1].label}.`;
+      
+        audioUrls[`section${i}_fact1`] = await generateAndUpload(
+          fact1Text,
+          `${FOLDER}/section${i + 1}_fact1.mp3`
+        );
+        audioUrls[`section${i}_fact2`] = await generateAndUpload(
+          fact2Text,
+          `${FOLDER}/section${i + 1}_fact2.mp3`
+        );
+      }
+      
       if (section.breakdown?.simple) {
         audioUrls[`section${i}_simple`] = await generateAndUpload(
           section.breakdown.simple,
