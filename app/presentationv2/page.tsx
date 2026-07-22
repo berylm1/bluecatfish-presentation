@@ -20,7 +20,7 @@ interface SectionWithBreakdown {
     simple: string;
     keyTerms: { term: string; definition: string }[];
     realWorldExample: string;
-  quiz: { question: string; options: string[]; correctAnswer: number }[];
+  quiz: { question: string; options: string[]; correctAnswer: number; explanation: string }[];
   };
 }
 
@@ -216,16 +216,13 @@ function ReviewSlide({
               <p className="text-green-700 text-sm font-medium">
                 Correct answer: {q.options[q.correctAnswer]}
               </p>
+              <div className="bg-blue-50 rounded-xl p-3 border border-blue-200">
+                <p className="text-blue-900 text-sm">{q.explanation}</p>
+              </div>
             </div>
           ))}
         </div>
-
-      <div className="bg-blue-50 rounded-2xl p-5 border border-blue-200 mb-6">
-        <p className="text-blue-900 font-semibold mb-2">Refresher</p>
-        <p className="text-slate-700 leading-relaxed mb-3">{section.content}</p>
-        <p className="text-slate-700 leading-relaxed">{section.breakdown.simple}</p>
-      </div>
-
+      
       <div className="flex justify-end">
         <button
           onClick={onContinue}
@@ -332,7 +329,7 @@ function QuizSlide({
   quiz: { question: string; options: string[]; correctAnswer: number }[];
   onContinue: () => void;
   onReview: () => void;
-  onSubmitResult: (passed: boolean) => void;
+  onSubmitResult: (passed: boolean, missed: { question: string; options: string[]; correctAnswer: number; userAnswer: number | null; explanation: string }[]) => void;
 }) {
   const [answers, setAnswers] = useState<(number | null)[]>(quiz.map(() => null));
   const [submitted, setSubmitted] = useState(false);
