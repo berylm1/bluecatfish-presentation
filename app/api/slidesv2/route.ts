@@ -75,7 +75,7 @@ STRICT RULES YOU MUST FOLLOW:
 5. "breakdown.keyTerms" must contain EXACTLY 3 items, each a key word or phrase from this section paired with a plain-language definition:
    { "term": "...", "definition": "..." }
 6. "breakdown.realWorldExample" must explain the concept via an analogy to something unrelated and familiar (e.g. comparing an ecological concept to delivery logistics, sports, cooking, etc.) — NOT another catfish/fish fact. 1-2 sentences.
-7. "quiz" must contain EXACTLY 2 multiple-choice questions testing understanding of THIS section's specific content (not other sections). Each question must have exactly 4 "options" and a "correctAnswer" index (0-3) pointing to the correct option. Base both questions strictly on facts present in the "content", "stats", "breakdown.simple", or the key term definitions — all of these are read aloud to the learner during the lesson.
+7. "quiz" must contain EXACTLY 2 multiple-choice questions testing understanding of THIS section's specific content (not other sections). Each question must have exactly 4 "options" and a "correctAnswer" index (0-3) pointing to the correct option. Base both questions strictly on facts present in the "content", "stats", "breakdown.simple", or the key term definitions — all of these are read aloud to the learner during the lesson. Each question must also include an "explanation" field: 1 short sentence stating the specific fact that makes the correct answer correct, written so a learner who got it wrong immediately understands why — this should directly quote or closely paraphrase the exact source sentence/fact it came from.
 Output ONLY a JSON object with key "section" structured EXACTLY like this:
 
 {
@@ -98,8 +98,8 @@ Output ONLY a JSON object with key "section" structured EXACTLY like this:
       "realWorldExample": "analogy to something unrelated, 1-2 sentences"
     },
     "quiz": [
-      { "question": "...", "options": ["...", "...", "...", "..."], "correctAnswer": 0 },
-      { "question": "...", "options": ["...", "...", "...", "..."], "correctAnswer": 0 }
+      { "question": "...", "options": ["...", "...", "...", "..."], "correctAnswer": 0, "explanation": "..." },
+      { "question": "...", "options": ["...", "...", "...", "..."], "correctAnswer": 0, "explanation": "..." }
     ]
   }
 }`,
