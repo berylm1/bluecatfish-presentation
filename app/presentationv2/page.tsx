@@ -294,10 +294,12 @@ function QuizSlide({
   quiz,
   onContinue,
   onReview,
+  onSubmitResult,
 }: {
   quiz: { question: string; options: string[]; correctAnswer: number }[];
   onContinue: () => void;
   onReview: () => void;
+  onSubmitResult: (passed: boolean) => void;
 }) {
   const [answers, setAnswers] = useState<(number | null)[]>(quiz.map(() => null));
   const [submitted, setSubmitted] = useState(false);
@@ -383,7 +385,10 @@ function QuizSlide({
             </>
           ) : (
               <button
-                onClick={() => setSubmitted(true)}
+                onClick={() => {
+                  setSubmitted(true);
+                  onSubmitResult(score == quiz.length)
+                }}
                 disabled={!allAnswered}
                 className="ml-auto px-6 py-3 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white rounded-xl font-semibold transition-colors"
               >
@@ -1153,7 +1158,19 @@ export default function AIPresentation() {
           {showReview ? (
             <ReviewSlide onContinue={handleReviewContinue} />
           ) : showQuiz ? (
-            <QuizSlide quiz={currentSection.quiz} onContinue={handleQuizContinue} onReview={handleQuizReview} /> 
+            <QuizSlide 
+              quiz={currentSection.quiz} 
+              onContinue={handleQuizContinue} 
+              onReview={handleQuizReview} 
+              onSubmitResult={(passed) => {
+                if (passed) {
+                  const key = `section${activeSection}_quizsuccess`;
+                  play(audioUrls[key], key, '');
+                } else {
+                  play(audioUrls['quizFail'], 'quizFail', '');
+                }
+              }}
+            /> 
           ) : selectedTemplate === 'classic' ? (
             <ClassicLayout
               currentSection={currentSection}
