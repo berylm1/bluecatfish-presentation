@@ -1139,7 +1139,7 @@ export default function AIPresentation() {
           You've made it through the full story of the Blue Catfish invasion in the Chesapeake Bay —
           from how they got here, to why they've thrived, to how we might turn the problem into a solution.
         </p>
-        <p className="text-2xl font-bold text-cyan-400 mb-8">
+        <p className="text-2xl font-bold text-cyan-500 mb-8">
         Final Score: {totalScore} / {totalQuestions}
         </p>
   
