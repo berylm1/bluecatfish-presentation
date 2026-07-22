@@ -628,7 +628,7 @@ function SectionImageBlock({
                             return (
                             <div 
                               key={idx} 
-                              className={`rounded-xl p-5 text-center border transition-all duration-300 " ${
+                              className={`rounded-xl p-5 text-center border transition-all duration-300 ${
                                 isActive
                                   ? 'bg-blue-300 border-cyan-400 ring-2 ring-cyan-300 scale-105 shadow-lg'
                                   : 'bg-blue-700/50 border-cyan-500/30'
@@ -640,7 +640,9 @@ function SectionImageBlock({
                           );
                         })}
                       </div>
-                
+                    </div>
+                  )}
+                    
                     {microStep === 1 && (
                       <div className="bg-blue-700/20 rounded-xl p-5 border border-blue-500/40">
                         <HighlightedText
