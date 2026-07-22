@@ -75,7 +75,7 @@ STRICT RULES YOU MUST FOLLOW:
 5. "breakdown.keyTerms" must contain EXACTLY 3 items, each a key word or phrase from this section paired with a plain-language definition:
    { "term": "...", "definition": "..." }
 6. "breakdown.realWorldExample" must explain the concept via an analogy to something unrelated and familiar (e.g. comparing an ecological concept to delivery logistics, sports, cooking, etc.) — NOT another catfish/fish fact. 1-2 sentences.
-7. "quiz" must contain EXACTLY 2 multiple-choice questions testing understanding of THIS section's specific content (not other sections). Each question must have exactly 4 "options" and a "correctAnswer" index (0-3) pointing to the correct option. Base both questions strictly on facts present in the SOURCE CONTENT or in the generated section content — do not invent facts or ask about anything not covered in this section.
+7. "quiz" must contain EXACTLY 2 multiple-choice questions testing understanding of THIS section's specific content (not other sections). Each question must have exactly 4 "options" and a "correctAnswer" index (0-3) pointing to the correct option. Base both questions strictly on facts present in the "content", "stats", "breakdown.simple", or the key term definitions — all of these are read aloud to the learner during the lesson.
 Output ONLY a JSON object with key "section" structured EXACTLY like this:
 
 {
