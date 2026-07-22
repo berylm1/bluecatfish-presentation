@@ -123,6 +123,7 @@ Output ONLY a JSON object with key "section" structured EXACTLY like this:
 
   const validKeyTerms = section.breakdown?.keyTerms?.length === 3;
   const validStats = section.stats?.length === 2;
+  const validQuiz = section.quiz?.length === 2 && section.quiz.every((q: any) => q.options?.length === 4 && typeof q.explanation === 'string');
 
   if ((!validKeyTerms || !validStats) && attempt < 3) {
     console.warn(`Section ${sectionNum} malformed (keyTerms/stats), retrying...`);
