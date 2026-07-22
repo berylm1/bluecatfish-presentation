@@ -621,15 +621,25 @@ function SectionImageBlock({
                           className="text-xl text-black leading-relaxed mb-4"
                         />
                         <div className="grid grid-cols-2 gap-4">
-                          {currentSection.stats.map((stat, idx) => (
-                            <div key={idx} className="bg-blue-700/20 rounded-xl p-5 text-center border border-black/40">
+                          {currentSection.stats.map((stat, idx) => {
+                            const factKey = idx === 0 ? '_fact1' : '_fact2';
+                            const isActive = currentKey?.endsWith(factKey) ?? false;
+
+                            return (
+                            <div 
+                              key={idx} 
+                              className={`rounded-xl p-5 text-center border transition-all duration-300 " ${
+                                isActive
+                                  ? 'bg-blue-300 border-cyan-400 ring-2 ring-cyan-300 scale-105 shadow-lg'
+                                  : 'bg-blue-700/50 border-cyan-500/30'
+                              }`}
+                            >
                               <div className="text-2xl font-bold text-blue-800 mb-1"><AnimatedStatValue value={stat.value}/></div>
                               <div className="text-base text-black">{stat.label}</div>
                             </div>
-                          ))}
-                        </div>
+                          );
+                        })}
                       </div>
-                    )}
                 
                     {microStep === 1 && (
                       <div className="bg-blue-700/20 rounded-xl p-5 border border-blue-500/40">
