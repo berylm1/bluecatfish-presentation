@@ -29,7 +29,6 @@ const EXAMPLE_TRANSITION_PHRASES = [
 const WRAP_UP_TEXT = "When you're ready, answer the quiz to head to the next section.";
 
 const FAIL_TEXT = "It seems you didn't answer everything correctly. Let's head to review to cement what you know.";
-audioUrls['quizFail'] = await generateAndUpload(FAIL_TEXT, `${FOLDER}/quiz-fail.mp3`);
 
 function slugify(text: string): string {
   return text
@@ -123,6 +122,7 @@ export async function POST(req: Request) {
     }
 
     audioUrls['wrapup'] = await generateAndUpload(WRAP_UP_TEXT, `${FOLDER}/wrapup.mp3`);
+    audioUrls['quizFail'] = await generateAndUpload(FAIL_TEXT, `${FOLDER}/quiz-fail.mp3`);
     // Per-section narration + breakdown audio
     for (let i = 0; i < sections.length; i++) {
       const section = sections[i];
