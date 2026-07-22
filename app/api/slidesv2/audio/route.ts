@@ -7,7 +7,7 @@ const supabase = createClient(
 );
 
 const BUCKET = "slide-audio";
-const FOLDER = "sections_v7";
+const FOLDER = "sections_v8";
 
 const TRANSITION_PHRASES = [
   "This means...",
