@@ -136,7 +136,12 @@ function getMicroSteps(sectionIndex: number): MicroStep[] {
 
 function getMicroStepText(section: SectionWithBreakdown, stepIndex: number): string {
   switch (stepIndex) {
-    case 0: return section.content;
+    case 0: {
+      const statsLine = section.stats?.length === 2
+        ? ` For example, ${section.stats[0].label} is ${section.stats[0].value}, and ${section.stats[1].label} is ${section.stats[1].value}.`
+        : '';
+      return `${section.content}${statsLine}`;
+    }
     case 1: return section.breakdown.simple;
     case 2: return ''; // key terms — list, not narrated
     case 3: return section.breakdown.realWorldExample;
