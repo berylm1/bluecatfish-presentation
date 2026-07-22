@@ -354,7 +354,7 @@ function QuizSlide({
   };
   
   return (
-    <div className="bg-gradient-to-br from-mist-50/100 to-mist-400/100 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+    <div className="backdrop-blur-sm flex items-center justify-center z-50 p-4">
       <div className="bg-gradient-to-br from-mist-400/70 via-mist-300/70 to-mist-400/70 rounded-3xl max-w-2xl w-full max-h-[85vh] overflow-y-auto border border-white/30 shadow-2xl p-8">
         <h3 className="text-2xl font-bold text-black mb-1">Quick Check</h3>
         <p className="text-black text-sm mb-6">Answer both questions to continue</p>
@@ -424,7 +424,10 @@ function QuizSlide({
               <button
                 onClick={() => {
                   setSubmitted(true);
-                  onSubmitResult(score == quiz.length)
+                  const missed = quiz
+                    .map((q, i) => ({ ...q, userAnswer: answers[i] }))
+                    .filter((q, i) => answers[i] !== q.correctAnswer);
+                  onSubmitResult(score === quiz.length, missed);
                 }}
                 disabled={!allAnswered}
                 className="ml-auto px-6 py-3 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white rounded-xl font-semibold transition-colors"
