@@ -53,6 +53,7 @@ const useAudioPlayer = () => {
   const play = useCallback((url: string | undefined, key: string, text: string = '', onComplete?: () => void) => {
     if (!url) {
       console.warn(`No audio URL found for "${key}"`);
+      if (onComplete) onComplete();
       return;
     }
 
@@ -84,11 +85,13 @@ const useAudioPlayer = () => {
       setIsSpeaking(false);
       setIsPaused(false);
       setCurrentKey(null);
+      if (onComplete) onComplete();
     };
 
     audio.play().catch((err) => {
       console.warn('Audio playback failed:', err);
       setIsSpeaking(false);
+      if (onComplete) onComplete();
     });
   }, []);
 
@@ -250,6 +253,10 @@ const useAIChat = (currentSection: SectionWithBreakdown | undefined) => {
     setInput('');
     setIsLoading(true);
 
+    const missedContext = missedQuestions.length > 0
+      ? ` The student just missed these quiz questions: ${missedQuestions.map(q => `"${q.question}" (they need to understand: ${q.explanation})`).join(' ')} If they ask for help or clarification, prioritize addressing these specific gaps.`
+      : '';
+    
     try {
       const response = await fetch('/api/conversational/respond', {
         method: 'POST',
@@ -579,8 +586,10 @@ function SectionImageBlock({
     duration,
     isSpeaking,
     currentKey,
+    playMicroStepAudio,
   }: {
     currentSection: SectionWithBreakdown;
+    activeSectionIndex: number;
     microStep: number;
     microSteps: MicroStep[];
     goToMicroStep: (i: number) => void;
@@ -677,7 +686,16 @@ function SectionImageBlock({
                       </div>
                     )}
                   </div>
-                
+
+                  <div className="flex justify-center mb-3">
+                    <button
+                      onClick={() => playMicroStepAudio(activeSectionIndex, microStep, null)}
+                      className="flex items-center gap-2 px-4 py-2 rounded-full bg-slate-100 blue-700/90 hover:bg-blue-600/90 text-white text-sm font-medium transition-colors"
+                    >
+                      🔁 Replay
+                    </button>
+                  </div>
+                  
                   {/* Mini-slideshow navigation — always visible */}
                   <div className="flex items-center justify-between mt-5">
                     <button
@@ -721,6 +739,7 @@ function ClassicLayout(props: {
     currentSection: SectionWithBreakdown;
     activeSection: number;
     totalSections: number;
+    activeSectionIndex: number;
     microStep: number;
     microSteps: MicroStep[];
     goToMicroStep: (i: number) => void;
@@ -732,6 +751,7 @@ function ClassicLayout(props: {
     showQuiz: boolean;
     handleQuizContinue: () => void;
     currentKey: string | null;
+    playMicroStepAudio: (sectionIndex: number, stepIndex: number, transitionType: 'means' | 'analogy' | null) => void;
   }) {
     return (
       <div className="bg-white/5 backdrop-blur-md rounded-3xl border border-white-500/30 shadow-2xl overflow-hidden">
@@ -744,6 +764,7 @@ function ClassicLayout(props: {
           <div className="p-8 md:p-12 flex flex-col justify-center bg-gradient-to-br from-mist-400/50 to-mist-500/50">
             <MiniSlideshowBlock
               currentSection={props.currentSection}
+              activeSectionIndex={props.activeSectionIndex}
               microStep={props.microStep}
               microSteps={props.microSteps}
               goToMicroStep={props.goToMicroStep}
@@ -755,6 +776,7 @@ function ClassicLayout(props: {
               currentTime={props.currentTime}
               duration={props.duration}
               isSpeaking={props.isSpeaking}
+              playMicroStepAudio={props.playMicroStepAudio}
             />
           </div>
         </div>
@@ -766,6 +788,7 @@ function ClassicLayout(props: {
     currentSection: SectionWithBreakdown;
     activeSection: number;
     totalSections: number;
+    activeSectionIndex: number;
     microStep: number;
     microSteps: MicroStep[];
     goToMicroStep: (i: number) => void;
@@ -777,6 +800,8 @@ function ClassicLayout(props: {
     isSpeaking: boolean;
     showQuiz: boolean;
     handleQuizContinue: () => void;
+    playMicroStepAudio: (sectionIndex: number, stepIndex: number, transitionType: 'means' | 'analogy' | null) => void;
+    
   }) {
     return (
       <div className="bg-white/5 backdrop-blur-md rounded-3xl border border-white-500/30 shadow-2xl overflow-hidden">
@@ -785,6 +810,7 @@ function ClassicLayout(props: {
           <div className="p-8 md:p-12 flex flex-col justify-center bg-gradient-to-br from-mist-400/50 to-mist-500/50">
             <MiniSlideshowBlock
               currentSection={props.currentSection}
+              activeSectionIndex={props.activeSectionIndex}
               microStep={props.microStep}
               microSteps={props.microSteps}
               goToMicroStep={props.goToMicroStep}
@@ -796,6 +822,7 @@ function ClassicLayout(props: {
               currentTime={props.currentTime}
               duration={props.duration}
               isSpeaking={props.isSpeaking}
+              playMicroStepAudio={props.playMicroStepAudio}
             />
           </div>
   
@@ -936,7 +963,7 @@ export default function AIPresentation() {
   };
   
   const { play, pause, resume, stop, isSpeaking, isPaused, currentKey, currentText, currentTime, duration } = useAudioPlayer();
-  const { messages, isLoading, input, setInput, sendMessage } = useAIChat(currentSection);
+  const { messages, isLoading, input, setInput, sendMessage } = useAIChat(currentSection, missedQuestions);
   const [introText, setIntroText] = useState('');
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -1283,6 +1310,7 @@ export default function AIPresentation() {
               currentSection={currentSection}
               activeSection={activeSection}
               totalSections={sections.length}
+              activeSectionIndex={activeSection}
               microStep={microStep}
               microSteps={microSteps}
               goToMicroStep={goToMicroStep}
@@ -1294,12 +1322,14 @@ export default function AIPresentation() {
               isSpeaking={isSpeaking}
               showQuiz={showQuiz}
               handleQuizContinue={handleQuizContinue}
+              playMicroStepAudio={playMicroStepAudio}
             />
           ) : (
             <SplitLayout
               currentSection={currentSection}
               activeSection={activeSection}
               totalSections={sections.length}
+              activeSectionIndex={activeSection}
               microStep={microStep}
               microSteps={microSteps}
               goToMicroStep={goToMicroStep}
@@ -1311,6 +1341,7 @@ export default function AIPresentation() {
               isSpeaking={isSpeaking}
               showQuiz={showQuiz}
               handleQuizContinue={handleQuizContinue}
+              playMicroStepAudio={playMicroStepAudio}
             />
           )}
           
