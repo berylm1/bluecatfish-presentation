@@ -1070,7 +1070,7 @@ export default function AIPresentation() {
       <div className="text-2xl font-semibold">
         {loadingPhase === 'content' ? 'Writing your lecture...' : 'Recording narration...'}
       </div>
-      <div className="text-sm text-slate-400">
+      <div className="text-sm text-slate-600">
         {loadingPhase === 'content'
           ? 'Generating lesson content for all sections'
           : 'Generating audio narration — this takes a moment'}
