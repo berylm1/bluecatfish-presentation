@@ -138,8 +138,13 @@ export async function POST(req: Request) {
       );
       
       if (section.content) {
+        const statsLine = section.stats?.length === 2
+          ? ` For example, ${section.stats[0].label} is ${section.stats[0].value}, and ${section.stats[1].label} is ${section.stats[1].value}.`
+          : '';
+        const overviewText = `${section.content}${statsLine}`;
+        
         audioUrls[`section${i}_overview`] = await generateAndUpload(
-          section.content,
+          overviewText,
           `${FOLDER}/section${i + 1}_overview.mp3`
         );
       }
