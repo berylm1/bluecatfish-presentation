@@ -844,13 +844,28 @@ export default function AIPresentation() {
     const text = getMicroStepText(section, stepIndex);
   
     const playActualStep = () => {
+      if (stepIndex === 0) {
+        const overviewKey = `section${sectionIndex}_overview`;
+        const fact1Key = `section${sectionIndex}_fact1`;
+        const fact2Key = `section${sectionIndex}_fact2`;
+        
+        play(audioUrls[overviewKey], overviewKey, section.content, () => {
+          play(audioUrls[fact1Key], fact1Key, '', () => {
+            play(audioUrls[fact2Key], fact2Key, '', () => {
+              autoAdvanceFrom(sectionIndex, 0);
+            });
+          });
+        });
+        return;
+      }
+      
       if (step.audioKey) {
         play(audioUrls[step.audioKey], step.audioKey, text, () => {
           autoAdvanceFrom(sectionIndex, stepIndex);
         });
       } else {
-        if (keyTermsTimerRef.current) clearTimeout(keyTermsTimerRef.current); 
-        keyTermsTimerRef.current = setTimeout(() => autoAdvanceFrom(stepIndex), 8000);
+        if (keyTermsTimerRef.current) clearTimeout(keyTermsTimerRef.current);
+        keyTermsTimerRef.current = setTimeout(() => autoAdvanceFrom(sectionIndex, stepIndex), 8000);
       }
     };
   
@@ -1044,9 +1059,9 @@ export default function AIPresentation() {
   
   function getMicroStepText(section: SectionWithBreakdown, stepIndex: number): string {
     switch (stepIndex) {
-      case 0: return section.overview;
+      case 0: return section.content;
       case 1: return section.breakdown.simple;
-      case 2: return ''; // key terms — rendered as a list, no single narrated text
+      case 2: return '';
       case 3: return section.breakdown.realWorldExample;
       default: return '';
     }
