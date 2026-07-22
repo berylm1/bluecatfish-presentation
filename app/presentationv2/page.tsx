@@ -631,7 +631,7 @@ function SectionImageBlock({
                               className={`rounded-xl p-5 text-center border transition-all duration-300 ${
                                 isActive
                                   ? 'bg-blue-300 border-cyan-400 ring-2 ring-cyan-300 scale-105 shadow-lg'
-                                  : 'bg-blue-700/50 border-cyan-500/30'
+                                  : 'bg-blue-600/50 border-cyan-500/30'
                               }`}
                             >
                               <div className="text-2xl font-bold text-blue-800 mb-1"><AnimatedStatValue value={stat.value}/></div>
