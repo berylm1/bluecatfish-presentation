@@ -150,18 +150,37 @@ class SignalTracker {
     // reset the timer so the next event can schedule a new one
     if (this.timer) { clearTimeout(this.timer); this.timer = null; }
     if (this.queue.length === 0) return;
-    const batch = this.queue.splice(0, this.queue.length);
+    // Supabase rejects a multi-row insert unless every row has the same keys
+    // (PGRST102 "All object keys must match"), and JSON drops undefined ones,
+    // so a section_start (no step) batched with a dwell (has dwell_ms) failed.
+    const batch = this.queue.splice(0, this.queue.length).map((e) => ({
+      session_id: e.session_id,
+      learner_ref: e.learner_ref ?? null,
+      section: e.section ?? null,
+      step: e.step ?? null,
+      event_type: e.event_type,
+      value: e.value ?? {},
+      dwell_ms: e.dwell_ms ?? null,
+      created_at: e.created_at,
+    }));
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+      'apikey': SUPA_KEY,
+      'Prefer': 'return=minimal',
+    };
+    // Legacy anon keys are JWTs and can go in Authorization too; the new
+    // sb_publishable_ keys are not JWTs and are refused there
+    if (SUPA_KEY?.startsWith('eyJ')) headers.Authorization = `Bearer ${SUPA_KEY}`;
     fetch(EVENTS_URL, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'apikey': SUPA_KEY,
-        'Authorization': `Bearer ${SUPA_KEY}`,
-        'Prefer': 'return=minimal',
-      },
+      headers,
       body: JSON.stringify(batch),
       keepalive: true,
-    }).catch(() => { /* never block */ });
+    })
+      .then(async (r) => {
+        if (!r.ok) console.warn('Event tracking failed:', r.status, await r.text().catch(() => ''));
+      })
+      .catch(() => { /* never block */ });
   }
 
   /** Flush pending events on page hide. */
