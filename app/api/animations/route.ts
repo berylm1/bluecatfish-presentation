@@ -1,10 +1,7 @@
 import { NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
+import { lazySupabaseAdmin } from "@/lib/supabase/admin";
 
-const supabase = createClient(
-  process.env.SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
+const supabase = lazySupabaseAdmin();   // created on first use, so the build doesn't need env vars
 
 export async function POST(req: Request) {
   const { cacheKey } = await req.json();

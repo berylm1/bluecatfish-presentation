@@ -1,13 +1,10 @@
 import { NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
+import { lazySupabaseAdmin } from "@/lib/supabase/admin";
 import { getValue, setValue } from "@/src/redisClient";
 import { SECTIONS_CACHE_KEY } from "@/src/cacheVersion";
 import { findCrossSectionRepeats } from "@/lib/lessonOverlap";
 
-const supabase = createClient(
-  process.env.SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY! // server-only, bypasses RLS
-);
+const supabase = lazySupabaseAdmin();   // created on first use, so the build doesn't need env vars
 
 type PlannedSection = { title: string; query: string; covers: string[] };
 
