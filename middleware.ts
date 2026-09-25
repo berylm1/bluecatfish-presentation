@@ -1,8 +1,9 @@
+
 import { type NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 
 // Routes that DON'T require login — everything else is protected by default
-const PUBLIC_PATHS = ["/login", "/auth/callback", "/presentationv2", "/textIngest", "/imageIngest"];
+const PUBLIC_PATHS = ["/login", "/auth/callback", "/presentationv2", "/lessonReview", "/textIngest", "/imageIngest"];
 
 export async function middleware(request: NextRequest) {
   let response = NextResponse.next({
@@ -40,14 +41,14 @@ export async function middleware(request: NextRequest) {
   const isPublic = 
     pathname === "/" ||
     PUBLIC_PATHS.some((path) => pathname.startsWith(path));
-
+  /*
   // Everything is protected UNLESS it's in PUBLIC_PATHS
   if (!isPublic && !user) {
     const loginUrl = new URL("/login", request.url);
     loginUrl.searchParams.set("next", request.nextUrl.pathname);
     return NextResponse.redirect(loginUrl);
   }
-
+  */
   return response;
 }
 

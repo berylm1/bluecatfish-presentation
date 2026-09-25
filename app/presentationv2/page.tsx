@@ -4,10 +4,15 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import Link from 'next/link';
 import { createPortal } from 'react-dom';
 import { useFacePresence } from "@/components/hooks/useFacePresence";
-import { useVoiceInput } from '@/components/hooks/useVoiceInput';
+import { useVoiceInput, type MicLevel } from '@/components/hooks/useVoiceInput';
 import { useSpeechQueue } from '@/components/hooks/useSpeechQueue';
 import { useHandRaise } from '@/components/hooks/useHandRaise';
 import { signals } from '@/lib/signals';
+import { describeForTutor } from '@/lib/learnerState';
+import {
+  parseDeckCommand, findInPresentation, buildSlideDocs, COMMAND_ACK_TEXT,
+  type AckKey, type DeckCommand, type DeckTarget,
+} from '@/lib/deckCommands';
 
 /* ============================================================================
  * TYPES
@@ -15,14 +20,18 @@ import { signals } from '@/lib/signals';
 interface Message {
   role: 'user' | 'ai';
   text: string;
+  id?: string;   // lets a streaming reply update its own bubble even if others are added meanwhile
 }
 
 interface SectionWithBreakdown {
   title: string;
   icon: string;
   image: string;
+  hubImage: string;
   steps: Step[];
   quiz: { question: string; options: string[]; correctAnswer: number; explanation: string }[];
+  recap: string;
+  remediation?: string;
 }
 
 type MicroStep = {
@@ -30,18 +39,24 @@ type MicroStep = {
   audioKey: string | null;
 };
 
-type Step =
-  | { type: 'overview'; text: string; stats?: { value: string; label: string }[] }
-  | { type: 'simple'; text: string }
-  | { type: 'example'; text: string }
-  | { type: 'keyTerms'; terms: { term: string; definition: string }[] };
+// On screen: short "bullets" (or "context" for a number). Spoken: "narration".
+// "text" is the older single field, kept so a cached lesson still plays.
+// "simple" is the same step in plain words, used for "simpler please".
+type Step = { simple?: string } & (
+  | { type: 'overview'; bullets?: string[]; narration?: string; text?: string; stats?: { value: string; label: string }[] }
+  | { type: 'example'; bullets?: string[]; narration?: string; text?: string }
+  | { type: 'detail'; heading?: string; bullets: string[]; narration: string; text?: string }
+  | { type: 'compare'; leftTitle: string; left: string[]; rightTitle: string; right: string[]; narration: string; text?: string }
+  | { type: 'imageFocus'; text: string; narration?: string }
+  | { type: 'numberSpotlight'; value: string; label: string; context: string; narration?: string }
+  | { type: 'checkYourself'; statement: string; isTrue: boolean; feedback: string }
+  | { type: 'predictThen'; question: string; options: string[]; correctIndex: number; answer: string }
+  | { type: 'askAloud'; question: string; lookFor: string[]; answer: string; text?: string }
+);
+
 /* ============================================================================
  * CONSTANTS
  * ========================================================================== */
-
-const LECTURE_SCRIPTS = {
-  conclusion: `So to summarize what we've learned today: Blue Catfish are an invasive species that were introduced for recreational fishing but have since become a major ecological threat. They eat enormous quantities of native species, make up the majority of fish biomass in many rivers, and have no natural predators to keep their numbers in check. However, there's hope. By commercial harvesting and encouraging consumption of Blue Catfish, we can reduce their population while enjoying a sustainable and delicious food source. Thank you for joining me in this presentation about the Chesapeake Bay's Blue Catfish invasion. Remember, sometimes the solution to an ecological problem can be found on our dinner plates.`
-};
 
 // Sections are no longer hardcoded — they're fetched from /api/slides2 on load.
 const PRESENTATION = {
@@ -53,11 +68,34 @@ const PRESENTATION = {
   }
 };
 
+// End-of-topic multiple-choice quiz. Switched off for now: each topic goes
+// from the "How did that go?" check straight to the next topic. Set to true to
+// bring the quiz (and the final score) back — nothing else was removed.
+const QUIZ_ENABLED = false;
+
+// Overview "fun fact" boxes + their "One fun fact is..." clips broke the flow.
+// Now the numbers are just more bullets (also for lessons saved before this).
+const STATS_AS_BULLETS = true;
+
+/** The overview's bullets, with any stats folded in as ordinary bullets. */
+function bulletsOf(step: Step): string[] | undefined {
+  const bullets = (step as { bullets?: string[] }).bullets;
+  const stats = step.type === 'overview' ? step.stats : undefined;
+  // (very old text-only lessons have no bullets: leave them showing their text)
+  if (!STATS_AS_BULLETS || !stats?.length || !bullets?.length) return bullets;
+  return [...(bullets ?? []), ...stats.map((s) => `${s.value} ${s.label}`)];
+}
+
 const STEP_LABELS: Record<Step['type'], string> = {
   overview: 'Overview',
-  simple: 'Simple Explanation',
-  example: 'Real World Example',
-  keyTerms: 'Key Terms',
+  detail: 'Going Deeper',
+  compare: 'Side by Side',
+  example: 'Think of It Like This',   // the prompt makes this step an analogy
+  imageFocus: 'Look at This',
+  numberSpotlight: 'By the Numbers',
+  predictThen: 'Take a Guess',   // 4-option guess: switched off in slide generation for now
+  askAloud: 'Your Turn',
+  checkYourself: 'Quick Check',   // true/false steps: switched off in slide generation for now
 };
 
 // Pre-rendered Manim CE animations for each section topic, in section order.
@@ -82,10 +120,14 @@ function getMicroSteps(section: SectionWithBreakdown, sectionIndex: number): Mic
   }));
 }
 
+// What the professor says for a step (not what the slide shows)
 function getMicroStepText(section: SectionWithBreakdown, stepIndex: number): string {
     const step = section.steps[stepIndex];
-    if (!step || step.type === 'keyTerms') return '';
-    return step.text;
+    if (step.type === 'numberSpotlight') return step.narration ?? step.context;
+    if (step.type === 'predictThen') return '';
+    if (step.type === 'askAloud') return '';
+    if (step.type === 'checkYourself') return '';
+    return step.narration ?? step.text ?? '';
   }
 
 /* ============================================================================
@@ -126,7 +168,7 @@ const useAudioPlayer = () => {
     
     audio.ontimeupdate = () => setCurrentTime(audio.currentTime);
     audio.onloadedmetadata = () => setDuration(audio.duration);
-
+    
     audio.onended = () => {
       setIsSpeaking(false);
       setIsPaused(false);
@@ -194,7 +236,8 @@ const useAIChat = (currentSection: SectionWithBreakdown | undefined,
                    onSentence?: (sentence: string) => void,
                    beginStream?: () => void,
                    endStream?: () => void,
-                   onDecision?: (action: string) => void
+                   onDecision?: (action: string) => void,
+                   learnerBrief?: () => string
                   ) => {
   const [messages, setMessages] = useState<Message[]>([
     { role: 'ai', text: `Good day! I'm ${PRESENTATION.professor.name}, and I'll be your guide through today's lecture on the Blue Catfish invasion in the Chesapeake Bay. Feel free to ask me any questions as we go through the material. What would you like to explore first?` }
@@ -202,7 +245,12 @@ const useAIChat = (currentSection: SectionWithBreakdown | undefined,
   const [isLoading, setIsLoading] = useState(false);
   const [input, setInput] = useState('');
 
-  const sendMessage = async (text: string) => {
+  // opts: a custom system prompt (e.g. feedback on a spoken answer), skip the
+  // knowledge-base lookup, and ignore the deck-control decision header
+  const sendMessage = async (
+    text: string,
+    opts: { systemPrompt?: string; useKnowledgeBase?: boolean; ignoreDecision?: boolean } = {},
+  ) => {
     if (!text.trim()) return;
     
     const userMessage: Message = { role: 'user', text };
@@ -216,10 +264,10 @@ const useAIChat = (currentSection: SectionWithBreakdown | undefined,
     setIsLoading(true);
 
     // Placeholder bubble that fills in as tokens arrive
-    setMessages((prev) => {
-      const next = [...prev, userMessage, { role: 'ai', text: '' }]
-      return next;
-    });
+    const replyId = `ai_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+    const setReply = (replyText: string) =>
+      setMessages((prev) => prev.map((m) => (m.id === replyId ? { ...m, text: replyText } : m)));
+    setMessages((prev) => [...prev, userMessage, { role: 'ai', text: '', id: replyId }]);
     
     const missedContext = missedQuestions.length > 0
       ? ` The student just missed these quiz questions: ${missedQuestions.map(q => `"${q.question}" (they need to understand: ${q.explanation})`).join(' ')} If they ask for help or clarification, prioritize addressing these specific gaps.`
@@ -233,7 +281,8 @@ const useAIChat = (currentSection: SectionWithBreakdown | undefined,
           userText: text,
           topic: 'Blue Catfish invasion in the Chesapeake Bay',
           stream: true,
-          systemPrompt: `You are "${PRESENTATION.professor.name}", a university professor specializing in Marine Biology and Conservation. The student is currently viewing a slide titled "${currentSection?.title}" which covers: ${currentSection?.steps?.[0]?.text ?? ''}${missedContext} Answer questions with awareness of what they're currently looking at, and relate your answers back to this section when relevant, like a professor referencing the current lecture slide.`,
+          useKnowledgeBase: opts.useKnowledgeBase ?? true,
+          systemPrompt: opts.systemPrompt ?? `You are "${PRESENTATION.professor.name}", a university professor specializing in Marine Biology and Conservation. The student is currently viewing a slide titled "${currentSection?.title}" which covers: ${(() => { const s = currentSection?.steps?.[0] as { narration?: string; text?: string } | undefined; return s?.narration ?? s?.text ?? ''; })()}${missedContext}${learnerBrief?.() ?? ''} Answer questions with awareness of what they're currently looking at, and relate your answers back to this section when relevant, like a professor referencing the current lecture slide. Talk in the same voice as the slides: funny, a bit goofy, lightly sarcastic about the fish and the problem (never about the student), with the facts kept exactly right.`,
           conversation: history
         }),
       });
@@ -241,6 +290,10 @@ const useAIChat = (currentSection: SectionWithBreakdown | undefined,
       if (!response.ok || !response.body) {
         throw new Error(`Chat request failed (${response.status})`);
       }
+
+      // Tutor decision rides the response header — available before the body streams
+      const decisionAction = response.headers.get('X-Tutor-Decision');
+      if (decisionAction && decisionAction !== 'none' && onDecision && !opts.ignoreDecision) onDecision(decisionAction);
 
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
@@ -261,12 +314,7 @@ const useAIChat = (currentSection: SectionWithBreakdown | undefined,
         full += token;
         pending += token;
 
-        // Update the last bubble as text arrives
-        setMessages((prev) => {
-          const next = [...prev];
-          next[next.length - 1] = { role: 'ai', text: full };
-          return next;
-        });
+        setReply(full);
 
         // Cut off any complete sentences and speak them right away
         let match;
@@ -284,32 +332,23 @@ const useAIChat = (currentSection: SectionWithBreakdown | undefined,
       endStream?.();
       
       if (!full.trim()) {
-        setMessages((prev) => {
-          const next = [...prev];
-          next[next.length - 1] = {
-            role: 'ai',
-            text: "Sorry, I couldn't generate a response. Please try again.",
-          };
-          return next;
-        });
+        setReply("Sorry, I couldn't generate a response. Please try again.");
       }
     } catch (err) {
       endStream?.();
       console.error('RAG chat failed:', err);
-      setMessages((prev) => {
-        const next = [...prev];
-        next[next.length - 1] = {
-          role: 'ai',
-          text: "Sorry, I'm having trouble responding right now. Please try again.",
-        };
-        return next;
-      });
+      setReply("Sorry, I'm having trouble responding right now. Please try again.");
     } finally {
       setIsLoading(false);
     }
   };
 
-  return { messages, isLoading, input, setInput, sendMessage };
+  // Deck commands answer locally; log them in the chat so the transcript stays complete
+  const appendExchange = (userText: string, aiText: string) => {
+    setMessages((prev) => [...prev, { role: 'user', text: userText }, { role: 'ai', text: aiText }]);
+  };
+
+  return { messages, isLoading, input, setInput, sendMessage, appendExchange };
 };
 
 /* ============================================================================
@@ -359,36 +398,97 @@ function HighlightedText({
   );
 }
 
-function AnimatedStatValue({ value }: { value: string }) {
+/**
+ * Key points that appear one at a time as the narration reaches them, so the
+ * slide shows the gist while the professor explains around it (instead of the
+ * slide being the script). Once the narration is over, or if there's no audio,
+ * every bullet shows.
+ */
+function BulletReveal({
+  bullets,
+  isActive,   // this step's narration is the clip playing now
+  hasAudio,
+  currentTime,
+  duration,
+  className,
+}: {
+  bullets: string[];
+  isActive: boolean;
+  hasAudio: boolean;
+  currentTime: number;
+  duration: number;
+  className?: string;
+}) {
+  const n = bullets.length;
+  const [revealed, setRevealed] = useState(hasAudio ? 1 : n);
+  const wasActive = useRef(false);
+
+  useEffect(() => {
+    if (!hasAudio) { setRevealed(n); return; }
+    if (isActive) {
+      wasActive.current = true;
+      if (duration > 0) {
+        // start each bullet a little before its share of the narration
+        const due = Math.min(n, Math.floor((currentTime / duration) * n + 0.35) + 1);
+        setRevealed((r) => Math.max(r, due));
+      }
+    } else if (wasActive.current) {
+      setRevealed(n);   // narration finished (or moved on to the fun facts)
+    }
+  }, [isActive, hasAudio, currentTime, duration, n]);
+
+  return (
+    <ul className={`space-y-3 ${className ?? ''}`}>
+      {bullets.slice(0, revealed).map((b, i) => {
+        const current = isActive && i === revealed - 1;
+        return (
+          <li
+            key={i}
+            className={`flex gap-3 items-start animate-[fadeInUp_0.45s_ease-out] transition-colors ${
+              current ? 'text-blue-900' : ''
+            }`}
+          >
+            <span className={`mt-2.5 h-2.5 w-2.5 shrink-0 rounded-full ${current ? 'bg-cyan-500' : 'bg-blue-700/70'}`} />
+            <span className={current ? 'font-semibold' : undefined}>{b}</span>
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
+function AnimatedStatValue({ value, start = true }: { value: string; start?: boolean }) {
+  const str = String(value ?? '');
   const match = value.match(/^(\d+(?:\.\d+)?)/);
   const targetNum = match ? parseFloat(match[1]) : null;
-  const suffix = match ? value.slice(match[1].length) : '';
-  const [display, setDisplay] = useState(targetNum !== null ? 0 : null);
+  const suffix = match ? str.slice(match[1].length) : '';
+  const decimals = match && match[1].includes('.') ? match[1].split('.')[1].length : 0;
+  const [display, setDisplay] = useState<string | null>(targetNum !== null ? (0).toFixed(decimals) : null);
   const hasAnimated = useRef(false);
     
   useEffect(() => {
-    if (targetNum === null || hasAnimated.current) return;
+    if (targetNum === null || hasAnimated.current || !start) return;
     hasAnimated.current = true;
   
     let startTime: number | null = null;
-    const duration = 900; // ms
+    const duration = 1200; // ms
     let frameId: number;
   
     const step = (timestamp: number) => {
       if (startTime === null) startTime = timestamp;
       const progress = Math.min((timestamp - startTime) / duration, 1);
       const eased = 1 - Math.pow(1 - progress, 3); 
-      setDisplay(Math.round(eased * targetNum));
+      setDisplay((eased * targetNum).toFixed(decimals));
       if (progress < 1) {
           frameId = requestAnimationFrame(step);
       }
     };
     frameId = requestAnimationFrame(step);
     return () => cancelAnimationFrame(frameId);
-  }, [targetNum]);
+  }, [targetNum, start, decimals]);
   
   if (targetNum === null) {
-    return <>{value}</>;
+    return <>{str}</>;
   }
   
   return <>{display}{suffix}</>;
@@ -397,6 +497,118 @@ function AnimatedStatValue({ value }: { value: string }) {
 /* ============================================================================
  * SCREEN COMPONENTS
  * ========================================================================== */
+function SelfCheckSlide({ onPick }: { onPick: (r: 'got' | 'kind' | 'lost') => void }) {
+  const options = [
+    { r: 'got', emoji: '😀', label: 'Got it' },
+    { r: 'kind', emoji: '😐', label: 'Kind of' },
+    { r: 'lost', emoji: '😕', label: 'Lost me' },
+  ] as const;
+
+  return (
+    <div className="bg-white rounded-3xl border border-slate-200 shadow-2xl p-10 max-w-2xl mx-auto text-center animate-[fadeInUp_0.5s_ease-out]">
+      <h3 className="text-3xl font-bold text-slate-900 mb-8">How did that go?</h3>
+      <div className="flex justify-center gap-6">
+        {options.map((o) => (
+          <button
+            key={o.r}
+            onClick={() => onPick(o.r)}
+            className="flex flex-col items-center gap-2 px-8 py-6 rounded-2xl border-2 border-slate-200 hover:border-blue-400 hover:bg-blue-50 hover:scale-105 transition-all"
+          >
+            <span className="text-6xl">{o.emoji}</span>
+            <span className="text-lg font-semibold text-slate-700">{o.label}</span>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/* ============================================================================
+ * VARIANT SLIDE OVERLAY — reviewed alternate explanation (knowledge base)
+ * Shown when the learner signals difficulty; narrated, then returns to the lesson.
+ * ========================================================================== */
+// State of a "Your turn" question, passed down to the slide
+type AskUI = {
+  micStatus: 'idle' | 'listening' | 'processing';
+  waiting: boolean;          // the question is open for an answer
+  said: string | null;       // what the learner answered
+  revealed: boolean;         // the professor's answer is showing
+  onReveal: () => void;      // "Tell me the answer"
+  onType: () => void;        // "Type it instead"
+};
+
+type VariantSlide = { title: string; body: string; narration: string; audio_url: string | null; variant?: string };
+
+function VariantSlideOverlay({
+  variant,
+  onDone,
+}: {
+  variant: VariantSlide | null;
+  onDone: () => void;
+}) {
+  if (!variant) return null;
+  return (
+    <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-6">
+      <div className="max-w-2xl w-full bg-gradient-to-br from-blue-900 to-slate-900 rounded-3xl border border-cyan-500/40 shadow-2xl p-10">
+        <div className="text-cyan-400 text-xs font-bold tracking-widest uppercase mb-3">
+          Professor Marine · a different way to see it
+        </div>
+        <h2 className="text-3xl font-bold text-white mb-5">{variant.title}</h2>
+        <p className="text-xl leading-relaxed text-blue-100 mb-8">{variant.body}</p>
+        <button
+          onClick={onDone}
+          className="px-6 py-3 bg-cyan-500 hover:bg-cyan-400 text-slate-900 rounded-xl font-semibold transition-colors"
+        >
+          Got it — back to the lesson →
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// Turns text into a playable clip — for variants that have no pre-rendered audio
+async function ttsUrl(text: string): Promise<string | null> {
+  try {
+    const res = await fetch('/api/tts', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text }),
+    });
+    if (!res.ok) return null;
+    return URL.createObjectURL(await res.blob());
+  } catch {
+    return null;
+  }
+}
+
+function RemediationSlide({
+  text,
+  isActive,
+  currentTime,
+  duration,
+  isSpeaking,
+}: {
+  text: string;
+  isActive: boolean;
+  currentTime: number;
+  duration: number;
+  isSpeaking: boolean;
+}) {
+  return (
+    <div className="bg-white rounded-3xl border border-slate-200 shadow-2xl p-10 max-w-2xl mx-auto animate-[fadeInUp_0.5s_ease-out]">
+      <div className="text-sm font-semibold text-cyan-700 mb-4 text-center">Let's try that another way</div>
+      <HighlightedText
+        text={text}
+        currentTime={currentTime}
+        duration={duration}
+        isSpeaking={isSpeaking}
+        isActive={isActive}
+        className="text-xl text-black leading-relaxed text-center"
+      />
+    </div>
+  );
+}
+
 function CameraSelector({ onSelect }: { onSelect: (useCamera: boolean) => void }) {
   return (
     <div className="h-screen w-screen flex flex-col items-center justify-center bg-gradient-to-br from-mist-50 to-mist-400 p-8">
@@ -477,32 +689,191 @@ function TemplateSelector({ onSelect }: { onSelect: (template: 'classic' | 'spli
   );
 }
 
+interface SectionWithBreakdown {
+  title: string;
+  icon: string;
+  image: string;
+  hubImage: string;
+  recap: string;
+  steps: Step[];
+  quiz: { question: string; options: string[]; correctAnswer: number; explanation: string }[];
+}
+
+const NODE_W = 260;
+const NODE_H = 90;
+const COL_X = [40, 400];
+const ROW_GAP = 160;
+
+// Snaking order: L→R, down, R→L, down, L→R
+function nodePos(i: number, total: number) {
+  const row = Math.floor(i / 2);
+  const isLastAlone = i === total - 1 && total % 2 === 1;
+
+  if (isLastAlone) {
+    // odd final node — center it across both columns
+    return { x: (COL_X[0] + COL_X[1]) / 2, y: 20 + row * ROW_GAP, col: -1, row };
+  }
+  
+  const leftFirst = row % 2 === 0;
+  const col = leftFirst ? i % 2 : 1 - (i % 2);
+  return { x: COL_X[col], y: 20 + row * ROW_GAP, col, row };
+}
+
+function SummaryFlowchart({
+  sections,
+  currentKey,
+  sectionScores,
+}: {
+  sections: SectionWithBreakdown[];
+  currentKey: string | null;
+  sectionScores: Record<number, number>;
+}) {
+  const [revealed, setRevealed] = useState<Set<number>>(new Set());
+
+  useEffect(() => {
+    if (!currentKey) return;
+    const m = currentKey.match(/^section(\d+)_recap$/);
+    if (m) {
+      const idx = parseInt(m[1], 10);
+      setRevealed((prev) => (prev.has(idx) ? prev : new Set([...prev, idx])));
+    }
+  }, [currentKey]);
+
+  const connectors = sections.slice(0, -1).map((_, i) => {
+    const a = nodePos(i, sections.length);
+    const b = nodePos(i + 1, sections.length);
+    
+    if (a.row === b.row) {
+      // horizontal
+      const goingRight = b.x > a.x;
+      const x1 = goingRight ? a.x + NODE_W : a.x;
+      const x2 = goingRight ? b.x : b.x + NODE_W;
+      const y = a.y + NODE_H / 2;
+      return { d: `M ${x1} ${y} L ${x2} ${y}`, from: i };
+    }
+
+    const ax = a.x + NODE_W / 2;
+    const bx = b.x + NODE_W / 2;
+
+    if (Math.abs(ax - bx) < 1) {
+      return { d: `M ${ax} ${a.y + NODE_H} L ${ax} ${b.y}`, from: i };
+    }
+
+    // diagonal — drop, cross, then drop into the node
+    const midY = (a.y + NODE_H + b.y) / 2;
+    return {
+      d: `M ${ax} ${a.y + NODE_H} L ${ax} ${midY} L ${bx} ${midY} L ${bx} ${b.y}`,
+      from: i,
+    };
+  });
+
+  const rows = Math.ceil(sections.length / 2);
+  const svgHeight = 20 + rows * ROW_GAP;
+  
+  return (
+    <svg viewBox={`0 0 700 ${svgHeight}`} className="w-full max-w-3xl mx-auto">
+      {connectors.map((c, i) => {
+        const on = revealed.has(c.from + 1);
+        return (
+          <path
+            key={i}
+            d={c.d}
+            fill="none"
+            stroke="#3b82f6"
+            strokeWidth="3"
+            strokeLinecap="round"
+            style={{
+              strokeDasharray: 300,
+              strokeDashoffset: on ? 0 : 300,
+              transition: 'stroke-dashoffset 0.6s ease-out',
+            }}
+          />
+        );
+      })}
+
+      {sections.map((sec, i) => {
+        const { x, y } = nodePos(i, sections.length);
+        const on = revealed.has(i);
+        const active = currentKey === `section${i}_recap`;
+        const score = sectionScores[i];
+        const perfect = score !== undefined && score === (sec.quiz?.length ?? 1);
+
+        return (
+          <g
+            key={i}
+            style={{
+              opacity: on ? 1 : 0,
+              transform: on ? 'translateY(0)' : 'translateY(12px)',
+              transformOrigin: `${x + NODE_W / 2}px ${y + NODE_H / 2}px`,
+              transition: 'opacity 0.5s ease-out, transform 0.5s ease-out',
+            }}
+          >
+            <rect
+              x={x}
+              y={y}
+              width={NODE_W}
+              height={NODE_H}
+              rx="18"
+              fill="#ffffff"
+              stroke={active ? '#06b6d4' : perfect ? '#22c55e' : '#93c5fd'}
+              strokeWidth={active ? 4 : 2}
+              style={{ transition: 'stroke 0.3s, stroke-width 0.3s' }}
+            />
+            <text
+              x={x + 24}
+              y={y + 50}
+              fontSize="15"
+              fontWeight="700"
+              fill="#1e3a5f"
+            >
+              {sec.title.length > 26 ? sec.title.slice(0, 24) + '…' : sec.title}
+            </text>
+            <text x={x + 24} y={y + 70} fontSize="12" fill="#64748b">
+              Section {i + 1}
+            </text>
+          </g>
+        );
+      })}
+    </svg>
+  );
+}
+
 function ConclusionScreen({
     onRestart,
     sectionScores,
     totalQuestions,
+    sections,
+    currentKey,
   }: {
     onRestart: () => void;
     sectionScores: Record<number, number>;
     totalQuestions: number;
+    sections: SectionWithBreakdown[];
+    currentKey: string | null;
   }) {
     const totalScore = Object.values(sectionScores).reduce((sum, s) => sum + s, 0);
     
     return (
-      <div className="flex flex-col items-center justify-center text-center py-16 px-8">
-        <div className="text-6xl mb-6">🎓</div>
-        <h2 className="text-3xl md:text-4xl font-bold text-black mb-4">
-          Lesson Complete!
-        </h2>
-        <p className="text-blue-700 text-lg max-w-xl mb-8 leading-relaxed">
-          You've made it through the full story of the Blue Catfish invasion in the Chesapeake Bay —
-          from how they got here, to why they've thrived, to how we might turn the problem into a solution.
-        </p>
-        <p className="text-2xl font-bold text-cyan-500 mb-8">
-        Final Score: {totalScore} / {totalQuestions}
-        </p>
-  
-        <div className="flex flex-col sm:flex-row gap-4">
+      <div className="flex flex-col items-center justify-center text-center py-10 px-8 w-full">
+        <div className="text-5xl mb-4">🎓</div>
+        <h2 className="text-3xl md:text-4xl font-bold text-black mb-2">Lesson Complete!</h2>
+        <p className="text-blue-700 mb-8">Here's everything we covered</p>
+      
+        <SummaryFlowchart
+          sections={sections}
+          currentKey={currentKey}
+          sectionScores={sectionScores}
+        />
+      
+        {QUIZ_ENABLED ? (
+          <p className="text-2xl font-bold text-cyan-500 mt-8 mb-6">
+            Final Score: {totalScore} / {totalQuestions}
+          </p>
+        ) : (
+          <div className="mt-8 mb-6" />
+        )}
+      
+        <div className="flex flex-col sm:flex-row gap-4 items-center">
           <button
             onClick={onRestart}
             className="px-6 py-3 bg-blue-800/60 hover:bg-blue-700/70 text-white rounded-xl font-semibold transition-colors border border-blue-500/30"
@@ -510,7 +881,16 @@ function ConclusionScreen({
             ↺ Restart Lesson
           </button>
         </div>
-  
+        
+        <div className="mt-8 flex flex-col items-center">
+          <p className="text-blue-900 font-semibold mb-3">Scan to share your feedback</p>
+          <img
+            src="/qr-code.png"
+            alt="QR code linking to feedback form"
+            className="w-40 h-40 rounded-xl border-4 border-white shadow-lg"
+          />
+        </div>
+      
         <p className="text-blue-700/70 text-sm mt-8">
           Still curious about something? Use <span className="text-cyan-500 font-medium">Ask AI</span> up top —
           Professor Marine is happy to go deeper on anything from the lesson.
@@ -530,102 +910,192 @@ function Notice({ text }: { text: string | null }) {
 /* ============================================================================
  * SLIDE BLOCKS
  * ========================================================================== */
+/**
+ * Shows whether voice interruptions are listening, how loud the mic hears you,
+ * and the line you need to cross — so "it didn't interrupt" can be told apart
+ * from "it wasn't listening" or "I was too quiet".
+ */
+function MicMeter({
+  levelRef,
+  active,
+  status,
+}: {
+  levelRef: React.MutableRefObject<MicLevel>;
+  active: boolean;   // talking now would interrupt
+  status: 'idle' | 'listening' | 'processing';
+}) {
+  const [m, setM] = useState<MicLevel>({ level: 0, threshold: 0.02 });
+  useEffect(() => {
+    const id = setInterval(() => setM({ ...levelRef.current }), 100);
+    return () => clearInterval(id);
+  }, [levelRef]);
+
+  // Scale so the trigger line sits at 60% of the bar
+  const scale = m.threshold / 0.6;
+  const pct = Math.min(100, (m.level / scale) * 100);
+  const loud = m.level > m.threshold;
+  const label =
+    status === 'listening' ? '🔴 Listening to you…'
+    : status === 'processing' ? '💭 Got it, thinking…'
+    : active ? '🎙 Talk to interrupt'
+    : '🎙 Waiting for the professor';
+
+  return (
+    <div className="w-44 rounded-xl bg-slate-900/80 text-white text-xs px-3 py-2 shadow-lg">
+      <div className="mb-1.5 font-medium">{label}</div>
+      <div className="relative h-2 rounded-full bg-white/20 overflow-hidden">
+        <div
+          className={`h-full rounded-full transition-[width] duration-100 ${loud && active ? 'bg-green-400' : 'bg-cyan-300'}`}
+          style={{ width: `${status === 'idle' ? pct : 0}%` }}
+        />
+        <div className="absolute top-0 h-full w-0.5 bg-white" style={{ left: '60%' }} title="Interrupt line" />
+      </div>
+    </div>
+  );
+}
+
+function PromptChips({
+  onChip,
+  disabled,
+}: {
+  onChip: (text: string, command: DeckCommand) => void;
+  disabled: boolean;
+}) {
+  // Same commands the learner can say out loud (lib/deckCommands.ts)
+  const chips: { label: string; text: string; command: DeckCommand }[] = [
+    { label: '🔁 Explain that again', text: 'Explain that again', command: { kind: 'repeat' } },
+    { label: '💡 Simpler please', text: 'Simpler please', command: { kind: 'simplify' } },
+    { label: '⏭ Skip ahead', text: 'Skip ahead', command: { kind: 'nextSlide' } },
+    { label: '⏩ Next topic', text: 'Next topic', command: { kind: 'nextTopic' } },
+  ];
+  return (
+    <div className="fixed bottom-6 left-6 z-50 flex flex-col gap-2">
+      {chips.map((c) => (
+        <button
+          key={c.label}
+          onClick={() => onChip(c.text, c.command)}
+          disabled={disabled}
+          className="px-4 py-2 rounded-full bg-blue-600/90 hover:bg-blue-500 disabled:bg-gray-600 disabled:opacity-40 text-white text-sm font-medium shadow-lg backdrop-blur-sm transition-colors text-left"
+        >
+          {c.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 function SectionImageBlock({
     currentSection,
     activeSection,
     totalSections,
     animationUrl,
+    showImage,
   }: {
     currentSection: SectionWithBreakdown;
     activeSection: number;
     totalSections: number;
     animationUrl?: string;
+    showImage: boolean;
   }) {
     return (
-              <div className="relative h-72 md:h-auto min-h-[500px] bg-gradient-to-br overflow-hidden">
-                {/* Animated Background Elements */}
-                <div className="absolute inset-0 overflow-hidden">
-                  {/* Floating Bubbles */}
-                  <div className="absolute w-4 h-4 bg-cyan-400/20 rounded-full animate-ping" style={{top: '20%', left: '10%', animationDuration: '3s'}} />
-                  <div className="absolute w-6 h-6 bg-blue-400/20 rounded-full animate-ping" style={{top: '60%', left: '80%', animationDuration: '4s', animationDelay: '1s'}} />
-                  <div className="absolute w-3 h-3 bg-cyan-300/30 rounded-full animate-ping" style={{top: '40%', left: '50%', animationDuration: '2.5s', animationDelay: '0.5s'}} />
-                  
-                  {/* Swimming Fish Animation */}
-                  <div className="absolute animate-[swim_8s_ease-in-out_infinite]" style={{top: '30%', left: '-20%'}}>
-                    <svg width="80" height="50" viewBox="0 0 80 50" className="drop-shadow-lg">
-                      <path d="M60 25 Q70 15 80 25 Q70 35 60 25 M0 25 L45 10 L45 40 Z" fill="currentColor" className="text-cyan-300 opacity-80"/>
-                      <circle cx="50" r="3" fill="white"/>
-                    </svg>
-                  </div>
-                  
-                  {/* Second Fish */}
-                  <div className="absolute animate-[swim2_10s_ease-in-out_infinite]" style={{top: '65%', right: '-20%'}}>
-                    <svg width="60" height="40" viewBox="0 0 80 50" className="drop-shadow-lg">
-                      <path d="M60 25 Q70 15 80 25 Q70 35 60 25 M0 25 L45 10 L45 40 Z" fill="currentColor" className="text-blue-300 opacity-70"/>
-                      <circle cx="50" r="2" fill="white"/>
-                    </svg>
-                  </div>
-                </div>
-                
-                {/* Main Image — replaced by the section's Manim animation when available */}
-                {currentSection.image && !animationUrl && (
-                  <img
-                    src={currentSection.image}
-                    alt={currentSection.title}
-                    className="absolute inset-0 w-full h-full object-contain opacity-80"
-                    onError={(e) => {
-                      e.currentTarget.style.display='none';
-                    }}
-                  />
-                )}
-                {animationUrl && (
-                  <video
-                    key={animationUrl}
-                    src={animationUrl}
-                    autoPlay
-                    loop
-                    muted
-                    playsInline
-                    className="absolute inset-0 w-full h-full object-contain opacity-90"
-                  />
-                )}
-                
-                {/* Gradient Overlay */}
-                <div className="absolute inset-0 bg-gradient-to-t from-mist-400/50 via-transparent to-mist-500/50" />
-                
-                {/* Slide Counter Badge */}
-                <div className="absolute top-4 left-4 bg-cyan-500/90 backdrop-blur-sm px-4 py-2 rounded-full shadow-lg">
-                  <span className="font-bold text-white">{activeSection + 1} / {totalSections}</span>
-                </div>
-                
-                {/* Interactive Icon with Hover Effect */}
-                <div className="absolute bottom-4 left-4 group cursor-pointer">
-                  <div className="text-7xl drop-shadow-lg transition-transform duration-300 group-hover:scale-125 group-hover:rotate-12 animate-[float_3s_ease-in-out_infinite]">
-                    {currentSection.icon}
-                  </div>
-                  <div className="absolute -bottom-8 left-0 bg-black/80 px-3 py-1 rounded text-sm text-white opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap">
-                    Click me!
-                  </div>
-                </div>
-                
-                {/* Stats Overlay */}
-                {/*
-                <div className="absolute top-4 right-4 flex flex-col gap-2">
-                  {currentSection.stats.slice(0, 2).map((stat, idx) => (
-                    <div 
-                      key={idx}
-                      className="bg-cyan-500/80 backdrop-blur-sm px-3 py-2 rounded-lg animate-[fadeInUp_0.5s_ease-out_forwards] shadow-lg"
-                      style={{ animationDelay: `${idx * 0.2}s` }}
-                    >
-                      <div className="text-lg font-bold text-white">{stat.value}</div>
-                      <div className="text-xs text-cyan-100">{stat.label}</div>
-                    </div>
-                  ))}
-                </div>
-                */}
-              </div>
+            <div className="relative h-full rounded-3xl bg-gradient-to-br overflow-hidden">
+              {animationUrl ? (
+                <video
+                  key={animationUrl}
+                  src={animationUrl}
+                  autoPlay
+                  muted
+                  playsInline
+                  className="absolute inset-0 w-full h-full object-contain"
+                />
+              ) : showImage && currentSection.image ? (
+                <img 
+                  key={currentSection.image}
+                  src={currentSection.image} 
+                  alt={currentSection.title}
+                  className="absolute inset-0 w-full h-full object-contain"
+                  onError={(e) => {
+                    e.currentTarget.style.display='none';
+                  }}
+                />
+              ) : null}
+            </div>
           );
         }
+
+function SectionHub({
+  sections,
+  completedQuizzes,
+  onSelect,
+  onFinish,
+}: {
+  sections: SectionWithBreakdown[];
+  completedQuizzes: Set<number>;
+  onSelect: (index: number) => void;
+  onFinish: () => void;
+}) {
+  const allDone = completedQuizzes.size === sections.length;
+
+  return (
+    <div className="w-full max-w-4xl mx-auto text-center py-8">
+      <h2 className="text-3xl md:text-4xl font-bold text-black mb-2">Pick a Topic</h2>
+      <p className="text-blue-700 mb-8">
+        {allDone
+          ? "You've explored everything — ready to wrap up?"
+          : `${completedQuizzes.size} of ${sections.length} explored`}
+      </p>
+
+      <div className="grid grid-cols-2 gap-4 mb-8">
+        {sections.map((sec, i) => {
+          const done = completedQuizzes.has(i);
+          return (
+            <button
+              key={i}
+              onClick={() => onSelect(i)}
+              className={`relative overflow-hidden rounded-2xl border-2 text-left transition-all duration-300 h-44 ${
+                done
+                  ? 'border-green-500'
+                  : 'border-blue-300 hover:border-blue-500 hover:shadow-lg hover:scale-[1.02]'
+              }`}
+            >
+              {sec.hubImage && (
+                 <img
+                  src={sec.hubImage}
+                  alt=""
+                  className="absolute inset-0 w-full h-full object-cover"
+                />
+              )}
+
+              <div className={`absolute inset-0 ${
+                done
+                  ? 'bg-gradient-to-t from-green-900/90 via-green-900/50 to-green-900/20'
+                  : 'bg-gradient-to-t from-blue-950/90 via-blue-950/50 to-blue-950/20'
+              }`} />
+              
+              <div className="relative h-full flex flex-col justify-end p-4">
+                <div className="flex items-end justify-between gap-2">
+                  <span className={`font-bold text-lg text-white leading-tight`}>
+                    {sec.title}
+                  </span>
+                  {done && <span className="font-bold text-xl text-white leading-tight">✓</span>}
+                </div>
+              </div>
+            </button>
+          );
+        })}
+      </div>
+
+      {allDone && (
+        <button
+          onClick={onFinish}
+          className="px-10 py-4 bg-gradient-to-r from-blue-600 to-cyan-600 hover:from-blue-700 hover:to-cyan-700 text-white text-lg font-bold rounded-full shadow-xl transition-all animate-[fadeInUp_0.5s_ease-out]"
+        >
+          See Your Summary →
+        </button>
+      )}
+    </div>
+  );
+}
 
 function MiniSlideshowBlock({
   currentSection,
@@ -642,6 +1112,12 @@ function MiniSlideshowBlock({
   isSpeaking,
   currentKey,
   playMicroStepAudio,
+  autoAdvanceFrom,
+  audioUrls,
+  play,
+  devMode,
+  plain,
+  ask,
 }: {
   currentSection: SectionWithBreakdown;
   activeSectionIndex: number;
@@ -657,8 +1133,33 @@ function MiniSlideshowBlock({
   isSpeaking: boolean;
   currentKey: string | null;
   playMicroStepAudio: (sectionIndex: number, stepIndex: number, transitionType: 'means' | 'analogy' | null) => void;
-  animationUrl?: string;
+  autoAdvanceFrom: (sectionIndex: number, fromStep: number) => void;
+  audioUrls: Record<string, string>;
+  play: (url: string | undefined, key: string, text?: string, onComplete?: () => void) => void;
+  devMode: boolean;
+  plain: boolean;   // "simpler please" is showing this step in plain words
+  ask: AskUI;
 }) {
+  const [guess, setGuess] = useState<number | null>(null);
+  const [checkAnswer, setCheckAnswer] = useState<boolean | null>(null);
+  const [scaled, setScaled] = useState(false);
+
+  useEffect(() => {
+    setGuess(null);
+    setCheckAnswer(null);
+  }, [microStep, activeSectionIndex]);
+
+  useEffect(() => {
+    const valueKey = `section${activeSectionIndex}_step${microStep}_value`;
+    if (currentKey === valueKey) {
+      // next frame, so the browser paints the un-scaled state first and can animate from it
+      const id = requestAnimationFrame(() => setScaled(true));
+      return () => cancelAnimationFrame(id);
+    } else {
+      setScaled(false);
+    }
+  }, [currentKey, activeSectionIndex, microStep]);
+  
   return (
     <div className="p-8 md:p-12 flex flex-col justify-center bg-gradient-to-br from-mauve-200/70 to-mauve-300/70 rounded-3xl border border-white-500/30">
       {/* Animated Title */}
@@ -673,8 +1174,23 @@ function MiniSlideshowBlock({
 
       {(() => {
         const step = currentSection.steps[microStep];
+        if (!step) return null; // step index out of range mid-transition — render nothing this frame
         const baseKey = `section${activeSectionIndex}_step${microStep}`;
+        const simple = plain && step.simple ? step.simple : null;
+      
+        if (step.type === 'imageFocus') return null;
 
+        // "Simpler please" on an info slide: just the plain version, nothing else to parse
+        if (simple && step.type !== 'predictThen' && step.type !== 'checkYourself') {
+          return (
+            <div className="rounded-2xl bg-white/80 border border-cyan-300 p-6 animate-[fadeIn_0.4s_ease-out]">
+              <div className="text-sm font-semibold text-cyan-700 mb-2">In plain words</div>
+              <p className="text-2xl leading-relaxed text-black">{simple}</p>
+            </div>
+          );
+        }
+
+        /*
         if (step.type === 'keyTerms') {
           return (
             <div className="space-y-3">
@@ -702,20 +1218,214 @@ function MiniSlideshowBlock({
             </div>
           );
         }
+        */
 
-        const isExample = step.type === 'example';
-
-        return (
-            <div className={isExample ? 'bg-amber-900/40 rounded-xl p-5 border border-amber-500/40' : undefined}>
+        if (step.type === 'numberSpotlight') {
+          const valueActive = currentKey === `${baseKey}_value`;
+          return (
+            <div className="text-center py-6 animate-[fadeInUp_0.7s_ease-out]">
+              <div 
+                className={`text-4xl md:text-5xl font-black text-blue-700 mb-3 inline-block transition-all duration-700 ease-out ${
+                  valueActive ? 'scale-125 drop-shadow-[0_0_25px_rgba(34,211,238,0.6)]' : 'scale-100 drop-shadow-none'
+                }`}
+              >
+                <AnimatedStatValue value={step.value} start={scaled}/>
+              </div>
+              <div className="text-lg font-semibold text-blue-900 mb-4">{step.label}</div>
+              {step.narration ? (
+                // on-screen reaction line; the narration explains the number out loud
+                <p className="text-xl text-black leading-relaxed max-w-xl mx-auto italic">{step.context}</p>
+              ) : (
+                <HighlightedText
+                  text={step.context}
+                  currentTime={currentTime}
+                  duration={duration}
+                  isSpeaking={isSpeaking}
+                  isActive={currentKey === baseKey}
+                  className="text-lg text-black leading-relaxed max-w-xl mx-auto"
+                />
+              )}
+            </div>
+          );
+        }
+        
+        if (step.type === 'predictThen') {
+          return (
+            <div className="text-center py-4">
+              {simple && <div className="text-sm font-semibold text-cyan-700 mb-2">In plain words</div>}
               <HighlightedText
-                text={step.text}
+                text={simple ?? step.question}
                 currentTime={currentTime}
                 duration={duration}
                 isSpeaking={isSpeaking}
-                isActive={currentKey === baseKey}
-                className={`text-xl leading-relaxed mb-4 ${isExample ? 'text-amber-100' : 'text-black'}`}
+                isActive={currentKey === (simple ? `${baseKey}_simple` : `${baseKey}_question`)}
+                className="text-xl font-semibold text-black mb-6"
               />
-              {step.type === 'overview' && step.stats?.length? (
+              
+              <div className="grid grid-cols-2 gap-3 max-w-md mx-auto">
+                {step.options.map((opt, idx) => {
+                  const picked = guess === idx;
+                  const isRight = idx === step.correctIndex;
+              
+                  let cls = 'bg-white border-blue-300 hover:border-blue-500 hover:bg-blue-50';
+                  if (guess !== null) {
+                    if (isRight) cls = 'bg-green-100 border-green-500';
+                    else if (picked) cls = 'bg-red-50 border-red-400';
+                    else cls = 'bg-white border-slate-200 opacity-40';
+                  }
+
+                  return (
+                    <button
+                      key={idx}
+                      disabled={guess !== null}
+                      onClick={() => {
+                        setGuess(idx);
+                        const aKey = `${baseKey}_answer`;
+                        play(audioUrls[aKey], aKey, '', () => autoAdvanceFrom(activeSectionIndex, microStep));
+                      }}
+                      className={`px-4 py-4 rounded-xl border-2 text-lg font-bold text-blue-900 transition-all duration-300 ${cls}`}
+                    >  
+                      {opt}
+                    </button>
+                  );
+                })}
+              </div>
+            
+              {guess !== null && (
+                <p className="mt-5 text-lg text-slate-700 animate-[fadeIn_0.4s_ease-out]">
+                  {guess === step.correctIndex
+                    ? 'Nice — you got it!'
+                    : `You guessed ${step.options[guess]}. It's actually ${step.options[step.correctIndex]}!`}
+                </p>
+              )}
+            </div>
+          );
+        }
+      
+        if (step.type === 'checkYourself') {
+          const isCorrect = checkAnswer === step.isTrue;
+          return (
+            <div className="text-center py-4">
+              {simple && <div className="text-sm font-semibold text-cyan-700 mb-2">In plain words</div>}
+              <p className="text-xl font-semibold text-black mb-6">{simple ?? step.statement}</p>
+              {checkAnswer === null ? (
+                <div className="flex gap-4 justify-center">
+                  {[true, false].map((val) => (
+                    <button
+                      key={String(val)}
+                      onClick={() => {
+                        setCheckAnswer(val);
+                        const fKey = `${baseKey}_feedback`;
+                        play(audioUrls[fKey], fKey, '', () => autoAdvanceFrom(activeSectionIndex, microStep));
+                      }}
+                      className="px-8 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-semibold transition-colors"
+                    >
+                      {val ? 'True' : 'False'}
+                    </button>
+                  ))}
+                </div>
+              ) : (
+                <div className="animate-[fadeIn_0.4s_ease-out]">
+                  <div className={`text-2xl font-bold mb-3 ${isCorrect ? 'text-green-600' : 'text-red-600'}`}>
+                    {isCorrect ? '✓ Correct' : '✗ Not quite'}
+                  </div>
+                  <p className="text-lg text-black leading-relaxed max-w-xl mx-auto">{step.feedback}</p>
+                </div>
+              )}
+            </div>
+          );
+        }
+          
+        if (step.type === 'askAloud') {
+          const q = simple ?? step.question;
+          return (
+            <div className="text-center py-2 animate-[fadeInUp_0.5s_ease-out]">
+              <div className="text-sm font-semibold uppercase tracking-wider text-cyan-700 mb-2">
+                {simple ? 'In plain words' : 'Your turn'}
+              </div>
+              <p className="text-2xl font-semibold text-black mb-5 leading-snug">{q}</p>
+
+              {ask.said && (
+                <p className="text-lg text-slate-700 mb-3 italic">You said: “{ask.said}”</p>
+              )}
+
+              {ask.revealed ? (
+                <p className="text-lg text-black leading-relaxed max-w-xl mx-auto animate-[fadeIn_0.4s_ease-out]">{step.answer}</p>
+              ) : ask.waiting && !ask.said ? (
+                <>
+                  <div className={`inline-flex items-center gap-2 rounded-full px-4 py-2 text-white text-base font-medium mb-4 ${
+                    ask.micStatus === 'listening' ? 'bg-red-600 animate-pulse' : ask.micStatus === 'processing' ? 'bg-slate-600' : 'bg-blue-600'
+                  }`}>
+                    {ask.micStatus === 'listening' ? '🎤 Listening — say your answer!'
+                      : ask.micStatus === 'processing' ? '💭 Got it…'
+                      : '🎤 Say your answer out loud'}
+                  </div>
+                  <div className="flex gap-3 justify-center">
+                    <button onClick={ask.onType} className="px-4 py-2 rounded-full bg-white/80 hover:bg-white text-blue-800 text-sm font-medium border border-blue-300">
+                      ⌨️ Type it instead
+                    </button>
+                    <button onClick={ask.onReveal} className="px-4 py-2 rounded-full bg-white/80 hover:bg-white text-blue-800 text-sm font-medium border border-blue-300">
+                      🙋 Tell me the answer
+                    </button>
+                  </div>
+                </>
+              ) : null}
+            </div>
+          );
+        }
+
+        if (step.type === 'compare') {
+          const cols: [string, string[], string][] = [
+            [step.leftTitle, step.left, 'border-blue-400 bg-blue-50/70 text-blue-900'],
+            [step.rightTitle, step.right, 'border-green-500 bg-green-50/70 text-green-900'],
+          ];
+          return (
+            <div className="grid grid-cols-2 gap-4 animate-[fadeInUp_0.5s_ease-out]">
+              {cols.map(([title, items, cls], c) => (
+                <div key={c} className={`rounded-2xl border-2 p-4 ${cls}`}>
+                  <div className="text-xl font-bold mb-3">{title}</div>
+                  <ul className="space-y-2 text-lg text-black">
+                    {items.map((it, k) => (
+                      <li key={k} className="flex gap-2 items-start">
+                        <span className="mt-2 h-2 w-2 shrink-0 rounded-full bg-current opacity-60" />
+                        <span>{it}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ))}
+            </div>
+          );
+        }
+
+        const isExample = step.type === 'example';
+    
+        return (
+            <div className={isExample ? 'bg-amber-900/40 rounded-xl p-5 border border-amber-500/40' : undefined}>
+              {step.type === 'detail' && step.heading && (
+                <div className="text-lg font-semibold text-cyan-800 mb-3">{step.heading}</div>
+              )}
+              {bulletsOf(step)?.length ? (
+                <BulletReveal
+                  key={baseKey}
+                  bullets={bulletsOf(step)!}
+                  isActive={currentKey === baseKey}
+                  hasAudio={!!audioUrls[baseKey]}
+                  currentTime={currentTime}
+                  duration={duration}
+                  className={`text-2xl leading-snug mb-5 ${isExample ? 'text-amber-100' : 'text-black'}`}
+                />
+              ) : (
+                <HighlightedText
+                  text={step.text ?? ''}
+                  currentTime={currentTime}
+                  duration={duration}
+                  isSpeaking={isSpeaking}
+                  isActive={currentKey === baseKey}
+                  className={`text-xl leading-relaxed mb-4 ${isExample ? 'text-amber-100' : 'text-black'}`}
+                />
+              )}
+              {!STATS_AS_BULLETS && step.type === 'overview' && step.stats?.length? (
                 <div className={`grid gap-4 ${step.stats.length === 1 ? 'grid-cols-1' : 'grid-cols-2'}`}>
               {step.stats.map((stat, idx) => {
                 const isActive = currentKey === `${baseKey}_fact${idx}`;
@@ -738,48 +1448,52 @@ function MiniSlideshowBlock({
         </div>
       );
     })()}
-      <div className="flex justify-center mb-3">
-        <button
-          onClick={() => playMicroStepAudio(activeSectionIndex, microStep, null)}
-          className="flex items-center gap-2 px-4 py-2 mt-4 rounded-full bg-blue-600/90 hover:bg-blue-400/90 text-white text-sm font-medium transition-colors"
-        >
-          🔁 Replay
-        </button>
-      </div>
-      
-      {/* Mini-slideshow navigation — always visible */}
-      <div className="flex items-center justify-between mt-5">
-        <button
-          onClick={prevMicroStep}
-          disabled={microStep === 0}
-          className="px-3 py-2 rounded-lg bg-blue-800/70 hover:bg-blue-700/80 disabled:opacity-30 text-white text-sm transition-colors"
-        >
-          ←
-        </button>
-    
-        <div className="flex gap-2">
-          {microSteps.map((step, idx) => (
+      {devMode && (
+        <>
+          <div className="flex justify-center mb-3">
             <button
-              key={idx}
-              onClick={() => goToMicroStep(idx)}
-              title={step.label}
-              className={`w-2.5 h-2.5 rounded-full transition-colors ${
-                idx === microStep ? 'bg-cyan-500' : 'bg-blue-700/60 hover:bg-blue-500/70'
-              }`}
-            />
-          ))}
-        </div>
+              onClick={() => playMicroStepAudio(activeSectionIndex, microStep, null)}
+              className="flex items-center gap-2 px-4 py-2 mt-4 rounded-full bg-blue-600/90 hover:bg-blue-400/90 text-white text-sm font-medium transition-colors"
+            >
+              🔁 Replay
+            </button>
+          </div>
+      
+          {/* Mini-slideshow navigation — dev mode only */}
+          <div className="flex items-center justify-between mt-5">
+            <button
+              onClick={prevMicroStep}
+              disabled={microStep === 0}
+              className="px-3 py-2 rounded-lg bg-blue-800/70 hover:bg-blue-700/80 disabled:opacity-30 text-white text-sm transition-colors"
+            >
+              ←
+            </button>
     
-        <button
-          onClick={nextMicroStep}
-          disabled={microStep === microSteps.length - 1}
-          className="px-3 py-2 rounded-lg bg-blue-800/50 hover:bg-blue-700/60 disabled:opacity-30 text-white text-sm transition-colors"
-        >
-          →
-        </button>
-      </div>
-    
-      <p className="text-center text-xs text-blue-700/80 mt-2">{microSteps[microStep].label}</p>
+            <div className="flex gap-2">
+              {microSteps.map((step, idx) => (
+                <button
+                  key={idx}
+                  onClick={() => goToMicroStep(idx)}
+                  title={step.label}
+                  className={`w-2.5 h-2.5 rounded-full transition-colors ${
+                    idx === microStep ? 'bg-cyan-500' : 'bg-blue-700/60 hover:bg-blue-500/70'
+                  }`}
+                />
+              ))}
+            </div>
+        
+            <button
+              onClick={nextMicroStep}
+              disabled={microStep === microSteps.length - 1}
+              className="px-3 py-2 rounded-lg bg-blue-800/50 hover:bg-blue-700/60 disabled:opacity-30 text-white text-sm transition-colors"
+            >
+              →
+            </button>
+          </div>
+        
+          <p className="text-center text-xs text-blue-700/80 mt-2">{microSteps[microStep]?.label}</p>
+        </>
+      )}
     </div>
   );
 }
@@ -804,32 +1518,77 @@ function ClassicLayout(props: {
   handleQuizContinue: () => void;
   currentKey: string | null;
   playMicroStepAudio: (sectionIndex: number, stepIndex: number, transitionType: 'means' | 'analogy' | null) => void;
+  autoAdvanceFrom: (sectionIndex: number, fromStep: number) => void;
+  audioUrls: Record<string, string>;
+  play: (url: string | undefined, key: string, text?: string, onComplete?: () => void) => void;
+  devMode: boolean;
+  plain: boolean;
+  ask: AskUI;
+  isImageFocus: boolean;
   animationUrl?: string;
+  hideVisual: boolean;
+  showImage: boolean;
 }) {
   return (
-    <div className="bg-white/5 backdrop-blur-md rounded-3xl border border-white-500/30 shadow-2xl overflow-hidden">
-      <div className="grid md:grid-cols-2 gap-0">
-        <SectionImageBlock
-          currentSection={props.currentSection}
-          activeSection={props.activeSection}
-          totalSections={props.totalSections} animationUrl={props.animationUrl} />
-        <div className="p-8 md:p-12 flex flex-col justify-center bg-gradient-to-br from-mist-400/50 to-mist-500/50">
-          <MiniSlideshowBlock
+    <div 
+      className="bg-white/5 backdrop-blur-md rounded-3xl border border-white-500/30 shadow-2xl overflow-hidden mx-auto transition-all duration-700 ease-in-out"
+      style={{
+        width: props.hideVisual ? '650px' : '1300px',
+        // ~20% taller than the usual tallest slide (~410px); also stops the card resizing between slides
+        minHeight: '500px',
+      }}
+    >
+      <div 
+        className="flex items-stretch"
+        style={{ minHeight: '500px' }}
+      >
+        <div 
+          className="overflow-hidden transition-all duration-700 ease-in-out"
+          style={{
+            flexGrow: 1,
+            width: props.hideVisual ? '0%' : props.isImageFocus ? '1300px' : '650px',
+            opacity: props.hideVisual ? 0 : 1,
+          }}
+        >
+          <SectionImageBlock
             currentSection={props.currentSection}
-            activeSectionIndex={props.activeSectionIndex}
-            microStep={props.microStep}
-            microSteps={props.microSteps}
-            goToMicroStep={props.goToMicroStep}
-            nextMicroStep={props.nextMicroStep}
-            prevMicroStep={props.prevMicroStep}
-            showQuiz={props.showQuiz}
-            handleQuizContinue={props.handleQuizContinue}
-            currentKey={props.currentKey}
-            currentTime={props.currentTime}
-            duration={props.duration}
-            isSpeaking={props.isSpeaking}
-            playMicroStepAudio={props.playMicroStepAudio}
+            activeSection={props.activeSection}
+            totalSections={props.totalSections}
+            animationUrl={props.animationUrl}
+            showImage={props.showImage}
           />
+        </div>
+        <div
+          className="overflow-hidden transition-all duration-700 ease-in-out"
+          style={{
+            width: props.isImageFocus ? '0px' : '750px',
+            opacity: props.isImageFocus ? 0 : 1,
+          }}
+        >
+          <div className="p-8 md:p-12 flex flex-col justify-center bg-gradient-to-br from-mist-400/50 to-mist-500/50 h-full">
+            <MiniSlideshowBlock
+              currentSection={props.currentSection}
+              activeSectionIndex={props.activeSectionIndex}
+              microStep={props.microStep}
+              microSteps={props.microSteps}
+              goToMicroStep={props.goToMicroStep}
+              nextMicroStep={props.nextMicroStep}
+              prevMicroStep={props.prevMicroStep}
+              showQuiz={props.showQuiz}
+              handleQuizContinue={props.handleQuizContinue}
+              currentKey={props.currentKey}
+              currentTime={props.currentTime}
+              duration={props.duration}
+              isSpeaking={props.isSpeaking}
+              playMicroStepAudio={props.playMicroStepAudio}
+              autoAdvanceFrom={props.autoAdvanceFrom}
+              audioUrls={props.audioUrls}
+              play={props.play}
+              devMode={props.devMode}
+              plain={props.plain}
+              ask={props.ask}
+            />
+          </div>
         </div>
       </div>
     </div>
@@ -853,8 +1612,16 @@ function SplitLayout(props: {
   showQuiz: boolean;
   handleQuizContinue: () => void;
   playMicroStepAudio: (sectionIndex: number, stepIndex: number, transitionType: 'means' | 'analogy' | null) => void;
+  autoAdvanceFrom: (sectionIndex: number, fromStep: number) => void;
+  audioUrls: Record<string, string>;
+  play: (url: string | undefined, key: string, text?: string, onComplete?: () => void) => void;
+  devMode: boolean;
+  plain: boolean;
+  ask: AskUI;
   animationUrl?: string;
-
+  hideVisual: boolean;
+  isImageFocus: boolean;
+  showImage: boolean;
 }) {
   return (
     <div className="bg-white/5 backdrop-blur-md rounded-3xl border border-white-500/30 shadow-2xl overflow-hidden">
@@ -876,6 +1643,12 @@ function SplitLayout(props: {
             duration={props.duration}
             isSpeaking={props.isSpeaking}
             playMicroStepAudio={props.playMicroStepAudio}
+            autoAdvanceFrom={props.autoAdvanceFrom}
+            audioUrls={props.audioUrls}
+            play={props.play}
+            devMode={props.devMode}
+            plain={props.plain}
+            ask={props.ask}
           />
         </div>
 
@@ -884,7 +1657,10 @@ function SplitLayout(props: {
           <SectionImageBlock
             currentSection={props.currentSection}
             activeSection={props.activeSection}
-            totalSections={props.totalSections} animationUrl={props.animationUrl} />
+            totalSections={props.totalSections}
+            animationUrl={props.animationUrl}
+            showImage={props.showImage}
+          />
         </div>
       </div>
     </div>
@@ -900,7 +1676,7 @@ function QuizSlide({
   onReview,
   onSubmitResult,
 }: {
-  quiz: { question: string; options: string[]; correctAnswer: number }[];
+  quiz: { question: string; options: string[]; correctAnswer: number; explanation: string }[];
   onContinue: () => void;
   onReview: () => void;
   onSubmitResult: ( passed: boolean, missed: { index: number; question: string; options: string[]; correctAnswer: number; userAnswer: number | null; explanation: string }[]) => void;
@@ -933,7 +1709,7 @@ function QuizSlide({
     <div className="backdrop-blur-sm flex items-center justify-center z-50 p-4">
       <div className="bg-gradient-to-br from-mist-400/70 via-mist-300/70 to-mist-400/70 rounded-3xl max-w-2xl w-full max-h-[85vh] overflow-y-auto border border-white/30 shadow-2xl p-8">
         <h3 className="text-2xl font-bold text-black mb-1">Quick Check</h3>
-        <p className="text-black text-sm mb-6">Answer both questions to continue</p>
+        <p className="text-black text-sm mb-6">Answer to continue</p>
 
         <div className="space-y-6">
           {quiz.map((q, qIdx) => (
@@ -1111,9 +1887,10 @@ export default function AIPresentation() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [introText, setIntroText] = useState('');
   const [inIntro, setInIntro] = useState(false);
+  const [animations, setAnimations] = useState<Record<string, string>>({});
 
   // Navigation
-  const [selectedTemplate, setSelectedTemplate] = useState<'classic' | 'split' | null>(null);
+  const [selectedTemplate, setSelectedTemplate] = useState<'classic' | 'split' | null>('classic');
   const [activeSection, setActiveSection] = useState(0);
   const [microStep, setMicroStep] = useState(0);
   const [showConclusion, setShowConclusion] = useState(false);
@@ -1129,8 +1906,20 @@ export default function AIPresentation() {
   const [showChat, setShowChat] = useState(false);
   const [isNarrating, setIsNarrating] = useState(false);
   const [cameraEnabled, setCameraEnabled] = useState(false);
-  const [cameraChoiceMade, setCameraChoiceMade] = useState(false);
+  const [cameraChoiceMade, setCameraChoiceMade] = useState(true);
   const [inConversation, setInConversation] = useState(false);
+  const [started, setStarted] = useState(false);
+  const [devMode, setDevMode] = useState(false);
+  const [showHub, setShowHub] = useState(false);
+  const [showSelfCheck, setShowSelfCheck] = useState(false);
+  const [showRemediation, setShowRemediation] = useState(false);
+  const [voiceInterruptionsEnabled, setVoiceInterruptionsEnabled] = useState(false);
+  const [variantSlide, setVariantSlide] = useState<VariantSlide | null>(null);
+  const [plainKey, setPlainKey] = useState<string | null>(null);   // `${section}_${step}` showing its plain version
+  // "Your turn" question: what the learner said, and whether the answer is showing
+  const [askState, setAskState] = useState<{ key: string; said: string | null; revealed: boolean } | null>(null);
+  const answerWaitRef = useRef<{ section: number; step: number } | null>(null);   // question open, waiting for an answer
+  const afterAnswerRef = useRef<(() => void) | null>(null);                        // runs once the tutor finishes reacting
   
   // Refs
   const keyTermsTimerRef = useRef<NodeJS.Timeout | null>(null);
@@ -1138,7 +1927,9 @@ export default function AIPresentation() {
   const presenceAudioRef = useRef<HTMLAudioElement | null>(null);
   const firstRunRef = useRef(true);
   const resumeTimerRef = useRef<NodeJS.Timeout | null>(null);
-  const interruptedRef = useRef<{ type: 'intro'; time: number } | { type: 'section'; section: number; step: number } | null>(null);
+  const interruptedRef = useRef<{ section: number; step: number } | null>(null);
+  const pendingDecisionRef = useRef<string | null>(null);        // tutor decision waiting for chat to finish
+  const variantAfterRef = useRef<(() => void) | null>(null);     // what runs when the variant overlay closes
   const [notice, setNotice] = useState<string | null>(null);
   const noticeTimerRef = useRef<NodeJS.Timeout | null>(null);
   const prevPresentRef = useRef(true);
@@ -1154,36 +1945,50 @@ export default function AIPresentation() {
 
   const { enqueue, stopSpeaking, isSpeaking: isChatSpeaking, beginStream, endStream } = useSpeechQueue();
   
-  const { messages, isLoading, input, setInput, sendMessage } = useAIChat(currentSection, missedQuestions, enqueue, beginStream, endStream, (action) => applyTutorDecisionRef.current(action));
-
-  const presentationStarted = !!selectedTemplate && !showConclusion;
-
-  // Opt-in voice interruption (barge-in) during the lesson — extended from the
-  // original chat-only behavior so the learner can speak over the professor.
-  const micReadyRef = useRef(false);
-  const applyTutorDecisionRef = useRef<(action: string) => void>(() => {});
-  const bargeInActive = voiceInterruptionsEnabled && micReadyRef.current &&
-    (isChatSpeaking || inConversation || (isSpeaking && presentationStarted && !showQuiz && !showReview));
-
-  const { status: micStatus, toggleMic } = useVoiceInput(
-    (text) => {
-      setShowChat(true);
-      handleSendMessage(text);
+  const { messages, isLoading, input, setInput, sendMessage, appendExchange } = useAIChat(
+    currentSection, missedQuestions, enqueue, beginStream, endStream,
+    (action) => {
+      pendingDecisionRef.current = action;
+      signals.track(`${action}_request` as any, { section: activeSection, step: microStep });
+      // the server's "repeat" cue is "I'm lost / confused", so it counts as confusion
+      if (action === 'repeat') signals.record(activeSection, { confusion_marks: 1 });
+      if (action === 'simplify') signals.record(activeSection, { simplify_requests: 1 });
+      if (action === 'advance') signals.record(activeSection, { skips: 1 });
     },
+    () => describeForTutor(signals.getState(activeSection))
+  );
+
+  
+
+  // Opt-in voice interruption: the learner can talk over the professor during
+  // the lesson, not just during a chat conversation. (useVoiceInput only listens
+  // while its own status is idle, so this doesn't need to track the mic.)
+  const bargeInActive =
+    voiceInterruptionsEnabled &&
+    (isChatSpeaking ||
+     inConversation ||
+     (isSpeaking && started && !inIntro && !showQuiz && !showReview &&
+      !showSelfCheck && !showRemediation && !showConclusion));
+  
+  const { status: micStatus, toggleMic, listen, cancelListening, levelRef: micLevelRef } = useVoiceInput(
+    (text) => handleSendMessage(text, { fromVoice: true }),
     () => {
-      if (isChatSpeaking) {
-        interruptedRef.current = null;
-      } else if (isSpeaking && !inIntro && !showQuiz && !showReview && !showConclusion) {
+      // Remember where the lesson was. Talking over the tutor's answer keeps the
+      // position saved earlier, so the lesson still picks up after the follow-up.
+      if (!isChatSpeaking && isSpeaking && !inIntro && !showQuiz && !showReview && !showConclusion) {
         interruptedRef.current = { section: activeSection, step: microStep };
       }
-      // signal: voice interruption of the professor
-      if (isSpeaking) signals.track('barge_in', { section: activeSection, step: microStep });
+      if (isSpeaking) {
+        signals.track('barge_in', { section: activeSection, step: microStep });
+        signals.record(activeSection, { barge_ins: 1 });
+      }
       stop();
       stopSpeaking();
     },
-    bargeInActive
+    bargeInActive,
+    voiceInterruptionsEnabled && started,   // keep the mic open for the whole lesson
   );
-  micReadyRef.current = micStatus === 'idle';
+  
 
   const { present, error } = useFacePresence(cameraEnabled);
 
@@ -1221,16 +2026,15 @@ export default function AIPresentation() {
     const step = section.steps[stepIndex];
     const text = getMicroStepText(section, stepIndex);
 
-    // signal: step enter (also starts dwell clock)
     signals.stepExit();
     signals.stepEnter(sectionIndex, stepIndex);
-    signals.track('step_start', { section: sectionIndex, step: stepIndex });
-
+    
     const playActualStep = () => {
+      const step = section.steps[stepIndex];
+      if (!step) return;
       const baseKey = `section${sectionIndex}_step${stepIndex}`;
-
-      // Overview with fun facts — content, then each fact clip in sequence
-      if (step.type === 'overview' && step.stats?.length) {
+      // Overview with fun facts — content, then each fact clip in sequence (off: facts are bullets now)
+      if (!STATS_AS_BULLETS && step.type === 'overview' && step.stats?.length) {
         const factKeys = step.stats.map((_, f) => `${baseKey}_fact${f}`);
         const chain = (idx: number): (() => void) => () => {
           if (idx >= factKeys.length) { 
@@ -1238,31 +2042,44 @@ export default function AIPresentation() {
             return; }
           play(audioUrls[factKeys[idx]], factKeys[idx], '', chain(idx + 1));
         };
-        play(audioUrls[baseKey], baseKey, step.text, chain(0));
+        play(audioUrls[baseKey], baseKey, getMicroStepText(section, stepIndex), chain(0));
         return;
       }
 
       // Key terms — shared intro, then ordinal + per-term audio for each term
-      if (step.type === 'keyTerms') {
-        const terms = step.terms;
-        const chainTerm = (t: number): (() => void) => () => {
-          if (t >= terms.length) {
-            autoAdvanceFrom(sectionIndex, stepIndex);
-            return;
-          }
-          const ordinalKey = `ordinal${t}`;
-          const termKey = `section${sectionIndex}_keyterm${t}`;
-          play(audioUrls[ordinalKey], termKey, '', () => {
-            play(audioUrls[termKey], termKey, '', chainTerm(t + 1));
-          });
-        };
-        play(audioUrls['keytermIntro'], 'keytermIntro', '', chainTerm(0));
+
+      if (step.type === 'askAloud') {
+        // ask, then open the mic for the answer
+        const qKey = `${baseKey}_question`;
+        play(audioUrls[qKey], qKey, step.question, () => startAnswerListening(sectionIndex, stepIndex));
         return;
       }
 
-      // Simple / example / anything else with plain text
-      if (step.text) {
-        play(audioUrls[baseKey], baseKey, text, () => {
+      if (step.type === 'predictThen') {
+        const qKey = `${baseKey}_question`;
+        play(audioUrls[qKey], qKey, ''); // no onComplete — waits for user to reveal
+        return;
+      }
+
+      if (step.type === 'checkYourself') {
+        const sKey = `${baseKey}_statement`;
+        play(audioUrls[sKey], sKey, ''); // no onComplete — waits for user to answer
+        return;
+      }
+
+      if (step.type === 'numberSpotlight') {
+        const valueKey = `${baseKey}_value`;
+        play(audioUrls[valueKey], valueKey, '', () => {
+          play(audioUrls[baseKey], baseKey, getMicroStepText(section, stepIndex), () => {
+            autoAdvanceFrom(sectionIndex, stepIndex);
+          });
+        });
+        return;
+      }
+      
+      // Overview without stats / example / image: the narration clip
+      if (getMicroStepText(section, stepIndex)) {
+        play(audioUrls[baseKey], baseKey, getMicroStepText(section, stepIndex), () => {
           autoAdvanceFrom(sectionIndex, stepIndex);
         });
       } else {
@@ -1326,20 +2143,19 @@ export default function AIPresentation() {
       setIsNarrating(true);
       setShowConclusion(false);
     } else {
-      play(audioUrls['conclusion'], 'conclusion');
-      setIsNarrating(true);
       setShowConclusion(true);
+      setIsNarrating(true);
+      playConclusion();
     }
   };
 
-  const playIntroduction = (template: 'classic' | 'split') => {
+  const playIntroduction = () => {
     setInIntro(true);
     play(audioUrls['intro'], 'intro', introText, () => {
-      const layoutKey = `layout_${template}`;
-      play(audioUrls[layoutKey], layoutKey, '', () => {
-        setInIntro(false);
-        narrateSection(0);
-      });
+      setInIntro(false);
+      // Topics run in order now; the topic picker is switched off.
+      // setShowHub(true);
+      startTopic(0);
     });
     setIsNarrating(true);
   };
@@ -1354,9 +2170,22 @@ export default function AIPresentation() {
       });
     }, time);
   };
+
+  const handleStart = () => {
+    signals.newSession();
+    setStarted(true);
+    setActiveSection(0);
+    setShowConclusion(false);
+    // setShowHub(true)   // topic picker switched off — topics run in order
+    playIntroduction();
+  };
+  
   /* ------------------------------------------- micro-step nav handlers */
   const goToMicroStep = (index: number) => {
-    if (index < 0 || index >= microSteps.length) return;
+    if (index < 0 || index >= microSteps.length) {
+      console.log('REJECTED — out of bounds');
+      return;
+    }
     if (keyTermsTimerRef.current) clearTimeout(keyTermsTimerRef.current);
     setMicroStep(index);
     playMicroStepAudio(activeSection, index, null);
@@ -1373,14 +2202,43 @@ export default function AIPresentation() {
       setMicroStep(next);
 
       const nextType = section.steps[next].type;
-      const transition = nextType === 'simple' ? 'means' : nextType === 'example' ? 'analogy' : null;
+      const transition = nextType === 'example' ? 'analogy' : null;
       playMicroStepAudio(sectionIndex, next, transition);
     } else {
+      signals.stepExit()
+      setShowSelfCheck(true);
       play(audioUrls['wrapup'], 'wrapup', '');
-    }
-  };
+      }
+    };
 
   /* --------------------------------------------- section nav handlers */
+  // Starts a topic from its first slide (was only reachable from the topic picker)
+  const startTopic = (index: number) => handleHubSelect(index);
+
+  const handleHubSelect = (index: number) => {
+    stop();
+    signals.track('section_start', {
+      section: index,
+      value: { title: sections[index]?.title },
+    });
+    signals.record(index, { visits: 1 });
+    setShowHub(false);
+    setActiveSection(index);
+    setMicroStep(0);
+    setShowQuiz(false);
+    setShowReview(false);
+    narrateSection(index);
+    setShowSelfCheck(false);
+    setShowRemediation(false);
+  };
+  
+  const handleFinishFromHub = () => {
+    setShowHub(false);
+    setShowConclusion(true);
+    setIsNarrating(true);
+    playConclusion();
+  };
+    
   const handleCameraSelect = (useCamera: boolean) => {
     setCameraEnabled(useCamera);
     setCameraChoiceMade(true);
@@ -1390,90 +2248,442 @@ export default function AIPresentation() {
     setSelectedTemplate(template);
     setActiveSection(0);
     setShowConclusion(false);
-    playIntroduction(template);
+    playIntroduction();
   };
 
+  // After a topic's quiz: straight on to the next topic, or the summary after the last one
   const handleQuizContinue = () => {
     setCompletedQuizzes((prev) => new Set([...prev, activeSection]));
     setShowQuiz(false);
-    
-    if (activeSection < sections.length - 1) {
-      stop();
-      const newIndex = activeSection + 1;
-      setActiveSection(newIndex);
-      setShowConclusion(false);
-      setTimeout(() => narrateSection(newIndex), 300);
-    } else {
-      stop();
-      setShowConclusion(true);
-      setTimeout(() => narrateSection(sections.length), 500);
-    }
+    setShowReview(false);
+    stop();
+    // setShowHub(true);   // topic picker switched off
+    const next = activeSection + 1;
+    if (next < sections.length) startTopic(next);
+    else finishLesson();
   };
 
-  const handleSendMessage = (text: string) => {
+  const finishLesson = () => {
+    signals.stepExit();
+    setShowHub(false);
+    setShowConclusion(true);
+    setIsNarrating(true);
+    playConclusion();
+  };
+
+  // Typed or spoken input: deck commands ("skip ahead", "next topic", "go to ...")
+  // are handled right here with no LLM call; everything else goes to the tutor.
+  const handleSendMessage = (text: string, opts: { fromVoice?: boolean } = {}) => {
     if (!text.trim()) return;
+    const waiting = answerWaitRef.current;
+    if (waiting) {
+      // A "Your turn" question is open: "I don't know" shows the answer, a command
+      // still works ("skip", "simpler"), anything else is their answer
+      if (/(?:don'?t|do not) know|no idea|not sure|\bidk\b|give up|tell me|\bpass\b/i.test(text)) {
+        setInput('');
+        revealAnswer(waiting.section, waiting.step);
+        return;
+      }
+      const cmd = parseDeckCommand(text);
+      if (!(cmd && runDeckCommand(cmd, text))) answerQuestion(text);
+      setInput('');
+      return;
+    }
+    const command = parseDeckCommand(text);
+    if (command && runDeckCommand(command, text)) {
+      setInput('');
+      return;
+    }
+    if (opts.fromVoice) setShowChat(true);
+    sendToTutor(text);
+  };
+
+  const sendToTutor = (text: string) => {
     setInConversation(true);
     if (isSpeaking && !inIntro && !showQuiz && !showReview && !showConclusion) {
       interruptedRef.current = { section: activeSection, step: microStep };
     }
-    // signal: learner asked the tutor something
-    signals.track('tutor_question', { section: activeSection, step: microStep, value: { text: text.slice(0, 200) } });
+    signals.track('tutor_question', {
+      section: activeSection,
+      step: microStep,
+      value: { text: text.slice(0, 200) },
+    });
+    signals.record(activeSection, { questions: 1 });
     stop();
     sendMessage(text);
   };
 
-  /* --------------------------------------------- tutor decision applier */
-  // Applies the tutor's deck-control decision after its reply finishes.
-  const applyDecisionImpl = (action: string) => {
-    if (action === 'repeat') {
-      repeatCountsRef.current[activeSection] = (repeatCountsRef.current[activeSection] ?? 0) + 1;
-      // signal: repeat request + rollup
-      signals.track('repeat_request', { section: activeSection, step: microStep });
-      signals.upsertState(activeSection, { repeats: 1, last_state: 'confused' });
-      // replay the current micro-step after the tutor's acknowledgment finishes
-      setTimeout(() => playMicroStepAudio(activeSection, microStep, null), 800);
-    } else if (action === 'simplify') {
-      signals.track('simplify_request', { section: activeSection, step: microStep });
-      signals.upsertState(activeSection, { confusion_marks: 1, last_state: 'confused' });
-      // Phase B: try the slide knowledge base first — a reviewed variant
-      // slide matched to the learner's state. Falls back to the simple step.
-      fetch(`/api/tutor/variant?section=${activeSection}&state=confused`)
-        .then((r) => r.json())
-        .then((data) => {
-          if (data.ok && data.variant) {
-            setVariantSlide(data.variant);
-            // narrate the variant through the existing audio pipeline when a
-            // pre-rendered clip exists; otherwise the tutor's spoken reply
-            // already carries the reworded explanation.
-            if (data.variant.audio_url) {
-              play(data.variant.audio_url, `variant_${activeSection}`, data.variant.narration);
-            }
+  /* ------------------------------------------------- "Your turn" questions */
+  const startAnswerListening = (section: number, step: number) => {
+    answerWaitRef.current = { section, step };
+    setAskState({ key: `${section}_${step}`, said: null, revealed: false });
+    // nobody talks for 9s (or there's no mic) → the professor gives the answer
+    listen({
+      noSpeechMs: 9000,
+      onNoSpeech: () => {
+        const w = answerWaitRef.current;
+        if (w && w.section === section && w.step === step) revealAnswer(section, step);
+      },
+    });
+  };
+
+  // The professor's own answer (nobody answered, or "tell me"), then on to the next slide
+  const revealAnswer = (section: number, step: number) => {
+    answerWaitRef.current = null;
+    cancelListening();
+    const st = sections[section]?.steps[step];
+    if (!st || st.type !== 'askAloud') return;
+    const key = `${section}_${step}`;
+    setAskState((a) => ({ key, said: a?.key === key ? a.said : null, revealed: true }));
+    signals.track('tutor_decision', { section, step, value: { action: 'reveal_answer' } });
+    const clip = `section${section}_step${step}_answer`;
+    const then = () => autoAdvanceFrom(section, step);
+    const url = audioUrls[clip];
+    if (url) play(url, clip, st.answer, then);
+    else ttsUrl(st.answer).then((u) => (u ? play(u, clip, st.answer, then) : then()));
+  };
+
+  // The learner answered: the tutor reacts to what THEY said, then the lesson moves on
+  const answerQuestion = (text: string) => {
+    const w = answerWaitRef.current;
+    answerWaitRef.current = null;
+    if (!w) return;
+    const st = sections[w.section]?.steps[w.step];
+    if (!st || st.type !== 'askAloud') return;
+    setAskState({ key: `${w.section}_${w.step}`, said: text, revealed: false });
+    signals.track('tutor_question', { section: w.section, step: w.step, value: { text: text.slice(0, 200), kind: 'spoken_answer' } });
+    signals.record(w.section, { questions: 1 });
+    setShowChat(true);
+    setInConversation(true);
+    afterAnswerRef.current = () => autoAdvanceFrom(w.section, w.step);
+    sendMessage(text, {
+      useKnowledgeBase: false,
+      ignoreDecision: true,
+      systemPrompt:
+        `You are "${PRESENTATION.professor.name}", a funny, kind science teacher talking with a 10-14 year old. ` +
+        `You just asked them: "${st.question}". A good answer includes: ${st.lookFor.join('; ')}. ` +
+        `Your own answer would be: "${st.answer}". Their reply is the user message. ` +
+        `Respond in 2-3 short spoken sentences. First react to THEIR idea specifically and credit whatever is right — be genuinely encouraging. ` +
+        `Then fill in anything important they missed, using your own answer. If they were way off or joking, be playful and kind, then give the answer. ` +
+        `Never say "wrong" or "incorrect". Lightly sarcastic about the fish, never about them. No lists or formatting, just speech.`,
+    });
+  };
+
+  /* ------------------------------------------------------ deck commands */
+  type AckClip = AckKey | `section${number}_goto`;
+
+  // Clears everything a jump could collide with: pending resumes, overlays, chat speech.
+  const resetForJump = () => {
+    if (resumeTimerRef.current) clearTimeout(resumeTimerRef.current);
+    if (keyTermsTimerRef.current) clearTimeout(keyTermsTimerRef.current);
+    interruptedRef.current = null;
+    pendingDecisionRef.current = null;
+    variantAfterRef.current = null;
+    answerWaitRef.current = null;
+    afterAnswerRef.current = null;
+    cancelListening();
+    setAskState(null);
+    signals.stepExit();   // bank the time spent on the slide being left
+    stop();
+    stopSpeaking();
+    setInConversation(false);
+    setInIntro(false);
+    setShowHub(false);
+    setShowQuiz(false);
+    setShowReview(false);
+    setShowSelfCheck(false);
+    setShowRemediation(false);
+    setShowConclusion(false);
+    setVariantSlide(null);
+    setPlainKey(null);
+  };
+
+  // Speaks a step's plain version. Info slides then carry on with the lesson;
+  // question slides wait for the answer, just like the original question.
+  const playPlainVersion = (sectionIndex: number, stepIndex: number) => {
+    const step = sections[sectionIndex]?.steps[stepIndex];
+    if (!step?.simple) return;
+    const key = `section${sectionIndex}_step${stepIndex}_simple`;
+    const waitsForAnswer = step.type === 'predictThen' || step.type === 'checkYourself';
+    const then = step.type === 'askAloud'
+      ? () => startAnswerListening(sectionIndex, stepIndex)   // ask it plainly, then listen again
+      : waitsForAnswer ? undefined : () => autoAdvanceFrom(sectionIndex, stepIndex);
+    const spoken = step.type === 'checkYourself' ? `True or false: ${step.simple}` : step.simple;
+    const url = audioUrls[key];
+    if (url) {
+      play(url, key, spoken, then);
+      return;
+    }
+    ttsUrl(spoken).then((u) => (u ? play(u, key, spoken, then) : then?.()));
+  };
+
+  // "Simpler please": re-say THIS slide in plain words (a plainer question for
+  // question slides). Lessons made before plain versions existed fall back to
+  // the section's variant / remediation slide.
+  const simplifyStep = (sectionIndex: number, stepIndex: number, withAck: boolean) => {
+    const hasPlain = !!sections[sectionIndex]?.steps[stepIndex]?.simple;
+    const run = hasPlain
+      ? () => playPlainVersion(sectionIndex, stepIndex)
+      : () => showVariantOrRemediation(() => playMicroStepAudio(sectionIndex, stepIndex, null));
+    if (hasPlain) {
+      setMicroStep(stepIndex);
+      setPlainKey(`${sectionIndex}_${stepIndex}`);
+    }
+    if (withAck) acknowledge('cmd_simplify', COMMAND_ACK_TEXT.cmd_simplify, run);
+    else run();
+  };
+
+  // The short reply ("Skipping ahead."), then the action. Uses the pre-recorded
+  // clip so there's no TTS wait; falls back to live TTS if the clip is missing.
+  const acknowledge = (key: AckClip, text: string, then: () => void = () => {}) => {
+    showNotice(text);
+    const url = audioUrls[key];
+    if (url) {
+      play(url, key, '', then);
+      return;
+    }
+    ttsUrl(text).then((u) => (u ? play(u, key, '', then) : then()));
+  };
+
+  const jumpTo = (section: number, step: number, ackKey: AckClip, ackText: string) => {
+    const entering = section !== activeSection || showHub || showConclusion || inIntro;
+    resetForJump();
+    if (entering) {
+      signals.track('section_start', { section, value: { title: sections[section]?.title, via: 'command' } });
+      signals.record(section, { visits: 1 });
+    }
+    setActiveSection(section);
+    setMicroStep(step);
+    setIsNarrating(true);
+    acknowledge(ackKey, ackText, () => playMicroStepAudio(section, step, null));
+  };
+
+  // End of a topic: the same wrap-up the narration reaches on its own
+  const finishSection = (ackKey: AckKey) => {
+    resetForJump();
+    signals.stepExit();
+    setShowSelfCheck(true);
+    acknowledge(ackKey, COMMAND_ACK_TEXT[ackKey], () => play(audioUrls['wrapup'], 'wrapup', ''));
+  };
+
+  const startSectionQuiz = () => {
+    if (QUIZ_ENABLED && sections[activeSection]?.quiz?.length === 1) setShowQuiz(true);
+    else handleQuizContinue();   // quiz off: on to the next topic
+  };
+
+  const firstOpenTopic = () => {
+    const i = sections.findIndex((_, idx) => !completedQuizzes.has(idx));
+    return i === -1 ? 0 : i;
+  };
+
+  // Keyword search first (instant); meaning-based search on the server when that isn't sure.
+  const findTarget = async (query: string): Promise<DeckTarget | null> => {
+    const docs = buildSlideDocs(sections);
+    const local = findInPresentation(query, sections, docs);
+    if (local?.confident) return local;
+    try {
+      const r = await fetch('/api/deck/search', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ query, docs }),
+      });
+      const data = await r.json();
+      if (data.found) return { section: data.section, step: data.step };
+      if (!data.error) return null;           // searched properly, it isn't there
+    } catch { /* offline: trust the keyword guess below */ }
+    return local;
+  };
+
+  /** Runs a deck command. Returns false when it doesn't apply here, so the tutor answers instead. */
+  const runDeckCommand = (command: DeckCommand, said: string): boolean => {
+    if (!started || sections.length === 0) return false;
+
+    const onSlide = !inIntro && !showHub && !showQuiz && !showReview && !showSelfCheck &&
+      !showRemediation && !showConclusion && !variantSlide;
+    const inOverlay = showRemediation || !!variantSlide;
+    const lastStepOf = (i: number) => Math.max(0, (sections[i]?.steps.length ?? 1) - 1);
+
+    const done = (reply: string) => {
+      appendExchange(said, reply);
+      signals.track('deck_command', {
+        section: activeSection,
+        step: microStep,
+        value: { command: command.kind, said: said.slice(0, 120), ...(command.kind === 'goTo' ? { query: command.query } : {}) },
+      });
+      return true;
+    };
+    const say = (key: AckKey) => COMMAND_ACK_TEXT[key];
+
+    // Quizzes can't be skipped; repeat/simplify there are questions for the tutor
+    if (showQuiz || showReview) {
+      if (command.kind === 'repeat' || command.kind === 'simplify') return false;
+      acknowledge('cmd_quizFirst', say('cmd_quizFirst'));
+      return done(say('cmd_quizFirst'));
+    }
+
+    switch (command.kind) {
+      case 'nextSlide': {
+        if (showConclusion) return false;
+        if (inIntro || showHub) {
+          jumpTo(firstOpenTopic(), 0, 'cmd_nextSlide', say('cmd_nextSlide'));
+          return done(say('cmd_nextSlide'));
+        }
+        signals.record(activeSection, { skips: 1 });
+        if (inOverlay) {
+          const after = variantAfterRef.current;
+          resetForJump();
+          acknowledge('cmd_nextSlide', say('cmd_nextSlide'), () => after?.());
+          return done(say('cmd_nextSlide'));
+        }
+        if (showSelfCheck) {
+          resetForJump();
+          acknowledge('cmd_nextSlide', say('cmd_nextSlide'), startSectionQuiz);
+          return done(say('cmd_nextSlide'));
+        }
+        if (microStep < lastStepOf(activeSection)) jumpTo(activeSection, microStep + 1, 'cmd_nextSlide', say('cmd_nextSlide'));
+        else finishSection('cmd_nextSlide');
+        return done(say('cmd_nextSlide'));
+      }
+
+      case 'nextTopic': {
+        if (showConclusion) return false;
+        if (inIntro || showHub) {
+          jumpTo(firstOpenTopic(), 0, 'cmd_nextTopic', say('cmd_nextTopic'));
+          return done(say('cmd_nextTopic'));
+        }
+        signals.record(activeSection, { skips: 1 });
+        const next = activeSection + 1;
+        if (next < sections.length) {
+          jumpTo(next, 0, 'cmd_nextTopic', say('cmd_nextTopic'));
+          return done(say('cmd_nextTopic'));
+        }
+        // Last topic: wrap up with the summary (topics run in order, no picker)
+        resetForJump();
+        acknowledge('cmd_wrapUp', say('cmd_wrapUp'), finishLesson);
+        return done(say('cmd_wrapUp'));
+      }
+
+      case 'prevSlide': {
+        if (!onSlide && !showSelfCheck && !inOverlay) return false;
+        if (showSelfCheck) jumpTo(activeSection, lastStepOf(activeSection), 'cmd_prevSlide', say('cmd_prevSlide'));
+        else if (inOverlay) jumpTo(activeSection, microStep, 'cmd_prevSlide', say('cmd_prevSlide'));
+        else if (microStep > 0) jumpTo(activeSection, microStep - 1, 'cmd_prevSlide', say('cmd_prevSlide'));
+        else if (activeSection > 0) jumpTo(activeSection - 1, lastStepOf(activeSection - 1), 'cmd_prevSlide', say('cmd_prevSlide'));
+        else {
+          jumpTo(0, 0, 'cmd_atStart', say('cmd_atStart'));
+          return done(say('cmd_atStart'));
+        }
+        return done(say('cmd_prevSlide'));
+      }
+
+      case 'repeat': {
+        if (!onSlide && !showSelfCheck) return false;
+        signals.record(activeSection, { repeats: 1 });
+        signals.track('repeat_request', { section: activeSection, step: microStep });
+        const step = showSelfCheck ? lastStepOf(activeSection) : microStep;
+        jumpTo(activeSection, step, 'cmd_repeat', say('cmd_repeat'));
+        return done(say('cmd_repeat'));
+      }
+
+      case 'simplify': {
+        if (!onSlide && !showSelfCheck) return false;
+        signals.record(activeSection, { simplify_requests: 1 });
+        signals.track('simplify_request', { section: activeSection, step: microStep });
+        const step = showSelfCheck ? lastStepOf(activeSection) : microStep;
+        resetForJump();
+        simplifyStep(activeSection, step, true);
+        return done(say('cmd_simplify'));
+      }
+
+      case 'goTo': {
+        // Where to pick up again if the part isn't in the lesson
+        const resumeAt = interruptedRef.current ?? (onSlide ? { section: activeSection, step: microStep } : null);
+        interruptedRef.current = null;
+        if (resumeTimerRef.current) clearTimeout(resumeTimerRef.current);
+        stop();
+        stopSpeaking();
+
+        findTarget(command.query).then((target) => {
+          if (target) {
+            const section = target.section < 0 ? activeSection : target.section;
+            const step = Math.min(Math.max(target.step, 0), lastStepOf(section));
+            const sameTopic = section === activeSection && !showHub && !showConclusion;
+            const key: AckClip = sameTopic ? 'cmd_goto' : `section${section}_goto`;
+            const text = sameTopic ? say('cmd_goto') : `Jumping to ${sections[section].title}.`;
+            signals.record(section, { jumps: 1 });
+            jumpTo(section, step, key, text);
+            done(text);
+          } else if (command.soft) {
+            // "tell me about X" where X isn't on a slide: a real question for the tutor
+            if (resumeAt) interruptedRef.current = resumeAt;
+            sendToTutor(said);
           } else {
-            const section = sections[activeSection];
-            const simpleIdx = section.steps.findIndex((s) => s.type === 'simple');
-            if (simpleIdx >= 0) {
-              setTimeout(() => goToMicroStep(simpleIdx), 800);
-            }
-            // no variant, no simple step: the professor's reworded reply is the simplification
-          }
-        })
-        .catch(() => {
-          const section = sections[activeSection];
-          const simpleIdx = section.steps.findIndex((s) => s.type === 'simple');
-          if (simpleIdx >= 0) {
-            setTimeout(() => goToMicroStep(simpleIdx), 800);
+            acknowledge('cmd_notFound', say('cmd_notFound'), () => {
+              if (resumeAt) playMicroStepAudio(resumeAt.section, resumeAt.step, null);
+            });
+            done(say('cmd_notFound'));
           }
         });
-    } else if (action === 'advance') {
-      signals.track('advance_request', { section: activeSection, step: microStep });
-      if (showQuiz || showReview) {
-        // quiz gate respected — no advance; the tutor already says so
-        return;
+        return true;
       }
-      setTimeout(() => autoAdvanceFrom(activeSection, microStep), 800);
     }
   };
-  applyTutorDecisionRef.current = applyDecisionImpl;
+
+  // Reviewed variant first (knowledge base); generated remediation as the fallback.
+  // `after` is what happens once the learner is done with it.
+  const showVariantOrRemediation = async (after: () => void) => {
+    const idx = activeSection;
+    try {
+      // Asked for help, so at least "confused"; "frustrated" gets the gentlest variant
+      const mood = signals.getState(idx).last_state;
+      const state = mood === 'frustrated' ? 'frustrated' : 'confused';
+      const title = encodeURIComponent(sections[idx]?.title ?? '');
+      const r = await fetch(`/api/tutor/variant?section=${idx}&state=${state}&title=${title}`);
+      const data = await r.json();
+      if (data.ok && data.variant) {
+        signals.track('tutor_decision', { section: idx, value: { action: 'variant', variant: data.variant.variant, state } });
+        variantAfterRef.current = after;
+        setVariantSlide(data.variant);
+        const url = data.variant.audio_url ?? await ttsUrl(data.variant.narration);
+        if (url) play(url, `variant_${idx}`, data.variant.narration);
+        return;
+      }
+    } catch { /* fall through to remediation */ }
+
+    const rem = sections[idx]?.remediation;
+    if (rem) {
+      signals.track('tutor_decision', { section: idx, value: { action: 'remediation' } });
+      setShowRemediation(true);
+      variantAfterRef.current = after;   // so "skip ahead" can move past it too
+      const key = `section${idx}_remediation`;
+      play(audioUrls[key], key, rem, () => {
+        setShowRemediation(false);
+        const next = variantAfterRef.current;
+        variantAfterRef.current = null;
+        next?.();
+      });
+      return;
+    }
+    after();
+  };
+
+  const handleSelfCheck = (rating: 'got' | 'kind' | 'lost') => {
+    setShowSelfCheck(false);
+    signals.track('self_check', { section: activeSection, value: { rating } });
+    signals.record(activeSection, { self_check: rating });
+
+    const goToQuiz = () => {
+      if (QUIZ_ENABLED && currentSection.quiz?.length === 1) setShowQuiz(true);
+      else handleQuizContinue();   // quiz off: on to the next topic
+    };
+
+    if (rating === 'lost') {
+      showVariantOrRemediation(goToQuiz);
+    } else {
+      stop();
+      goToQuiz();
+    }
+  };
   
   const handleQuizReview = () => {
     setShowQuiz(false);
@@ -1485,15 +2695,16 @@ export default function AIPresentation() {
     handleQuizContinue();
   };
 
+  /*
   const nextSection = () => {
     setMicroStep(0);
-    if (currentSection.quiz && currentSection.quiz.length === 2) {
+    if (currentSection.quiz && currentSection.quiz.length === 1) {
       setShowQuiz(true);
     } else {
     handleQuizContinue(); // no valid quiz for this section — just advance
     }
   };
-
+  
   const prevSection = () => {
     setMicroStep(0);
     if (activeSection > 0) {
@@ -1503,17 +2714,35 @@ export default function AIPresentation() {
       setTimeout(() => narrateSection(newIndex), 300);
     }
   };
+  */
   
   const handleRestart = () => {
+    signals.newSession();
     stop();
     setActiveSection(0);
     setMicroStep(0);
     setShowConclusion(false);
     setShowQuiz(false);
+    setShowReview(false);
     setSectionScores({});
     setCompletedQuizzes(new Set());
+    setMissedQuestions([]);
+    setStarted(false)
+    setShowSelfCheck(false);
+    setShowRemediation(false);
   };
-  
+
+  const playConclusion = () => {
+    const chain = (i: number): (() => void) => () => {
+      if (i >= sections.length) {
+        play(audioUrls['conclusion_outro'], 'conclusion_outro', '');
+        return;
+      }
+      const key = `section${i}_recap`;
+      play(audioUrls[key], key, '', chain(i + 1));
+    };
+    play(audioUrls['conclusion_intro'], 'conclusion_intro', '', chain(0));
+  };
   /* -------------------------------------------------------------- effects */
   // Fetch sections, then fetch pre-generated audio for them
   useEffect(() => {
@@ -1529,12 +2758,17 @@ export default function AIPresentation() {
 
         setSections(sectionsData.sections);
 
-        // Manim topic animations (pre-rendered, served from /public/animations).
-        // Indexed by section order: 1-6. Section titles come from the API in this order.
-        setAnimationUrls(SECTION_ANIMATIONS);
-
+        /*
+        console.log('SECTIONS STRUCTURE:', sectionsData.sections.map((sec: any, i: number) => ({
+          section: i,
+          title: sec.title,
+          steps: sec.steps.map((st: any, s: number) => ({ index: s, type: st.type })),
+        })));
+        */
+        
         const firstTopic = sectionsData.sections[0]?.title || 'the Blue Catfish invasion';
-        const builtIntro = `Hello everyone, and welcome! I'm Professor Marine, and today we're diving into the story of the Blue Catfish invasion in the Chesapeake Bay. By the time we're done, you'll all be experts on the subject. Let's get right into the material — starting with our first topic: ${firstTopic}.`;
+        // const builtIntro = `Hey! I'm Professor Marine. Let's talk about a fish that's taking over the Chesapeake Bay. Pick a topic to get started.`;
+        const builtIntro = `Hey! I'm Professor Marine. Let's talk about a fish that's taking over the Chesapeake Bay. Let's start at the beginning.`;
         setIntroText(builtIntro);
 
         setLoadingPhase('audio');
@@ -1544,13 +2778,25 @@ export default function AIPresentation() {
           body: JSON.stringify({
             sections: sectionsData.sections,
             intro: builtIntro,
-            conclusion: LECTURE_SCRIPTS.conclusion,
           }),
         });
         const audioData = await audioRes.json();
 
         if (audioData.audioUrls) {
           setAudioUrls(audioData.audioUrls);
+        }
+
+        // Animations render in the background on Railway, so they may not exist yet
+        try {
+          const animRes = await fetch('/api/animations', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ cacheKey: sectionsData.cacheKey }),
+          });
+          const animData = await animRes.json();
+          if (animData.animations) setAnimations(animData.animations);
+        } catch (e) {
+          console.warn('Could not load animations:', e);
         }
       } catch (err: any) {
         console.error('Failed to load presentation:', err);
@@ -1563,11 +2809,11 @@ export default function AIPresentation() {
     loadPresentation();
   }, []);
 
-  // Reset to step 0 whenever the main section changes
+  // The plain version belongs to one step; moving on shows the normal slide again
   useEffect(() => {
-    setMicroStep(0);
-    stop();
-  }, [activeSection]);
+    setPlainKey((k) => (k === `${activeSection}_${microStep}` ? k : null));
+    setAskState((a) => (a?.key === `${activeSection}_${microStep}` ? a : null));
+  }, [activeSection, microStep]);
 
   // Clear the key-terms timer when leaving a section
   useEffect(() => {
@@ -1609,6 +2855,21 @@ export default function AIPresentation() {
     }
   }, [showReview]);
 
+  // Flush any queued events if the tab closes
+  useEffect(() => {
+    const offUnload = signals.installUnloadFlush();
+    return () => { offUnload(); signals.stepExit(); };
+  }, []);
+  
+  // Lesson completion
+  useEffect(() => {
+    if (showConclusion) {
+      signals.stepExit();
+      signals.track('lesson_complete', {
+        value: { score: Object.values(sectionScores).reduce((a, b) => a + b, 0) },
+      });
+    }
+  }, [showConclusion]);
   // Pause narration when the viewer looks away
   useEffect(() => {
     if (!cameraEnabled) return;
@@ -1634,34 +2895,57 @@ export default function AIPresentation() {
   }, [present, cameraEnabled, isChatSpeaking]);
 
   useEffect(() => {
-    if (isChatSpeaking) return;           // still answering
-    if (micStatus !== 'idle') return;      // still listening/processing
-    if (cameraEnabled && !present) return;  // user still away from camera         
-    if (!interruptedRef.current) return;  // nothing was interrupted
-    if (resumeTimerRef.current) clearTimeout(resumeTimerRef.current);  
+    if (isChatSpeaking) return;                 // still answering
+    if (isLoading) return;                      // reply still on its way (speech may not have started yet)
+    if (micStatus !== 'idle') return;           // still listening/processing
+    if (cameraEnabled && !present) return;      // user away from camera
+    if (!interruptedRef.current && !pendingDecisionRef.current && !afterAnswerRef.current) return;  // nothing to do
+  
+    if (resumeTimerRef.current) clearTimeout(resumeTimerRef.current);
+  
+    // a decision (chip tap / "simpler please") acts fast;
+    // a plain question leaves 7s of room for a follow-up
+    const delay = pendingDecisionRef.current || afterAnswerRef.current ? 1500 : 7000;
+  
     resumeTimerRef.current = setTimeout(() => {
-      console.log('7s timer fired, resuming now');
-      const pending = interruptedRef.current;
-      if (!pending) {
+      // the tutor finished reacting to a "Your turn" answer: on to the next slide
+      const afterAnswer = afterAnswerRef.current;
+      if (afterAnswer) {
+        afterAnswerRef.current = null;
+        interruptedRef.current = null;
         setInConversation(false);
+        afterAnswer();
         return;
       }
+
+      const pending = interruptedRef.current;
+      const decision = pendingDecisionRef.current;
       interruptedRef.current = null;
+      pendingDecisionRef.current = null;
       setInConversation(false);
-      
+  
+      if (decision === 'simplify') {
+        if (pending) simplifyStep(pending.section, pending.step, false);   // the tutor already acknowledged
+        return;
+      }
+  
+      if (decision === 'advance') {
+        if (showQuiz || showReview || !pending) return;     // never skip past a quiz
+        autoAdvanceFrom(pending.section, pending.step);     // the tutor already said "moving ahead"
+        return;
+      }
+  
+      // 'repeat', or a plain question: pick up where they left off
+      if (!pending) return;
       play(audioUrls['presence_back'], 'presence_back', '', () => {
-        if (pending.type === 'intro') {
-            resumeIntro(pending.time);
-        } else {
-          playMicroStepAudio(pending.section, pending.step, null);
-        }  
+        playMicroStepAudio(pending.section, pending.step, null);
       });
-    }, 7000);
-    
-  return () => {
-    if (resumeTimerRef.current) clearTimeout(resumeTimerRef.current);
-  };
-}, [isChatSpeaking, cameraEnabled, present, micStatus]);
+    }, delay);
+  
+    return () => {
+      if (resumeTimerRef.current) clearTimeout(resumeTimerRef.current);
+    };
+  }, [isChatSpeaking, isLoading, micStatus, cameraEnabled, present]);
   
   /* -------------------------------------------------------- early returns */
   // Loading / error states before rendering the presentation
@@ -1688,6 +2972,21 @@ export default function AIPresentation() {
     );
   }
 
+  if (!started) {
+    return (
+      <div className="h-screen w-screen flex flex-col items-center justify-center bg-gradient-to-br from-mist-50 to-mist-400 p-8">
+        <h1 className="text-4xl md:text-5xl font-bold text-black mb-4 text-center">{PRESENTATION.title}</h1>
+        <p className="text-xl text-blue-600 mb-10 text-center">{PRESENTATION.subtitle}</p>
+        <button
+          onClick={handleStart}
+          className="px-12 py-6 bg-gradient-to-r from-blue-500 to-cyan-500 hover:from-blue-600 hover:to-cyan-600 text-white text-2xl font-bold rounded-full shadow-2xl transition-all"
+        >
+          ▶ Start Lesson
+        </button>
+      </div>
+    );
+  }
+  /*
   if (!cameraChoiceMade) {
     return <CameraSelector onSelect={handleCameraSelect} />;
   }
@@ -1695,19 +2994,25 @@ export default function AIPresentation() {
   if (!selectedTemplate) {
     return <TemplateSelector onSelect={handleTemplateSelect} />;
   }   
+  */
 
   /* ------------------------------------------------------ derived values */
   const microSteps = getMicroSteps(currentSection, activeSection);
+  const askKey = `${activeSection}_${microStep}`;
+  const askUI: AskUI = {
+    micStatus,
+    waiting: askState?.key === askKey && !askState.revealed,
+    said: askState?.key === askKey ? askState.said : null,
+    revealed: askState?.key === askKey && askState.revealed,
+    onReveal: () => revealAnswer(activeSection, microStep),
+    onType: () => { cancelListening(); setShowChat(true); },
+  };
+  const isImageFocus = currentSection?.steps?.[microStep]?.type === 'imageFocus';
+  const currentAnimation = animations[`${activeSection}_${microStep}`];
+  const currentStepType = currentSection?.steps?.[microStep]?.type;
+  const hasVisual = !!currentAnimation || currentStepType === 'imageFocus';
 
-  const flowSteps = sections.flatMap((_, idx) => [
-    { type: 'section' as const, index: idx },
-    { type: 'quiz' as const, index: idx },
-  ]);
-
-  const currentFlowIndex = flowSteps.findIndex(
-    (step) => step.index === activeSection && step.type === (showQuiz ? 'quiz' : 'section')
-  );
-
+  
   /* ---------------------------------------------------------------- render */
   return (
     <div className="min-h-screen bg-gradient-to-br from-mist-400 via-mist-50 to-mist-400 flex flex-col">
@@ -1728,8 +3033,8 @@ export default function AIPresentation() {
               </p>
             </div>
           </div>
-          
-          {/* camera toggle */}
+
+          {/*
           <div className="flex flex-col items-center gap-2 h-20 mt-[5px]">
             <button
               onClick={() => setCameraEnabled((v) => !v)}
@@ -1743,70 +3048,81 @@ export default function AIPresentation() {
               </div>
             )}
           </div>
-          
-          <div className="flex items-center gap-3">
-            {/* Speaking Indicator */}
-            {isSpeaking && (
-              <div className="flex items-center gap-2 bg-cyan-500/20 px-4 py-2 rounded-full">
-                <div className="flex gap-1">
-                  {[...Array(3)].map((_, i) => (
-                    <div 
-                      key={i}
-                      className="w-1 h-4 bg-cyan-400 rounded-full animate-pulse"
-                      style={{ animationDelay: `${i * 0.15}s` }}
-                    />
-                  ))}
+          */}
+
+          {devMode && (
+            <div className="flex items-center gap-3">
+              
+              {isSpeaking && (
+                <div className="flex items-center gap-2 bg-cyan-500/20 px-4 py-2 rounded-full">
+                  <div className="flex gap-1">
+                    {[...Array(3)].map((_, i) => (
+                      <div 
+                        key={i}
+                        className="w-1 h-4 bg-cyan-400 rounded-full animate-pulse"
+                        style={{ animationDelay: `${i * 0.15}s` }}
+                      />
+                    ))}
+                  </div>
+                  <span className="text-blue-700 text-sm font-medium">
+                    {isPaused ? 'Paused' : 'Teaching...'}
+                  </span>
                 </div>
-                <span className="text-blue-700 text-sm font-medium">
-                  {isPaused ? 'Paused' : 'Teaching...'}
-                </span>
+              )}
+              
+              
+              <div className="flex items-center gap-2 bg-black/30 rounded-full px-4 py-2">
+                <button
+                  onClick={() => isSpeaking ? (isPaused ? resume() : pause()) : narrateSection(activeSection)}
+                  className="w-10 h-10 rounded-full bg-blue-600 hover:bg-blue-700 text-white flex items-center justify-center transition-colors shadow-lg"
+                  title={isSpeaking ? (isPaused ? 'Resume' : 'Pause') : 'Play Narration'}
+                >
+                  {isSpeaking && !isPaused ? '⏸️' : '▶️'}
+                </button>
+                <button
+                  onClick={stop}
+                  disabled={!isSpeaking}
+                  className="w-10 h-10 rounded-full bg-red-600 hover:bg-red-700 disabled:bg-gray-600 text-white flex items-center justify-center transition-colors shadow-lg"
+                  title="Stop"
+                >
+                  ⏹️
+                </button>
               </div>
-            )}
-            
-            {/* Voice Controls */}
-            <div className="flex items-center gap-2 bg-black/30 rounded-full px-4 py-2">
+  
+              
               <button
-                onClick={() => isSpeaking ? (isPaused ? resume() : pause()) : narrateSection(activeSection)}
-                className="w-10 h-10 rounded-full bg-blue-600 hover:bg-blue-700 text-white flex items-center justify-center transition-colors shadow-lg"
-                title={isSpeaking ? (isPaused ? 'Resume' : 'Pause') : 'Play Narration'}
+                onClick={() => setShowChat(!showChat)}
+                className={`px-4 py-2 rounded-full font-semibold transition-colors ${
+                  showChat 
+                    ? 'bg-cyan-500 text-white' 
+                    : 'bg-blue-600 hover:bg-blue-700 text-white'
+                }`}
               >
-                {isSpeaking && !isPaused ? '⏸️' : '▶️'}
+                💬 Ask AI
               </button>
+
               <button
-                onClick={stop}
-                disabled={!isSpeaking}
-                className="w-10 h-10 rounded-full bg-red-600 hover:bg-red-700 disabled:bg-gray-600 text-white flex items-center justify-center transition-colors shadow-lg"
-                title="Stop"
+                onClick={() => setVoiceInterruptionsEnabled((v) => !v)}
+                title="Lets you speak over the professor (needs a microphone)"
+                className={`px-4 py-2 rounded-full font-semibold transition-colors ${
+                  voiceInterruptionsEnabled
+                    ? 'bg-cyan-500 text-white'
+                    : 'bg-black/40 hover:bg-black/60 text-white'
+                }`}
               >
-                ⏹️
+                🎙 Interrupt {voiceInterruptionsEnabled ? 'on' : 'off'}
               </button>
             </div>
-            
-            {/* Chat Toggle */}
-            <button
-              onClick={() => setShowChat(!showChat)}
-              className={`px-4 py-2 rounded-full font-semibold transition-colors ${
-                showChat 
-                  ? 'bg-cyan-500 text-white' 
-                  : 'bg-blue-600 hover:bg-blue-700 text-white'
-              }`}
-            >
-              💬 Ask AI
-            </button>
-
-            {/* Voice interruption toggle (opt-in barge-in) */}
-            <button
-              onClick={() => setVoiceInterruptionsEnabled((v) => !v)}
-              title={micStatus !== 'idle' ? '' : 'Requires microphone — lets you speak over the professor'}
-              className={`px-4 py-2 rounded-full font-semibold transition-colors ${
-                voiceInterruptionsEnabled
-                  ? 'bg-cyan-500 text-white'
-                  : 'bg-black/40 hover:bg-black/60 text-white'
-              }`}
-            >
-              🎙 Interrupt
-            </button>
-          </div>
+          )}
+          <button
+            onClick={() => setDevMode((v) => !v)}
+            className={`w-10 h-10 rounded-full flex items-center justify-center ${
+              devMode ? 'bg-amber-500 text-white' : 'bg-slate-300 text-slate-700 hover:bg-slate-400'
+            }`}
+            title="Toggle navigation controls"
+          >
+            ⚙
+          </button>
         </div>
       </header>
 
@@ -1816,27 +3132,33 @@ export default function AIPresentation() {
           <ConclusionScreen 
             onRestart={handleRestart}
             sectionScores={sectionScores}
-            totalQuestions={sections.length * 2}
+            totalQuestions={sections.length * 1}
+            sections={sections}
+            currentKey={currentKey}
           />
         ) : (
         <div className="max-w-7xl w-full relative">
-          {/* Progress Bar */}
-          <div className="mb-8">
-            <div className="flex justify-between text-black text-sm mb-2">
-              <span>Section {activeSection + 1} of {sections.length}</span>
-              <span>{Math.round(((activeSection + 1) / sections.length) * 100)}%</span>
-            </div>
-            <div className="h-2 bg-blue-900/50 rounded-full overflow-hidden">
-              <div 
-                className="h-full bg-gradient-to-r from-blue-500 to-cyan-400 transition-all duration-500"
-                style={{ width: `${((activeSection + 1) / sections.length) * 100}%` }}
-              />
-            </div>
-          </div>
-
+        
           <Notice text={notice} />
-          
-          {showReview ? (
+          {/* Topic picker: nothing sets showHub any more (topics run in order), kept for later */}
+          {showHub ? (
+            <SectionHub
+              sections={sections}
+              completedQuizzes={completedQuizzes}
+              onSelect={handleHubSelect}
+              onFinish={handleFinishFromHub}
+            />
+          ) : showRemediation ? (
+            <RemediationSlide
+              text={currentSection.remediation ?? ''}
+              isActive={currentKey === `section${activeSection}_remediation`}
+              currentTime={currentTime}
+              duration={duration}
+              isSpeaking={isSpeaking}
+            />
+          ) : showSelfCheck ? (
+            <SelfCheckSlide onPick={handleSelfCheck} />
+          ) : showReview ? (
             <ReviewSlide
               missedQuestions={missedQuestions}
               section={currentSection}
@@ -1852,18 +3174,18 @@ export default function AIPresentation() {
                 const score = currentSection.quiz.length - missed.length;
                 setSectionScores((prev) => ({ ...prev, [activeSection]: score }));
                 setMissedQuestions(missed);
-                // signal: quiz outcome + rollup
+              
                 signals.track('quiz_submitted', {
                   section: activeSection,
                   value: { passed, wrong: missed.length, score },
                 });
-                signals.upsertState(activeSection, {
+                signals.record(activeSection, {
                   quiz_misses: missed.length,
-                  last_state: passed ? 'engaged' : 'confused',
+                  quiz_passed: passed,
                 });
+              
                 if (passed) {
-                  const key = `section${activeSection}_quizsuccess`;
-                  play(audioUrls[key], key, '');
+                  play(audioUrls['quizSuccess'], 'quizSuccess', '');
                 } else {
                   play(audioUrls['quizFail'], 'quizFail', '');
                 }
@@ -1887,7 +3209,16 @@ export default function AIPresentation() {
               showQuiz={showQuiz}
               handleQuizContinue={handleQuizContinue}
               playMicroStepAudio={playMicroStepAudio}
-              animationUrl={animationUrls[activeSection + 1]}
+              autoAdvanceFrom={autoAdvanceFrom}
+              audioUrls={audioUrls}
+              play={play}
+              devMode={devMode}
+              plain={plainKey === `${activeSection}_${microStep}`}
+              ask={askUI}
+              isImageFocus={isImageFocus}
+              animationUrl={currentAnimation}
+              hideVisual={!hasVisual}
+              showImage={currentStepType === 'imageFocus'}
             />
           ) : (
             <SplitLayout
@@ -1907,28 +3238,21 @@ export default function AIPresentation() {
               showQuiz={showQuiz}
               handleQuizContinue={handleQuizContinue}
               playMicroStepAudio={playMicroStepAudio}
-              animationUrl={animationUrls[activeSection + 1]}
+              autoAdvanceFrom={autoAdvanceFrom}
+              audioUrls={audioUrls}
+              play={play}
+              devMode={devMode}
+              plain={plainKey === `${activeSection}_${microStep}`}
+              ask={askUI}
+              isImageFocus={isImageFocus}
+              animationUrl={currentAnimation}
+              hideVisual={!hasVisual}
+              showImage={currentStepType === 'imageFocus'}
             />
           )}
           
             {/* Custom Keyframe Animations */}
             <style jsx>{`
-              @keyframes swim {
-                0% { transform: translateX(0); }
-                50% { transform: translateX(calc(100vw + 100%)); }
-                51% { transform: translateX(calc(100vw + 100%)) scaleX(-1); }
-                100% { transform: translateX(0) scaleX(-1); }
-              }
-              @keyframes swim2 {
-                0% { transform: translateX(0) scaleX(-1); }
-                50% { transform: translateX(calc(-100vw - 100%)) scaleX(-1); }
-                51% { transform: translateX(calc(-100vw - 100%)); }
-                100% { transform: translateX(0); }
-              }
-              @keyframes float {
-                0%, 100% { transform: translateY(0); }
-                50% { transform: translateY(-10px); }
-              }
               @keyframes slideInRight {
                 from { opacity: 0; transform: translateX(30px); }
                 to { opacity: 1; transform: translateX(0); }
@@ -1952,64 +3276,64 @@ export default function AIPresentation() {
             `}</style>
         
           {/* Navigation */}
-          <div className="flex justify-between items-center mt-8">
-            <button
-              onClick={prevSection}
-              disabled={activeSection === 0}
-              className="px-8 py-4 bg-black/50 hover:bg-black/80 disabled:opacity-30 disabled:cursor-not-allowed text-white font-semibold rounded-full transition-colors flex items-center gap-2"
-            >
-              ← Previous
-            </button>
-            
-            <div className="flex gap-2 flex-wrap justify-center max-w-md">
-              {flowSteps.map((step, i) => {
-                const isActive = i === currentFlowIndex;
-                const isQuizDone = step.type === 'quiz' ? completedQuizzes.has(step.index) : true;
-
-                let dotClasses = 'transition-colors ';
-
-                if (step.type === 'section') {
-                  dotClasses += `w-3 h-3 rounded-full ${isActive ? 'bg-cyan-500' : 'bg-blue-600 hover:bg-blue-400'}`;
-                } else {
-                  dotClasses += `w-3 h-3 rotate-45 ${
-                    !isQuizDone
-                      ? 'bg-black/30 hover:bg-black/60'
-                      : isActive
-                      ? 'bg-cyan-500'
-                      : 'bg-green-500 hover:bg-green-400'
-                  }`;
-                }
-                
-                return (
-                  <button
-                    key={i}
-                    title={step.type === 'quiz' ? `Quiz ${step.index + 1}` : `Section ${step.index + 1}`}
-                    onClick={() => {
-                      stop();
-                      setActiveSection(step.index);
-                      if (step.type === 'quiz') {
-                        setShowQuiz(true);
-                      } else {
-                        setShowQuiz(false);
-                        setTimeout(() => narrateSection(step.index), 300);
-                      }
-                    }}
-                    className={dotClasses}
-                  />
-                );
-              })}
+          {!showHub && !showConclusion && (
+            <div className={`flex justify-center mt-8 transition-opacity duration-300 ${
+              showQuiz || showReview || showSelfCheck || showRemediation ? 'opacity-0 pointer-events-none' : 'opacity-100'
+            }`}>
+{/* Topic picker switched off — topics run in order.
+              <button
+                onClick={() => {
+                  resetForJump();   // also cancels a pending "pick up where we left off"
+                  setShowHub(true);
+                }}
+                className="px-8 py-4 bg-black/50 hover:bg-black/80 text-white font-semibold rounded-full transition-colors"
+              >
+                ← Back to topics
+              </button>
+              */}
+              
+              {devMode && (
+                <button
+                  onClick={() => {
+                    stop();
+                    signals.stepExit();
+                    setShowHub(false);
+                    setShowQuiz(false);
+                    setShowConclusion(true);
+                    setIsNarrating(true);
+                    playConclusion();
+                  }}
+                  className="px-4 py-2 bg-amber-500 hover:bg-amber-600 text-white text-sm rounded-full transition-colors"
+                >
+                  ⏭ Skip to summary
+                </button>
+              )}
             </div>
-
-            <button
-              onClick={nextSection}
-              className="px-8 py-4 bg-gradient-to-r from-blue-600 to-cyan-600 hover:from-blue-700 hover:to-cyan-700 text-white font-semibold rounded-full transition-colors flex items-center gap-2"
-            >
-              {activeSection < sections.length - 1 ? 'Next →' : 'Finish Lesson →'}
-            </button>
-          </div>
+          )}
         </div>
       )}
       </main>
+
+      {/* Prompt Chips — quick repeat / simplify / skip buttons.
+          Top level on purpose: the header's backdrop-blur would trap a fixed element,
+          and inside the devMode block kids would never see them. */}
+      {started && !inIntro && !showHub && !showQuiz && !showReview &&
+       !showSelfCheck && !showRemediation && !showConclusion && (
+        <PromptChips
+          onChip={(text, command) => {
+            if (command.kind === 'simplify') signals.track('confusion_click', { section: activeSection, step: microStep });
+            if (!runDeckCommand(command, text)) sendToTutor(text);
+          }}
+          disabled={isLoading}
+        />
+      )}
+
+      {/* Voice-interrupt meter: only when interruptions are switched on */}
+      {voiceInterruptionsEnabled && started && (
+        <div className="fixed left-6 bottom-60 z-50">
+          <MicMeter levelRef={micLevelRef} active={bargeInActive} status={micStatus} />
+        </div>
+      )}
 
       {/* AI Chat Panel */}
       {showChat && (
@@ -2101,27 +3425,25 @@ export default function AIPresentation() {
         </div>
       )}
 
-      {/* Variant slide swap — knowledge-base overlay (Phase B) */}
+      {/* Variant slide overlay */}
       {variantSlide && (
         <VariantSlideOverlay
           variant={variantSlide}
-          onDone={() => setVariantSlide(null)}
+          onDone={() => {
+            setVariantSlide(null);
+            stop();
+            const next = variantAfterRef.current;
+            variantAfterRef.current = null;
+            next?.();
+          }}
         />
       )}
-
+          
       {/* Source Attribution */}
       <footer className="text-center py-4 text-blue-700 text-sm">
-        <p>
-          Source: University of Maryland Extension - 
-          <a 
-            href="https://extension.umd.edu/resource/chesapeake-bay-blue-catfish-invasive-delicious-and-nutritious/" 
-            target="_blank" 
-            rel="noopener noreferrer"
-            className="underline hover:text-cyan-300"
-          >
-            Chesapeake Bay Blue Catfish Factsheet
-          </a>
-        </p>
+        <Link href="/sources" className="underline hover:text-cyan-600">
+          View sources
+        </Link>
       </footer>
     </div>
   );

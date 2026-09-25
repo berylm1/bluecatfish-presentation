@@ -1,23 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient, type SupabaseClient } from '@supabase/supabase-js';
-import { spawn } from 'child_process';
+import { createClient } from '@supabase/supabase-js';
+import { classifyIntent } from '@/lib/tutorIntent';
 
-// Lazy Supabase client so the module loads even before env is configured.
-// Without this, createClient(undefined, undefined) throws at import time and
-// every request to this route (and the middleware) 500s.
-let supabaseClient: SupabaseClient | null = null;
-function getSupabase(): SupabaseClient {
-  if (supabaseClient) return supabaseClient;
-  const url = process.env.SUPABASE_URL;
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!url || !key) {
-    throw new Error(
-      'Supabase env is not configured. Set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY.'
-    );
-  }
-  supabaseClient = createClient(url, key);
-  return supabaseClient;
-}
+const supabase = createClient(
+  process.env.SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_ROLE_KEY!
+);
 
 type ConversationMessage = {
   role: 'user' | 'assistant';
@@ -164,6 +152,9 @@ export async function POST(request: NextRequest) {
     const topic = body.topic as string | undefined;
     const style = body.style as string | undefined;
     const stream = body.stream === true;
+    // "Your turn" feedback already carries the model answer: skip the lookup (faster, and
+    // its "use the knowledge base word for word" instruction would fight the feedback prompt)
+    const useKnowledgeBase = body.useKnowledgeBase !== false;
 
     if (!userText) {
       return NextResponse.json({ error: 'Missing user text.' }, { status: 400 });
@@ -194,37 +185,89 @@ export async function POST(request: NextRequest) {
       `If student goes off-topic, redirect warmly: "Let's come back to ${topic || 'our topic'}, right where we left off..."` +
       `Style: ${style || 'warm, authoritative, and genuinely enthusiastic about the subject'}.`;
 
-    // RAG: embed the student's text and retrieve the top factsheet chunks from Supabase pgvector.
-    const queryEmbedding = await getEmbedding(userText);
+    // Deterministic intent → deck-control decision (read by the client from X-Tutor-Decision)
+    const intent = classifyIntent(userText);
 
-    const { data: docs, error } = await getSupabase().rpc('match_documents3', {
+    const intentLine = intent.action !== 'none'
+      ? `\nThe student's message signals: ${intent.action}. Acknowledge their state first (e.g. "No problem, let's look at that again" / "Let me put that more simply" / "Of course, moving ahead"), then respond.`
+      : '';
+    
+    // A failed knowledge-base lookup shouldn't kill the answer — reply without it
+    let docs: any[] | null = null;
+    if (useKnowledgeBase) try {
+      const queryEmbedding = await getEmbedding(userText);
+      const { data, error } = await supabase.rpc('match_documents3', {
         query_embedding: queryEmbedding,
         match_count: 4,
-      }
-    );
-
-    if (error) {
-      console.error('Supabase RPC error:', error);
+      });
+      if (error) console.error('Supabase RPC error:', error);
+      docs = data;
+    } catch (e) {
+      console.error('Knowledge-base lookup failed:', e);
     }
 
     const context = docs
       ? docs.map((doc: any) => doc.content).join('\n\n')
       : '';
+    
+    const messages = [
+      {
+        role: 'system',
+        content: !useKnowledgeBase ? effectiveSystemPrompt : effectiveSystemPrompt + intentLine + ` 
+
+      You MUST follow the knowledge base below.
+      If the knowledge base contains an answer, you MUST use it exactly and do not modify it.
+      Do NOT rephrase.
+      If multiple answers exist, choose the most relevant one.
+    ${context}
+    `,
+      },
+      // Keep last 10 turns max to avoid context bloat
+      ...conversation.slice(-10).map((message) => ({
+        role: message.role,
+        content: message.content,
+      })),
+      {
+        role: 'user',
+        content: userText,
+      },
+    ];
+    
+    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
+      },
+      body: JSON.stringify({
+        model: 'gpt-4o-mini',
+        messages,
+        temperature: 0.7,
+        max_tokens: 160,
+        stream,
+      }),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      return NextResponse.json(
+        { error: 'OpenAI request failed.', details: errorText },
+        { status: response.status }
+      );
+    }
+
+    // Non-streaming path — unchanged, so existing callers keep working
+    if (!stream) {
+      const data = await response.json();
+      const reply = data?.choices?.[0]?.message?.content?.trim();
 
     const conversationLines = conversation
       .slice(-10)
       .map((m) => `${m.role === 'user' ? 'Student' : 'Professor'}: ${m.content}`)
       .join('\n');
 
-    const prompt =
-      `${effectiveSystemPrompt}\n\n` +
-      `Relevant facts retrieved from the knowledge base (ground your answer in these; do not contradict them):\n${context || '(none retrieved)'}\n\n` +
-      (conversationLines ? `Conversation so far:\n${conversationLines}\n\n` : '') +
-      `Student now says: ${userText}\n\n` +
-      (intent.action !== 'none'
-        ? `The student's message signals: ${intent.action}. Acknowledge their state first (e.g. "No problem, let's look at that again" / "Let me put that more simply" / "Of course, moving ahead"), then respond.\n\n`
-        : '') +
-      `Respond as Professor Marine, in 2-3 natural spoken sentences, no formatting.`;
+    return NextResponse.json({ reply, decision: { action: intent.action } }, { headers: { 'X-Tutor-Decision': intent.action } });
+  }
 
     const reply = await runOpenClawBluecatfish(prompt);
 

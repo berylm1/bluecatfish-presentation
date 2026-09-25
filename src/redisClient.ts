@@ -17,12 +17,14 @@ async function ensureConnected(): Promise<void> {
 // Function to set a key-value pair in Redis
 export const setValue = async (key: string, value: string): Promise<void> => {
   await ensureConnected();
+  if (!redisClient.isOpen) return;          // Redis unreachable: skip caching instead of crashing
   await redisClient.set(key, value);
 };
 
 // Function to retrieve a value by key from Redis
 export const getValue = async (key: string): Promise<string | null> => {
   await ensureConnected();
+  if (!redisClient.isOpen) return null;     // Redis unreachable: behave like a cache miss
   return redisClient.get(key);
 };
 

@@ -1,23 +1,21 @@
 'use client';
 
+import { CACHE_VERSION } from '@/src/cacheVersion';
+import {
+  deriveMood, EMPTY_COUNTERS,
+  type SectionCounters, type SectionState, type SelfCheckRating,
+} from '@/lib/learnerState';
+
 /**
  * Learner signal tracking — Phase A of the adaptive loop.
- *
- * Every meaningful interaction becomes a row in Supabase `events`, and the
- * per-session/section rollup in `learner_state` is kept in step. The tutor's
- * decision layer (X-Tutor-Decision) and the future instructor endpoint read
- * this same state, closing the loop: sense -> model -> plan -> act -> measure.
- *
- * Design notes:
- * - session_id: generated once per tab; anonymous during the pilot.
- * - Fire-and-forget: tracking failures never break the lesson (console.warn).
- * - Batched flush keeps the network quiet; unloads flush synchronously.
+ * Every meaningful interaction becomes a row in Supabase `events`,
+ * and the per-session/section rollup in `learner_state` is kept in step.
+ * Fire-and-forget: tracking failures never break the lesson.
  */
 
 const SUPA_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const SUPA_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
 const EVENTS_URL = `${SUPA_URL}/rest/v1/events`;
-const STATE_URL = `${SUPA_URL}/rest/v1/learner_state`;
 
 export type EventType =
   | 'section_start' | 'step_start' | 'step_complete'
@@ -25,7 +23,14 @@ export type EventType =
   | 'quiz_submitted' | 'quiz_wrong' | 'quiz_passed'
   | 'tutor_question' | 'tutor_decision' | 'barge_in' | 'hand_raise'
   | 'presence_away' | 'presence_back'
-  | 'dwell' | 'lesson_complete';
+  | 'dwell' | 'lesson_complete' | 'self_check'
+  | 'deck_command';   // must match the SQL list (migration 003)
+
+type CountKey = Exclude<keyof SectionCounters, 'quiz_passed' | 'self_check'>;
+export type StatePatch = Partial<Record<CountKey, number>> & {
+  quiz_passed?: boolean;
+  self_check?: SelfCheckRating;
+};
 
 interface QueuedEvent {
   session_id: string;
@@ -43,20 +48,25 @@ class SignalTracker {
   private queue: QueuedEvent[] = [];
   private timer: ReturnType<typeof setTimeout> | null = null;
   private stepEnteredAt: Map<string, number> = new Map();
+  private states: Map<number, SectionState> = new Map();
+  private seq = 0;
 
   constructor() {
     this.sessionId = this.getOrCreateSessionId();
   }
 
+  // Fresh ID every time — no localStorage, so kiosk visitors don't share one session.
   private getOrCreateSessionId(): string {
-    if (typeof window === 'undefined') return 'ssr';
-    const KEY = 'bc_session_id';
-    let id = localStorage.getItem(KEY);
-    if (!id) {
-      id = `s_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 9)}`;
-      localStorage.setItem(KEY, id);
-    }
-    return id;
+    return `s_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 9)}`;
+  }
+
+  /** Start a new session — call on Start Lesson and Restart. */
+  newSession(): void {
+    this.flush();
+    this.stepEnteredAt.clear();
+    this.states.clear();
+    this.seq = 0;
+    this.sessionId = this.getOrCreateSessionId();
   }
 
   /** Record an event. Safe to call anywhere; flushes in small batches. */
@@ -70,42 +80,64 @@ class SignalTracker {
       section: opts.section,
       step: opts.step,
       event_type,
-      value: opts.value ?? {},
+      value: { v: CACHE_VERSION, ...(opts.value ?? {}) },   // tag with lesson version
       dwell_ms: opts.dwell_ms,
       created_at: new Date().toISOString(),
     });
     this.scheduleFlush();
   }
 
-  /** Dwell bookkeeping: call on step enter / step exit. */
+  /** Dwell bookkeeping: call on step enter. Logs step_start itself. */
   stepEnter(section: number, step: number): void {
     this.stepEnteredAt.set(`${section}:${step}`, Date.now());
     this.track('step_start', { section, step });
   }
 
-  /** Emits a dwell event for the step we just left (if we were on one). */
+  /** Emits a dwell event for the step we just left (if any). */
   stepExit(): void {
     const lastKey = [...this.stepEnteredAt.keys()].pop();
     if (!lastKey) return;
     const enteredAt = this.stepEnteredAt.get(lastKey) ?? 0;
     this.stepEnteredAt.delete(lastKey);
-    if (!lastKey.includes(':')) return;
     const [section, step] = lastKey.split(':').map(Number);
-    this.track('dwell', { section, step, dwell_ms: Date.now() - enteredAt });
+    const dwell = Date.now() - enteredAt;
+    this.track('dwell', { section, step, dwell_ms: dwell });
+    this.record(section, { dwell_ms_total: dwell });
   }
 
-  /** Upsert the per-section rollup (best effort; service-role call via API). */
-  async upsertState(section: number, patch: {
-    repeats?: number; quiz_misses?: number; confusion_marks?: number;
-    dwell_ms_total?: number; last_state?: string;
-  }): Promise<void> {
-    try {
-      await fetch('/api/signals/state', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ session_id: this.sessionId, section, ...patch }),
-      });
-    } catch { /* tracking never blocks the lesson */ }
+  /** This session's rollup for a section — read locally, no network. */
+  getState(section: number): SectionState {
+    return this.states.get(section) ?? { ...EMPTY_COUNTERS, last_state: 'neutral' };
+  }
+
+  /**
+   * Add to the per-section rollup. Counts are increments; quiz_passed and
+   * self_check overwrite. Returns the new state so callers can adapt at once.
+   * The full row is then sent to the server (best effort, ordered by seq).
+   */
+  record(section: number, patch: StatePatch): SectionState {
+    const prev = this.getState(section);
+    const next: SectionState = { ...prev };
+    for (const [key, v] of Object.entries(patch)) {
+      if (key === 'quiz_passed') next.quiz_passed = v as boolean;
+      else if (key === 'self_check') next.self_check = v as SelfCheckRating;
+      else if (typeof v === 'number') (next[key as CountKey] as number) += v;
+    }
+    next.last_state = deriveMood(next);
+    this.states.set(section, next);
+    this.sendState(section, next);
+    return next;
+  }
+
+  private sendState(section: number, state: SectionState): void {
+    if (typeof window === 'undefined') return;
+    const { last_state: _derivedOnServer, ...counters } = state;
+    fetch('/api/signals/state', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ session_id: this.sessionId, section, seq: ++this.seq, ...counters }),
+      keepalive: true,
+    }).catch(() => { /* tracking never blocks the lesson */ });
   }
 
   private scheduleFlush(): void {
@@ -115,9 +147,11 @@ class SignalTracker {
   }
 
   private flush(): void {
+    // reset the timer so the next event can schedule a new one
+    if (this.timer) { clearTimeout(this.timer); this.timer = null; }
     if (this.queue.length === 0) return;
     const batch = this.queue.splice(0, this.queue.length);
-    fetch(`${EVENTS_URL}`, {
+    fetch(EVENTS_URL, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -137,8 +171,5 @@ class SignalTracker {
     return () => window.removeEventListener('pagehide', onHide);
   }
 }
-
-function enteredKeyValid(k: string) { return k.includes(':'); }
-void enteredKeyValid;
 
 export const signals = new SignalTracker();

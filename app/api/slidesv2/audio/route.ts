@@ -1,5 +1,8 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { AUDIO_FOLDER } from "@/src/cacheVersion";
+import { COMMAND_ACK_TEXT } from "@/lib/deckCommands";
+import { TTS_VOICE, VOICE_INSTRUCTIONS, SIMPLE_VOICE_INSTRUCTIONS } from "@/lib/voice";
 
 const supabase = createClient(
   process.env.SUPABASE_URL!,
@@ -10,18 +13,13 @@ const supabase = createClient(
  * CONFIG
  * ========================================================================== */
 const BUCKET = "slide-audio";
-const FOLDER = "sections_v20";
-
+const FOLDER = AUDIO_FOLDER;
 // How many TTS calls to run at once. Higher = faster, but risks rate limits.
 const BATCH_SIZE = 8;
 
 /* ============================================================================
  * STATIC SCRIPT TEXT
  * ========================================================================== */
-const LAYOUT_DESCRIPTIONS = {
-  classic: "As we go through the lesson, you'll see the image on your left and the content on your right.",
-  split: "As we go through the lesson, you'll see the content on your left and the image on your right.",
-};
 
 // Played before a "simple explanation" step
 const IMBETWEEN_PHRASES = [
@@ -37,16 +35,22 @@ const TRANSITION_PHRASES = [
   "Here's a way to picture it...",
 ];
 
+const CONCLUSION_INTRO_TEXT = "Let's take a moment to look back at everything we covered today.";
+const CONCLUSION_OUTRO_TEXT = "And that's the whole story. Thanks for joining me — remember, sometimes the solution to an ecological problem can be found on our dinner plates.";
+
 // Played between individual key terms
-const ORDINAL_LINES = ["First.", "Next.", "Then.", "Finally."];
+// const ORDINAL_LINES = ["First.", "Next.", "Then.", "Finally."];
 
-const KEYTERM_INTRO_TEXT = "Let's go over some key terms.";
+//const KEYTERM_INTRO_TEXT = "Let's go over some key terms.";
 
-const WRAP_UP_TEXT = "When you're ready, answer the quiz to head to the next section.";
+const WRAP_UP_TEXT = "How did that section go?";
 
 const FAIL_TEXT = "It seems you didn't answer everything correctly. Let's head to review to cement what you know.";
 
-const REVIEW_INTRO_ONE_TEXT = "Almost perfect. Let's look at the one you missed.";
+// const QUIZ_SUCCESS_TEXT = "Nice work. Pick another topic whenever you're ready.";   // (topic picker is off)
+const QUIZ_SUCCESS_TEXT = "Nice work! On to the next one.";
+
+const REVIEW_INTRO_ONE_TEXT = "That one wasn't quite right. Let's review it.";
 const REVIEW_INTRO_SOME_TEXT = "Let's go back over the ones you missed.";
 const REVIEW_OUTRO_TEXT = "That's the review. Ready to keep going?";
 
@@ -54,6 +58,9 @@ const presence_away = "Take your time. I'll wait."
 const presence_back = "Alright, picking up where we left off."
 
 const HAND_RAISE_TEXT = "Do you have a question?";
+
+// Overview "One fun fact is..." clips: off, the numbers are ordinary bullets now
+const FACT_CLIPS_ENABLED = false;
 /* ============================================================================
  * HELPERS
  * ========================================================================== */
@@ -61,6 +68,7 @@ type AudioJob = {
   key: string;      // the key used in audioUrls, e.g. "section0_overview"
   text: string;     // what gets spoken
   fileName: string; // full path within the bucket
+  instructions?: string; // TTS delivery; defaults to the lesson voice
 };
 
 function slugify(text: string): string {
@@ -69,6 +77,15 @@ function slugify(text: string): string {
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/(^-|-$)/g, '')
     .slice(0, 40);
+}
+
+function cleanForTTS(text: string): string {
+  return text
+    .trim()
+    .replace(/\.{2,}/g, '.')      // "This means..." → "This means."
+    .replace(/\s+/g, ' ')          // collapse whitespace/newlines
+    .replace(/\s+([.,!?])/g, '$1') // remove space before punctuation
+    .replace(/([.,!?])\1+/g, '$1'); // collapse doubled punctuation
 }
 
 function publicUrl(fileName: string): string {
@@ -91,7 +108,7 @@ async function listExistingFiles(): Promise<Set<string>> {
   return new Set((data ?? []).map((f) => f.name));
 }
 
-async function generateAndUpload(text: string, fileName: string): Promise<string> {
+async function generateAndUpload(text: string, fileName: string, instructions = VOICE_INSTRUCTIONS): Promise<string> {
   const ttsResponse = await fetch("https://api.openai.com/v1/audio/speech", {
     method: "POST",
     headers: {
@@ -100,8 +117,9 @@ async function generateAndUpload(text: string, fileName: string): Promise<string
     },
     body: JSON.stringify({
       model: "gpt-4o-mini-tts",
-      voice: "alloy",
-      input: text,
+      voice: TTS_VOICE,
+      instructions,
+      input: cleanForTTS(text),
     }),
   });
 
@@ -151,7 +169,7 @@ async function runJobs(
     const results = await Promise.all(
       batch.map(async (job) => {
         try {
-          return { key: job.key, url: await generateAndUpload(job.text, job.fileName) };
+          return { key: job.key, url: await generateAndUpload(job.text, job.fileName, job.instructions) };
         } catch (e) {
           console.error(`Failed to generate "${job.key}":`, e);
           return null;
@@ -165,7 +183,6 @@ async function runJobs(
  
   return audioUrls;
 }
-
 /* ============================================================================
  * JOB BUILDERS
  * ========================================================================== */
@@ -173,15 +190,13 @@ async function runJobs(
 /** Clips that never change — generated once and reused across every lesson. */
 function buildSharedJobs(): AudioJob[] {
   const jobs: AudioJob[] = [];
- 
-  for (const [template, text] of Object.entries(LAYOUT_DESCRIPTIONS)) {
-    jobs.push({
-      key: `layout_${template}`,
-      text,
-      fileName: `${FOLDER}/layout-${template}.mp3`,
-    });
-  }
- 
+
+  jobs.push({ key: "conclusion_intro", text: CONCLUSION_INTRO_TEXT, fileName: `${FOLDER}/conclusion-intro.mp3` });
+  jobs.push({ key: "conclusion_outro", text: CONCLUSION_OUTRO_TEXT, fileName: `${FOLDER}/conclusion-outro.mp3` });
+  
+  // new file names: the wording changed when topics started running in order
+  jobs.push({ key: "quizSuccess", text: QUIZ_SUCCESS_TEXT, fileName: `${FOLDER}/quiz-success-inorder.mp3` });
+  
   IMBETWEEN_PHRASES.forEach((text, t) =>
     jobs.push({ key: `imbetween${t}`, text, fileName: `${FOLDER}/imbetween-${t}.mp3` })
   );
@@ -190,15 +205,15 @@ function buildSharedJobs(): AudioJob[] {
     jobs.push({ key: `transition${t}`, text, fileName: `${FOLDER}/transition-${t}.mp3` })
   );
  
-  ORDINAL_LINES.forEach((text, t) =>
-    jobs.push({ key: `ordinal${t}`, text, fileName: `${FOLDER}/ordinal${t}.mp3` })
-  );
+  //ORDINAL_LINES.forEach((text, t) =>
+    //jobs.push({ key: `ordinal${t}`, text, fileName: `${FOLDER}/ordinal${t}.mp3` })
+  //);
  
-  jobs.push({
-    key: "keytermIntro",
-    text: KEYTERM_INTRO_TEXT,
-    fileName: `${FOLDER}/keyterm_intro.mp3`,
-  });
+  //jobs.push({
+    //key: "keytermIntro",
+    //text: KEYTERM_INTRO_TEXT,
+    //fileName: `${FOLDER}/keyterm_intro.mp3`,
+  //});
  
   jobs.push({ key: "wrapup", text: WRAP_UP_TEXT, fileName: `${FOLDER}/wrapup.mp3` });
   jobs.push({ key: "quizFail", text: FAIL_TEXT, fileName: `${FOLDER}/quiz-fail.mp3` });
@@ -234,6 +249,11 @@ function buildSharedJobs(): AudioJob[] {
     text: HAND_RAISE_TEXT, 
     fileName: `${FOLDER}/hand-raise-cue.mp3` 
   });
+
+  // Deck-command acknowledgements ("Skipping ahead.") — see lib/deckCommands.ts
+  for (const [key, text] of Object.entries(COMMAND_ACK_TEXT)) {
+    jobs.push({ key, text, fileName: `${FOLDER}/${key.replace('_', '-')}.mp3` });
+  }
   
   return jobs;
 }
@@ -242,7 +262,6 @@ function buildSharedJobs(): AudioJob[] {
 function buildFramingJobs(
   sections: any[],
   intro?: string,
-  conclusion?: string
 ): AudioJob[] {
   const jobs: AudioJob[] = [];
  
@@ -251,18 +270,9 @@ function buildFramingJobs(
     jobs.push({
       key: "intro",
       text: intro,
-      fileName: `${FOLDER}/intro-${firstTopicSlug}.mp3`,
+      fileName: `${FOLDER}/intro-inorder-${firstTopicSlug}.mp3`,
     });
   }
- 
-  if (conclusion) {
-    jobs.push({
-      key: "conclusion",
-      text: conclusion,
-      fileName: `${FOLDER}/conclusion.mp3`,
-    });
-  }
- 
   return jobs;
 }
 
@@ -273,20 +283,97 @@ function buildSectionJobs(sections: any[]): AudioJob[] {
   for (let i = 0; i < sections.length; i++) {
     const section = sections[i];
 
-    const nextTitle = sections[i + 1]?.title;
-    const successText = nextTitle
-      ? `Great job! You're really learning about Blue Catfish. Let's head to the next section: ${nextTitle}.`
-      :  `Great job! You've completed all the sections. Let's wrap things up.`;
-    jobs.push({
-      key: `section${i}_quizsuccess`,
-      text: successText, 
-      fileName: `${FOLDER}/section${i + 1}_quizsuccess.mp3`
-    });
+    // "Go to <part>" landing in another topic names it: "Jumping to Why They're Invasive."
+    if (section.title) {
+      jobs.push({
+        key: `section${i}_goto`,
+        text: `Jumping to ${section.title}.`,
+        fileName: `${FOLDER}/section${i + 1}_goto-${slugify(section.title)}.mp3`,
+      });
+    }
 
+    if (section.recap) {
+      jobs.push({
+        key: `section${i}_recap`,
+        text: section.recap,
+        fileName: `${FOLDER}/section${i + 1}_recap.mp3`,
+      });
+    }
+
+    if (section.remediation) {
+      jobs.push({
+        key: `section${i}_remediation`,
+        text: section.remediation,
+        fileName: `${FOLDER}/section${i + 1}_remediation.mp3`,
+      });
+    }
+    
     for (let s = 0; s < section.steps.length; s++) {
       const step = section.steps[s];
 
-      if (step.type === 'keyTerms') {
+      // "Simpler please": the same step in plain words, in a calmer voice
+      if (typeof step.simple === 'string' && step.simple.trim()) {
+        jobs.push({
+          key: `section${i}_step${s}_simple`,
+          text: step.type === 'checkYourself' ? `True or false: ${step.simple}` : step.simple,
+          fileName: `${FOLDER}/section${i + 1}_step${s}_simple.mp3`,
+          instructions: SIMPLE_VOICE_INSTRUCTIONS,
+        });
+      }
+
+      if (step.type === 'numberSpotlight') {
+        jobs.push({
+          key: `section${i}_step${s}_value`,
+          text: `${step.value}. ${step.label}.`,
+          fileName: `${FOLDER}/section${i + 1}_step${s}_value.mp3`,
+        });
+        jobs.push({
+          key: `section${i}_step${s}`,
+          text: step.narration ?? step.context,   // spoken explanation; "context" is the on-screen line
+          fileName: `${FOLDER}/section${i + 1}_step${s}.mp3`,
+        });
+      } else if (step.type === 'predictThen') {
+        jobs.push({
+          key: `section${i}_step${s}_question`,
+          text: step.question,
+          fileName: `${FOLDER}/section${i + 1}_step${s}_question.mp3`,
+        });
+        jobs.push({
+          key: `section${i}_step${s}_answer`,
+          text: `${step.answer}.`,
+          fileName: `${FOLDER}/section${i + 1}_step${s}_answer.mp3`,
+        });
+        /*
+        jobs.push({
+          key: `section${i}_step${s}_reveal`,
+          text: step.reveal,
+          fileName: `${FOLDER}/section${i + 1}_step${s}_reveal.mp3`,
+        });
+        */
+      } else if (step.type === 'askAloud') {
+        // "Your turn": the question, and the professor's answer (played if nobody answers)
+        jobs.push({
+          key: `section${i}_step${s}_question`,
+          text: step.question,
+          fileName: `${FOLDER}/section${i + 1}_step${s}_question.mp3`,
+        });
+        jobs.push({
+          key: `section${i}_step${s}_answer`,
+          text: step.answer,
+          fileName: `${FOLDER}/section${i + 1}_step${s}_answer.mp3`,
+        });
+      } else if (step.type === 'checkYourself') {
+        jobs.push({
+          key: `section${i}_step${s}_statement`,
+          text: `True or false: ${step.statement}`,
+          fileName: `${FOLDER}/section${i + 1}_step${s}_statement.mp3`,
+        });
+        jobs.push({
+          key: `section${i}_step${s}_feedback`,
+          text: step.feedback,
+          fileName: `${FOLDER}/section${i + 1}_step${s}_feedback.mp3`,
+        });
+      } else if (step.type === 'keyTerms') {
         step.terms.forEach((t: any, termIdx: number) => {
           jobs.push({
             key: `section${i}_keyterm${termIdx}`,
@@ -294,15 +381,17 @@ function buildSectionJobs(sections: any[]): AudioJob[] {
             fileName: `${FOLDER}/section${i + 1}_keyterm${termIdx}.mp3`,
           });
         });
-      } else if (step.text) {
+      } else if (step.narration || step.text) {
+        // The spoken script; the slide only shows short bullets
         jobs.push({
           key: `section${i}_step${s}`,
-          text: step.text,
+          text: step.narration ?? step.text,
           fileName: `${FOLDER}/section${i + 1}_step${s}.mp3`,
         });
-      }
+      } 
 
-      if (step.type === 'overview' && step.stats?.length) {
+      // "One fun fact is..." clips — off: numbers are ordinary bullets now (STATS_AS_BULLETS in the page)
+      if (FACT_CLIPS_ENABLED && step.type === 'overview' && step.stats?.length) {
         step.stats.forEach((stat: any, f: number) => {
           const lead = f === 0 ? 'One fun fact is' : 'Another fact is';
           jobs.push({
@@ -333,13 +422,13 @@ function buildSectionJobs(sections: any[]): AudioJob[] {
  * ========================================================================== */
 export async function POST(req: Request) {
   try {
-    const { sections, intro, conclusion } = await req.json();
+    const { sections, intro } = await req.json();
     if (!sections) throw new Error("Missing sections data");
     if (!process.env.OPENAI_API_KEY) throw new Error("Missing OpenAI API key");
 
     const jobs: AudioJob[] = [
       ...buildSharedJobs(),
-      ...buildFramingJobs(sections, intro, conclusion),
+      ...buildFramingJobs(sections, intro),
       ...buildSectionJobs(sections),
     ];
 
