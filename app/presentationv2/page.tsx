@@ -3374,6 +3374,8 @@ export default function AIPresentation() {
         <Link href="/sources" className="underline hover:text-cyan-600">
           View sources
         </Link>
+        <span className="mx-2 text-blue-400">·</span>
+        <span className="text-blue-500/70">Adaptive lecture v1.1 — listens, decides, swaps</span>
       </footer>
     </div>
   );
