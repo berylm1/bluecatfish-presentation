@@ -130,11 +130,32 @@ const useAudioPlayer = () => {
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  // Bumped by every play/stop, so a live-TTS clip that arrives late is dropped
+  const playSeqRef = useRef(0);
+  const liveClipsRef = useRef(new Map<string, string>());
 
   const play = useCallback((url: string | undefined, key: string, text: string = '', onComplete?: () => void, startAt: number = 0) => {
+    const seq = ++playSeqRef.current;
+
     if (!url) {
-      console.warn(`No audio URL found for "${key}"`);
-      if (onComplete) onComplete();
+      // No pre-made clip (e.g. Supabase storage upload failed): speak it live instead of skipping silently
+      const cached = liveClipsRef.current.get(key);
+      if (!text.trim() && !cached) {
+        console.warn(`No audio URL found for "${key}"`);
+        if (onComplete) onComplete();
+        return;
+      }
+      console.warn(`No audio URL found for "${key}", using live TTS`);
+      if (audioRef.current) audioRef.current.pause();
+      (cached ? Promise.resolve(cached) : ttsUrl(text)).then((live) => {
+        if (seq !== playSeqRef.current) return;   // something else played or stopped meanwhile
+        if (!live) {
+          if (onComplete) onComplete();
+          return;
+        }
+        liveClipsRef.current.set(key, live);
+        play(live, key, text, onComplete, startAt);
+      });
       return;
     }
 
@@ -197,6 +218,7 @@ const useAudioPlayer = () => {
   }, [isPaused]);
 
   const stop = useCallback(() => {
+    playSeqRef.current++;
     if (audioRef.current) {
       audioRef.current.pause();
       audioRef.current.currentTime = 0;
