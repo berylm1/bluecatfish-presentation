@@ -98,17 +98,6 @@ const STEP_LABELS: Record<Step['type'], string> = {
   checkYourself: 'Quick Check',   // true/false steps: switched off in slide generation for now
 };
 
-// Pre-rendered Manim CE animations for each section topic, in section order.
-// These replace the static section photo in the slide's image stage.
-const SECTION_ANIMATIONS: Record<number, string> = {
-  1: '/animations/topic1-t1_whatarebluecatfish.mp4',
-  2: '/animations/topic2-t2_whyinvasive.mp4',
-  3: '/animations/topic3-t3_impact.mp4',
-  4: '/animations/topic4-t4_mitigation.mp4',
-  5: '/animations/topic5-t5_nutrition.mp4',
-  6: '/animations/topic6-t6_howyoucanhelp.mp4',
-};
-
 /* ============================================================================
  * MICRO-STEP CONFIG
  * ========================================================================== */
@@ -231,8 +220,8 @@ const useAudioPlayer = () => {
   };
 };
 
-const useAIChat = (currentSection: SectionWithBreakdown | undefined,
-                   missedQuestions: { question: string; options: string[]; correctAnswer: number; explanation: string }[],
+const useAIChat = (currentSection: SectionWithBreakdown | undefined, 
+                   missedQuestions: { question: string; options: string[]; correctAnswer: number; explanation: string }[], 
                    onSentence?: (sentence: string) => void,
                    beginStream?: () => void,
                    endStream?: () => void,
@@ -298,10 +287,6 @@ const useAIChat = (currentSection: SectionWithBreakdown | undefined,
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
       beginStream?.();
-
-      // Decision rides the response header — available before body streaming.
-      const decisionAction = response.headers.get('X-Tutor-Decision');
-      if (decisionAction && decisionAction !== 'none' && onDecision) onDecision(decisionAction);
 
       let full = '';        // everything received so far
       let pending = '';     // text not yet sent to TTS
@@ -1841,38 +1826,6 @@ function ReviewSlide({
 }
 
 /* ============================================================================
- * VARIANT SLIDE OVERLAY — the knowledge-base swap (Phase B)
- * Shows a reviewed alternate slide when the learner signals difficulty,
- * narrates it, then closes and returns to the main sequence.
- * ========================================================================== */
-function VariantSlideOverlay({
-  variant,
-  onDone,
-}: {
-  variant: { title: string; body: string; narration: string; audio_url: string | null } | null;
-  onDone: () => void;
-}) {
-  if (!variant) return null;
-  return (
-    <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-6">
-      <div className="max-w-2xl w-full bg-gradient-to-br from-blue-900 to-slate-900 rounded-3xl border border-cyan-500/40 shadow-2xl p-10">
-        <div className="text-cyan-400 text-xs font-bold tracking-widest uppercase mb-3">
-          Professor Marine · a different way to see it
-        </div>
-        <h2 className="text-3xl font-bold text-white mb-5">{variant.title}</h2>
-        <p className="text-xl leading-relaxed text-blue-100 mb-8">{variant.body}</p>
-        <button
-          onClick={onDone}
-          className="px-6 py-3 bg-cyan-500 hover:bg-cyan-400 text-slate-900 rounded-xl font-semibold transition-colors"
-        >
-          Got it — back to the lesson →
-        </button>
-      </div>
-    </div>
-  );
-}
-
-/* ============================================================================
  * MAIN COMPONENT
  * ========================================================================== */
 export default function AIPresentation() {
@@ -1881,7 +1834,6 @@ export default function AIPresentation() {
   // Content loading
   const [sections, setSections] = useState<SectionWithBreakdown[]>([]);
   const [audioUrls, setAudioUrls] = useState<Record<string, string>>({});
-  const [animationUrls, setAnimationUrls] = useState<Record<number, string>>({});
   const [isContentLoading, setIsContentLoading] = useState(true);
   const [loadingPhase, setLoadingPhase] = useState<'content' | 'audio'>('content');
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -1933,10 +1885,6 @@ export default function AIPresentation() {
   const [notice, setNotice] = useState<string | null>(null);
   const noticeTimerRef = useRef<NodeJS.Timeout | null>(null);
   const prevPresentRef = useRef(true);
-  const [voiceInterruptionsEnabled, setVoiceInterruptionsEnabled] = useState(false);
-  const decisionRef = useRef<{ action: string } | null>(null);
-  const repeatCountsRef = useRef<Record<number, number>>({});
-  const [variantSlide, setVariantSlide] = useState<{ title: string; body: string; narration: string; audio_url: string | null } | null>(null);
   
   /* ---------------------------------------------------------- hook calls */
   const currentSection = sections[activeSection];
@@ -2821,24 +2769,6 @@ export default function AIPresentation() {
       if (keyTermsTimerRef.current) clearTimeout(keyTermsTimerRef.current);
     };
   }, [activeSection]);
-
-  // Signal: section transitions + lesson completion; flush pending on unload
-  useEffect(() => {
-    const offUnload = signals.installUnloadFlush();
-    return () => { offUnload(); signals.stepExit(); };
-  }, []);
-
-  useEffect(() => {
-    if (!presentationStarted || showConclusion) return;
-    signals.track('section_start', { section: activeSection, value: { title: currentSection?.title } });
-  }, [activeSection, presentationStarted]);
-
-  useEffect(() => {
-    if (showConclusion) {
-      signals.stepExit();
-      signals.track('lesson_complete', { value: { score: Object.values(sectionScores).reduce((a, b) => a + b, 0) } });
-    }
-  }, [showConclusion]);
   
   // Scroll to bottom of chat
   useEffect(() => {
