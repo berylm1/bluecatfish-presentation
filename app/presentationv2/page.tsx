@@ -7,7 +7,9 @@ import { useFacePresence } from "@/components/hooks/useFacePresence";
 import { useVoiceInput, type MicLevel } from '@/components/hooks/useVoiceInput';
 import { useSpeechQueue } from '@/components/hooks/useSpeechQueue';
 import { useHandRaise } from '@/components/hooks/useHandRaise';
+import { useEmotionWatcher, type LearnerEmotion } from '@/components/hooks/useEmotionWatcher';
 import { signals } from '@/lib/signals';
+import { interruptBus } from '@/lib/interruptBus';
 import { describeForTutor } from '@/lib/learnerState';
 import {
   parseDeckCommand, findInPresentation, buildSlideDocs, COMMAND_ACK_TEXT,
@@ -157,19 +159,32 @@ const useAudioPlayer = () => {
     
     audio.ontimeupdate = () => setCurrentTime(audio.currentTime);
     audio.onloadedmetadata = () => setDuration(audio.duration);
-    
-    audio.onended = () => {
+
+    // Sentence-boundary interruption: while a learner interruption is held,
+    // the current clip finishes (ducked by the page) and instead of advancing
+    // we release the bus so the page attends to the learner.
+    const endOfClip = () => {
       setIsSpeaking(false);
       setIsPaused(false);
       setCurrentKey(null);
+      if (interruptBus.isHeld()) {
+        interruptBus.release();
+        return;
+      }
       if (onComplete) onComplete();
     };
+
+    audio.onended = endOfClip;
 
     audio.onerror = () => {
       console.warn(`Audio playback failed for "${key}"`);
       setIsSpeaking(false);
       setIsPaused(false);
       setCurrentKey(null);
+      if (interruptBus.isHeld()) {
+        interruptBus.release();
+        return;
+      }
       if (onComplete) onComplete();
     };
 
@@ -178,6 +193,11 @@ const useAudioPlayer = () => {
       setIsSpeaking(false);
       if (onComplete) onComplete();
     });
+  }, []);
+
+  /** Duck/restore the narration while a learner interruption settles. */
+  const setVolume = useCallback((v: number) => {
+    if (audioRef.current) audioRef.current.volume = v;
   }, []);
 
   const pause = useCallback(() => {
@@ -206,14 +226,15 @@ const useAudioPlayer = () => {
     setCurrentKey(null);
   }, []);
 
-  return { 
-    play, 
-    pause, 
-    resume, 
-    stop, 
-    isSpeaking, 
-    isPaused, 
-    currentKey, 
+  return {
+    play,
+    pause,
+    resume,
+    stop,
+    setVolume,
+    isSpeaking,
+    isPaused,
+    currentKey,
     currentText, 
     currentTime, 
     duration, 
@@ -1889,7 +1910,7 @@ export default function AIPresentation() {
   /* ---------------------------------------------------------- hook calls */
   const currentSection = sections[activeSection];
 
-  const { play, pause, resume, stop, isSpeaking, isPaused, currentKey, currentText, currentTime, duration } = useAudioPlayer();
+  const { play, pause, resume, stop, setVolume, isSpeaking, isPaused, currentKey, currentText, currentTime, duration } = useAudioPlayer();
 
   const { enqueue, stopSpeaking, isSpeaking: isChatSpeaking, beginStream, endStream } = useSpeechQueue();
   
@@ -1930,15 +1951,79 @@ export default function AIPresentation() {
         signals.track('barge_in', { section: activeSection, step: microStep });
         signals.record(activeSection, { barge_ins: 1 });
       }
+      // Sentence-boundary interruption: don't cut the professor mid-word.
+      // Duck the narration and hold; the current sentence finishes, then the
+      // bus releases and the deck attends to the learner (see play()'s gate).
+      if (isSpeaking || isChatSpeaking) {
+        interruptBus.hold();
+        setVolume(0.25);
+        return;
+      }
       stop();
       stopSpeaking();
     },
     bargeInActive,
     voiceInterruptionsEnabled && started,   // keep the mic open for the whole lesson
   );
-  
+
 
   const { present, error } = useFacePresence(cameraEnabled);
+
+  // Sentence-boundary release: the ducked clip finished — now attend to the
+  // learner (mic is already open from the barge-in; just clean up audio).
+  useEffect(() => {
+    interruptBus.onRelease(() => {
+      setVolume(1);
+      stop();
+      stopSpeaking();
+    });
+  }, [setVolume, stop, stopSpeaking]);
+
+  /* ------------------------------------------ emotion-triggered check-in */
+  // The instructor notices, uninvited: sustained confusion/boredom on camera
+  // → the professor asks the learner directly instead of waiting.
+  const emotionAskRef = useRef<{ state: LearnerEmotion; section: number; step: number } | null>(null);
+  const emotionTimerRef = useRef<NodeJS.Timeout | null>(null);
+
+  const handleEmotionState = useCallback((state: LearnerEmotion) => {
+    if (inConversation || showQuiz || showReview || showSelfCheck || showRemediation || showConclusion || variantSlide) return;
+    if (!started) return;
+    signals.track('emotion_state', { section: activeSection, step: microStep, value: { state } });
+    signals.record(activeSection, state === 'confused' ? { confusion_marks: 1 } : {});
+    setLastEmotion(state);
+
+    const spoken = state === 'confused'
+      ? "You look puzzled. Want me to go over that a different way? Say yes, or tell me exactly what's tripping you up."
+      : "You've gone quiet on me. Should I pick up the pace, or is something else on your mind?";
+
+    // Stop the current narration politely (sentence-boundary via the bus) and ask.
+    interruptBus.hold();
+    setVolume(0.4);
+    emotionAskRef.current = { state, section: activeSection, step: microStep };
+
+    ttsUrl(spoken).then((u) => {
+      play(u ?? '', `emotion_${state}`, spoken, () => {
+        setVolume(1);
+        // Wait for a spoken answer; silence → carry on with the lesson.
+        if (micStatus === 'idle') {
+          listen({
+            noSpeechMs: 9000,
+            onNoSpeech: () => {
+              emotionAskRef.current = null;
+              setVolume(1);
+              autoAdvanceFrom(activeSection, microStep);
+            },
+          });
+        }
+      });
+    });
+  }, [inConversation, showQuiz, showReview, showSelfCheck, showRemediation, showConclusion, variantSlide, started, activeSection, microStep, micStatus]);
+
+  const { ready: emotionReady, error: emotionError } = useEmotionWatcher(
+    cameraEnabled && voiceInterruptionsEnabled && started && !inConversation,
+    handleEmotionState
+  );
+  const [lastEmotion, setLastEmotion] = useState<LearnerEmotion | null>(null);
 
   const handleHandRaised = () => {
      console.log('handleHandRaised called, inIntro:', inIntro);
@@ -2223,6 +2308,33 @@ export default function AIPresentation() {
   // are handled right here with no LLM call; everything else goes to the tutor.
   const handleSendMessage = (text: string, opts: { fromVoice?: boolean } = {}) => {
     if (!text.trim()) return;
+
+    // Emotion-triggered check-in is open: the professor asked "shall I go over
+    // that differently?" — a yes runs the variant swap; anything else goes to
+    // the tutor with the check-in context.
+    const emotionAsk = emotionAskRef.current;
+    if (emotionAsk) {
+      emotionAskRef.current = null;
+      cancelListening();
+      const wantsSimpler = /\b(yes|yeah|yep|sure|ok|okay|please|simpler|different|again|explain|confus|lost|didn'?t get|hard)\b/i.test(text);
+      if (wantsSimpler) {
+        signals.track('emotion_state', { section: emotionAsk.section, step: emotionAsk.step, value: { acknowledged: true } });
+        const cmd = parseDeckCommand('explain that differently');
+        if (cmd) { runDeckCommand(cmd, 'explain that differently'); setInput(''); return; }
+      }
+      // not a yes — fall through to the tutor with the question intact
+      setInConversation(true);
+      afterAnswerRef.current = () => autoAdvanceFrom(emotionAsk.section, emotionAsk.step);
+      sendMessage(text, {
+        useKnowledgeBase: true,
+        systemPrompt:
+          `You are "${PRESENTATION.professor.name}". You just noticed the learner seemed puzzled and asked if they want a different explanation. They replied: "${text}". ` +
+          `React to what they said in 2-3 short spoken sentences — warm, a bit funny about the fish, never about them. If they want it simpler, say you'll take it from the top differently and keep it plain.`,
+      });
+      setInput('');
+      return;
+    }
+
     const waiting = answerWaitRef.current;
     if (waiting) {
       // A "Your turn" question is open: "I don't know" shows the answer, a command
@@ -3042,6 +3154,11 @@ export default function AIPresentation() {
               >
                 🎙 Interrupt {voiceInterruptionsEnabled ? 'on' : 'off'}
               </button>
+              {voiceInterruptionsEnabled && emotionReady && lastEmotion && (
+                <div className="px-3 py-1 rounded-full text-xs font-semibold bg-white shadow" title="From the camera — on-device only">
+                  {lastEmotion === 'confused' ? '🤔 Learner puzzled' : lastEmotion === 'bored' ? '😐 Drifting' : '✅ Engaged'}
+                </div>
+              )}
             </div>
           )}
           <button

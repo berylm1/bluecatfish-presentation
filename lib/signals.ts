@@ -24,7 +24,8 @@ export type EventType =
   | 'tutor_question' | 'tutor_decision' | 'barge_in' | 'hand_raise'
   | 'presence_away' | 'presence_back'
   | 'dwell' | 'lesson_complete' | 'self_check'
-  | 'deck_command';   // must match the SQL list (migration 003)
+  | 'emotion_state'
+  | 'deck_command';   // must match the SQL list (migrations 003 + 004)
 
 type CountKey = Exclude<keyof SectionCounters, 'quiz_passed' | 'self_check'>;
 export type StatePatch = Partial<Record<CountKey, number>> & {
