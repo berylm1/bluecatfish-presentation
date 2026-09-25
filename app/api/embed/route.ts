@@ -1,13 +1,10 @@
 export const runtime = 'nodejs';
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
+import { lazySupabaseAdmin } from '@/lib/supabase/admin';
 import mammoth from 'mammoth';
 import extract from 'pdf-extraction';
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
+const supabase = lazySupabaseAdmin('NEXT_PUBLIC_SUPABASE_URL');   // created on first use, so the build doesn't need env vars
 
 function chunkText(text: string, maxChunkSize: number = 200, overlap: number = 40): string[] {
   const words = text.split(' ');
