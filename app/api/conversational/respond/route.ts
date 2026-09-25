@@ -17,8 +17,8 @@ async function getEmbedding(text: string): Promise<number[]> {
     'https://api.openai.com/v1/embeddings',
     {
       method: 'POST',
-      headers: { 
-        'Content-Type': 'application/json', 
+      headers: {
+        'Content-Type': 'application/json',
         Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
       },
       body: JSON.stringify({
@@ -30,6 +30,117 @@ async function getEmbedding(text: string): Promise<number[]> {
 
   const data = await response.json();
   return data.data[0].embedding;
+}
+
+// Resolve the Professor Marine reply. In production (Vercel) set
+// OPENCLAW_GATEWAY_URL to the homelab OpenClaw HTTP bridge (exposed from the
+// Minisforum via cloudflared). In local dev, leave it unset and the route
+// spawns the local openclaw CLI on the Mac. The agent's skill supplies the
+// persona and pedagogy; we pass the retrieved factsheet context and conversation
+// so the reply is grounded in the Supabase knowledge base. This makes the LLM
+// self-hosted (model on the DGX Spark) while keeping the Supabase pgvector RAG.
+// See Baradziej and Pal (2026), Section 4.
+async function runOpenClawBluecatfish(message: string): Promise<string> {
+  if (process.env.OPENCLAW_GATEWAY_URL) {
+    return callOpenClawGatewayHttp(message);
+  }
+  return runOpenClawLocal(message);
+}
+
+// Deterministic intent classification for deck-control decisions.
+// Keyword rules only — no LLM call, testable, same behavior every time.
+export function classifyIntent(userText: string): {
+  action: 'repeat' | 'simplify' | 'advance' | 'none';
+  matched: string | null;
+} {
+  const t = userText.toLowerCase();
+  if (/\b(again|repeat|repeat that|one more time|confus\w*|lost|slower|didn'?t (get|follow)|say that again)\b/.test(t)) {
+    return { action: 'repeat', matched: 'repeat-cue' };
+  }
+  if (/\b(simpler|simply|dumb it down|explain (it )?like|easier|plain (english|words)|eli5)\b/.test(t)) {
+    return { action: 'simplify', matched: 'simplify-cue' };
+  }
+  if (/\b(skip|skip ahead|next (section|slide|topic)|move on|bore[dn]\b|boring|hurry)\b/.test(t)) {
+    return { action: 'advance', matched: 'advance-cue' };
+  }
+  return { action: 'none', matched: null };
+}
+
+// Production path: HTTP to the Minisforum OpenClaw bridge. Contract:
+// POST { message, agent, thinking } -> { reply } | openclaw --json shape.
+async function callOpenClawGatewayHttp(message: string): Promise<string> {
+  const url = process.env.OPENCLAW_GATEWAY_URL as string;
+  const token = process.env.OPENCLAW_GATEWAY_TOKEN;
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    body: JSON.stringify({ message, agent: 'bluecatfish', thinking: 'off' }),
+  });
+  if (!res.ok) {
+    throw new Error(`OpenClaw gateway HTTP ${res.status}: ${(await res.text()).slice(0, 300)}`);
+  }
+  const data = (await res.json()) as {
+    reply?: string;
+    result?: { payloads?: { text?: string }[] };
+  };
+  if (data.reply && data.reply.trim()) return data.reply.trim();
+  if (data.result?.payloads) {
+    const text = data.result.payloads
+      .map((p) => p.text ?? '')
+      .filter(Boolean)
+      .join('\n')
+      .trim();
+    if (text) return text;
+  }
+  throw new Error('OpenClaw gateway returned no reply payload');
+}
+
+// Local dev path: spawn the openclaw CLI on the Mac.
+async function runOpenClawLocal(message: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const proc = spawn('/opt/homebrew/bin/openclaw', [
+      'agent',
+      '--agent', 'bluecatfish',
+      '--thinking', 'off',
+      '--json',
+      '-m', message,
+    ], { env: process.env });
+    let stdout = '';
+    let stderr = '';
+    proc.stdout.on('data', (d: Buffer) => { stdout += d.toString(); });
+    proc.stderr.on('data', (d: Buffer) => { stderr += d.toString(); });
+    proc.on('error', (err: Error) => reject(new Error(`Failed to spawn openclaw: ${err.message}`)));
+    const timer = setTimeout(() => {
+      proc.kill('SIGTERM');
+      reject(new Error('OpenClaw agent timed out after 55s'));
+    }, 55000);
+    proc.on('close', (code: number | null) => {
+      clearTimeout(timer);
+      if (code !== 0) {
+        return reject(new Error(`openclaw exited ${code}. stderr: ${stderr.slice(0, 400)}`));
+      }
+      try {
+        const json = JSON.parse(stdout) as {
+          status?: string;
+          result?: { payloads?: { text?: string }[] };
+        };
+        const text = (json.result?.payloads ?? [])
+          .map((p) => p.text ?? '')
+          .filter(Boolean)
+          .join('\n')
+          .trim();
+        if (!text) {
+          return reject(new Error('OpenClaw agent returned no text payload'));
+        }
+        resolve(text);
+      } catch (e) {
+        reject(new Error(`Failed to parse openclaw JSON: ${(e as Error).message}. stdout head: ${stdout.slice(0, 300)}`));
+      }
+    });
+  });
 }
 
 export async function POST(request: NextRequest) {
@@ -49,19 +160,29 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Missing user text.' }, { status: 400 });
     }
 
+    // Deterministic intent classification → deck-control decision.
+    // The client reads X-Tutor-Decision and moves the presentation accordingly.
+    const intent = classifyIntent(userText);
+    const decision = { action: intent.action, target: null as string | null };
+
+    // OpenAI key is still needed for embeddings (text-embedding-3-small) until
+    // the embeddings move to a local model (bge-m3) in a later phase.
     const apiKey = process.env.OPENAI_API_KEY;
     if (!apiKey) {
-      return NextResponse.json({ error: 'OPENAI_API_KEY is not set.' }, { status: 500 });
+      return NextResponse.json(
+        { error: 'OPENAI_API_KEY is not set (needed for embeddings until Phase 4).' },
+        { status: 500 }
+      );
     }
 
     // Build a professor-style system prompt if none provided from utils.ts
     const effectiveSystemPrompt = systemPrompt ||
       `You are "Professor Marine", a university professor specializing in Marine Biology and Conservation, teaching a 12-16 year old student about "${topic || 'this topic'}" in a live one-on-one voice session. ` +
-      `You LEAD the lesson — you don't wait for questions, you teach proactively. ` +
+      `You LEAD the lesson. You do not wait for questions; you teach proactively. ` +
       `Present one concept, give a real example, then ask the student ONE focused question to check understanding. ` +
       `When the student responds, acknowledge their answer specifically and build the next concept on top of it. ` +
-      `Use the Socratic method. Speak in 2-3 natural sentences only — no formatting, no bullets, pure spoken language. ` +
-      `If student goes off-topic, redirect warmly: "Let's come back to ${topic || 'our topic'} — right where we left off..."` +
+      `Use the Socratic method. Speak in 2-3 natural sentences only, with no formatting, no bullets, pure spoken language. ` +
+      `If student goes off-topic, redirect warmly: "Let's come back to ${topic || 'our topic'}, right where we left off..."` +
       `Style: ${style || 'warm, authoritative, and genuinely enthusiastic about the subject'}.`;
 
     // Deterministic intent → deck-control decision (read by the client from X-Tutor-Decision)
@@ -84,8 +205,8 @@ export async function POST(request: NextRequest) {
     } catch (e) {
       console.error('Knowledge-base lookup failed:', e);
     }
-    
-    const context = docs 
+
+    const context = docs
       ? docs.map((doc: any) => doc.content).join('\n\n')
       : '';
     
@@ -140,61 +261,25 @@ export async function POST(request: NextRequest) {
       const data = await response.json();
       const reply = data?.choices?.[0]?.message?.content?.trim();
 
-      if (!reply) {
-        return NextResponse.json({ error: 'OpenAI returned an empty reply.' }, { status: 500 });
-      }
+    const conversationLines = conversation
+      .slice(-10)
+      .map((m) => `${m.role === 'user' ? 'Student' : 'Professor'}: ${m.content}`)
+      .join('\n');
 
     return NextResponse.json({ reply, decision: { action: intent.action } }, { headers: { 'X-Tutor-Decision': intent.action } });
   }
 
-  // Streaming path — unwrap OpenAI's SSE format into plain text chunks
-  const encoder = new TextEncoder();
-  const decoder = new TextDecoder();
+    const reply = await runOpenClawBluecatfish(prompt);
 
-  const readable = new ReadableStream({
-    async start(controller) {
-      const reader = response.body!.getReader();
-      let buffer = '';
+    // Non-streaming callers (e.g. the TTS voice loop) get JSON.
+    if (!stream) {
+      return NextResponse.json({ reply, decision }, { headers: { 'X-Tutor-Decision': intent.action } });
+    }
 
-      try {
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-
-          buffer += decoder.decode(value, { stream: true });
-          const lines = buffer.split('\n');
-          buffer = lines.pop() ?? '';
-
-          for (const line of lines) {
-            const trimmed = line.trim();
-            if (!trimmed.startsWith('data:')) continue;
-
-            const payload = trimmed.slice(5).trim();
-            if (payload === '[DONE]') {
-              controller.close();
-              return;
-            }
-
-            try {
-              const json = JSON.parse(payload);
-              const token = json.choices?.[0]?.delta?.content;
-
-              if (token) controller.enqueue(encoder.encode(token));
-            } catch {
-              // partial JSON across chunk boundary — skip it
-
-            }
-          }
-        }
-        controller.close();
-      } catch (e) {
-        console.error('Stream error:', e);
-        controller.error(e);
-      }
-    },
-  });
-    
-    return new Response(readable, {
+    // Streaming callers get the full reply as a single text chunk so the
+    // existing SSE-expecting client keeps working without OpenAI streaming.
+    // The decision rides the response header; the client reads it before consuming the body.
+    return new Response(reply, {
       headers: {
         'Content-Type': 'text/plain; charset=utf-8',
         'Cache-Control': 'no-cache',
@@ -202,7 +287,8 @@ export async function POST(request: NextRequest) {
       },
     });
   } catch (error) {
-    console.error('Error generating conversational reply:', error);
-    return NextResponse.json({ error: 'Failed to generate response.' }, { status: 500 });
+    const message = error instanceof Error ? error.message : String(error);
+    console.error('Error generating conversational reply:', message);
+    return NextResponse.json({ error: 'Failed to generate response.', detail: message }, { status: 500 });
   }
 }
