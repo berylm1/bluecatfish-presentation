@@ -22,7 +22,6 @@ type StateRow = {
   confusion_marks: number;
   barge_ins: number;
   questions: number;
-  hand_raises: number;
   last_state: string;
   updated_at: string;
 };
