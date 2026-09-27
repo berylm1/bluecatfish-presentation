@@ -24,7 +24,7 @@ export async function GET() {
     // Recent learner-state rollups (browser keeps writing these live)
     const { data: statesRaw, error: statesErr } = await supabase
       .from('learner_state')
-      .select('session_id, section, seq, visits, repeats, simplify_requests, confusion_marks, barge_ins, questions, hand_raises, last_state, updated_at')
+      .select('session_id, section, seq, visits, repeats, simplify_requests, confusion_marks, barge_ins, questions, last_state, updated_at')
       .order('updated_at', { ascending: false })
       .limit(60);
 
