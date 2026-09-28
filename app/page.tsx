@@ -13,12 +13,18 @@ export default function Home() {
         <p className="text-2xl text-blue-500 mb-12">
           Interactive AI-powered presentation about the Chesapeake Bay invasion
         </p>
+        {/* was /presentationv2 — the canvas page is the main presentation now */}
         <Link
-          href="/presentationv2"
+          href="/presentation"
           className="inline-block px-12 py-6 bg-gradient-to-r from-blue-500 to-cyan-500 hover:from-blue-600 hover:to-cyan-600 text-white text-2xl font-bold rounded-full shadow-2xl transform hover:scale-105 transition-all"
         >
           ▶ Start Presentation
         </Link>
+        <div className="mt-6">
+          <Link href="/presentationv2" className="text-sm text-slate-600 hover:text-slate-900 underline">
+            Classic version (full AI lesson)
+          </Link>
+        </div>
       </div>
     </div>
   );
