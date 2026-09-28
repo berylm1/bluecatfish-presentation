@@ -63,3 +63,16 @@ export const checkRedisHealth = async (): Promise<boolean> => {
     return false;
   }
 };
+
+/** Keys matching a pattern ("bluecatfish_sections_ai_*"), using SCAN so Redis isn't blocked. */
+export const scanKeys = async (pattern: string, limit = 500): Promise<string[]> => {
+  await ensureConnected();
+  if (!redisClient.isReady) return [];
+  const out: string[] = [];
+  for await (const batch of redisClient.scanIterator({ MATCH: pattern, COUNT: 200 })) {
+    // node-redis 5 yields arrays of keys; older versions yielded single keys
+    for (const key of ([] as string[]).concat(batch as string | string[])) out.push(key);
+    if (out.length >= limit) break;
+  }
+  return out;
+};

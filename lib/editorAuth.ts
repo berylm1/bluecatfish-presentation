@@ -92,3 +92,10 @@ export async function verifyToken(token: string | undefined): Promise<string | n
   // A password removed from the list stops working even with a valid cookie
   return passwords().includes(decoded) ? decoded : null;
 }
+
+/** The unlocked editor's name for an API request (the middleware already checked the cookie). */
+export async function editorName(req: Request): Promise<string> {
+  const cookie = req.headers.get('cookie') ?? '';
+  const m = cookie.match(new RegExp(`(?:^|;\\s*)${AUTH_COOKIE}=([^;]*)`));
+  return (await verifyToken(m ? decodeURIComponent(m[1]) : undefined)) ?? 'unknown';
+}

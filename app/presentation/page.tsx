@@ -7,18 +7,71 @@ import { useVoiceInput } from '@/components/hooks/useVoiceInput';
 import { parseCanvasCommand, findSlide } from '@/lib/canvas/commands';
 import { COMMAND_ACK_TEXT } from '@/lib/deckCommands';
 import { SAMPLE_DECK } from '@/lib/canvas/sampleDeck';
+import { loadLegacyDeck } from '@/lib/canvas/fromLegacy';
+import { DEFAULT_LESSON, HAS_AI_LESSON } from '@/lib/canvas/lessons';
 import type { Deck } from '@/lib/canvas/types';
 
 /*
- * The canvas presentation (see docs/customization-plan.md). Step 1: plays the
- * sample deck. Loading real decks, the editor, barge-in, the emotion check-in
- * and tutor questions come in the next steps.
+ * The canvas presentation (see docs/customization-plan.md).
+ *   /presentation                    → the default lesson
+ *   /presentation?lesson=<id>        → another lesson
+ *   /presentation?lesson=<id>&preview=1 → that lesson's saved draft (editors only)
+ *   /presentation?lesson=sample      → the built-in sample deck
+ * A lesson plays its published deck; with none, the AI lesson.
+ * Barge-in, the emotion check-in and tutor questions come in a later step.
  */
 
 const NEXT_CLIP_ACK = 'Skipping that bit.';
 
+type Loaded = { deck: Deck; preview: boolean };
+
+async function loadDeck(lesson: string, preview: boolean): Promise<Loaded> {
+  if (lesson === 'sample') return { deck: SAMPLE_DECK, preview: false };
+  if (preview) {
+    const res = await fetch(`/api/editor/deck?lesson=${encodeURIComponent(lesson)}&kind=draft`);
+    if (res.status === 401) throw new Error('Previews are for editors: unlock the slide editor first.');
+    const { deck } = await res.json();
+    if (!deck?.slides?.length) throw new Error('This draft has no saved slides yet.');
+    return { deck, preview: true };
+  }
+  const res = await fetch(`/api/deck?lesson=${encodeURIComponent(lesson)}`);
+  const { deck, error } = await res.json();
+  if (error) throw new Error(error);
+  if (deck?.slides?.length) return { deck, preview: false };
+  if (HAS_AI_LESSON.has(lesson)) return { deck: await loadLegacyDeck(lesson, DEFAULT_LESSON.title), preview: false };
+  throw new Error('This lesson hasn’t been published yet.');
+}
+
 export default function CanvasPresentation() {
-  const [deck] = useState<Deck>(SAMPLE_DECK);
+  const [loaded, setLoaded] = useState<Loaded | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const lesson = params.get('lesson') || DEFAULT_LESSON.id;
+    loadDeck(lesson, params.get('preview') === '1')
+      .then(setLoaded)
+      .catch((e) => setError(e instanceof Error ? e.message : String(e)));
+  }, []);
+
+  if (error || !loaded) {
+    return (
+      <main className="min-h-screen flex flex-col items-center justify-center gap-4 bg-gradient-to-br from-sky-950 via-slate-900 to-cyan-950 text-white p-6 text-center">
+        {error ? (
+          <p className="text-lg text-red-200 max-w-md">{error}</p>
+        ) : (
+          <>
+            <div className="w-10 h-10 rounded-full border-4 border-cyan-300/30 border-t-cyan-300 animate-spin" />
+            <p className="text-slate-300">Getting the lesson ready… (the first time, this can take a few minutes)</p>
+          </>
+        )}
+      </main>
+    );
+  }
+  return <Player deck={loaded.deck} preview={loaded.preview} />;
+}
+
+function Player({ deck, preview }: { deck: Deck; preview: boolean }) {
   const [started, setStarted] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const [typed, setTyped] = useState('');
@@ -84,6 +137,7 @@ export default function CanvasPresentation() {
   if (!started) {
     return (
       <main className="min-h-screen flex flex-col items-center justify-center gap-6 bg-gradient-to-br from-sky-950 via-slate-900 to-cyan-950 text-white p-6">
+        {preview && <div className="px-3 py-1 rounded-full bg-amber-400 text-slate-900 text-sm font-semibold">Preview of the saved draft</div>}
         <h1 className="text-4xl font-bold text-center">{deck.title}</h1>
         <p className="text-slate-300 text-center max-w-md">Turn your sound on. Say or type &quot;next&quot;, &quot;next slide&quot;, &quot;repeat&quot; or &quot;simpler please&quot; at any time.</p>
         <button onClick={() => setStarted(true)} className="px-8 py-4 rounded-2xl bg-cyan-400 hover:bg-cyan-300 text-slate-900 text-xl font-semibold">
@@ -99,6 +153,7 @@ export default function CanvasPresentation() {
   return (
     <main className="min-h-screen flex flex-col items-center justify-center gap-4 bg-gradient-to-br from-sky-950 via-slate-900 to-cyan-950 text-white px-4 py-4">
       <div className="text-xs uppercase tracking-widest text-cyan-200/70">
+        {preview && <span className="mr-2 text-amber-300">Preview ·</span>}
         Topic {player.topicIndex + 1} of {player.topicCount} · Slide {player.slideIndex + 1} of {deck.slides.length}
         {player.mode === 'plain' && <span className="ml-2 text-amber-300">· plain version</span>}
       </div>

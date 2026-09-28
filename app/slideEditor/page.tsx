@@ -1,12 +1,466 @@
 'use client';
 
-// The slide editor arrives in step 3 (docs/customization-plan.md).
-// For now this page shows that the password gate works.
-export default function SlideEditor() {
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import EditCanvas from '@/components/editor/EditCanvas';
+import SlideList from '@/components/editor/SlideList';
+import ImageLibrary from '@/components/editor/ImageLibrary';
+import { ElementInspector, SlideInspector } from '@/components/editor/Inspector';
+import { useEditorDeck, blankDeck, blankSlide, cloneSlide, newId } from '@/components/editor/useEditorDeck';
+import { slideWarnings, type Warning } from '@/lib/canvas/checks';
+import { speakingOrder } from '@/lib/canvas/queue';
+import { deckFromAnyVersion } from '@/lib/canvas/fromLegacy';
+import { DEFAULT_LESSON, type LessonInfo } from '@/lib/canvas/lessons';
+import type { Deck, SlideElement } from '@/lib/canvas/types';
+
+/*
+ * Slide editor (docs/customization-plan.md, step 3). Password-protected by the
+ * middleware. Save writes the draft; Preview plays the saved draft; Publish
+ * makes the draft the live deck that /presentation plays.
+ */
+
+type LiveInfo = { at?: string; by?: string } | null;
+type Version = { key: string; label: string; slides: number; current: boolean };
+
+const btn = 'px-3 py-1.5 rounded-md text-sm font-medium border border-slate-300 bg-white hover:bg-slate-50 text-slate-800 disabled:opacity-40';
+const primary = 'px-3 py-1.5 rounded-md text-sm font-semibold bg-cyan-600 hover:bg-cyan-700 text-white disabled:opacity-40';
+
+const when = (iso?: string) =>
+  iso ? new Date(iso).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : '';
+
+export default function SlideEditorPage() {
+  const [lessons, setLessons] = useState<LessonInfo[]>([DEFAULT_LESSON]);
+  const [lessonId, setLessonId] = useState<string | null>(null);
+  const [initial, setInitial] = useState<{ deck: Deck; savedAt?: string; savedBy?: string; key: number } | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    fetch('/api/editor/lessons').then((r) => r.json()).then((d) => d.lessons && setLessons(d.lessons)).catch(() => {});
+    setLessonId(new URLSearchParams(window.location.search).get('lesson') || DEFAULT_LESSON.id);
+  }, []);
+
+  // Load the lesson's saved draft (or start a blank one)
+  useEffect(() => {
+    if (!lessonId) return;
+    setInitial(null);
+    setError(null);
+    const title = lessons.find((l) => l.id === lessonId)?.title ?? lessonId;
+    fetch(`/api/editor/deck?lesson=${encodeURIComponent(lessonId)}&kind=draft`)
+      .then((r) => r.json())
+      .then((d) => {
+        if (d.error) throw new Error(d.error);
+        setInitial({ deck: d.deck ?? blankDeck(lessonId, title), savedAt: d.deck?.updatedAt, savedBy: d.deck?.updatedBy, key: Date.now() });
+      })
+      .catch((e) => setError(e instanceof Error ? e.message : String(e)));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lessonId]);
+
+  const switchLesson = (id: string) => {
+    const url = new URL(window.location.href);
+    url.searchParams.set('lesson', id);
+    window.history.replaceState(null, '', url);
+    setLessonId(id);
+  };
+
+  const newLesson = async () => {
+    const title = window.prompt('Name of the new lesson?');
+    if (!title?.trim()) return;
+    const d = await fetch('/api/editor/lessons', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title }),
+    }).then((r) => r.json());
+    if (d.error) return alert(d.error);
+    setLessons((l) => [...l, d.lesson]);
+    switchLesson(d.lesson.id);
+  };
+
+  if (error) return <div className="p-10 text-red-700">Could not open the editor: {error}</div>;
+  if (!initial || !lessonId) return <div className="p-10 text-slate-600">Opening the editor…</div>;
   return (
-    <main className="min-h-[calc(100vh-40px)] flex flex-col items-center justify-center gap-3 bg-slate-100 p-8 text-center">
-      <h1 className="text-3xl font-bold text-slate-900">Slide editor</h1>
-      <p className="text-slate-600 max-w-md">You&apos;re in. The editor itself is being built next (step 3 of the plan).</p>
-    </main>
+    <Editor
+      key={initial.key}
+      lessonId={lessonId}
+      lessons={lessons}
+      initial={initial.deck}
+      savedAt={initial.savedAt}
+      savedBy={initial.savedBy}
+      onSwitchLesson={switchLesson}
+      onNewLesson={newLesson}
+    />
+  );
+}
+
+function Editor({
+  lessonId, lessons, initial, savedAt: initialSavedAt, savedBy: initialSavedBy, onSwitchLesson, onNewLesson,
+}: {
+  lessonId: string;
+  lessons: LessonInfo[];
+  initial: Deck;
+  savedAt?: string;
+  savedBy?: string;
+  onSwitchLesson: (id: string) => void;
+  onNewLesson: () => void;
+}) {
+  const ed = useEditorDeck(initial);
+  const { deck, slide, slideIdx, element } = ed;
+  const [panel, setPanel] = useState<'props' | 'images' | 'background'>('props');
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState<{ at?: string; by?: string }>({ at: initialSavedAt, by: initialSavedBy });
+  const [notice, setNotice] = useState<{ text: string; tone: 'ok' | 'warn' | 'error' } | null>(null);
+  const [live, setLive] = useState<LiveInfo | undefined>(undefined);
+  const [versions, setVersions] = useState<Version[] | null>(null);
+  const [overflow, setOverflow] = useState<Record<string, string[]>>({});
+
+  const flash = useCallback((text: string, tone: 'ok' | 'warn' | 'error' = 'ok') => {
+    setNotice({ text, tone });
+    if (tone === 'ok') setTimeout(() => setNotice((n) => (n?.text === text ? null : n)), 3000);
+  }, []);
+
+  const loadLive = useCallback(() => {
+    fetch(`/api/editor/deck?lesson=${encodeURIComponent(lessonId)}&kind=live`)
+      .then((r) => r.json())
+      .then((d) => setLive(d.deck ? { at: d.deck.updatedAt, by: d.deck.updatedBy } : null))
+      .catch(() => setLive(null));
+  }, [lessonId]);
+  useEffect(loadLive, [loadLive]);
+
+  // "Text doesn't fit" comes from the rendered page: FitText marks boxes that
+  // still overflow at the smallest size it will shrink to
+  useEffect(() => {
+    const t = setTimeout(() => {
+      const found: Record<string, string[]> = {};
+      document.querySelectorAll('[data-fit-overflow]').forEach((node) => {
+        const slideId = node.closest('[data-slide-id]')?.getAttribute('data-slide-id');
+        const elId = node.closest('[data-element-id]')?.getAttribute('data-element-id');
+        if (slideId && elId) (found[slideId] ??= []).includes(elId) || found[slideId].push(elId);
+      });
+      setOverflow(found);
+    }, 400);
+    return () => clearTimeout(t);
+  }, [deck]);
+
+  const warningsFor = useCallback((i: number): Warning[] => {
+    const s = deck.slides[i];
+    const fit = (overflow[s.id] ?? []).map((id) => ({ elementId: id, level: 'warn' as const, message: 'Text doesn’t fit its box, even at the smallest size: make the box bigger or the text shorter' }));
+    return [...fit, ...slideWarnings(s)];
+  }, [deck, overflow]);
+  const allWarnings = useMemo(() => deck.slides.map((_, i) => warningsFor(i)), [deck, warningsFor]);
+  const slideWarns = allWarnings[slideIdx] ?? [];
+  const warnIds = useMemo(() => new Set(slideWarns.filter((w) => w.level === 'warn' && w.elementId).map((w) => w.elementId!)), [slideWarns]);
+  const order = useMemo(() => speakingOrder(slide), [slide]);
+
+  /* ------------------------------------------------------------ saving */
+
+  const save = useCallback(async (): Promise<boolean> => {
+    setSaving(true);
+    try {
+      const res = await fetch('/api/editor/deck', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ lesson: lessonId, deck }),
+      });
+      const d = await res.json();
+      if (res.status === 401) throw new Error('You were locked out: unlock again in a new tab, then press Save.');
+      if (!res.ok || d.error) throw new Error(d.error || `Save failed (${res.status})`);
+      ed.setDirty(false);
+      setSaved({ at: d.savedAt, by: d.by });
+      if (d.warning) flash(`Saved, but: ${d.warning}`, 'warn');
+      else flash('Saved');
+      return true;
+    } catch (e) {
+      flash(e instanceof Error ? e.message : String(e), 'error');
+      return false;
+    } finally {
+      setSaving(false);
+    }
+  }, [deck, lessonId, ed, flash]);
+
+  const preview = async () => {
+    if (ed.dirty && !(await save())) return;
+    window.open(`/presentation?lesson=${encodeURIComponent(lessonId)}&preview=1`, '_blank');
+  };
+
+  const publish = async () => {
+    const count = allWarnings.flat().filter((w) => w.level === 'warn').length;
+    const ask = count
+      ? `There ${count === 1 ? 'is 1 warning' : `are ${count} warnings`} (slides marked ⚠). Publish anyway? Learners will see this deck.`
+      : 'Publish? Learners will see this deck instead of the AI lesson.';
+    if (!window.confirm(ask)) return;
+    if (ed.dirty && !(await save())) return;
+    const d = await fetch('/api/editor/publish', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ lesson: lessonId }),
+    }).then((r) => r.json());
+    if (d.error) return flash(d.error, 'error');
+    flash(d.warning ? `Published, but: ${d.warning}` : 'Published: /presentation now plays this deck', d.warning ? 'warn' : 'ok');
+    loadLive();
+  };
+
+  const unpublish = async () => {
+    if (!window.confirm('Take the live deck down? Learners will get the AI lesson again. Your draft stays.')) return;
+    const d = await fetch('/api/editor/publish', {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ lesson: lessonId }),
+    }).then((r) => r.json());
+    if (d.error) return flash(d.error, 'error');
+    flash('Taken down: learners get the AI lesson');
+    loadLive();
+  };
+
+  /* ---------------------------------------------------- start from AI */
+
+  const openVersions = async () => {
+    setVersions([]);
+    const d = await fetch('/api/editor/ai-versions').then((r) => r.json()).catch(() => ({}));
+    if (!d.versions?.length) {
+      setVersions(null);
+      return flash('No AI lesson versions found in Redis', 'warn');
+    }
+    setVersions(d.versions);
+  };
+
+  const applyVersion = async (v: Version) => {
+    if (!window.confirm(`Replace this draft with “${v.label}” (${v.slides} slides)? You can undo with Ctrl+Z until you save.`)) return;
+    try {
+      const d = await fetch(`/api/editor/ai-versions?key=${encodeURIComponent(v.key)}`).then((r) => r.json());
+      if (d.error) throw new Error(d.error);
+      const converted = deckFromAnyVersion(d.data, lessonId, deck.title);
+      ed.change((draft) => { draft.slides = converted.slides; draft.recap = converted.recap; });
+      ed.setSlideIdx(0);
+      ed.setSelected(null);
+      setVersions(null);
+      flash(`Copied ${converted.slides.length} slides from ${v.label}. Press Save to keep them.`);
+    } catch (e) {
+      flash(e instanceof Error ? e.message : String(e), 'error');
+    }
+  };
+
+  /* ------------------------------------------------------ slide edits */
+
+  const addSlide = () => {
+    ed.change((d) => { d.slides.splice(slideIdx + 1, 0, blankSlide(slide?.topic)); });
+    ed.setSlideIdx(slideIdx + 1);
+    ed.setSelected(null);
+  };
+  const duplicateSlide = () => {
+    ed.change((d) => { d.slides.splice(slideIdx + 1, 0, cloneSlide(d.slides[slideIdx])); });
+    ed.setSlideIdx(slideIdx + 1);
+  };
+  const deleteSlide = () => {
+    if (deck.slides.length <= 1 || !window.confirm(`Delete slide ${slideIdx + 1}?`)) return;
+    ed.change((d) => { d.slides.splice(slideIdx, 1); });
+    ed.setSlideIdx(Math.max(0, slideIdx - 1));
+    ed.setSelected(null);
+  };
+  const moveSlide = (from: number, to: number) => {
+    ed.change((d) => { const [s] = d.slides.splice(from, 1); d.slides.splice(to, 0, s); });
+    ed.setSlideIdx(to);
+  };
+
+  const addElement = (el: SlideElement) => {
+    ed.change((d) => { d.slides[slideIdx].elements.push(el); });
+    ed.setSelected(el.id);
+    setPanel('props');
+  };
+  const addText = () => addElement({ id: newId('el'), type: 'text', x: 30, y: 40, w: 40, h: 16, text: 'New text', style: 'body', color: '#0f172a' });
+  const addImage = (img: { url: string; description: string }, cx = 50, cy = 50) => {
+    const w = 30, h = 36;
+    addElement({
+      id: newId('el'), type: 'image', src: img.url, alt: img.description || undefined, fit: 'contain',
+      w, h, x: Math.min(100 - w, Math.max(0, cx - w / 2)), y: Math.min(100 - h, Math.max(0, cy - h / 2)),
+    });
+  };
+
+  const deleteElement = useCallback(() => {
+    if (!ed.selected) return;
+    const id = ed.selected;
+    ed.change((d) => { const s = d.slides[slideIdx]; s.elements = s.elements.filter((e) => e.id !== id); });
+    ed.setSelected(null);
+  }, [ed, slideIdx]);
+
+  const duplicateElement = useCallback(() => {
+    if (!element) return;
+    const copy = { ...structuredClone(element), id: newId('el'), x: Math.min(100 - element.w, element.x + 2), y: Math.min(100 - element.h, element.y + 2) };
+    addElement(copy);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [element]);
+
+  const layer = (dir: 1 | -1) => {
+    if (!element) return;
+    ed.updateElement(element.id, { z: (element.z ?? (element.type === 'image' && element.silent ? 0 : 1)) + dir });
+  };
+
+  /* -------------------------------------------------------- keyboard */
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const typing = ['INPUT', 'TEXTAREA', 'SELECT'].includes((e.target as HTMLElement)?.tagName);
+      const mod = e.ctrlKey || e.metaKey;
+      if (mod && e.key.toLowerCase() === 's') { e.preventDefault(); save(); return; }
+      if (typing) return;
+      if (mod && e.key.toLowerCase() === 'z') { e.preventDefault(); if (e.shiftKey) ed.redo(); else ed.undo(); return; }
+      if (mod && e.key.toLowerCase() === 'y') { e.preventDefault(); ed.redo(); return; }
+      if (mod && e.key.toLowerCase() === 'd') { e.preventDefault(); duplicateElement(); return; }
+      if ((e.key === 'Delete' || e.key === 'Backspace') && ed.selected) { e.preventDefault(); deleteElement(); return; }
+      if (e.key === 'Escape') { ed.setSelected(null); return; }
+      if (element && e.key.startsWith('Arrow')) {
+        e.preventDefault();
+        const step = e.shiftKey ? 5 : 0.5;
+        const dx = e.key === 'ArrowLeft' ? -step : e.key === 'ArrowRight' ? step : 0;
+        const dy = e.key === 'ArrowUp' ? -step : e.key === 'ArrowDown' ? step : 0;
+        ed.updateElement(element.id, {
+          x: Math.min(100 - element.w, Math.max(0, element.x + dx)),
+          y: Math.min(100 - element.h, Math.max(0, element.y + dy)),
+        }, `nudge:${element.id}`);
+      } else if (!element && (e.key === 'PageDown' || e.key === 'PageUp')) {
+        ed.setSlideIdx((i) => Math.max(0, Math.min(deck.slides.length - 1, i + (e.key === 'PageDown' ? 1 : -1))));
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [ed, element, save, deleteElement, duplicateElement, deck.slides.length]);
+
+  // Don't lose unsaved work by closing the tab
+  useEffect(() => {
+    if (!ed.dirty) return;
+    const warn = (e: BeforeUnloadEvent) => { e.preventDefault(); };
+    window.addEventListener('beforeunload', warn);
+    return () => window.removeEventListener('beforeunload', warn);
+  }, [ed.dirty]);
+
+  const confirmSwitch = (id: string) => {
+    if (ed.dirty && !window.confirm('You have unsaved changes. Switch lessons and lose them?')) return;
+    onSwitchLesson(id);
+  };
+
+  /* ------------------------------------------------------------ view */
+
+  return (
+    <div className="flex flex-col h-[calc(100vh-40px)] bg-slate-100 text-slate-900">
+      {/* toolbar */}
+      <div className="flex flex-wrap items-center gap-2 px-3 py-2 bg-white border-b border-slate-200">
+        <select className="px-2 py-1.5 rounded-md border border-slate-300 text-sm" value={lessonId} onChange={(e) => (e.target.value === '__new' ? onNewLesson() : confirmSwitch(e.target.value))}>
+          {lessons.map((l) => <option key={l.id} value={l.id}>{l.title}</option>)}
+          <option value="__new">+ New lesson…</option>
+        </select>
+        <span className="text-xs text-slate-500 min-w-40">
+          {saving ? 'Saving…' : ed.dirty ? <span className="text-amber-700 font-medium">Unsaved changes</span> : saved.at ? `Saved ${when(saved.at)}${saved.by ? ` by ${saved.by}` : ''}` : 'Not saved yet'}
+        </span>
+        <div className="w-px h-6 bg-slate-200" />
+        <button className={btn} onClick={ed.undo} disabled={!ed.canUndo} title="Undo (Ctrl+Z)">↶ Undo</button>
+        <button className={btn} onClick={ed.redo} disabled={!ed.canRedo} title="Redo (Ctrl+Shift+Z)">↷ Redo</button>
+        <button className={btn} onClick={addText}>＋ Text</button>
+        <button className={btn} onClick={() => setPanel('images')}>＋ Image</button>
+        <button className={btn} onClick={openVersions}>Start from AI…</button>
+        <div className="flex-1" />
+        <span className="text-xs text-slate-500">
+          {live === undefined ? '' : live ? <>Live: published {when(live.at)}{live.by ? ` by ${live.by}` : ''} · <button className="underline" onClick={unpublish}>take down</button></> : 'Not published: learners get the AI lesson'}
+        </span>
+        <button className={btn} onClick={save} disabled={saving} title="Ctrl+S">Save</button>
+        <button className={btn} onClick={preview}>Preview ↗</button>
+        <button className={primary} onClick={publish}>Publish</button>
+      </div>
+
+      {notice && (
+        <div className={`px-4 py-1.5 text-sm flex justify-between ${notice.tone === 'error' ? 'bg-red-100 text-red-800' : notice.tone === 'warn' ? 'bg-amber-100 text-amber-900' : 'bg-emerald-100 text-emerald-900'}`}>
+          <span>{notice.text}</span>
+          <button onClick={() => setNotice(null)} aria-label="Dismiss">✕</button>
+        </div>
+      )}
+
+      <div className="flex flex-1 min-h-0">
+        {/* slides */}
+        <aside className="w-52 shrink-0 p-2 border-r border-slate-200 bg-slate-50 min-h-0">
+          <SlideList
+            slides={deck.slides}
+            current={slideIdx}
+            warnCounts={allWarnings.map((w) => w.filter((x) => x.level === 'warn').length)}
+            onOpen={(i) => { ed.setSlideIdx(i); ed.setSelected(null); }}
+            onMove={moveSlide}
+            onAdd={addSlide}
+            onDuplicate={duplicateSlide}
+            onDelete={deleteSlide}
+          />
+        </aside>
+
+        {/* canvas */}
+        <main className="flex-1 min-w-0 flex flex-col items-center justify-center p-4 gap-2" onPointerDown={() => ed.setSelected(null)}>
+          <div className="text-xs text-slate-500">Slide {slideIdx + 1} of {deck.slides.length}{slide.topic ? ` · ${slide.topic}` : ''}</div>
+          <div className="w-full flex justify-center" onPointerDown={(e) => e.stopPropagation()}>
+            <EditCanvas
+              slide={slide}
+              selected={ed.selected}
+              onSelect={ed.setSelected}
+              onChange={(id, patch, group) => ed.updateElement(id, patch, group)}
+              onDropImage={(img, x, y) => addImage(img, x, y)}
+              onEditText={() => { setPanel('props'); setTimeout(() => document.getElementById('inspector-text')?.focus(), 0); }}
+              warnIds={warnIds}
+            />
+          </div>
+          <div className="text-[11px] text-slate-400">Drag to move · corners to resize · arrows nudge (Shift = more) · Del removes · Ctrl+Z undo · Ctrl+S save</div>
+        </main>
+
+        {/* properties / images */}
+        <aside className="w-80 shrink-0 border-l border-slate-200 bg-white flex flex-col min-h-0">
+          <div className="flex border-b border-slate-200 text-sm">
+            <button className={`flex-1 py-2 ${panel === 'props' ? 'font-semibold border-b-2 border-cyan-600' : 'text-slate-500'}`} onClick={() => setPanel('props')}>Properties</button>
+            <button className={`flex-1 py-2 ${panel !== 'props' ? 'font-semibold border-b-2 border-cyan-600' : 'text-slate-500'}`} onClick={() => setPanel('images')}>Images</button>
+          </div>
+          <div className="flex-1 min-h-0 overflow-y-auto p-3">
+            {panel === 'props' ? (
+              element ? (
+                <ElementInspector
+                  el={element}
+                  order={element.silent ? null : order.findIndex((e) => e.id === element.id) + 1 || null}
+                  update={(patch) => ed.updateElement(element.id, patch)}
+                  onDelete={deleteElement}
+                  onDuplicate={duplicateElement}
+                  onLayer={layer}
+                  warnings={slideWarns.filter((w) => w.elementId === element.id)}
+                />
+              ) : (
+                <SlideInspector slide={slide} update={(p) => ed.updateSlide(p)} warnings={slideWarns} onPickBackground={() => setPanel('background')} />
+              )
+            ) : (
+              <ImageLibrary
+                mode={panel === 'background' ? 'background' : 'add'}
+                onAdd={(img) => {
+                  if (panel === 'background') {
+                    ed.updateSlide({ background: { ...slide.background, image: img.url } });
+                    setPanel('props');
+                  } else {
+                    addImage(img);
+                  }
+                }}
+              />
+            )}
+          </div>
+        </aside>
+      </div>
+
+      {/* Start from AI: every lesson version in Redis */}
+      {versions && (
+        <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-6" onClick={() => setVersions(null)}>
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg max-h-[80vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
+            <div className="p-4 border-b border-slate-200">
+              <h2 className="font-bold text-lg">Start from an AI lesson</h2>
+              <p className="text-sm text-slate-600">Every version saved in Redis. It replaces this draft’s slides (undo works until you save). Older versions may have fewer details, like no plain versions.</p>
+            </div>
+            <div className="overflow-y-auto p-2">
+              {versions.length === 0 ? (
+                <p className="p-4 text-sm text-slate-500">Looking in Redis…</p>
+              ) : versions.map((v) => (
+                <button key={v.key} onClick={() => applyVersion(v)} className="w-full text-left px-3 py-2 rounded-md hover:bg-cyan-50 flex justify-between items-center">
+                  <span className="text-sm font-medium">{v.label}{v.current && <span className="ml-2 text-xs text-cyan-700">(current AI lesson)</span>}</span>
+                  <span className="text-xs text-slate-500">{v.slides} slides</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
   );
 }

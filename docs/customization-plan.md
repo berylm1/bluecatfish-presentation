@@ -79,7 +79,14 @@ There can be **several lessons**. Each lesson has up to three decks:
 - Decks are read from **Redis** (fast). Hand-made decks are also written to
   **Supabase** on every save as a backup. If Redis loses one, it's restored
   from Supabase.
-- **Start from AI** copies the AI deck into the draft for editing.
+- **Start from AI** copies an AI lesson into the draft for editing. It lists
+  every AI lesson version cached in Redis (from the very first format to the
+  current one), converted to canvas slides from whatever fields that version has.
+- Until AI decks are generated in the canvas format (step 5), the "AI deck" for
+  the Blue Catfish lesson is the current AI lesson (`/api/slidesv2`) converted
+  on the fly. New lessons have no AI fallback until then.
+- Backup tables: `supabase/migrations/005_canvas_decks.sql` (lessons, draft/live
+  decks, and a history of every publish).
 
 ## AI decks
 

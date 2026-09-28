@@ -80,6 +80,7 @@ export async function GET() {
     slideTemplates,
     learnerState,
     events,
+    canvasDecks,
     anonKey,
     openai,
     redis,
@@ -101,6 +102,7 @@ export async function GET() {
     run(tableCheck('slide_templates')),
     run(tableCheck('learner_state')),
     run(tableCheck('events')),
+    run(tableCheck('canvas_decks')),
     run(async () => {
       const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
       const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
@@ -145,6 +147,7 @@ export async function GET() {
     variantSlides: slideTemplates,
     learnerState,
     events,
+    canvasDecks,
     openai,
     redis,
     manim,

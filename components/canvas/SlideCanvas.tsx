@@ -13,6 +13,7 @@ const MIN_SCALE = 0.6;   // text that doesn't fit shrinks, but never below 60%
 function FitText({ el }: { el: TextElement }) {
   const ref = useRef<HTMLDivElement>(null);
   const [scale, setScale] = useState(1);
+  const [overflow, setOverflow] = useState(false);
 
   useLayoutEffect(() => {
     const box = ref.current;
@@ -25,6 +26,7 @@ function FitText({ el }: { el: TextElement }) {
         box.style.fontSize = `${STYLE_SIZE[el.style] * s}cqh`;
       }
       setScale(s);
+      setOverflow(box.scrollHeight > box.clientHeight + 1 || box.scrollWidth > box.clientWidth + 1);
     };
     fit();
     const ro = new ResizeObserver(fit);
@@ -37,6 +39,7 @@ function FitText({ el }: { el: TextElement }) {
     <div
       ref={ref}
       data-fit-scale={scale}
+      data-fit-overflow={overflow || undefined}
       style={{
         width: '100%',
         height: '100%',
@@ -98,19 +101,33 @@ function ElementView({ el, active }: { el: SlideElement; active: boolean }) {
  * One 16:9 slide, as big as fits in 80% of the screen. Elements are placed by
  * percent, so the layout is identical at any size.
  */
-export default function SlideCanvas({ slide, activeId }: { slide: Slide; activeId?: string | null }) {
+export default function SlideCanvas({
+  slide,
+  activeId,
+  width = 'min(80vw, calc(80vh * 16 / 9))',
+  shadow = true,
+  children,
+}: {
+  slide: Slide;
+  activeId?: string | null;
+  /** CSS width; the height follows at 16:9. Thumbnails and the editor pass their own. */
+  width?: string;
+  shadow?: boolean;
+  /** Drawn on top of the slide (the editor's selection boxes) */
+  children?: React.ReactNode;
+}) {
   const bg = slide.background ?? {};
   return (
     <div
       data-slide-id={slide.id}
       style={{
         position: 'relative',
-        width: 'min(80vw, calc(80vh * 16 / 9))',
+        width,
         aspectRatio: '16 / 9',
         containerType: 'size',
         overflow: 'hidden',
         borderRadius: '1.5cqh',
-        boxShadow: '0 20px 60px rgba(2, 6, 23, 0.35)',
+        boxShadow: shadow ? '0 20px 60px rgba(2, 6, 23, 0.35)' : undefined,
         backgroundColor: bg.color ?? '#ffffff',
         backgroundImage: bg.image ? `url(${bg.image})` : undefined,
         backgroundSize: 'cover',
@@ -120,6 +137,7 @@ export default function SlideCanvas({ slide, activeId }: { slide: Slide; activeI
       {slide.elements.map((el) => (
         <ElementView key={el.id} el={el} active={el.id === activeId} />
       ))}
+      {children}
     </div>
   );
 }
