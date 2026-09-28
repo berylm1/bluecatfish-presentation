@@ -18,14 +18,14 @@ const CONCURRENCY = 6;
 const AUDIO_BUCKET = 'slide-audio';
 const AUDIO_FOLDER = 'canvas';
 
-const STYLE =
+export const STYLE =
   'You are Professor Marine, a fun science teacher talking to 10 to 14 year olds about the blue catfish invasion ' +
   'of the Chesapeake Bay. Upbeat and conversational, like telling a story. A little goofy, with light, dry, ' +
   'playful sarcasm aimed at the fish, never at the learner. Facts must be exactly right.';
 
 /* ------------------------------------------------------------ OpenAI */
 
-async function chat(system: string, user: string, json = false): Promise<string> {
+export async function chat(system: string, user: string, json = false, maxTokens = 2000): Promise<string> {
   const res = await fetch('https://api.openai.com/v1/chat/completions', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${process.env.OPENAI_API_KEY}` },
@@ -34,7 +34,7 @@ async function chat(system: string, user: string, json = false): Promise<string>
       reasoning_effort: 'low',
       ...(json ? { response_format: { type: 'json_object' } } : {}),
       messages: [{ role: 'system', content: system }, { role: 'user', content: user }],
-      max_completion_tokens: 2000,
+      max_completion_tokens: maxTokens,
     }),
   });
   const raw = await res.text();
@@ -45,7 +45,7 @@ async function chat(system: string, user: string, json = false): Promise<string>
   return text;
 }
 
-async function knowledge(query: string, count = 6): Promise<string> {
+export async function knowledge(query: string, count = 6): Promise<string> {
   try {
     const emb = await fetch('https://api.openai.com/v1/embeddings', {
       method: 'POST',

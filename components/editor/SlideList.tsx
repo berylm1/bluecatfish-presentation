@@ -43,6 +43,7 @@ export default function SlideList({
           <div key={s.id}>
             {(i === 0 || topics[i] !== topics[i - 1]) && (
               <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500 mt-2 mb-1 truncate" title={s.topic}>
+                {s.topicByAI && <span className="text-violet-600" title="Topic named by the AI">✨ </span>}
                 {s.topic || 'No topic yet'}
               </div>
             )}

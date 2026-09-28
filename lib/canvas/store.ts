@@ -8,7 +8,8 @@ import { DEFAULT_LESSON, type LessonInfo } from './lessons';
 // every hand-made deck also written to Supabase as a backup. If Redis loses
 // one (evicted, wiped), it's restored from Supabase on the next read.
 
-export type DeckKind = 'draft' | 'live';
+/** draft and live are hand-made (backed up in Supabase); ai is generated, Redis only (it can be made again). */
+export type DeckKind = 'draft' | 'live' | 'ai';
 export type { LessonInfo };
 
 const supabase = lazySupabaseAdmin();
@@ -63,6 +64,7 @@ export async function deleteLesson(id: string): Promise<string | null> {
   await setValue(LESSONS_KEY, JSON.stringify(lessons));
   await setValue(deckKey(id, 'draft'), '');
   await setValue(deckKey(id, 'live'), '');
+  await setValue(deckKey(id, 'ai'), '');
   try {
     // canvas_decks and canvas_deck_history rows go with it (on delete cascade)
     const { error } = await supabase.from('canvas_lessons').delete().eq('id', id);
@@ -78,6 +80,7 @@ export async function deleteLesson(id: string): Promise<string | null> {
 export async function readDeck(lesson: string, kind: DeckKind): Promise<Deck | null> {
   const cached = await getValue(deckKey(lesson, kind)).catch(() => null);
   if (cached) return JSON.parse(cached) as Deck;
+  if (kind === 'ai') return null;
   // Not in Redis: restore from the backup
   try {
     const { data, error } = await supabase
@@ -100,6 +103,7 @@ export async function readDeck(lesson: string, kind: DeckKind): Promise<Deck | n
 export async function writeDeck(lesson: string, kind: DeckKind, deck: Deck, by: string): Promise<string | null> {
   const stored = compact({ ...deck, lessonId: lesson, updatedAt: new Date().toISOString(), updatedBy: by });
   await setValue(deckKey(lesson, kind), JSON.stringify(stored));
+  if (kind === 'ai') return null;
   try {
     const { error } = await supabase
       .from('canvas_decks')

@@ -20,6 +20,7 @@ import type { Deck, SlideElement } from '@/lib/canvas/types';
  */
 
 type LiveInfo = { at?: string; by?: string; basedOn?: string } | null;
+type AiDeckInfo = { at?: string; slides: number; topics: number } | null;
 type Version = { key: string; label: string; slides: number; current: boolean };
 
 const btn = 'px-3 py-1.5 rounded-md text-sm font-medium border border-slate-300 bg-white hover:bg-slate-50 text-slate-800 disabled:opacity-40';
@@ -287,14 +288,76 @@ function Editor({
 
   /* ---------------------------------------------------- start from AI */
 
+  // The AI deck (step 5): made in the canvas format, played when nothing is published
+  const [aiDeck, setAiDeck] = useState<AiDeckInfo | undefined>(undefined);
+  const [aiGen, setAiGen] = useState<{ phase: 'writing' | 'audio'; remaining?: number } | null>(null);
+  const [aiNotes, setAiNotes] = useState<string[]>([]);
+
+  const loadAiDeck = useCallback(() => {
+    fetch(`/api/editor/ai-deck?lesson=${encodeURIComponent(lessonId)}`)
+      .then((r) => r.json())
+      .then((d) => setAiDeck(d.ai ?? null))
+      .catch(() => setAiDeck(null));
+  }, [lessonId]);
+
   const openVersions = async () => {
     setVersions([]);
+    loadAiDeck();
     const d = await fetch('/api/editor/ai-versions').then((r) => r.json()).catch(() => ({}));
-    if (!d.versions?.length) {
-      setVersions(null);
-      return flash('No AI lesson versions found in Redis', 'warn');
+    setVersions(d.versions ?? []);
+  };
+
+  const generateAi = async () => {
+    const replaces = aiDeck ? ' It replaces the current AI deck.' : '';
+    const who = live ? '' : ' Learners get it straight away, since nothing is published.';
+    if (!window.confirm(`Make a new AI deck for this lesson? It takes a few minutes, then a few more for the audio.${replaces}${who} Your draft isn’t touched.`)) return;
+    setAiGen({ phase: 'writing' });
+    setAiNotes([]);
+    try {
+      const d = await fetch('/api/editor/ai-deck', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ lesson: lessonId }),
+      }).then((r) => r.json()).catch(() => ({ error: 'The request timed out or failed' }));
+      if (d.error) throw new Error(d.error);
+      setAiNotes(d.notes ?? []);
+      loadAiDeck();
+      // Audio for the new deck: the same save-time AI step, on the AI deck
+      setAiGen({ phase: 'audio' });
+      for (let pass = 0; pass < 30; pass++) {
+        const p = await fetch('/api/editor/prepare', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ lesson: lessonId, kind: 'ai' }),
+        }).then((r) => r.json()).catch(() => ({ error: 'The audio step failed' }));
+        if (p.error) throw new Error(p.error);
+        setAiGen({ phase: 'audio', remaining: p.remaining });
+        if (p.errors?.length) setAiNotes((n) => [...n, ...p.errors]);
+        if (!p.remaining || !p.patches?.length) break;
+      }
+      flash(`AI deck ready: ${d.slides} slides (${d.seconds}s).`);
+    } catch (e) {
+      flash(e instanceof Error ? e.message : String(e), 'error');
+    } finally {
+      setAiGen(null);
+      loadAiDeck();
     }
-    setVersions(d.versions);
+  };
+
+  const copyAiDeck = async () => {
+    if (!window.confirm('Replace this draft’s slides with the AI deck? You can undo with Ctrl+Z until you save.')) return;
+    const d = await fetch(`/api/editor/deck?lesson=${encodeURIComponent(lessonId)}&kind=ai`).then((r) => r.json());
+    if (!d.deck?.slides?.length) return flash('There is no AI deck yet', 'warn');
+    ed.change((draft) => {
+      draft.slides = d.deck.slides;
+      draft.recap = d.deck.recap;
+      draft.recapByAI = d.deck.recapByAI;
+      draft.basedOn = `canvas_ai:${d.deck.updatedAt ?? ''}`;
+    });
+    ed.setSlideIdx(0);
+    ed.setSelected(null);
+    setVersions(null);
+    flash(`Copied ${d.deck.slides.length} slides from the AI deck. Press Save to keep them.`);
   };
 
   const applyVersion = async (v: Version) => {
@@ -494,7 +557,10 @@ function Editor({
               warnIds={warnIds}
             />
           </div>
-          <div className="text-[11px] text-slate-400">Drag to move · corners to resize · arrows nudge (Shift = more) · Del removes · Ctrl+Z undo · Ctrl+S save</div>
+          <div className="text-[11px] text-slate-400">
+            Drag to move · corners to resize · arrows nudge (Shift = more) · Del removes · Ctrl+Z undo · Ctrl+S save ·{' '}
+            <span className="text-violet-600">dashed purple ✨ AI = words written by the AI</span>
+          </div>
         </main>
 
         {/* properties / images */}
@@ -567,19 +633,54 @@ function Editor({
         <div className="fixed inset-0 z-[1000] bg-black/40 flex items-center justify-center p-6" onClick={() => setVersions(null)}>
           <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg max-h-[80vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
             <div className="p-4 border-b border-slate-200">
-              <h2 className="font-bold text-lg">Start from an AI lesson</h2>
-              <p className="text-sm text-slate-600">Every version saved in Redis. It replaces this draft’s slides (undo works until you save). Older versions may have fewer details, like no plain versions.</p>
+              <h2 className="font-bold text-lg">Start from AI</h2>
+              <p className="text-sm text-slate-600">Copying replaces this draft’s slides (undo works until you save).</p>
             </div>
+
+            {/* The AI deck, made in the new slide format */}
+            <div className="p-4 border-b border-slate-200 flex flex-col gap-2">
+              <div className="flex items-center justify-between gap-2">
+                <div>
+                  <div className="text-sm font-semibold">AI deck (new slide format)</div>
+                  <div className="text-xs text-slate-500">
+                    {aiDeck === undefined ? 'Checking…'
+                      : aiDeck ? `${aiDeck.slides} slides in ${aiDeck.topics} topics · made ${when(aiDeck.at)}`
+                      : 'Not made yet for this lesson'}
+                  </div>
+                  <div className="flex flex-wrap gap-1 mt-1">
+                    {aiDeck && !live && <Tag tone="cyan">learners get this now (nothing published)</Tag>}
+                    {aiDeck && live && <Tag tone="slate">used if the live deck is taken down</Tag>}
+                    {aiDeck && deck.basedOn === `canvas_ai:${aiDeck.at ?? ''}` && <Tag tone="violet">this draft was copied from this</Tag>}
+                  </div>
+                </div>
+                <div className="flex gap-1 shrink-0">
+                  {aiDeck && <button className={btn} onClick={() => window.open(`/presentation?lesson=${encodeURIComponent(lessonId)}&preview=ai`, '_blank')}>Preview ↗</button>}
+                  {aiDeck && <button className={btn} onClick={copyAiDeck} disabled={!!aiGen}>Copy into draft</button>}
+                </div>
+              </div>
+              <button className={primary} onClick={generateAi} disabled={!!aiGen}>
+                {aiGen?.phase === 'writing' ? '✨ Writing the slides… (a few minutes)'
+                  : aiGen?.phase === 'audio' ? `🔊 Recording audio…${aiGen.remaining ? ` ${aiGen.remaining} left` : ''}`
+                  : aiDeck ? 'Make a new AI deck' : 'Make an AI deck'}
+              </button>
+              {aiNotes.length > 0 && (
+                <ul className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-md p-2 list-disc pl-5">
+                  {aiNotes.slice(0, 6).map((n, i) => <li key={i}>{n}</li>)}
+                </ul>
+              )}
+            </div>
+
+            <div className="px-4 pt-3 text-xs font-semibold uppercase tracking-wide text-slate-500">Older AI lessons (converted from the old format)</div>
             <div className="overflow-y-auto p-2">
               {versions.length === 0 ? (
-                <p className="p-4 text-sm text-slate-500">Looking in Redis…</p>
+                <p className="p-4 text-sm text-slate-500">None found in Redis.</p>
               ) : versions.map((v) => (
                 <button key={v.key} onClick={() => applyVersion(v)} className="w-full text-left px-3 py-2 rounded-md hover:bg-cyan-50 flex justify-between items-center">
                   <span className="text-sm font-medium flex flex-col">
                     {v.label}
                     <span className="flex flex-wrap gap-1 mt-0.5">
-                      {v.current && !live && <Tag tone="cyan">learners get this now (nothing published)</Tag>}
-                      {v.current && live && <Tag tone="slate">newest AI lesson (used if the live deck is taken down)</Tag>}
+                      {v.current && !live && !aiDeck && <Tag tone="cyan">learners get this now (nothing published)</Tag>}
+                      {v.current && (live || aiDeck) && <Tag tone="slate">newest old-format lesson</Tag>}
                       {live?.basedOn === v.key && <Tag tone="emerald">the live deck was copied from this</Tag>}
                       {deck.basedOn === v.key && <Tag tone="violet">this draft was copied from this</Tag>}
                     </span>

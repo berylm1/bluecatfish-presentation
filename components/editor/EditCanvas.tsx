@@ -128,6 +128,18 @@ export default function EditCanvas({
               {el.silent && (
                 <span className="absolute -top-0.5 -left-0.5 px-1 rounded-br bg-slate-700/70 text-[10px] text-white pointer-events-none">silent</span>
               )}
+              {/* Written by the AI (spoken words or plain version): a faint dashed purple outline and a tag */}
+              {(el.sayByAI || el.plainByAI) && (
+                <>
+                  {!isSel && <span className="absolute inset-0 rounded-sm border border-dashed border-violet-500/60 pointer-events-none" />}
+                  <span
+                    className="absolute -top-0.5 -right-0.5 px-1 rounded-bl bg-violet-600/75 text-[10px] text-white pointer-events-none"
+                    title={`AI-written: ${[el.sayByAI && 'spoken words', el.plainByAI && 'plain version'].filter(Boolean).join(' and ')}`}
+                  >
+                    ✨ AI
+                  </span>
+                </>
+              )}
               {isSel && HANDLES.map((h) => (
                 <span
                   key={h}

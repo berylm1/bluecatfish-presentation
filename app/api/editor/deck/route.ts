@@ -5,12 +5,12 @@ import { ensureLesson, isLessonId, listLessons, readDeck, writeDeck, type DeckKi
 
 export const dynamic = 'force-dynamic';
 
-// GET ?lesson=&kind=draft|live → that deck (or null). PUT { lesson, deck } → saves the draft.
+// GET ?lesson=&kind=draft|live|ai → that deck (or null). PUT { lesson, deck } → saves the draft.
 export async function GET(req: Request) {
   const params = new URL(req.url).searchParams;
   const lesson = params.get('lesson');
   const kind = (params.get('kind') ?? 'draft') as DeckKind;
-  if (!isLessonId(lesson) || !['draft', 'live'].includes(kind)) {
+  if (!isLessonId(lesson) || !['draft', 'live', 'ai'].includes(kind)) {
     return NextResponse.json({ error: 'Bad lesson or kind' }, { status: 400 });
   }
   return NextResponse.json({ deck: await readDeck(lesson, kind) }, { headers: { 'Cache-Control': 'no-store' } });

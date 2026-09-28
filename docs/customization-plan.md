@@ -97,11 +97,22 @@ There can be **several lessons**. Each lesson has up to three decks:
 
 ## AI decks
 
-- A new gpt-6-luna prompt explains the canvas format and places elements
-  freely.
-- The same fit and off-slide checks run on its output. A badly broken slide
-  is sent back once.
-- AI decks use images from the Supabase image library.
+- gpt-6-luna makes whole decks in the canvas format (`lib/canvas/generate.ts`):
+  plan 4–6 topics from the knowledge base, then lay out 3–5 slides per topic in
+  parallel (positions, styles, spoken words, plain versions), using images
+  from the library by their descriptions (ids, never invented URLs).
+- The prompt gives the model the same text-fit numbers the checker uses
+  (`lib/canvas/fitEstimate.ts`). Each slide is checked: text that won't fit
+  even shrunk, boxes off the slide, overlapping text, unknown images. A topic
+  with problems goes back to the AI once with the problems listed; what's
+  left is auto-fixed (overflowing boxes grow).
+- Made from the editor (Start from AI → Make an AI deck), stored in Redis as
+  the lesson's `ai` deck. Audio is then made by the save-time AI. Learners get
+  it when nothing is published; Preview and Copy into draft are in the same popup.
+- Presentation order: live deck → AI deck → (Blue Catfish only) the old AI
+  lesson converted.
+- In the editor, anything the AI wrote has a faint dashed purple outline and a
+  ✨ AI tag; AI-named topics have ✨ in the slide list.
 
 ## The editor (`/slideEditor`, computer only)
 

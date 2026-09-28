@@ -110,7 +110,7 @@ export function sanitizeDeck(raw: any, lessonId: string, source: Deck['source'])
     slides,
     recap: str(raw.recap, 4000),
     recapByAI: bool(raw.recapByAI),
-    basedOn: typeof raw.basedOn === 'string' && /^bluecatfish_[\w:.-]{1,120}$/.test(raw.basedOn) ? raw.basedOn : undefined,
+    basedOn: typeof raw.basedOn === 'string' && /^(bluecatfish_|canvas_ai:)[\w:.-]{1,120}$/.test(raw.basedOn) ? raw.basedOn : undefined,
     source,
   };
 }

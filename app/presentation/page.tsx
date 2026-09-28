@@ -16,8 +16,10 @@ import type { Deck } from '@/lib/canvas/types';
  *   /presentation                    → the default lesson
  *   /presentation?lesson=<id>        → another lesson
  *   /presentation?lesson=<id>&preview=1 → that lesson's saved draft (editors only)
+ *   /presentation?lesson=<id>&preview=ai → that lesson's AI deck (editors only)
  *   /presentation?lesson=sample      → the built-in sample deck
- * A lesson plays its published deck; with none, the AI lesson.
+ * A lesson plays its published deck; with none, its AI deck; with neither,
+ * the old AI lesson converted (Blue Catfish only).
  * Barge-in, the emotion check-in and tutor questions come in a later step.
  */
 
@@ -25,13 +27,13 @@ const NEXT_CLIP_ACK = 'Skipping that bit.';
 
 type Loaded = { deck: Deck; preview: boolean };
 
-async function loadDeck(lesson: string, preview: boolean): Promise<Loaded> {
+async function loadDeck(lesson: string, preview: 'draft' | 'ai' | null): Promise<Loaded> {
   if (lesson === 'sample') return { deck: SAMPLE_DECK, preview: false };
   if (preview) {
-    const res = await fetch(`/api/editor/deck?lesson=${encodeURIComponent(lesson)}&kind=draft`);
+    const res = await fetch(`/api/editor/deck?lesson=${encodeURIComponent(lesson)}&kind=${preview}`);
     if (res.status === 401) throw new Error('Previews are for editors: unlock the slide editor first.');
     const { deck } = await res.json();
-    if (!deck?.slides?.length) throw new Error('This draft has no saved slides yet.');
+    if (!deck?.slides?.length) throw new Error(preview === 'ai' ? 'This lesson has no AI deck yet.' : 'This draft has no saved slides yet.');
     return { deck, preview: true };
   }
   const res = await fetch(`/api/deck?lesson=${encodeURIComponent(lesson)}`);
@@ -49,7 +51,8 @@ export default function CanvasPresentation() {
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const lesson = params.get('lesson') || DEFAULT_LESSON.id;
-    loadDeck(lesson, params.get('preview') === '1')
+    const pv = params.get('preview');
+    loadDeck(lesson, pv === 'ai' ? 'ai' : pv ? 'draft' : null)
       .then(setLoaded)
       .catch((e) => setError(e instanceof Error ? e.message : String(e)));
   }, []);
@@ -137,7 +140,7 @@ function Player({ deck, preview }: { deck: Deck; preview: boolean }) {
   if (!started) {
     return (
       <main className="min-h-screen flex flex-col items-center justify-center gap-6 bg-gradient-to-br from-sky-950 via-slate-900 to-cyan-950 text-white p-6">
-        {preview && <div className="px-3 py-1 rounded-full bg-amber-400 text-slate-900 text-sm font-semibold">Preview of the saved draft</div>}
+        {preview && <div className="px-3 py-1 rounded-full bg-amber-400 text-slate-900 text-sm font-semibold">{deck.source === 'ai' ? 'Preview of the AI deck' : 'Preview of the saved draft'}</div>}
         <h1 className="text-4xl font-bold text-center">{deck.title}</h1>
         <p className="text-slate-300 text-center max-w-md">Turn your sound on. Say or type &quot;next&quot;, &quot;next slide&quot;, &quot;repeat&quot; or &quot;simpler please&quot; at any time.</p>
         <button onClick={() => setStarted(true)} className="px-8 py-4 rounded-2xl bg-cyan-400 hover:bg-cyan-300 text-slate-900 text-xl font-semibold">
