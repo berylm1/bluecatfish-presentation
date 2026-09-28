@@ -92,7 +92,7 @@ There can be **several lessons**. Each lesson has up to three decks:
 - Until AI decks are generated in the canvas format (step 5), the "AI deck" for
   the Blue Catfish lesson is the current AI lesson (`/api/slidesv2`) converted
   on the fly. New lessons have no AI fallback until then.
-- Backup tables: `supabase/migrations/005_canvas_decks.sql` (lessons, draft/live
+- Backup tables: `supabase/migrations/006_canvas_decks.sql` (lessons, draft/live
   decks, and a history of every publish).
 
 ## AI decks

@@ -22,7 +22,7 @@ export const isLessonId = (v: unknown): v is string => typeof v === 'string' && 
 function backupError(e: unknown): string {
   const msg = e instanceof Error ? e.message : String(e);
   return /canvas_(lessons|decks|deck_history)/.test(msg) && /exist|schema cache/i.test(msg)
-    ? 'Supabase backup tables are missing: run supabase/migrations/005_canvas_decks.sql in the Supabase SQL editor.'
+    ? 'Supabase backup tables are missing: run supabase/migrations/006_canvas_decks.sql in the Supabase SQL editor.'
     : `Supabase backup failed: ${msg}`;
 }
 

@@ -1,5 +1,5 @@
 -- ====================================================================
--- Blue Catfish — canvas slide decks (docs/customization-plan.md)
+-- Migration 006: Blue Catfish — canvas slide decks (docs/customization-plan.md)
 -- Backup copy of every hand-made deck. Decks are read from Redis; this
 -- table restores them if Redis ever loses one. Service role only.
 -- Run in the Supabase SQL editor. Safe to rerun.
