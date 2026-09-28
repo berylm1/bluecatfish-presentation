@@ -118,7 +118,9 @@ export function ElementInspector({
             <p className="text-xs text-slate-500">
               {order
                 ? <>Speaks <b>#{order}</b> on this slide.</>
-                : 'Won’t speak until it has spoken words. The AI will write them on save (next step); until then, type them here.'}
+                : el.type === 'image' && !el.alt?.trim()
+                  ? 'Won’t speak yet: give it a description (the AI writes its words from that when you save), or type the words here.'
+                  : 'Will speak once its words are written: the AI writes them when you save.'}
             </p>
             <div>
               <label className={label}>Spoken words <AiBadge show={el.sayByAI} /></label>
@@ -127,7 +129,7 @@ export function ElementInspector({
                 className={input}
                 value={el.say ?? ''}
                 placeholder={el.type === 'text'
-                  ? 'Leave blank: the AI writes this when you save. Until then the shown text is read out.'
+                  ? 'Leave blank: the AI writes this from the knowledge base when you save.'
                   : 'Leave blank: the AI writes this from the description when you save.'}
                 onChange={(e) => update({ say: e.target.value || undefined, sayByAI: undefined })}
               />

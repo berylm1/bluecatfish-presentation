@@ -125,6 +125,9 @@ export default function SlideCanvas({
         width,
         aspectRatio: '16 / 9',
         containerType: 'size',
+        // Own stacking context: element (and editor box) z-indexes stay inside
+        // the slide and can't rise above popups on the page
+        isolation: 'isolate',
         overflow: 'hidden',
         borderRadius: '1.5cqh',
         boxShadow: shadow ? '0 20px 60px rgba(2, 6, 23, 0.35)' : undefined,

@@ -2,6 +2,7 @@
 
 import { useCallback, useRef, useState } from 'react';
 import type { Deck, Slide, SlideElement } from '@/lib/canvas/types';
+import { applyPatches, type Patch } from '@/lib/canvas/aiFields';
 
 // The deck being edited, with undo/redo. Typing and dragging are grouped:
 // changes with the same `group` in quick succession make one undo step.
@@ -96,6 +97,21 @@ export function useEditorDeck(initial: Deck) {
     setDirty(markDirty);
   }, []);
 
+  /**
+   * AI results from the server: applied where they still fit, without an undo
+   * step or "unsaved changes" (the server already saved them). Applied to the
+   * undo history too, so undoing an edit doesn't throw the AI's work away.
+   */
+  const applyRemote = useCallback((patches: Patch[]) => {
+    if (!patches.length) return;
+    for (const snap of [...past.current, ...future.current]) applyPatches(snap, patches);
+    const next = structuredClone(deckRef.current);
+    if (applyPatches(next, patches) > 0) {
+      deckRef.current = next;
+      setDeck(next);
+    }
+  }, []);
+
   const slide = deck.slides[Math.min(slideIdx, deck.slides.length - 1)];
   const element: SlideElement | null = slide?.elements.find((e) => e.id === selected) ?? null;
 
@@ -116,7 +132,7 @@ export function useEditorDeck(initial: Deck) {
 
   return {
     deck, slide, slideIdx, setSlideIdx, element, selected, setSelected,
-    dirty, setDirty, change, undo, redo, reset, updateElement, updateSlide,
+    dirty, setDirty, change, undo, redo, reset, updateElement, updateSlide, applyRemote,
     canUndo: past.current.length > 0, canRedo: future.current.length > 0,
   };
 }

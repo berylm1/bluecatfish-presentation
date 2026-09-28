@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import EditCanvas from '@/components/editor/EditCanvas';
 import SlideList from '@/components/editor/SlideList';
 import ImageLibrary from '@/components/editor/ImageLibrary';
@@ -9,6 +9,7 @@ import { useEditorDeck, blankDeck, blankSlide, cloneSlide, newId } from '@/compo
 import { slideWarnings, type Warning } from '@/lib/canvas/checks';
 import { speakingOrder } from '@/lib/canvas/queue';
 import { deckFromAnyVersion } from '@/lib/canvas/fromLegacy';
+import { countTodo, todoTotal } from '@/lib/canvas/aiFields';
 import { DEFAULT_LESSON, type LessonInfo } from '@/lib/canvas/lessons';
 import type { Deck, SlideElement } from '@/lib/canvas/types';
 
@@ -18,11 +19,21 @@ import type { Deck, SlideElement } from '@/lib/canvas/types';
  * makes the draft the live deck that /presentation plays.
  */
 
-type LiveInfo = { at?: string; by?: string } | null;
+type LiveInfo = { at?: string; by?: string; basedOn?: string } | null;
 type Version = { key: string; label: string; slides: number; current: boolean };
 
 const btn = 'px-3 py-1.5 rounded-md text-sm font-medium border border-slate-300 bg-white hover:bg-slate-50 text-slate-800 disabled:opacity-40';
 const primary = 'px-3 py-1.5 rounded-md text-sm font-semibold bg-cyan-600 hover:bg-cyan-700 text-white disabled:opacity-40';
+
+const TAG_TONES = {
+  cyan: 'bg-cyan-100 text-cyan-800',
+  slate: 'bg-slate-100 text-slate-700',
+  emerald: 'bg-emerald-100 text-emerald-800',
+  violet: 'bg-violet-100 text-violet-800',
+};
+function Tag({ tone, children }: { tone: keyof typeof TAG_TONES; children: React.ReactNode }) {
+  return <span className={`px-1.5 py-0.5 rounded text-[11px] font-normal ${TAG_TONES[tone]}`}>{children}</span>;
+}
 
 const when = (iso?: string) =>
   iso ? new Date(iso).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : '';
@@ -74,6 +85,19 @@ export default function SlideEditorPage() {
     switchLesson(d.lesson.id);
   };
 
+  /** Returns an error message, or null once deleted (then opens the main lesson). */
+  const deleteLesson = async (id: string): Promise<string | null> => {
+    const d = await fetch('/api/editor/lessons', {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id }),
+    }).then((r) => r.json()).catch(() => ({ error: 'Could not reach the server' }));
+    if (d.error) return d.error;
+    setLessons((l) => l.filter((x) => x.id !== id));
+    switchLesson(DEFAULT_LESSON.id);
+    return null;
+  };
+
   if (error) return <div className="p-10 text-red-700">Could not open the editor: {error}</div>;
   if (!initial || !lessonId) return <div className="p-10 text-slate-600">Opening the editor…</div>;
   return (
@@ -86,13 +110,15 @@ export default function SlideEditorPage() {
       savedBy={initial.savedBy}
       onSwitchLesson={switchLesson}
       onNewLesson={newLesson}
+      onDeleteLesson={deleteLesson}
     />
   );
 }
 
 function Editor({
-  lessonId, lessons, initial, savedAt: initialSavedAt, savedBy: initialSavedBy, onSwitchLesson, onNewLesson,
+  lessonId, lessons, initial, savedAt: initialSavedAt, savedBy: initialSavedBy, onSwitchLesson, onNewLesson, onDeleteLesson,
 }: {
+  onDeleteLesson: (id: string) => Promise<string | null>;
   lessonId: string;
   lessons: LessonInfo[];
   initial: Deck;
@@ -109,6 +135,9 @@ function Editor({
   const [notice, setNotice] = useState<{ text: string; tone: 'ok' | 'warn' | 'error' } | null>(null);
   const [live, setLive] = useState<LiveInfo | undefined>(undefined);
   const [versions, setVersions] = useState<Version[] | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState<{ busy: boolean; error?: string } | null>(null);
+  const versionsOpen = useRef(false);
+  versionsOpen.current = versions !== null || confirmDelete !== null;
   const [overflow, setOverflow] = useState<Record<string, string[]>>({});
 
   const flash = useCallback((text: string, tone: 'ok' | 'warn' | 'error' = 'ok') => {
@@ -119,7 +148,7 @@ function Editor({
   const loadLive = useCallback(() => {
     fetch(`/api/editor/deck?lesson=${encodeURIComponent(lessonId)}&kind=live`)
       .then((r) => r.json())
-      .then((d) => setLive(d.deck ? { at: d.deck.updatedAt, by: d.deck.updatedBy } : null))
+      .then((d) => setLive(d.deck ? { at: d.deck.updatedAt, by: d.deck.updatedBy, basedOn: d.deck.basedOn } : null))
       .catch(() => setLive(null));
   }, [lessonId]);
   useEffect(loadLive, [loadLive]);
@@ -166,6 +195,7 @@ function Editor({
       setSaved({ at: d.savedAt, by: d.by });
       if (d.warning) flash(`Saved, but: ${d.warning}`, 'warn');
       else flash('Saved');
+      runAi();   // fill in blanks and make audio for what changed, in the background
       return true;
     } catch (e) {
       flash(e instanceof Error ? e.message : String(e), 'error');
@@ -173,7 +203,48 @@ function Editor({
     } finally {
       setSaving(false);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [deck, lessonId, ed, flash]);
+
+  /* ----------------------------------------------------- save-time AI */
+
+  // Runs /api/editor/prepare until nothing is left (each call works ~40s).
+  // A save while it runs just queues one more pass.
+  const [ai, setAi] = useState<{ running: boolean; remaining: number; errors: string[] }>({ running: false, remaining: 0, errors: [] });
+  const aiRun = useRef<Promise<void> | null>(null);
+  const aiAgain = useRef(false);
+  const todoHere = useMemo(() => todoTotal(countTodo(deck)), [deck]);
+
+  const runAi = useCallback((): Promise<void> => {
+    if (aiRun.current) { aiAgain.current = true; return aiRun.current; }
+    const run = (async () => {
+      setAi((a) => ({ ...a, running: true, errors: [] }));
+      let errors: string[] = [];
+      try {
+        do {
+          aiAgain.current = false;
+          for (let pass = 0; pass < 30; pass++) {
+            const res = await fetch('/api/editor/prepare', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ lesson: lessonId }),
+            });
+            const d = await res.json().catch(() => ({ error: `The AI step failed (${res.status})` }));
+            if (d.error) { errors = [d.error]; break; }
+            ed.applyRemote(d.patches ?? []);
+            errors = d.errors ?? [];
+            setAi({ running: true, remaining: d.remaining ?? 0, errors });
+            if (!d.remaining || !d.patches?.length) break;   // done, or stuck (errors say why)
+          }
+        } while (aiAgain.current);
+      } finally {
+        setAi((a) => ({ ...a, running: false, errors }));
+        aiRun.current = null;
+      }
+    })();
+    aiRun.current = run;
+    return run;
+  }, [lessonId, ed]);
 
   const preview = async () => {
     if (ed.dirty && !(await save())) return;
@@ -187,6 +258,11 @@ function Editor({
       : 'Publish? Learners will see this deck instead of the AI lesson.';
     if (!window.confirm(ask)) return;
     if (ed.dirty && !(await save())) return;
+    // Learners should get finished words and audio: let the AI finish first
+    if (todoHere > 0 || aiRun.current) {
+      flash('Finishing the spoken words and audio before publishing…', 'warn');
+      await runAi();
+    }
     const d = await fetch('/api/editor/publish', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -227,7 +303,7 @@ function Editor({
       const d = await fetch(`/api/editor/ai-versions?key=${encodeURIComponent(v.key)}`).then((r) => r.json());
       if (d.error) throw new Error(d.error);
       const converted = deckFromAnyVersion(d.data, lessonId, deck.title);
-      ed.change((draft) => { draft.slides = converted.slides; draft.recap = converted.recap; });
+      ed.change((draft) => { draft.slides = converted.slides; draft.recap = converted.recap; draft.basedOn = v.key; });
       ed.setSlideIdx(0);
       ed.setSelected(null);
       setVersions(null);
@@ -296,6 +372,10 @@ function Editor({
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      if (versionsOpen.current) {   // a popup is open: only Escape, to close it
+        if (e.key === 'Escape') { setVersions(null); setConfirmDelete(null); }
+        return;
+      }
       const typing = ['INPUT', 'TEXTAREA', 'SELECT'].includes((e.target as HTMLElement)?.tagName);
       const mod = e.ctrlKey || e.metaKey;
       if (mod && e.key.toLowerCase() === 's') { e.preventDefault(); save(); return; }
@@ -345,8 +425,23 @@ function Editor({
           {lessons.map((l) => <option key={l.id} value={l.id}>{l.title}</option>)}
           <option value="__new">+ New lesson…</option>
         </select>
+        {lessonId !== DEFAULT_LESSON.id && (
+          <button className={`${btn} text-red-600`} onClick={() => setConfirmDelete({ busy: false })} title="Delete this lesson">Delete lesson</button>
+        )}
         <span className="text-xs text-slate-500 min-w-40">
           {saving ? 'Saving…' : ed.dirty ? <span className="text-amber-700 font-medium">Unsaved changes</span> : saved.at ? `Saved ${when(saved.at)}${saved.by ? ` by ${saved.by}` : ''}` : 'Not saved yet'}
+        </span>
+        <span
+          className={`text-xs px-2 py-1 rounded-md ${ai.running ? 'bg-violet-100 text-violet-800' : ai.errors.length ? 'bg-red-100 text-red-800' : todoHere ? 'bg-amber-50 text-amber-800' : 'bg-emerald-50 text-emerald-800'}`}
+          title={ai.errors.join('\n') || 'Spoken words, plain versions, topics and audio the AI fills in when you save'}
+        >
+          {ai.running
+            ? `✨ AI writing & recording… ${ai.remaining ? `${ai.remaining} left` : ''}`
+            : ai.errors.length
+              ? `⚠ AI step had problems (hover)`
+              : todoHere
+                ? `${todoHere} to write/record: Save to start`
+                : '✓ Words & audio ready'}
         </span>
         <div className="w-px h-6 bg-slate-200" />
         <button className={btn} onClick={ed.undo} disabled={!ed.canUndo} title="Undo (Ctrl+Z)">↶ Undo</button>
@@ -440,9 +535,36 @@ function Editor({
         </aside>
       </div>
 
+      {/* Delete lesson: confirm first */}
+      {confirmDelete && (
+        <div className="fixed inset-0 z-[1000] bg-black/40 flex items-center justify-center p-6" onClick={() => !confirmDelete.busy && setConfirmDelete(null)}>
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-md p-6 flex flex-col gap-4" onClick={(e) => e.stopPropagation()} role="alertdialog" aria-labelledby="delete-title">
+            <h2 id="delete-title" className="font-bold text-lg">Delete “{lessons.find((l) => l.id === lessonId)?.title ?? lessonId}”?</h2>
+            <p className="text-sm text-slate-600">
+              This deletes the lesson with its draft, its live deck and its publish history. Learners can no longer open it. This can’t be undone.
+            </p>
+            {confirmDelete.error && <p className="text-sm text-red-600">{confirmDelete.error}</p>}
+            <div className="flex justify-end gap-2">
+              <button className={btn} onClick={() => setConfirmDelete(null)} disabled={confirmDelete.busy} autoFocus>Cancel</button>
+              <button
+                className="px-3 py-1.5 rounded-md text-sm font-semibold bg-red-600 hover:bg-red-700 text-white disabled:opacity-50"
+                disabled={confirmDelete.busy}
+                onClick={async () => {
+                  setConfirmDelete({ busy: true });
+                  const err = await onDeleteLesson(lessonId);
+                  setConfirmDelete(err ? { busy: false, error: err } : null);
+                }}
+              >
+                {confirmDelete.busy ? 'Deleting…' : 'Yes, delete it'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Start from AI: every lesson version in Redis */}
       {versions && (
-        <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-6" onClick={() => setVersions(null)}>
+        <div className="fixed inset-0 z-[1000] bg-black/40 flex items-center justify-center p-6" onClick={() => setVersions(null)}>
           <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg max-h-[80vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
             <div className="p-4 border-b border-slate-200">
               <h2 className="font-bold text-lg">Start from an AI lesson</h2>
@@ -453,7 +575,15 @@ function Editor({
                 <p className="p-4 text-sm text-slate-500">Looking in Redis…</p>
               ) : versions.map((v) => (
                 <button key={v.key} onClick={() => applyVersion(v)} className="w-full text-left px-3 py-2 rounded-md hover:bg-cyan-50 flex justify-between items-center">
-                  <span className="text-sm font-medium">{v.label}{v.current && <span className="ml-2 text-xs text-cyan-700">(current AI lesson)</span>}</span>
+                  <span className="text-sm font-medium flex flex-col">
+                    {v.label}
+                    <span className="flex flex-wrap gap-1 mt-0.5">
+                      {v.current && !live && <Tag tone="cyan">learners get this now (nothing published)</Tag>}
+                      {v.current && live && <Tag tone="slate">newest AI lesson (used if the live deck is taken down)</Tag>}
+                      {live?.basedOn === v.key && <Tag tone="emerald">the live deck was copied from this</Tag>}
+                      {deck.basedOn === v.key && <Tag tone="violet">this draft was copied from this</Tag>}
+                    </span>
+                  </span>
                   <span className="text-xs text-slate-500">{v.slides} slides</span>
                 </button>
               ))}

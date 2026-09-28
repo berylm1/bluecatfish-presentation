@@ -17,6 +17,7 @@ const color = (v: unknown): string | undefined =>
   typeof v === 'string' && /^#[0-9a-f]{3,8}$|^rgba?\([\d\s.,%]+\)$/i.test(v.trim()) ? v.trim() : undefined;
 export const safeUrl = (v: unknown): string | undefined =>
   typeof v === 'string' && (/^https:\/\/[^\s"'<>]+$/i.test(v) || /^\/[^/\s"'<>][^\s"'<>]*$/.test(v)) ? v.slice(0, 2000) : undefined;
+const tag = (v: unknown): string | undefined => (typeof v === 'string' && /^[a-z0-9]{1,16}$/.test(v) ? v : undefined);
 const id = (v: unknown, fallback: string): string =>
   typeof v === 'string' && /^[\w-]{1,64}$/.test(v) ? v : fallback;
 
@@ -39,6 +40,10 @@ function element(raw: any, fallbackId: string): SlideElement | null {
     plainByAI: bool(raw.plainByAI),
     audioUrl: safeUrl(raw.audioUrl),
     plainAudioUrl: safeUrl(raw.plainAudioUrl),
+    sayFrom: tag(raw.sayFrom),
+    plainFrom: tag(raw.plainFrom),
+    audioFor: tag(raw.audioFor),
+    plainAudioFor: tag(raw.plainAudioFor),
   };
   if (raw.type === 'text') {
     const el: TextElement = {
@@ -84,6 +89,7 @@ function slide(raw: any, i: number): Slide {
     id: id(raw?.id, `s${i}`),
     topic: str(raw?.topic, 200),
     topicByAI: bool(raw?.topicByAI),
+    topicFrom: tag(raw?.topicFrom),
     background: background.color || background.image ? background : undefined,
     elements,
   };
@@ -103,6 +109,8 @@ export function sanitizeDeck(raw: any, lessonId: string, source: Deck['source'])
     title: str(raw.title, 200) ?? lessonId,
     slides,
     recap: str(raw.recap, 4000),
+    recapByAI: bool(raw.recapByAI),
+    basedOn: typeof raw.basedOn === 'string' && /^bluecatfish_[\w:.-]{1,120}$/.test(raw.basedOn) ? raw.basedOn : undefined,
     source,
   };
 }

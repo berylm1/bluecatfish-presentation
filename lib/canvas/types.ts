@@ -25,6 +25,11 @@ interface ElementBase {
   /** Pre-made clips (made when the slide is saved). Missing → spoken live. */
   audioUrl?: string;
   plainAudioUrl?: string;
+  // Fingerprints of what the AI-made fields were made from (lib/canvas/aiFields.ts)
+  sayFrom?: string;
+  plainFrom?: string;
+  audioFor?: string;
+  plainAudioFor?: string;
 }
 
 export interface TextElement extends ElementBase {
@@ -51,6 +56,7 @@ export interface Slide {
   /** Editor-only. Consecutive slides with the same topic form one topic. */
   topic?: string;
   topicByAI?: boolean;
+  topicFrom?: string;
   background?: { color?: string; image?: string };
   elements: SlideElement[];
 }
@@ -62,6 +68,9 @@ export interface Deck {
   /** End-of-lesson recap, written by the AI on publish. */
   recap?: string;
   source: 'hand' | 'ai';
+  /** The AI lesson version (Redis key) this deck was copied from with "Start from AI". */
+  basedOn?: string;
+  recapByAI?: boolean;
   updatedAt?: string;
   updatedBy?: string;
 }

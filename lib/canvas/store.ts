@@ -57,6 +57,22 @@ export async function ensureLesson(lesson: LessonInfo, by?: string): Promise<str
   }
 }
 
+/** Removes a lesson with its draft and live decks (the publish history goes too). */
+export async function deleteLesson(id: string): Promise<string | null> {
+  const lessons = (await listLessons()).filter((l) => l.id !== id);
+  await setValue(LESSONS_KEY, JSON.stringify(lessons));
+  await setValue(deckKey(id, 'draft'), '');
+  await setValue(deckKey(id, 'live'), '');
+  try {
+    // canvas_decks and canvas_deck_history rows go with it (on delete cascade)
+    const { error } = await supabase.from('canvas_lessons').delete().eq('id', id);
+    if (error) throw new Error(error.message);
+    return null;
+  } catch (e) {
+    return backupError(e);
+  }
+}
+
 /* ------------------------------------------------------------------ decks */
 
 export async function readDeck(lesson: string, kind: DeckKind): Promise<Deck | null> {

@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { Deck, SlideElement } from '@/lib/canvas/types';
 import { speakingOrder, spokenText, topicIndexes } from '@/lib/canvas/queue';
+import { currentAudio } from '@/lib/canvas/aiFields';
 
 const AFTER_SLIDE_MS = 1500;    // pause after a slide's last clip before moving on
 const SILENT_SLIDE_MS = 5000;   // a slide with nothing to say stays up this long
@@ -51,7 +52,8 @@ export function useDeckPlayer(deck: Deck, started: boolean) {
   const speaking = status === 'playing' || status === 'loading' || status === 'paused';
 
   const clipUrl = useCallback((el: SlideElement, mode: Pos['mode']) => {
-    const premade = mode === 'plain' ? el.plainAudioUrl : el.audioUrl;
+    // A pre-made clip only if it says exactly the current words (edited words get a new clip on save)
+    const premade = currentAudio(el, mode);
     if (premade) return Promise.resolve<string | null>(premade);
     // No plain version yet (it's written when the slide is saved): replay the clip calmly
     const text = mode === 'plain' ? el.plain?.trim() || spokenText(el) : spokenText(el);

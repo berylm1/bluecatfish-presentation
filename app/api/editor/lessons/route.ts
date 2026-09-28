@@ -1,10 +1,12 @@
 import { NextResponse } from 'next/server';
 import { editorName } from '@/lib/editorAuth';
-import { ensureLesson, listLessons } from '@/lib/canvas/store';
+import { deleteLesson, ensureLesson, isLessonId, listLessons } from '@/lib/canvas/store';
+import { DEFAULT_LESSON } from '@/lib/canvas/lessons';
 
 export const dynamic = 'force-dynamic';
 
 // GET → every lesson. POST { title } → creates one (id made from the title).
+// DELETE { id } → deletes a lesson and its decks (not the main lesson).
 export async function GET() {
   return NextResponse.json({ lessons: await listLessons() });
 }
@@ -19,4 +21,14 @@ export async function POST(req: Request) {
   for (let n = 2; taken.has(id); n++) id = `${base}-${n}`;
   const warning = await ensureLesson({ id, title: clean }, await editorName(req));
   return NextResponse.json({ lesson: { id, title: clean }, warning });
+}
+
+export async function DELETE(req: Request) {
+  const { id } = await req.json().catch(() => ({}));
+  if (!isLessonId(id)) return NextResponse.json({ error: 'Bad lesson' }, { status: 400 });
+  if (id === DEFAULT_LESSON.id) {
+    return NextResponse.json({ error: `“${DEFAULT_LESSON.title}” is the lesson the home page plays, so it can’t be deleted. You can take its live deck down instead.` }, { status: 400 });
+  }
+  const warning = await deleteLesson(id);
+  return NextResponse.json({ ok: true, warning });
 }

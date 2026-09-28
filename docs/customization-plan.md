@@ -43,6 +43,13 @@ built. Once the new page does everything v2 does, the site switches to it.
   it yours; clearing it lets the AI write it again.
 - Audio is made in the background when a slide is saved, only for elements
   whose words changed. Preview and Publish are then instant.
+- How it knows what changed: every AI-made field keeps a fingerprint of what
+  it was made from (the box's text, the spoken words, the exact words + voice
+  of a clip). Change the source and the AI version is redone on the next save;
+  a clip only plays if it says exactly the current words. Clips are stored in
+  Supabase `slide-audio/canvas/<fingerprint>.mp3`, so identical words are
+  recorded once (lib/canvas/aiFields.ts, lib/canvas/prepare.ts).
+- Publish waits for the AI to finish, then writes the recap.
 
 ## Commands
 
@@ -100,6 +107,7 @@ There can be **several lessons**. Each lesson has up to three decks:
 
 - Drag and resize boxes on a real-size slide. Type text. Pick a style.
 - Slides: add, duplicate, delete, drag to reorder. Undo.
+- Lessons: create, switch, delete (with a confirm step; the main lesson can't be deleted).
 - Image sidebar: the images already in Supabase, with search. Dragging one onto
   the slide brings its description with it. **Upload** runs a new image through
   the existing image pipeline so it gets a description automatically.

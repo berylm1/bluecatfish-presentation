@@ -1,4 +1,5 @@
 import type { Deck, Slide, SlideElement } from './types';
+import { fingerprint, sayBasis } from './aiFields';
 
 // Turns the current AI lesson (the /api/slidesv2 sections that /presentationv2
 // plays) into canvas slides. Until AI decks are generated in the canvas format
@@ -77,13 +78,19 @@ function stepSlide(sec: LegacySection, st: LegacyStep, si: number, i: number, j:
       els.push({ id: `${id}-body`, type: 'text', x: 8, y: 24, w: 84, h: 64, text: shown, style: 'body', color: INK, say, plain });
     }
   }
+  // The old lesson's words were written by the AI: mark them so, and remember
+  // what they were written from, so editing the box's text gets them rewritten
+  for (const el of els) {
+    if (el.say) Object.assign(el, { sayByAI: true, sayFrom: fingerprint(sayBasis(el)) });
+    if (el.plain && el.say) Object.assign(el, { plainByAI: true, plainFrom: fingerprint(el.say) });
+  }
   return { id, topic: sec.title, background: { color: BACKGROUNDS[si % BACKGROUNDS.length] }, elements: els };
 }
 
 export function deckFromLegacy(sections: LegacySection[], lessonId: string, title: string): Deck {
   const slides = sections.flatMap((sec, i) => (sec.steps ?? []).map((st, j) => stepSlide(sec, st, i, i, j)));
   const recap = sections.map((s) => s.recap).filter(Boolean).join(' ');
-  return { lessonId, title, slides, recap: recap || undefined, source: 'ai' };
+  return { lessonId, title, slides, recap: recap || undefined, recapByAI: true, source: 'ai' };
 }
 
 /**
