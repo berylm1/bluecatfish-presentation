@@ -565,7 +565,7 @@ type AskUI = {
   onType: () => void;        // "Type it instead"
 };
 
-type VariantSlide = { title: string; body: string; narration: string; audio_url: string | null; variant?: string };
+type VariantSlide = { title: string; body: string; narration: string; audio_url: string | null; variant?: string; image_url?: string | null };
 
 function VariantSlideOverlay({
   variant,
@@ -582,6 +582,13 @@ function VariantSlideOverlay({
           Professor Marine · a different way to see it
         </div>
         <h2 className="text-3xl font-bold text-white mb-5">{variant.title}</h2>
+        {variant.image_url && (
+          <img
+            src={variant.image_url}
+            alt={variant.title}
+            className="w-full rounded-xl border border-cyan-500/30 shadow-lg mb-5"
+          />
+        )}
         <p className="text-xl leading-relaxed text-blue-100 mb-8">{variant.body}</p>
         <button
           onClick={onDone}
