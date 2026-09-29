@@ -12,6 +12,10 @@ export const CUE_TEXT = {
   cue_confused: "You look puzzled. Want me to go over that a different way? Say yes, or tell me exactly what's tripping you up.",
   cue_bored: "You've gone quiet on me. Should I pick up the pace? Say yes, or tell me what's on your mind.",
   cue_listening: "I'm listening.",
+  cue_intro: "Hey! I'm Professor Marine. Let's dive in.",
+  cue_selfCheck: 'How did that section go?',
+  cue_conclusionIntro: "Let's take a moment to look back at everything we covered today.",
+  cue_conclusionOutro: "And that's the whole story. Thanks for joining me.",
 } as const;
 
 export type CueKey = keyof typeof CUE_TEXT;

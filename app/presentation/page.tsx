@@ -1,20 +1,21 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import SlideCanvas from '@/components/canvas/SlideCanvas';
 import { useDeckPlayer } from '@/components/canvas/useDeckPlayer';
 import { useListener } from '@/components/canvas/useListener';
 import Transcript from '@/components/canvas/Transcript';
 import { useTutor } from '@/components/canvas/useTutor';
 import MicMeter from '@/components/canvas/MicMeter';
-import { parseCanvasCommand, findSlide } from '@/lib/canvas/commands';
+import { parseCanvasCommand, findSlide, searchByMeaning } from '@/lib/canvas/commands';
 import { useCues } from '@/components/canvas/useCues';
 import { useLessonTracking } from '@/components/canvas/useLessonTracking';
 import VariantOverlay, { type Variant } from '@/components/canvas/VariantOverlay';
 import { useEmotionWatcher, type LearnerEmotion } from '@/components/hooks/useEmotionWatcher';
 import { useHandRaise } from '@/components/hooks/useHandRaise';
 import { useFacePresence } from '@/components/hooks/useFacePresence';
-import { describeForTutor } from '@/lib/learnerState';
+import { describeForTutor, type SelfCheckRating } from '@/lib/learnerState';
+import { topicIndexes } from '@/lib/canvas/queue';
 import { CUE_TEXT, type CueKey } from '@/lib/canvas/cues';
 import { loadDeck, type Loaded } from '@/lib/canvas/loadDeck';
 import { DEFAULT_LESSON } from '@/lib/canvas/lessons';
@@ -78,10 +79,20 @@ function Player({ deck, preview }: { deck: Deck; preview: boolean }) {
   const [showTranscript, setShowTranscript] = useState(true);   // top-right text of what's being said
   const [variant, setVariant] = useState<Variant | null>(null);
   const [mood, setMood] = useState<LearnerEmotion | null>(null);
+  const [introDone, setIntroDone] = useState(false);
+  // Between topics: "How did that section go?" (from = last slide of the topic, to = where next)
+  const [selfCheck, setSelfCheck] = useState<{ from: number; to: number } | null>(null);
+  const checked = useRef(new Set<number>());   // topic-end slides already asked about
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const player = useDeckPlayer(deck, started);
+  const topicOf = useMemo(() => topicIndexes(deck.slides), [deck]);
+  const player = useDeckPlayer(deck, started && introDone, {
+    holdBefore: (from, to) => !checked.current.has(from) && (to >= deck.slides.length || topicOf[to] !== topicOf[from]),
+    onHold: (from, to) => { setSelfCheck({ from, to }); cuesRef.current?.play('cue_selfCheck'); },
+  });
   const tutor = useTutor();
   const cues = useCues(started);
+  const cuesRef = useRef(cues);
+  cuesRef.current = cues;
   const tracking = useLessonTracking(deck, started, player.slideIndex, player.status === 'finished');
   // Async steps (an answer or a cue finished) must act on the latest player, not the one from when they began
   const playerRef = useRef(player);
@@ -137,7 +148,7 @@ function Player({ deck, preview }: { deck: Deck; preview: boolean }) {
    * is one (e.g. the authored PDF deck slide), otherwise play the plain
    * version of what was just said.
    */
-  const confused = useCallback(async () => {
+  const confused = useCallback(async (after?: () => void) => {
     tracking.track('confusion_click', {}, { confusion_marks: 1 });
     const p = playerRef.current;
     if (SPEAKING.includes(p.status)) p.pause();
@@ -151,19 +162,36 @@ function Player({ deck, preview }: { deck: Deck; preview: boolean }) {
     if (found) {
       tracking.track('tutor_decision', { action: 'variant', variant: found.variant, title: found.title });
       setVariant(found);
+      variantAfter.current = after ?? null;
       const ok = await cues.play({ text: found.narration, url: found.audio_url });
-      if (ok) { setVariant(null); playerRef.current.resume(); }
+      if (ok) closeVariant();
       return;
     }
     tracking.track('tutor_decision', { action: 'plain' });
     act('cmd_simplify', () => playerRef.current.simplify());
   }, [deck, slideText, tracking, cues, act]);
 
-  const closeVariant = useCallback(() => {
+  const variantAfter = useRef<(() => void) | null>(null);   // what happens once the variant slide is done
+  function closeVariant() {
     cues.stop();
     setVariant(null);
-    playerRef.current.resume();
-  }, [cues]);
+    const after = variantAfter.current;
+    variantAfter.current = null;
+    if (after) after();
+    else playerRef.current.resume();
+  }
+
+  /** The self-check answer: noted for the topic; "lost me" gets another way to see it first. */
+  const answerSelfCheck = useCallback((rating: SelfCheckRating) => {
+    const sc = selfCheck;
+    if (!sc) return;
+    tracking.track('self_check', { rating }, { self_check: rating });
+    checked.current.add(sc.from);
+    setSelfCheck(null);
+    cues.stop();
+    if (rating === 'lost') confused(() => playerRef.current.goToSlide(sc.to));
+    else playerRef.current.goToSlide(sc.to);
+  }, [selfCheck, tracking, cues, confused]);
 
   // Paused on purpose before talking? Then a turn with nothing in it leaves it paused
   const resumeAfterTurn = useRef(true);
@@ -171,8 +199,14 @@ function Player({ deck, preview }: { deck: Deck; preview: boolean }) {
   const checkIn = useRef<LearnerEmotion | null>(null);
 
   const handleText = useCallback((text: string) => {
+    if (selfCheck) {
+      const t = text.toLowerCase();
+      if (/\b(lost|confus|no\b|nope|didn'?t|don'?t)/.test(t)) return answerSelfCheck('lost');
+      if (/\b(kind of|kinda|sort of|sorta|a bit|a little|maybe|so so|okay-ish|meh)\b/.test(t)) return answerSelfCheck('kind');
+      if (/\b(got it|yes|yeah|yep|good|great|easy|fine|sure|understood|next|continue|go on)\b/.test(t)) return answerSelfCheck('got');
+    }
     const cmd = parseCanvasCommand(text);
-    if (variant) { cues.stop(); setVariant(null); }
+    if (variant) { cues.stop(); setVariant(null); variantAfter.current = null; }
     if (!cmd) { answer(text); return; }
     if (tutorBusy) tutor.cancel();   // a command ends the answer
     const command = (kind: string, patch?: Parameters<typeof tracking.track>[2]) =>
@@ -197,14 +231,18 @@ function Player({ deck, preview }: { deck: Deck; preview: boolean }) {
         act('cmd_simplify', () => playerRef.current.simplify());
         break;
       case 'goTo': {
-        const target = findSlide(deck, cmd.query, p.slideIndex);
-        if (target !== null) { command('goTo', { jumps: 1 }); act('cmd_goto', () => playerRef.current.goToSlide(target)); }
-        else if (cmd.soft) answer(text);   // "tell me about X": not on a slide, so the professor answers
-        else act('cmd_notFound', () => playerRef.current.resume());
+        const go = (target: number | null) => {
+          if (target !== null) { command('goTo', { jumps: 1 }); act('cmd_goto', () => playerRef.current.goToSlide(target)); }
+          else if (cmd.soft) answer(text);   // "tell me about X": not on a slide, so the professor answers
+          else act('cmd_notFound', () => playerRef.current.resume());
+        };
+        const quick = findSlide(deck, cmd.query, p.slideIndex);
+        if (quick !== null) go(quick);
+        else searchByMeaning(deck, cmd.query).then(go);   // keywords weren't sure: search by meaning
         break;
       }
     }
-  }, [deck, player, act, answer, confused, tutor, tutorBusy, tracking, variant, cues]);
+  }, [deck, player, act, answer, confused, tutor, tutorBusy, tracking, variant, cues, selfCheck, answerSelfCheck]);
 
   // Barge-in: with interruptions on, starting to talk over the professor (or
   // over an answer) makes them finish the sentence, then stop and listen.
@@ -234,6 +272,19 @@ function Player({ deck, preview }: { deck: Deck; preview: boolean }) {
       else if (resumeAfterTurn.current && !tutor.thinking) playerRef.current.resume();
     },
   });
+
+  // The end: "Let's look back…", the recap, and a goodbye
+  const { play: playCue, stop: stopCue } = cues;   // stable, unlike `cues` (which changes as lines start and stop)
+  useEffect(() => {
+    if (player.status !== 'finished') return;
+    let cancelled = false;
+    (async () => {
+      if (!(await playCue('cue_conclusionIntro')) || cancelled) return;
+      if (deck.recap && (!(await playCue({ text: deck.recap })) || cancelled)) return;
+      await playCue('cue_conclusionOutro');
+    })();
+    return () => { cancelled = true; stopCue(); };
+  }, [player.status, deck.recap, playCue, stopCue]);
 
   /* ------------------------------------------------ camera: the instructor notices */
 
@@ -285,16 +336,16 @@ function Player({ deck, preview }: { deck: Deck; preview: boolean }) {
       if (SPEAKING.includes(p.status) && !tutorBusy) {
         p.pause();
         awayPaused.current = true;
-        cues.play('cue_away');
+        playCue('cue_away');
       }
     } else {
       tracking.track('presence_back');
       if (awayPaused.current) {
         awayPaused.current = false;
-        cues.play('cue_back').then((ok) => { if (ok) playerRef.current.resume(); });
+        playCue('cue_back').then((ok) => { if (ok) playerRef.current.resume(); });
       }
     }
-  }, [present, cameraOn, started, tracking, cues, tutorBusy]);
+  }, [present, cameraOn, started, tracking, playCue, tutorBusy]);
 
   // Keyboard: → next clip, Shift+→ / PageDown next slide, ← previous slide,
   // space pause/resume, R repeat, S simpler
@@ -322,7 +373,13 @@ function Player({ deck, preview }: { deck: Deck; preview: boolean }) {
         {preview && <div className="px-3 py-1 rounded-full bg-amber-400 text-slate-900 text-sm font-semibold">{deck.source === 'ai' ? 'Preview of the AI deck' : 'Preview of the saved draft'}</div>}
         <h1 className="text-4xl font-bold text-center">{deck.title}</h1>
         <p className="text-slate-300 text-center max-w-md">Turn your sound on. Ask the professor anything, or say &quot;next&quot;, &quot;next slide&quot;, &quot;repeat&quot; or &quot;simpler please&quot; at any time.</p>
-        <button onClick={() => setStarted(true)} className="px-8 py-4 rounded-2xl bg-cyan-400 hover:bg-cyan-300 text-slate-900 text-xl font-semibold">
+        <button
+          onClick={() => {
+            setStarted(true);
+            cues.play('cue_intro').finally(() => setIntroDone(true));
+          }}
+          className="px-8 py-4 rounded-2xl bg-cyan-400 hover:bg-cyan-300 text-slate-900 text-xl font-semibold"
+        >
           Start Lesson
         </button>
       </main>
@@ -334,9 +391,11 @@ function Player({ deck, preview }: { deck: Deck; preview: boolean }) {
 
   return (
     <main className="min-h-screen flex flex-col items-center justify-center gap-4 bg-gradient-to-br from-sky-950 via-slate-900 to-cyan-950 text-white px-4 py-4">
-      {showTranscript && (tutor.speaking || tutor.thinking
-        ? <Transcript speaker="Professor Marine · answering" text={tutor.exchange?.answer ?? ''} />
-        : <Transcript speaker={player.mode === 'plain' ? 'Professor Marine · plain version' : 'Professor Marine'} text={player.captionText} getAudio={player.getAudio} />)}
+      {showTranscript && (cues.saying
+        ? <Transcript speaker="Professor Marine" text={cues.saying} />
+        : tutor.speaking || tutor.thinking
+          ? <Transcript speaker="Professor Marine · answering" text={tutor.exchange?.answer ?? ''} />
+          : !selfCheck && <Transcript speaker={player.mode === 'plain' ? 'Professor Marine · plain version' : 'Professor Marine'} text={player.captionText} getAudio={player.getAudio} />)}
       <div className="text-xs uppercase tracking-widest text-cyan-200/70">
         {preview && <span className="mr-2 text-amber-300">Preview ·</span>}
         Topic {player.topicIndex + 1} of {player.topicCount} · Slide {player.slideIndex + 1} of {deck.slides.length}
@@ -352,12 +411,28 @@ function Player({ deck, preview }: { deck: Deck; preview: boolean }) {
           >
             <h2 className="text-3xl font-bold">That&apos;s the lesson!</h2>
             {deck.recap && <p className="text-lg max-w-2xl">{deck.recap}</p>}
-            <button onClick={player.restart} className="px-6 py-3 rounded-xl bg-cyan-500 hover:bg-cyan-400 font-semibold">Start over</button>
+            <button onClick={() => { checked.current.clear(); setSelfCheck(null); cues.stop(); player.restart(); }} className="px-6 py-3 rounded-xl bg-cyan-500 hover:bg-cyan-400 font-semibold">Start over</button>
           </div>
         ) : (
           <SlideCanvas slide={slide} activeId={player.activeId} />
         )}
         {variant && <VariantOverlay variant={variant} onDone={closeVariant} />}
+        {selfCheck && !variant && (
+          <div className="absolute inset-0 z-20 flex items-center justify-center bg-slate-950/70 backdrop-blur-sm rounded-2xl" role="dialog" aria-label="How did that go?">
+            <div className="bg-white text-slate-900 rounded-2xl p-8 text-center shadow-2xl">
+              <h3 className="text-2xl font-bold mb-6">How did that section go?</h3>
+              <div className="flex gap-4 justify-center">
+                {([['got', '😀', 'Got it'], ['kind', '😐', 'Kind of'], ['lost', '😕', 'Lost me']] as const).map(([r, emoji, label]) => (
+                  <button key={r} onClick={() => answerSelfCheck(r)} className="flex flex-col items-center gap-1 px-5 py-4 rounded-xl border-2 border-slate-200 hover:border-cyan-500 hover:bg-cyan-50">
+                    <span className="text-4xl">{emoji}</span>
+                    <span className="font-semibold">{label}</span>
+                  </button>
+                ))}
+              </div>
+              <p className="text-xs text-slate-500 mt-4">Or just say it.</p>
+            </div>
+          </div>
+        )}
         {toast && (
           <div className="absolute top-3 left-1/2 -translate-x-1/2 px-4 py-2 rounded-full bg-slate-900/85 text-white text-sm shadow-lg" role="status">
             {toast}
@@ -393,7 +468,7 @@ function Player({ deck, preview }: { deck: Deck; preview: boolean }) {
         <button className={btn} onClick={player.nextSlide}>⏩ Next slide</button>
         <button className={btn} onClick={player.repeat}>⟲ Repeat</button>
         <button className={btn} onClick={() => handleText('simpler please')}>Simpler please</button>
-        <button className={btn} onClick={confused} title="Another way to see it">😕 I&apos;m lost</button>
+        <button className={btn} onClick={() => confused()} title="Another way to see it">😕 I&apos;m lost</button>
         <button
           className={`${btn} ${micStatus === 'listening' ? 'bg-red-500/80 hover:bg-red-500' : ''}`}
           onClick={talk}

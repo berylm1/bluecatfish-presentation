@@ -52,7 +52,7 @@ type Pos = {
 };
 
 // Clips without a pre-made file are spoken live through /api/tts and cached per text
-async function liveClip(text: string, simple: boolean): Promise<string | null> {
+export async function liveClip(text: string, simple: boolean): Promise<string | null> {
   try {
     const res = await fetch('/api/tts', {
       method: 'POST',
@@ -70,7 +70,21 @@ async function liveClip(text: string, simple: boolean): Promise<string | null> {
  * Plays a canvas deck: each slide's elements in speaking order, then the next
  * slide after a short pause. Exposes the controls the page and voice commands use.
  */
-export function useDeckPlayer(deck: Deck, started: boolean) {
+export function useDeckPlayer(
+  deck: Deck,
+  started: boolean,
+  opts: {
+    /**
+     * Asked before moving on by itself from slide `from` to `to` (`to` past the
+     * end = the lesson is over). true → stop there, paused, and call onHold
+     * instead (e.g. the self-check between topics). Commands never ask.
+     */
+    holdBefore?: (from: number, to: number) => boolean;
+    onHold?: (from: number, to: number) => void;
+  } = {},
+) {
+  const optsRef = useRef(opts);
+  optsRef.current = opts;
   const [pos, setPos] = useState<Pos>({ slide: 0, clip: 0, mode: 'normal', token: 0 });
   const [status, setStatus] = useState<PlayerStatus>('loading');
   const statusRef = useRef(status);
@@ -133,7 +147,16 @@ export function useDeckPlayer(deck: Deck, started: boolean) {
 
     if (pos.clip >= order.length) {
       setStatus('waiting');
-      timerRef.current = setTimeout(() => goToSlide(pos.slide + 1), order.length ? AFTER_SLIDE_MS : SILENT_SLIDE_MS);
+      timerRef.current = setTimeout(() => {
+        const to = pos.slide + 1;
+        if (optsRef.current.holdBefore?.(pos.slide, to)) {
+          pausedRef.current = true;
+          setStatus('paused');
+          optsRef.current.onHold?.(pos.slide, to);
+        } else {
+          goToSlide(to);
+        }
+      }, order.length ? AFTER_SLIDE_MS : SILENT_SLIDE_MS);
       return () => { cancelled = true; clear(); };
     }
 
@@ -164,18 +187,6 @@ export function useDeckPlayer(deck: Deck, started: boolean) {
     return () => { cancelled = true; clear(); };
     // pos.token restarts the same position (repeat, simpler, resume after a pause)
   }, [started, pos, order, orders, clipUrl, goToSlide, deck.slides.length]);
-
-  // The end: say the recap once
-  useEffect(() => {
-    if (status !== 'finished' || !deck.recap) return;
-    let audio: HTMLAudioElement | null = null;
-    liveClip(deck.recap, false).then((url) => {
-      if (!url) return;
-      audio = new Audio(url);
-      audio.play().catch(() => {});
-    });
-    return () => audio?.pause();
-  }, [status, deck.recap]);
 
   const clampedClip = Math.max(0, Math.min(pos.clip, order.length - 1));
   const getAudio = useCallback(() => audioRef.current, []);   // stable, so followers don't restart

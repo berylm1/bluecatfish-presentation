@@ -49,3 +49,31 @@ export function findSlide(deck: Deck, query: string, currentSlide: number): numb
   });
   return best.covered / q.length >= 0.5 ? best.slide : null;
 }
+
+/**
+ * "go to <part>" when the keywords weren't sure: the server compares meanings
+ * (/api/deck/search, the same search /presentationv2 falls back to).
+ */
+export async function searchByMeaning(deck: Deck, query: string): Promise<number | null> {
+  const topics = topicIndexes(deck.slides);
+  const docs = deck.slides.map((s, i) => ({
+    section: topics[i],
+    step: i - topics.indexOf(topics[i]),
+    title: s.topic ?? '',
+    text: s.elements.map((e) => [e.type === 'text' ? e.text : e.alt ?? '', e.say ?? ''].join(' ')).join(' '),
+  }));
+  try {
+    const res = await fetch('/api/deck/search', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query, docs }),
+      signal: AbortSignal.timeout(9000),
+    });
+    const data = await res.json();
+    if (!data.found) return null;
+    const i = docs.findIndex((d) => d.section === data.section && d.step === Math.max(0, data.step));
+    return i === -1 ? null : i;
+  } catch {
+    return null;
+  }
+}

@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { CUE_TEXT, type CueKey } from '@/lib/canvas/cues';
 
 async function liveUrl(text: string): Promise<string | null> {
@@ -24,6 +24,7 @@ export function useCues(enabled: boolean) {
   const audio = useRef<HTMLAudioElement | null>(null);
   const seq = useRef(0);
   const finish = useRef<((ok: boolean) => void) | null>(null);
+  const [saying, setSaying] = useState('');   // the line being said, for the transcript
 
   useEffect(() => {
     if (!enabled) return;
@@ -36,6 +37,7 @@ export function useCues(enabled: boolean) {
     audio.current = null;
     finish.current?.(false);
     finish.current = null;
+    setSaying('');
   }, []);
 
   /** Plays a cue by key, or any text (spoken live, cached per text). */
@@ -50,14 +52,15 @@ export function useCues(enabled: boolean) {
       if (!live.current.has(text)) live.current.set(text, liveUrl(text));
       source = live.current.get(text)!;
     }
+    setSaying(text);
     return new Promise<boolean>((resolve) => {
-      finish.current = resolve;
+      finish.current = (ok) => { setSaying(''); resolve(ok); };
       source.then((url) => {
         if (my !== seq.current) return;
-        if (!url) { finish.current = null; resolve(true); return; }
+        if (!url) { finish.current = null; setSaying(''); resolve(true); return; }
         const a = new Audio(url);
         audio.current = a;
-        const done = () => { if (my === seq.current) { finish.current = null; audio.current = null; resolve(true); } };
+        const done = () => { if (my === seq.current) { finish.current = null; audio.current = null; setSaying(''); resolve(true); } };
         a.onended = done;
         a.onerror = done;
         a.play().catch(done);
@@ -65,5 +68,5 @@ export function useCues(enabled: boolean) {
     });
   }, [stop]);
 
-  return { play, stop };
+  return { play, stop, saying };
 }
