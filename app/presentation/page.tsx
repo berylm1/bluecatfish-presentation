@@ -8,7 +8,14 @@ import Transcript from '@/components/canvas/Transcript';
 import { useTutor } from '@/components/canvas/useTutor';
 import MicMeter from '@/components/canvas/MicMeter';
 import { parseCanvasCommand, findSlide } from '@/lib/canvas/commands';
-import { COMMAND_ACK_TEXT } from '@/lib/deckCommands';
+import { useCues } from '@/components/canvas/useCues';
+import { useLessonTracking } from '@/components/canvas/useLessonTracking';
+import VariantOverlay, { type Variant } from '@/components/canvas/VariantOverlay';
+import { useEmotionWatcher, type LearnerEmotion } from '@/components/hooks/useEmotionWatcher';
+import { useHandRaise } from '@/components/hooks/useHandRaise';
+import { useFacePresence } from '@/components/hooks/useFacePresence';
+import { describeForTutor } from '@/lib/learnerState';
+import { CUE_TEXT, type CueKey } from '@/lib/canvas/cues';
 import { SAMPLE_DECK } from '@/lib/canvas/sampleDeck';
 import { loadLegacyDeck } from '@/lib/canvas/fromLegacy';
 import { DEFAULT_LESSON, HAS_AI_LESSON } from '@/lib/canvas/lessons';
@@ -23,10 +30,10 @@ import type { Deck } from '@/lib/canvas/types';
  *   /presentation?lesson=sample      → the built-in sample deck
  * A lesson plays its published deck; with none, its AI deck; with neither,
  * the old AI lesson converted (Blue Catfish only).
- * Barge-in, the emotion check-in and tutor questions come in a later step.
+ * The learner can interrupt, ask questions, say they're lost (variant slides),
+ * and with the camera on the professor notices confusion, looking away and a
+ * raised hand. Learner events go to the same tables as /presentationv2.
  */
-
-const NEXT_CLIP_ACK = 'Skipping that bit.';
 
 type Loaded = { deck: Deck; preview: boolean };
 
@@ -77,16 +84,26 @@ export default function CanvasPresentation() {
   return <Player deck={loaded.deck} preview={loaded.preview} />;
 }
 
+// "You lost me" and friends: the learner is confused, not just asking for simpler words
+const CONFUSED = /\blost me\b|\bi'?m lost\b|\b(?:don'?t|do not|didn'?t) (?:understand|get it|get that|get this|follow)\b|\bconfus|\bwhat does (?:that|this|it) (?:even )?mean\b|^huh\b/i;
+const YES = /^(?:yes|yeah|yep|yup|sure|ok(?:ay)?|please|uh[- ]huh|definitely|go ahead|do it|mhm)\b/i;
+const SPEAKING: string[] = ['playing', 'loading', 'finishing', 'waiting'];
+
 function Player({ deck, preview }: { deck: Deck; preview: boolean }) {
   const [started, setStarted] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const [typed, setTyped] = useState('');
   const [interruptOn, setInterruptOn] = useState(false);   // talk over the professor (opt-in: opens the mic)
+  const [cameraOn, setCameraOn] = useState(false);         // emotion check-in, presence, hand raise (opt-in)
   const [showTranscript, setShowTranscript] = useState(true);   // top-right text of what's being said
+  const [variant, setVariant] = useState<Variant | null>(null);
+  const [mood, setMood] = useState<LearnerEmotion | null>(null);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const player = useDeckPlayer(deck, started);
   const tutor = useTutor();
-  // Async steps (the answer finished) must act on the latest player, not the one from when they began
+  const cues = useCues(started);
+  const tracking = useLessonTracking(deck, started, player.slideIndex, player.status === 'finished');
+  // Async steps (an answer or a cue finished) must act on the latest player, not the one from when they began
   const playerRef = useRef(player);
   playerRef.current = player;
   const tutorBusy = tutor.thinking || tutor.speaking;
@@ -97,59 +114,117 @@ function Player({ deck, preview }: { deck: Deck; preview: boolean }) {
     toastTimer.current = setTimeout(() => setToast(null), 2500);
   }, []);
 
+  /** Say a short reply ("Skipping ahead."), then do it. A newer reply cancels this one. */
+  const act = useCallback((cue: CueKey, action: () => void) => {
+    say(CUE_TEXT[cue]);
+    const p = playerRef.current;
+    if (SPEAKING.includes(p.status)) p.pause();
+    cues.play(cue).then((ok) => { if (ok) action(); });
+  }, [cues, say]);
+
   /** What the learner is looking at, for the tutor: the slide's text and what's being said. */
+  const slideText = useCallback((i: number) => {
+    const s = deck.slides[i];
+    return s ? s.elements.map((e) => (e.type === 'text' ? e.text : e.alt ? `[image: ${e.alt}]` : '')).filter(Boolean).join(' | ') : '';
+  }, [deck]);
   const slideContext = useCallback(() => {
     const p = playerRef.current;
     const s = deck.slides[p.slideIndex];
     if (!s) return deck.title;
-    const shown = s.elements.map((e) => (e.type === 'text' ? e.text : e.alt ? `[image: ${e.alt}]` : '')).filter(Boolean).join(' | ');
     const speaking = s.elements.find((e) => e.id === p.activeId);
-    return `Lesson: ${deck.title}. Topic: ${s.topic ?? ''}. On screen: ${shown}.` +
-      (speaking?.say ? ` The professor was just saying: "${speaking.say}"` : '');
-  }, [deck]);
+    return `Lesson: ${deck.title}. Topic: ${s.topic ?? ''}. On screen: ${slideText(p.slideIndex)}.` +
+      (speaking?.say ? ` The professor was just saying: "${speaking.say}"` : '') +
+      describeForTutor(tracking.state());
+  }, [deck, slideText, tracking]);
 
   /** A question (not a command): the professor answers, then the lesson carries on. */
   const answer = useCallback(async (question: string) => {
+    tracking.track('tutor_question', { question: question.slice(0, 300) }, { questions: 1 });
     const p = playerRef.current;
-    if (p.status !== 'paused' && p.status !== 'finished') p.pause();
+    if (SPEAKING.includes(p.status)) p.pause();
     const { decision, superseded } = await tutor.ask(question, slideContext());
     if (superseded) return;   // talked over the answer: the next turn decides what happens
+    if (decision) tracking.track('tutor_decision', { action: decision });
     const now = playerRef.current;
     if (decision === 'simplify') now.simplify();
     else if (decision === 'advance') now.nextSlide();
     else if (decision === 'repeat') now.repeat();
     else now.resume();
-  }, [tutor, slideContext]);
+  }, [tutor, slideContext, tracking]);
+
+  /**
+   * The learner is lost: show a reviewed variant slide for this topic if there
+   * is one (e.g. the authored PDF deck slide), otherwise play the plain
+   * version of what was just said.
+   */
+  const confused = useCallback(async () => {
+    tracking.track('confusion_click', {}, { confusion_marks: 1 });
+    const p = playerRef.current;
+    if (SPEAKING.includes(p.status)) p.pause();
+    const s = deck.slides[p.slideIndex];
+    let found: Variant | null = null;
+    try {
+      const q = new URLSearchParams({ state: tracking.state().last_state === 'frustrated' ? 'frustrated' : 'confused', title: s?.topic ?? '', about: slideText(p.slideIndex) });
+      const res = await fetch(`/api/tutor/variant?${q}`, { signal: AbortSignal.timeout(4000) });
+      found = (await res.json()).variant ?? null;
+    } catch { /* no variant: the plain version below */ }
+    if (found) {
+      tracking.track('tutor_decision', { action: 'variant', variant: found.variant, title: found.title });
+      setVariant(found);
+      const ok = await cues.play({ text: found.narration, url: found.audio_url });
+      if (ok) { setVariant(null); playerRef.current.resume(); }
+      return;
+    }
+    tracking.track('tutor_decision', { action: 'plain' });
+    act('cmd_simplify', () => playerRef.current.simplify());
+  }, [deck, slideText, tracking, cues, act]);
+
+  const closeVariant = useCallback(() => {
+    cues.stop();
+    setVariant(null);
+    playerRef.current.resume();
+  }, [cues]);
 
   // Paused on purpose before talking? Then a turn with nothing in it leaves it paused
   const resumeAfterTurn = useRef(true);
+  // The professor asked "You look puzzled…?" and is waiting for the answer
+  const checkIn = useRef<LearnerEmotion | null>(null);
 
   const handleText = useCallback((text: string) => {
     const cmd = parseCanvasCommand(text);
+    if (variant) { cues.stop(); setVariant(null); }
     if (!cmd) { answer(text); return; }
     if (tutorBusy) tutor.cancel();   // a command ends the answer
+    const command = (kind: string, patch?: Parameters<typeof tracking.track>[2]) =>
+      tracking.track(kind === 'repeat' ? 'repeat_request' : kind === 'simplify' ? 'simplify_request' : 'deck_command', { kind }, patch);
+    const p = player;
     switch (cmd.kind) {
-      case 'nextClip': say(NEXT_CLIP_ACK); player.nextClip(); break;
-      case 'nextSlide': say(COMMAND_ACK_TEXT.cmd_nextSlide); player.nextSlide(); break;
+      case 'nextClip': command('nextClip', { skips: 1 }); act('cmd_nextClip', () => playerRef.current.nextClip()); break;
+      case 'nextSlide': command('nextSlide', { skips: 1 }); act('cmd_nextSlide', () => playerRef.current.nextSlide()); break;
       case 'prevSlide':
-        if (player.slideIndex === 0) { say(COMMAND_ACK_TEXT.cmd_atStart); player.repeat(); }
-        else { say(COMMAND_ACK_TEXT.cmd_prevSlide); player.prevSlide(); }
+        command('prevSlide');
+        if (p.slideIndex === 0) act('cmd_atStart', () => playerRef.current.repeat());
+        else act('cmd_prevSlide', () => playerRef.current.prevSlide());
         break;
       case 'nextTopic':
-        say(player.topicIndex >= player.topicCount - 1 ? COMMAND_ACK_TEXT.cmd_wrapUp : COMMAND_ACK_TEXT.cmd_nextTopic);
-        player.nextTopic();
+        command('nextTopic', { skips: 1 });
+        act(p.topicIndex >= p.topicCount - 1 ? 'cmd_wrapUp' : 'cmd_nextTopic', () => playerRef.current.nextTopic());
         break;
-      case 'repeat': say(COMMAND_ACK_TEXT.cmd_repeat); player.repeat(); break;
-      case 'simplify': say(COMMAND_ACK_TEXT.cmd_simplify); player.simplify(); break;
+      case 'repeat': command('repeat', { repeats: 1 }); act('cmd_repeat', () => playerRef.current.repeat()); break;
+      case 'simplify':
+        if (CONFUSED.test(text)) { confused(); break; }   // "you lost me": another way to see it
+        command('simplify', { simplify_requests: 1 });
+        act('cmd_simplify', () => playerRef.current.simplify());
+        break;
       case 'goTo': {
-        const target = findSlide(deck, cmd.query, player.slideIndex);
-        if (target !== null) { say(COMMAND_ACK_TEXT.cmd_goto); player.goToSlide(target); }
+        const target = findSlide(deck, cmd.query, p.slideIndex);
+        if (target !== null) { command('goTo', { jumps: 1 }); act('cmd_goto', () => playerRef.current.goToSlide(target)); }
         else if (cmd.soft) answer(text);   // "tell me about X": not on a slide, so the professor answers
-        else { say(COMMAND_ACK_TEXT.cmd_notFound); player.resume(); }
+        else act('cmd_notFound', () => playerRef.current.resume());
         break;
       }
     }
-  }, [deck, player, say, answer, tutor, tutorBusy]);
+  }, [deck, player, act, answer, confused, tutor, tutorBusy, tracking, variant, cues]);
 
   // Barge-in: with interruptions on, starting to talk over the professor (or
   // over an answer) makes them finish the sentence, then stop and listen.
@@ -158,16 +233,84 @@ function Player({ deck, preview }: { deck: Deck; preview: boolean }) {
     armed: interruptOn && started,
     bargeActive: speakingNow,
     onListenStart: () => {
-      resumeAfterTurn.current = playerRef.current.status !== 'paused';
+      resumeAfterTurn.current = playerRef.current.status !== 'paused' || checkIn.current !== null;
       if (tutor.speaking || tutor.thinking) tutor.finishSentence();
-      else playerRef.current.interrupt();
+      else if (SPEAKING.includes(playerRef.current.status)) {
+        tracking.track('barge_in', {}, { barge_ins: 1 });
+        playerRef.current.interrupt();
+      }
     },
     onTranscript: (text) => {
+      const asked = checkIn.current;
+      checkIn.current = null;
+      if (asked && text && YES.test(text.trim())) {
+        // "Want me to go over that a different way?" → yes
+        if (asked === 'confused') confused();
+        else act('cmd_nextSlide', () => playerRef.current.nextSlide());
+        return;
+      }
       if (text) handleText(text);
-      // nothing usable (a cough, silence): carry on
+      // nothing usable (a cough, silence, no answer to a check-in): carry on
       else if (resumeAfterTurn.current && !tutor.thinking) playerRef.current.resume();
     },
   });
+
+  /* ------------------------------------------------ camera: the instructor notices */
+
+  // Emotion check-in: sustained confusion or boredom on camera → the professor
+  // finishes the sentence, asks, and listens; "yes" helps, silence carries on.
+  const onEmotion = useCallback((state: LearnerEmotion) => {
+    const p = playerRef.current;
+    if (!started || tutorBusy || variant || checkIn.current || micStatus !== 'idle' || !SPEAKING.includes(p.status)) return;
+    setMood(state);
+    tracking.track('emotion_state', { state }, state === 'confused' ? { confusion_marks: 1 } : undefined);
+    p.interrupt(() => {
+      cues.play(state === 'confused' ? 'cue_confused' : 'cue_bored').then((ok) => {
+        if (!ok) return;
+        checkIn.current = state;
+        resumeAfterTurn.current = true;
+        talk();
+      });
+    });
+  }, [started, tutorBusy, variant, micStatus, tracking, cues, talk]);
+  const { ready: emotionReady } = useEmotionWatcher(cameraOn && started && !tutorBusy, onEmotion);
+
+  // Hand raise: stop at the end of the sentence, "Do you have a question?", listen
+  const onHandRaised = useCallback(() => {
+    if (!started || micStatus !== 'idle' || variant) return;
+    tracking.track('hand_raise');
+    resumeAfterTurn.current = true;
+    const ask = () => cues.play('cue_handRaise').then((ok) => { if (ok) talk(); });
+    if (tutorBusy) { tutor.finishSentence(); ask(); }
+    else playerRef.current.interrupt(ask);
+  }, [started, micStatus, variant, tracking, cues, talk, tutorBusy, tutor]);
+  useHandRaise(cameraOn && started, onHandRaised);
+
+  // Presence: looked away → pause and wait; back → pick up again
+  const { present } = useFacePresence(cameraOn && started);
+  const awayPaused = useRef(false);
+  const lastPresent = useRef<boolean | null>(null);
+  useEffect(() => {
+    if (!cameraOn || !started) { lastPresent.current = null; return; }
+    if (lastPresent.current === null) { lastPresent.current = present; return; }   // first reading
+    if (present === lastPresent.current) return;
+    lastPresent.current = present;
+    const p = playerRef.current;
+    if (!present) {
+      tracking.track('presence_away');
+      if (SPEAKING.includes(p.status) && !tutorBusy) {
+        p.pause();
+        awayPaused.current = true;
+        cues.play('cue_away');
+      }
+    } else {
+      tracking.track('presence_back');
+      if (awayPaused.current) {
+        awayPaused.current = false;
+        cues.play('cue_back').then((ok) => { if (ok) playerRef.current.resume(); });
+      }
+    }
+  }, [present, cameraOn, started, tracking, cues, tutorBusy]);
 
   // Keyboard: → next clip, Shift+→ / PageDown next slide, ← previous slide,
   // space pause/resume, R repeat, S simpler
@@ -182,11 +325,12 @@ function Player({ deck, preview }: { deck: Deck; preview: boolean }) {
       else if (e.key === ' ') { e.preventDefault(); if (player.status === 'paused') player.resume(); else player.pause(); }
       else if (e.key.toLowerCase() === 'r') player.repeat();
       else if (e.key.toLowerCase() === 's') player.simplify();
+      else if (e.key.toLowerCase() === 'l') confused();
       else return;
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [started, player]);
+  }, [started, player, confused]);
 
   if (!started) {
     return (
@@ -229,6 +373,7 @@ function Player({ deck, preview }: { deck: Deck; preview: boolean }) {
         ) : (
           <SlideCanvas slide={slide} activeId={player.activeId} />
         )}
+        {variant && <VariantOverlay variant={variant} onDone={closeVariant} />}
         {toast && (
           <div className="absolute top-3 left-1/2 -translate-x-1/2 px-4 py-2 rounded-full bg-slate-900/85 text-white text-sm shadow-lg" role="status">
             {toast}
@@ -263,7 +408,8 @@ function Player({ deck, preview }: { deck: Deck; preview: boolean }) {
         <button className={btn} onClick={player.nextClip}>⏭ Next</button>
         <button className={btn} onClick={player.nextSlide}>⏩ Next slide</button>
         <button className={btn} onClick={player.repeat}>⟲ Repeat</button>
-        <button className={btn} onClick={player.simplify}>Simpler please</button>
+        <button className={btn} onClick={() => handleText('simpler please')}>Simpler please</button>
+        <button className={btn} onClick={confused} title="Another way to see it">😕 I&apos;m lost</button>
         <button
           className={`${btn} ${micStatus === 'listening' ? 'bg-red-500/80 hover:bg-red-500' : ''}`}
           onClick={talk}
@@ -282,6 +428,22 @@ function Player({ deck, preview }: { deck: Deck; preview: boolean }) {
           🎙 Interrupt {interruptOn ? 'on' : 'off'}
         </button>
         {(interruptOn || micStatus === 'listening') && <MicMeter levelRef={levelRef} listening={micStatus === 'listening'} />}
+        <button
+          className={`${btn} ${cameraOn ? 'bg-emerald-500/70 hover:bg-emerald-500' : ''}`}
+          onClick={() => {
+            setCameraOn((on) => !on);
+            if (!cameraOn) say('Camera on: raise your hand to ask, and the professor notices if you look lost or step away. Nothing leaves your device.');
+          }}
+          title="Hand raise, “you look puzzled” check-ins and pause-when-away (camera stays on this device)"
+        >
+          📷 Camera {cameraOn ? 'on' : 'off'}
+        </button>
+        {cameraOn && (
+          <span className="text-xs text-white/70">
+            {!emotionReady ? 'starting…' : present ? '👤 here' : '🚫 away'}
+            {mood && ` · ${mood === 'confused' ? '😕 puzzled' : mood === 'bored' ? '😐 quiet' : '🙂'}`}
+          </span>
+        )}
         <button className={`${btn} ${showTranscript ? 'bg-white/20' : ''}`} onClick={() => setShowTranscript((v) => !v)} title="Show the words being said (top right)">
           💬 Transcript {showTranscript ? 'on' : 'off'}
         </button>

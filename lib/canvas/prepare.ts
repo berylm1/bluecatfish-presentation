@@ -117,7 +117,7 @@ export async function writeRecap(deck: Deck): Promise<string> {
 
 /* ------------------------------------------------------------- audio */
 
-async function recordClip(text: string, simple: boolean): Promise<{ url: string; key: string }> {
+export async function recordClip(text: string, simple: boolean): Promise<{ url: string; key: string }> {
   const key = audioKey(text, simple);
   const path = `${AUDIO_FOLDER}/${key}.mp3`;
   const url = supabase.storage.from(AUDIO_BUCKET).getPublicUrl(path).data.publicUrl;
