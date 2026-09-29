@@ -18,14 +18,27 @@ export type PlayerStatus = 'loading' | 'playing' | 'finishing' | 'paused' | 'wai
  * estimated from their share of the text (speech is close to even-paced),
  * so the professor stops at a sentence end instead of mid-word.
  */
-export function sentenceEnd(text: string, t: number, duration: number): number {
-  if (!Number.isFinite(duration) || duration <= 0) return t + 3;
-  const sentences = text.match(/[^.!?]+(?:[.!?]+["')\]]*|$)\s*/g) ?? [text];
+/** A text split into sentences (keeps the punctuation and trailing space). */
+export function splitSentences(text: string): string[] {
+  return text.match(/[^.!?]+(?:[.!?]+["')\]]*|$)\s*/g)?.filter((s) => s.trim()) ?? [text];
+}
+
+/** Where each sentence ends, as a share (0-1) of the clip. Speech is close to even-paced. */
+export function sentenceStops(text: string): number[] {
+  const sentences = splitSentences(text);
   const total = sentences.reduce((n, s) => n + s.length, 0) || 1;
   let chars = 0;
-  for (const s of sentences) {
-    chars += s.length;
-    const end = (chars / total) * duration;
+  return sentences.map((s) => (chars += s.length) / total);
+}
+
+/**
+ * When the sentence being spoken at `t` ends, in seconds, so an interrupted
+ * professor stops at a sentence end instead of mid-word.
+ */
+export function sentenceEnd(text: string, t: number, duration: number): number {
+  if (!Number.isFinite(duration) || duration <= 0) return t + 3;
+  for (const share of sentenceStops(text)) {
+    const end = share * duration;
     if (end > t + 0.25) return Math.min(end, t + MAX_FINISH_S, duration);
   }
   return Math.min(duration, t + MAX_FINISH_S);
@@ -165,6 +178,7 @@ export function useDeckPlayer(deck: Deck, started: boolean) {
   }, [status, deck.recap]);
 
   const clampedClip = Math.max(0, Math.min(pos.clip, order.length - 1));
+  const getAudio = useCallback(() => audioRef.current, []);   // stable, so followers don't restart
 
   /** End of "finishing": pause where the sentence ended and hand over to the learner. */
   function stopFinishing() {
@@ -251,6 +265,9 @@ export function useDeckPlayer(deck: Deck, started: boolean) {
     topicIndex: topics[Math.min(pos.slide, deck.slides.length - 1)] ?? 0,
     topicCount: (topics[topics.length - 1] ?? 0) + 1,
     activeId: speaking ? current?.id ?? null : null,
+    /** Words of the clip being spoken (for the transcript), and its audio for timing */
+    captionText: speaking && current ? (pos.mode === 'plain' ? current.plain?.trim() || spokenText(current) : spokenText(current)) : '',
+    getAudio,
     status,
     ...controls,
   };

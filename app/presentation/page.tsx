@@ -3,7 +3,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import SlideCanvas from '@/components/canvas/SlideCanvas';
 import { useDeckPlayer } from '@/components/canvas/useDeckPlayer';
-import { useVoiceInput } from '@/components/hooks/useVoiceInput';
+import { useListener } from '@/components/canvas/useListener';
+import Transcript from '@/components/canvas/Transcript';
 import { useTutor } from '@/components/canvas/useTutor';
 import MicMeter from '@/components/canvas/MicMeter';
 import { parseCanvasCommand, findSlide } from '@/lib/canvas/commands';
@@ -81,6 +82,7 @@ function Player({ deck, preview }: { deck: Deck; preview: boolean }) {
   const [toast, setToast] = useState<string | null>(null);
   const [typed, setTyped] = useState('');
   const [interruptOn, setInterruptOn] = useState(false);   // talk over the professor (opt-in: opens the mic)
+  const [showTranscript, setShowTranscript] = useState(true);   // top-right text of what's being said
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const player = useDeckPlayer(deck, started);
   const tutor = useTutor();
@@ -119,11 +121,10 @@ function Player({ deck, preview }: { deck: Deck; preview: boolean }) {
     else now.resume();
   }, [tutor, slideContext]);
 
-  // One learner turn at a time: was anything useful said before the mic went idle?
-  const turnRef = useRef<{ handled: boolean; resume: boolean } | null>(null);
+  // Paused on purpose before talking? Then a turn with nothing in it leaves it paused
+  const resumeAfterTurn = useRef(true);
 
   const handleText = useCallback((text: string) => {
-    if (turnRef.current) turnRef.current.handled = true;
     const cmd = parseCanvasCommand(text);
     if (!cmd) { answer(text); return; }
     if (tutorBusy) tutor.cancel();   // a command ends the answer
@@ -153,28 +154,20 @@ function Player({ deck, preview }: { deck: Deck; preview: boolean }) {
   // Barge-in: with interruptions on, starting to talk over the professor (or
   // over an answer) makes them finish the sentence, then stop and listen.
   const speakingNow = ['playing', 'loading', 'finishing'].includes(player.status) || tutor.speaking;
-  const { status: micStatus, toggleMic, levelRef } = useVoiceInput(
-    handleText,
-    () => {
-      // Paused on purpose before talking? Then a turn with nothing in it leaves it paused
-      turnRef.current = { handled: false, resume: playerRef.current.status !== 'paused' };
+  const { status: micStatus, talk, levelRef } = useListener({
+    armed: interruptOn && started,
+    bargeActive: speakingNow,
+    onListenStart: () => {
+      resumeAfterTurn.current = playerRef.current.status !== 'paused';
       if (tutor.speaking || tutor.thinking) tutor.finishSentence();
       else playerRef.current.interrupt();
     },
-    interruptOn && started && speakingNow,
-    interruptOn && started,   // keep the mic watching for the whole lesson
-  );
-
-  // The turn ended with nothing usable (a cough, silence, noise): carry on
-  const prevMic = useRef(micStatus);
-  useEffect(() => {
-    const was = prevMic.current;
-    prevMic.current = micStatus;
-    if (micStatus !== 'idle' || was === 'idle') return;
-    const turn = turnRef.current;
-    turnRef.current = null;
-    if (turn && !turn.handled && turn.resume && !tutor.thinking) playerRef.current.resume();
-  }, [micStatus, tutor.thinking]);
+    onTranscript: (text) => {
+      if (text) handleText(text);
+      // nothing usable (a cough, silence): carry on
+      else if (resumeAfterTurn.current && !tutor.thinking) playerRef.current.resume();
+    },
+  });
 
   // Keyboard: → next clip, Shift+→ / PageDown next slide, ← previous slide,
   // space pause/resume, R repeat, S simpler
@@ -213,6 +206,9 @@ function Player({ deck, preview }: { deck: Deck; preview: boolean }) {
 
   return (
     <main className="min-h-screen flex flex-col items-center justify-center gap-4 bg-gradient-to-br from-sky-950 via-slate-900 to-cyan-950 text-white px-4 py-4">
+      {showTranscript && (tutor.speaking || tutor.thinking
+        ? <Transcript speaker="Professor Marine · answering" text={tutor.exchange?.answer ?? ''} />
+        : <Transcript speaker={player.mode === 'plain' ? 'Professor Marine · plain version' : 'Professor Marine'} text={player.captionText} getAudio={player.getAudio} />)}
       <div className="text-xs uppercase tracking-widest text-cyan-200/70">
         {preview && <span className="mr-2 text-amber-300">Preview ·</span>}
         Topic {player.topicIndex + 1} of {player.topicCount} · Slide {player.slideIndex + 1} of {deck.slides.length}
@@ -270,7 +266,7 @@ function Player({ deck, preview }: { deck: Deck; preview: boolean }) {
         <button className={btn} onClick={player.simplify}>Simpler please</button>
         <button
           className={`${btn} ${micStatus === 'listening' ? 'bg-red-500/80 hover:bg-red-500' : ''}`}
-          onClick={toggleMic}
+          onClick={talk}
           disabled={micStatus === 'processing'}
         >
           {micStatus === 'listening' ? '● Listening…' : micStatus === 'processing' ? '…' : '🎤 Talk'}
@@ -285,7 +281,10 @@ function Player({ deck, preview }: { deck: Deck; preview: boolean }) {
         >
           🎙 Interrupt {interruptOn ? 'on' : 'off'}
         </button>
-        {interruptOn && <MicMeter levelRef={levelRef} listening={micStatus === 'listening'} />}
+        {(interruptOn || micStatus === 'listening') && <MicMeter levelRef={levelRef} listening={micStatus === 'listening'} />}
+        <button className={`${btn} ${showTranscript ? 'bg-white/20' : ''}`} onClick={() => setShowTranscript((v) => !v)} title="Show the words being said (top right)">
+          💬 Transcript {showTranscript ? 'on' : 'off'}
+        </button>
         <form
           onSubmit={(e) => { e.preventDefault(); if (typed.trim()) handleText(typed); setTyped(''); }}
           className="flex"
