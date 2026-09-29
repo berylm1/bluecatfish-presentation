@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import Link from 'next/link';
 import SlideCanvas from '@/components/canvas/SlideCanvas';
 import { useDeckPlayer } from '@/components/canvas/useDeckPlayer';
 import { useListener } from '@/components/canvas/useListener';
@@ -519,6 +520,9 @@ function Player({ deck, preview }: { deck: Deck; preview: boolean }) {
           <button className="px-3 py-2 rounded-r-lg bg-cyan-500/80 hover:bg-cyan-500 text-sm font-medium">Send</button>
         </form>
       </div>
+      <footer className="text-xs text-white/40">
+        <Link href="/sources" className="underline hover:text-white/70">View sources</Link>
+      </footer>
     </main>
   );
 }

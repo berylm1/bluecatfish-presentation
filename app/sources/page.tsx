@@ -38,7 +38,8 @@ export default function SourcesPage() {
   return (
     <div className="min-h-screen bg-gradient-to-br from-mist-400 via-mist-50 to-mist-400 p-8">
       <div className="max-w-3xl mx-auto">
-        <Link href="/presentationv2" className="text-blue-600 hover:underline text-sm">
+        {/* was /presentationv2: the canvas page is the main lesson now */}
+        <Link href="/presentation" className="text-blue-600 hover:underline text-sm">
           ← Back to the lesson
         </Link>
 
