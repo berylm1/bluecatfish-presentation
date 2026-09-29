@@ -257,11 +257,14 @@ function Player({ deck, preview }: { deck: Deck; preview: boolean }) {
 
   /* ------------------------------------------------ camera: the instructor notices */
 
+  // The mic is mid-turn (it can be 'off' when interruptions are off: that's free)
+  const micBusy = micStatus === 'listening' || micStatus === 'processing';
+
   // Emotion check-in: sustained confusion or boredom on camera → the professor
   // finishes the sentence, asks, and listens; "yes" helps, silence carries on.
   const onEmotion = useCallback((state: LearnerEmotion) => {
     const p = playerRef.current;
-    if (!started || tutorBusy || variant || checkIn.current || micStatus !== 'idle' || !SPEAKING.includes(p.status)) return;
+    if (!started || tutorBusy || variant || checkIn.current || micBusy || !SPEAKING.includes(p.status)) return;
     setMood(state);
     tracking.track('emotion_state', { state }, state === 'confused' ? { confusion_marks: 1 } : undefined);
     p.interrupt(() => {
@@ -273,11 +276,11 @@ function Player({ deck, preview }: { deck: Deck; preview: boolean }) {
       });
     });
   }, [started, tutorBusy, variant, micStatus, tracking, cues, talk]);
-  const { ready: emotionReady } = useEmotionWatcher(cameraOn && started && !tutorBusy, onEmotion);
+  const { ready: emotionReady, error: emotionError } = useEmotionWatcher(cameraOn && started, onEmotion)   // busy moments are skipped in onEmotion, so the camera isn't restarted per answer;
 
   // Hand raise: stop at the end of the sentence, "Do you have a question?", listen
   const onHandRaised = useCallback(() => {
-    if (!started || micStatus !== 'idle' || variant) return;
+    if (!started || micBusy || variant) return;
     tracking.track('hand_raise');
     resumeAfterTurn.current = true;
     const ask = () => cues.play('cue_handRaise').then((ok) => { if (ok) talk(); });
@@ -287,7 +290,7 @@ function Player({ deck, preview }: { deck: Deck; preview: boolean }) {
   useHandRaise(cameraOn && started, onHandRaised);
 
   // Presence: looked away → pause and wait; back → pick up again
-  const { present } = useFacePresence(cameraOn && started);
+  const { present, error: presenceError } = useFacePresence(cameraOn && started);
   const awayPaused = useRef(false);
   const lastPresent = useRef<boolean | null>(null);
   useEffect(() => {
@@ -440,7 +443,7 @@ function Player({ deck, preview }: { deck: Deck; preview: boolean }) {
         </button>
         {cameraOn && (
           <span className="text-xs text-white/70">
-            {!emotionReady ? 'starting…' : present ? '👤 here' : '🚫 away'}
+            {emotionError || presenceError ? `⚠ camera unavailable (${emotionError || presenceError})` : !emotionReady ? 'starting…' : present ? '👤 here' : '🚫 away'}
             {mood && ` · ${mood === 'confused' ? '😕 puzzled' : mood === 'bored' ? '😐 quiet' : '🙂'}`}
           </span>
         )}
