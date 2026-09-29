@@ -72,6 +72,25 @@ export default function ImageLibrary({
         hidden
         onChange={(e) => { const f = e.target.files?.[0]; if (f) upload(f); e.target.value = ''; }}
       />
+      <button
+        onClick={async () => {
+          if (!window.confirm('Add the 18 slides from the authored PDF deck (public/deck) to the image library? Already-added ones are skipped.')) return;
+          setStatus('Adding the PDF deck slides (this takes a minute)…');
+          try {
+            const d = await fetch('/api/editor/import-deck-images', { method: 'POST' }).then((r) => r.json());
+            if (d.error) throw new Error(d.error);
+            const fails = (d.results ?? []).filter((r: { status: string }) => r.status.startsWith('failed'));
+            setStatus(`Added ${d.added} slide(s).${fails.length ? ` ${fails.length} failed: ${fails[0].status}` : ''}`);
+            load('');
+          } catch (e) {
+            setStatus(`Couldn't add them: ${e instanceof Error ? e.message : String(e)}`);
+          }
+        }}
+        className="px-2 py-1 rounded-md text-xs text-slate-600 hover:bg-slate-50 border border-slate-200"
+        title="One-time import of the authored slide images"
+      >
+        ＋ Add the PDF deck slides to the library
+      </button>
       {mode === 'background' && <p className="text-xs text-cyan-700">Click an image to use it as this slide’s background.</p>}
       {status && <p className="text-xs text-slate-500">{status}</p>}
       <div className="grid grid-cols-2 gap-2 overflow-y-auto pr-1">
