@@ -29,7 +29,7 @@ export async function POST(req: Request) {
     }
   }
   const warning = (await writeDeck(lesson, 'live', draft, by)) ?? recapError;
-  return NextResponse.json({ ok: true, publishedAt: new Date().toISOString(), by, warning });
+  return NextResponse.json({ ok: true, publishedAt: new Date().toISOString(), by, warning, recap: draft.recap ?? null, recapByAI: !!draft.recapByAI });
 }
 
 export async function DELETE(req: Request) {

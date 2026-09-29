@@ -270,6 +270,8 @@ function Editor({
       body: JSON.stringify({ lesson: lessonId }),
     }).then((r) => r.json());
     if (d.error) return flash(d.error, 'error');
+    // The recap the server wrote (or kept), so saving later doesn't lose it
+    ed.mergeRemote((deck) => { deck.recap = d.recap ?? undefined; deck.recapByAI = d.recapByAI || undefined; });
     flash(d.warning ? `Published, but: ${d.warning}` : 'Published: /presentation now plays this deck', d.warning ? 'warn' : 'ok');
     loadLive();
   };
@@ -582,7 +584,15 @@ function Editor({
                   warnings={slideWarns.filter((w) => w.elementId === element.id)}
                 />
               ) : (
-                <SlideInspector slide={slide} update={(p) => ed.updateSlide(p)} warnings={slideWarns} onPickBackground={() => setPanel('background')} />
+                <SlideInspector
+                  slide={slide}
+                  update={(p) => ed.updateSlide(p)}
+                  warnings={slideWarns}
+                  onPickBackground={() => setPanel('background')}
+                  recap={deck.recap}
+                  recapByAI={deck.recapByAI}
+                  onRecap={(text) => ed.change((d) => { d.recap = text || undefined; d.recapByAI = undefined; }, 'deck:recap')}
+                />
               )
             ) : (
               <ImageLibrary
