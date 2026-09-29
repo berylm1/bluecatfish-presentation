@@ -276,7 +276,8 @@ function Player({ deck, preview }: { deck: Deck; preview: boolean }) {
       });
     });
   }, [started, tutorBusy, variant, micStatus, tracking, cues, talk]);
-  const { ready: emotionReady, error: emotionError } = useEmotionWatcher(cameraOn && started, onEmotion)   // busy moments are skipped in onEmotion, so the camera isn't restarted per answer;
+  // Busy moments are skipped in onEmotion, so the camera isn't restarted for every answer
+  const { ready: emotionReady, error: emotionError } = useEmotionWatcher(cameraOn && started, onEmotion);
 
   // Hand raise: stop at the end of the sentence, "Do you have a question?", listen
   const onHandRaised = useCallback(() => {
