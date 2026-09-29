@@ -382,6 +382,53 @@ const useAIChat = (currentSection: SectionWithBreakdown | undefined,
 /* ============================================================================
  * SMALL PRESENTATIONAL HELPERS
  * ========================================================================== */
+/**
+ * Live script window — a tracked view of what the professor is saying,
+ * word-synced to the narration (karaoke style). Toggleable from the deck
+ * header; sits on the right side so it never covers the slide.
+ */
+function ScriptPanel({
+  text,
+  currentTime,
+  duration,
+  isSpeaking,
+  playing,
+  sectionTitle,
+  onClose,
+}: {
+  text: string;
+  currentTime: number;
+  duration: number;
+  isSpeaking: boolean;
+  playing: boolean;
+  sectionTitle: string;
+  onClose: () => void;
+}) {
+  return (
+    <div className="fixed right-4 top-24 bottom-8 w-80 z-40 bg-white/95 backdrop-blur rounded-2xl border border-cyan-500/40 shadow-2xl p-5 overflow-y-auto animate-[fadeInUp_0.3s_ease-out]">
+      <div className="flex items-baseline justify-between mb-3">
+        <div className="text-xs font-bold tracking-widest uppercase text-cyan-700">📜 Live script</div>
+        <button onClick={onClose} className="text-slate-400 hover:text-slate-700 text-lg leading-none" aria-label="Close script">✕</button>
+      </div>
+      <div className="text-xs text-slate-500 mb-3 truncate">{sectionTitle}</div>
+      {playing && text ? (
+        <HighlightedText
+          text={text}
+          currentTime={currentTime}
+          duration={duration}
+          isSpeaking={isSpeaking}
+          isActive
+          className="text-sm text-black leading-relaxed"
+        />
+      ) : (
+        <p className="text-xs text-slate-400">
+          Nothing playing right now. The script follows the professor word-for-word while he speaks — turn the lecture on and watch it track here.
+        </p>
+      )}
+    </div>
+  );
+}
+
 function HighlightedText({
   text,
   currentTime,
@@ -1920,6 +1967,7 @@ export default function AIPresentation() {
   const [voiceInterruptionsEnabled, setVoiceInterruptionsEnabled] = useState(false);
   const [variantSlide, setVariantSlide] = useState<VariantSlide | null>(null);
   const [variantDoneLabel, setVariantDoneLabel] = useState<string | undefined>(undefined);
+  const [scriptOpen, setScriptOpen] = useState(false);
   const [plainKey, setPlainKey] = useState<string | null>(null);   // `${section}_${step}` showing its plain version
   // "Your turn" question: what the learner said, and whether the answer is showing
   const [askState, setAskState] = useState<{ key: string; said: string | null; revealed: boolean } | null>(null);
@@ -2826,6 +2874,11 @@ export default function AIPresentation() {
     };
 
     if (rating === 'lost') {
+      // Fully lost → the gentlest variant (remedial preference wins via state)
+      showVariantOrRemediation(goToQuiz);
+    } else if (rating === 'kind') {
+      // "Kind of" also gets the authored slide breakdown — a lighter touch,
+      // but the same alternative avenue: the professor's own slide.
       showVariantOrRemediation(goToQuiz);
     } else {
       stop();
@@ -3242,6 +3295,12 @@ export default function AIPresentation() {
               >
                 🎙 Interrupt {voiceInterruptionsEnabled ? 'on' : 'off'}
               </button>
+              <button
+                onClick={() => setScriptOpen((v) => !v)}
+                className={`px-4 py-2 rounded-full text-sm font-semibold shadow transition-colors ${scriptOpen ? 'bg-cyan-600 text-white' : 'bg-white text-blue-800'}`}
+              >
+                📜 Script {scriptOpen ? 'on' : 'off'}
+              </button>
               {voiceInterruptionsEnabled && emotionReady && lastEmotion && (
                 <div className="px-3 py-1 rounded-full text-xs font-semibold bg-white shadow" title="From the camera — on-device only">
                   {lastEmotion === 'confused' ? '🤔 Learner puzzled' : lastEmotion === 'bored' ? '😐 Drifting' : '✅ Engaged'}
@@ -3561,6 +3620,18 @@ export default function AIPresentation() {
       )}
 
       {/* Variant slide overlay */}
+      {/* Live script window — tracks the narration word-by-word */}
+      {scriptOpen && (
+        <ScriptPanel
+          text={currentText}
+          currentTime={currentTime}
+          duration={duration}
+          isSpeaking={isSpeaking}
+          playing={!!currentKey}
+          sectionTitle={sections[activeSection]?.title ?? ''}
+          onClose={() => setScriptOpen(false)}
+        />
+      )}
       {variantSlide && (
         <VariantSlideOverlay
           variant={variantSlide}
