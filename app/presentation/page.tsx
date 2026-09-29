@@ -16,9 +16,8 @@ import { useHandRaise } from '@/components/hooks/useHandRaise';
 import { useFacePresence } from '@/components/hooks/useFacePresence';
 import { describeForTutor } from '@/lib/learnerState';
 import { CUE_TEXT, type CueKey } from '@/lib/canvas/cues';
-import { SAMPLE_DECK } from '@/lib/canvas/sampleDeck';
-import { loadLegacyDeck } from '@/lib/canvas/fromLegacy';
-import { DEFAULT_LESSON, HAS_AI_LESSON } from '@/lib/canvas/lessons';
+import { loadDeck, type Loaded } from '@/lib/canvas/loadDeck';
+import { DEFAULT_LESSON } from '@/lib/canvas/lessons';
 import type { Deck } from '@/lib/canvas/types';
 
 /*
@@ -34,25 +33,6 @@ import type { Deck } from '@/lib/canvas/types';
  * and with the camera on the professor notices confusion, looking away and a
  * raised hand. Learner events go to the same tables as /presentationv2.
  */
-
-type Loaded = { deck: Deck; preview: boolean };
-
-async function loadDeck(lesson: string, preview: 'draft' | 'ai' | null): Promise<Loaded> {
-  if (lesson === 'sample') return { deck: SAMPLE_DECK, preview: false };
-  if (preview) {
-    const res = await fetch(`/api/editor/deck?lesson=${encodeURIComponent(lesson)}&kind=${preview}`);
-    if (res.status === 401) throw new Error('Previews are for editors: unlock the slide editor first.');
-    const { deck } = await res.json();
-    if (!deck?.slides?.length) throw new Error(preview === 'ai' ? 'This lesson has no AI deck yet.' : 'This draft has no saved slides yet.');
-    return { deck, preview: true };
-  }
-  const res = await fetch(`/api/deck?lesson=${encodeURIComponent(lesson)}`);
-  const { deck, error } = await res.json();
-  if (error) throw new Error(error);
-  if (deck?.slides?.length) return { deck, preview: false };
-  if (HAS_AI_LESSON.has(lesson)) return { deck: await loadLegacyDeck(lesson, DEFAULT_LESSON.title), preview: false };
-  throw new Error('This lesson hasn’t been published yet.');
-}
 
 export default function CanvasPresentation() {
   const [loaded, setLoaded] = useState<Loaded | null>(null);
