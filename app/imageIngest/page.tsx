@@ -29,8 +29,16 @@ export default function UploadImagePage() {
       formData.append("file", file);
       if (description.trim()) formData.append("description", description.trim());
 
+      const supabase = (await import('@supabase/supabase-js')).createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+    );
+    const { data: sessionData } = await supabase.auth.getSession();
+    const token = sessionData.session?.access_token ?? '';
+
       const res = await fetch("/api/image-Ingest", {
         method: "POST",
+        headers: token ? { Authorization: `Bearer ${token}` } : undefined,
         body: formData,
       });
       

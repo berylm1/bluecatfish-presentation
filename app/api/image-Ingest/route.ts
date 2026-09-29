@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { lazySupabaseAdmin } from "@/lib/supabase/admin";
+import { requireIngestAdmin } from "@/lib/requireAdmin";
 
 const supabase = lazySupabaseAdmin();   // created on first use, so the build doesn't need env vars
 
@@ -48,6 +49,10 @@ async function embed(text: string): Promise<number[]> {
 
 export async function POST(req: Request) {
   try {
+    // Corpus write path — restricted to ingest admins.
+    const gate = await requireIngestAdmin(req);
+    if (gate) return gate;
+
     const formData = await req.formData();
     const file = formData.get("file") as File;
     const manualDescription = (formData.get("description") as string | null)?.trim() || null;
