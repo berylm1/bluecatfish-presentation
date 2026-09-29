@@ -84,5 +84,11 @@ export function useSpeechQueue() {
     setIsSpeaking(false);
   };
 
-  return { enqueue, stopSpeaking, isSpeaking, beginStream, endStream };
+  /** Let the sentence playing now finish, then stop (nothing after it is played). */
+  const finishSentence = () => {
+    cancelledRef.current = true;
+    clipsRef.current = [];
+  };
+
+  return { enqueue, stopSpeaking, finishSentence, isSpeaking, beginStream, endStream };
 }

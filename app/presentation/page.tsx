@@ -4,6 +4,8 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import SlideCanvas from '@/components/canvas/SlideCanvas';
 import { useDeckPlayer } from '@/components/canvas/useDeckPlayer';
 import { useVoiceInput } from '@/components/hooks/useVoiceInput';
+import { useTutor } from '@/components/canvas/useTutor';
+import MicMeter from '@/components/canvas/MicMeter';
 import { parseCanvasCommand, findSlide } from '@/lib/canvas/commands';
 import { COMMAND_ACK_TEXT } from '@/lib/deckCommands';
 import { SAMPLE_DECK } from '@/lib/canvas/sampleDeck';
@@ -78,8 +80,14 @@ function Player({ deck, preview }: { deck: Deck; preview: boolean }) {
   const [started, setStarted] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const [typed, setTyped] = useState('');
+  const [interruptOn, setInterruptOn] = useState(false);   // talk over the professor (opt-in: opens the mic)
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const player = useDeckPlayer(deck, started);
+  const tutor = useTutor();
+  // Async steps (the answer finished) must act on the latest player, not the one from when they began
+  const playerRef = useRef(player);
+  playerRef.current = player;
+  const tutorBusy = tutor.thinking || tutor.speaking;
 
   const say = useCallback((text: string) => {
     setToast(text);
@@ -87,13 +95,38 @@ function Player({ deck, preview }: { deck: Deck; preview: boolean }) {
     toastTimer.current = setTimeout(() => setToast(null), 2500);
   }, []);
 
+  /** What the learner is looking at, for the tutor: the slide's text and what's being said. */
+  const slideContext = useCallback(() => {
+    const p = playerRef.current;
+    const s = deck.slides[p.slideIndex];
+    if (!s) return deck.title;
+    const shown = s.elements.map((e) => (e.type === 'text' ? e.text : e.alt ? `[image: ${e.alt}]` : '')).filter(Boolean).join(' | ');
+    const speaking = s.elements.find((e) => e.id === p.activeId);
+    return `Lesson: ${deck.title}. Topic: ${s.topic ?? ''}. On screen: ${shown}.` +
+      (speaking?.say ? ` The professor was just saying: "${speaking.say}"` : '');
+  }, [deck]);
+
+  /** A question (not a command): the professor answers, then the lesson carries on. */
+  const answer = useCallback(async (question: string) => {
+    const p = playerRef.current;
+    if (p.status !== 'paused' && p.status !== 'finished') p.pause();
+    const { decision, superseded } = await tutor.ask(question, slideContext());
+    if (superseded) return;   // talked over the answer: the next turn decides what happens
+    const now = playerRef.current;
+    if (decision === 'simplify') now.simplify();
+    else if (decision === 'advance') now.nextSlide();
+    else if (decision === 'repeat') now.repeat();
+    else now.resume();
+  }, [tutor, slideContext]);
+
+  // One learner turn at a time: was anything useful said before the mic went idle?
+  const turnRef = useRef<{ handled: boolean; resume: boolean } | null>(null);
+
   const handleText = useCallback((text: string) => {
+    if (turnRef.current) turnRef.current.handled = true;
     const cmd = parseCanvasCommand(text);
-    if (!cmd) {
-      say('Questions for the professor come in a later step.');
-      player.resume();
-      return;
-    }
+    if (!cmd) { answer(text); return; }
+    if (tutorBusy) tutor.cancel();   // a command ends the answer
     switch (cmd.kind) {
       case 'nextClip': say(NEXT_CLIP_ACK); player.nextClip(); break;
       case 'nextSlide': say(COMMAND_ACK_TEXT.cmd_nextSlide); player.nextSlide(); break;
@@ -109,14 +142,39 @@ function Player({ deck, preview }: { deck: Deck; preview: boolean }) {
       case 'simplify': say(COMMAND_ACK_TEXT.cmd_simplify); player.simplify(); break;
       case 'goTo': {
         const target = findSlide(deck, cmd.query, player.slideIndex);
-        if (target === null) { say(COMMAND_ACK_TEXT.cmd_notFound); player.resume(); }
-        else { say(COMMAND_ACK_TEXT.cmd_goto); player.goToSlide(target); }
+        if (target !== null) { say(COMMAND_ACK_TEXT.cmd_goto); player.goToSlide(target); }
+        else if (cmd.soft) answer(text);   // "tell me about X": not on a slide, so the professor answers
+        else { say(COMMAND_ACK_TEXT.cmd_notFound); player.resume(); }
         break;
       }
     }
-  }, [deck, player, say]);
+  }, [deck, player, say, answer, tutor, tutorBusy]);
 
-  const { status: micStatus, toggleMic } = useVoiceInput(handleText, () => player.pause());
+  // Barge-in: with interruptions on, starting to talk over the professor (or
+  // over an answer) makes them finish the sentence, then stop and listen.
+  const speakingNow = ['playing', 'loading', 'finishing'].includes(player.status) || tutor.speaking;
+  const { status: micStatus, toggleMic, levelRef } = useVoiceInput(
+    handleText,
+    () => {
+      // Paused on purpose before talking? Then a turn with nothing in it leaves it paused
+      turnRef.current = { handled: false, resume: playerRef.current.status !== 'paused' };
+      if (tutor.speaking || tutor.thinking) tutor.finishSentence();
+      else playerRef.current.interrupt();
+    },
+    interruptOn && started && speakingNow,
+    interruptOn && started,   // keep the mic watching for the whole lesson
+  );
+
+  // The turn ended with nothing usable (a cough, silence, noise): carry on
+  const prevMic = useRef(micStatus);
+  useEffect(() => {
+    const was = prevMic.current;
+    prevMic.current = micStatus;
+    if (micStatus !== 'idle' || was === 'idle') return;
+    const turn = turnRef.current;
+    turnRef.current = null;
+    if (turn && !turn.handled && turn.resume && !tutor.thinking) playerRef.current.resume();
+  }, [micStatus, tutor.thinking]);
 
   // Keyboard: → next clip, Shift+→ / PageDown next slide, ← previous slide,
   // space pause/resume, R repeat, S simpler
@@ -142,7 +200,7 @@ function Player({ deck, preview }: { deck: Deck; preview: boolean }) {
       <main className="min-h-screen flex flex-col items-center justify-center gap-6 bg-gradient-to-br from-sky-950 via-slate-900 to-cyan-950 text-white p-6">
         {preview && <div className="px-3 py-1 rounded-full bg-amber-400 text-slate-900 text-sm font-semibold">{deck.source === 'ai' ? 'Preview of the AI deck' : 'Preview of the saved draft'}</div>}
         <h1 className="text-4xl font-bold text-center">{deck.title}</h1>
-        <p className="text-slate-300 text-center max-w-md">Turn your sound on. Say or type &quot;next&quot;, &quot;next slide&quot;, &quot;repeat&quot; or &quot;simpler please&quot; at any time.</p>
+        <p className="text-slate-300 text-center max-w-md">Turn your sound on. Ask the professor anything, or say &quot;next&quot;, &quot;next slide&quot;, &quot;repeat&quot; or &quot;simpler please&quot; at any time.</p>
         <button onClick={() => setStarted(true)} className="px-8 py-4 rounded-2xl bg-cyan-400 hover:bg-cyan-300 text-slate-900 text-xl font-semibold">
           Start Lesson
         </button>
@@ -159,6 +217,7 @@ function Player({ deck, preview }: { deck: Deck; preview: boolean }) {
         {preview && <span className="mr-2 text-amber-300">Preview ·</span>}
         Topic {player.topicIndex + 1} of {player.topicCount} · Slide {player.slideIndex + 1} of {deck.slides.length}
         {player.mode === 'plain' && <span className="ml-2 text-amber-300">· plain version</span>}
+        {player.status === 'finishing' && <span className="ml-2 text-emerald-300">· finishing the sentence, then listening</span>}
       </div>
 
       <div className="relative">
@@ -188,6 +247,18 @@ function Player({ deck, preview }: { deck: Deck; preview: boolean }) {
         ))}
       </div>
 
+      {/* The question and the professor's answer, while it's being answered */}
+      {tutor.exchange && (
+        <div className="w-full max-w-3xl rounded-xl bg-white/10 border border-white/15 px-4 py-3 text-sm relative" role="status">
+          <button className="absolute top-2 right-3 text-white/50 hover:text-white" onClick={tutor.clearExchange} aria-label="Close">✕</button>
+          <p className="text-cyan-200/90"><b>You:</b> {tutor.exchange.question}</p>
+          <p className="mt-1 text-white/90">
+            <b>Professor Marine:</b>{' '}
+            {tutor.thinking && !tutor.exchange.answer ? <span className="animate-pulse">thinking…</span> : tutor.exchange.answer}
+          </p>
+        </div>
+      )}
+
       <div className="flex flex-wrap items-center justify-center gap-2">
         <button className={btn} onClick={player.prevSlide} disabled={player.slideIndex === 0}>⏮ Previous slide</button>
         {player.status === 'paused'
@@ -204,6 +275,17 @@ function Player({ deck, preview }: { deck: Deck; preview: boolean }) {
         >
           {micStatus === 'listening' ? '● Listening…' : micStatus === 'processing' ? '…' : '🎤 Talk'}
         </button>
+        <button
+          className={`${btn} ${interruptOn ? 'bg-emerald-500/70 hover:bg-emerald-500' : ''}`}
+          onClick={() => {
+            setInterruptOn((on) => !on);
+            if (!interruptOn) say('Interrupt on: just start talking and the professor will finish the sentence and listen.');
+          }}
+          title="Talk over the professor any time (uses the microphone)"
+        >
+          🎙 Interrupt {interruptOn ? 'on' : 'off'}
+        </button>
+        {interruptOn && <MicMeter levelRef={levelRef} listening={micStatus === 'listening'} />}
         <form
           onSubmit={(e) => { e.preventDefault(); if (typed.trim()) handleText(typed); setTyped(''); }}
           className="flex"
@@ -211,7 +293,7 @@ function Player({ deck, preview }: { deck: Deck; preview: boolean }) {
           <input
             value={typed}
             onChange={(e) => setTyped(e.target.value)}
-            placeholder='Type "next", "go back"…'
+            placeholder='Ask a question, or "next"…'
             className="px-3 py-2 rounded-l-lg bg-white/10 placeholder:text-white/40 text-sm outline-none focus:bg-white/15 w-44"
           />
           <button className="px-3 py-2 rounded-r-lg bg-cyan-500/80 hover:bg-cyan-500 text-sm font-medium">Send</button>
