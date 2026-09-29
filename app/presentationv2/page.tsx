@@ -569,9 +569,11 @@ type VariantSlide = { title: string; body: string; narration: string; audio_url:
 
 function VariantSlideOverlay({
   variant,
+  doneLabel,
   onDone,
 }: {
   variant: VariantSlide | null;
+  doneLabel?: string;
   onDone: () => void;
 }) {
   if (!variant) return null;
@@ -594,7 +596,7 @@ function VariantSlideOverlay({
           onClick={onDone}
           className="px-6 py-3 bg-cyan-500 hover:bg-cyan-400 text-slate-900 rounded-xl font-semibold transition-colors"
         >
-          Got it — back to the lesson →
+          {doneLabel ?? 'Got it — back to the lesson →'}
         </button>
       </div>
     </div>
@@ -1917,6 +1919,7 @@ export default function AIPresentation() {
   const [showRemediation, setShowRemediation] = useState(false);
   const [voiceInterruptionsEnabled, setVoiceInterruptionsEnabled] = useState(false);
   const [variantSlide, setVariantSlide] = useState<VariantSlide | null>(null);
+  const [variantDoneLabel, setVariantDoneLabel] = useState<string | undefined>(undefined);
   const [plainKey, setPlainKey] = useState<string | null>(null);   // `${section}_${step}` showing its plain version
   // "Your turn" question: what the learner said, and whether the answer is showing
   const [askState, setAskState] = useState<{ key: string; said: string | null; revealed: boolean } | null>(null);
@@ -2399,6 +2402,24 @@ export default function AIPresentation() {
     });
     signals.record(activeSection, { questions: 1 });
     stop();
+
+    // If the question matches one of the authored slides, bring it up as the
+    // visual the professor explains against while he answers (silently —
+    // the spoken answer IS the narration; the slide's own clip would collide).
+    if (!variantSlide) {
+      fetch(`/api/tutor/variant?q=${encodeURIComponent(text)}`)
+        .then((r) => r.json())
+        .then((d) => {
+          if (d.ok && d.variant) {
+            signals.track('tutor_decision', { section: activeSection, value: { action: 'slide_with_answer', variant: d.variant.title } });
+            variantAfterRef.current = null;   // nothing to resume — the chat flow continues
+            setVariantDoneLabel('Back to the chat →');
+            setVariantSlide(d.variant);
+          }
+        })
+        .catch(() => {});
+    }
+
     sendMessage(text);
   };
 
@@ -2684,6 +2705,43 @@ export default function AIPresentation() {
         return done(say('cmd_simplify'));
       }
 
+      case 'showSlide': {
+        // The professor pulls up one of his authored slides — on demand, with
+        // the topic from the command ("show the slide on the blue crab") or
+        // the current section's slide.
+        const resumeAt = interruptedRef.current ?? (onSlide ? { section: activeSection, step: microStep } : null);
+        interruptedRef.current = null;
+        if (resumeTimerRef.current) clearTimeout(resumeTimerRef.current);
+        stop();
+        stopSpeaking();
+
+        const topic = command.query || sections[activeSection]?.title || '';
+        fetch(`/api/tutor/variant?q=${encodeURIComponent(topic)}`)
+          .then((r) => r.json())
+          .then(async (d) => {
+            if (d.ok && d.variant) {
+              signals.track('tutor_decision', { section: activeSection, value: { action: 'show_slide', variant: d.variant.title } });
+              variantAfterRef.current = () => {
+                if (resumeAt) playMicroStepAudio(resumeAt.section, resumeAt.step, null);
+              };
+              setVariantSlide(d.variant);
+              setVariantDoneLabel(undefined);
+              const url = d.variant.audio_url ?? await ttsUrl(d.variant.narration);
+              if (url) play(url, `showslide_${activeSection}`, d.variant.narration);
+              done(`Bringing up my slide: ${d.variant.title}.`);
+            } else {
+              acknowledge('cmd_notFound', say('cmd_notFound'), () => {
+                if (resumeAt) playMicroStepAudio(resumeAt.section, resumeAt.step, null);
+              });
+              done("I don't have an authored slide on that.");
+            }
+          })
+          .catch(() => {
+            if (resumeAt) playMicroStepAudio(resumeAt.section, resumeAt.step, null);
+          });
+        return true;
+      }
+
       case 'goTo': {
         // Where to pick up again if the part isn't in the lesson
         const resumeAt = interruptedRef.current ?? (onSlide ? { section: activeSection, step: microStep } : null);
@@ -2732,6 +2790,7 @@ export default function AIPresentation() {
       if (data.ok && data.variant) {
         signals.track('tutor_decision', { section: idx, value: { action: 'variant', variant: data.variant.variant, state } });
         variantAfterRef.current = after;
+        setVariantDoneLabel(undefined);
         setVariantSlide(data.variant);
         const url = data.variant.audio_url ?? await ttsUrl(data.variant.narration);
         if (url) play(url, `variant_${idx}`, data.variant.narration);
@@ -3505,6 +3564,7 @@ export default function AIPresentation() {
       {variantSlide && (
         <VariantSlideOverlay
           variant={variantSlide}
+          doneLabel={variantDoneLabel}
           onDone={() => {
             setVariantSlide(null);
             stop();

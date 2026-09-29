@@ -38,25 +38,27 @@ export async function GET(request: NextRequest) {
     const section = Number(params.get('section'));
     const state = (params.get('state') ?? 'confused').toLowerCase();
     const title = params.get('title') ?? '';
+    // `q` = free-text topic search (a learner's question or a "show me the
+    // slide on X" command). Searches the whole knowledge base by concept
+    // words instead of pinning to a section number.
+    const q = (params.get('q') ?? '').trim();
 
     // was `section > 5` — the planner can make up to 7 sections
-    if (!Number.isInteger(section) || section < 0 || section > 9) {
+    if (!q && (!Number.isInteger(section) || section < 0 || section > 9)) {
       return NextResponse.json({ error: 'section must be 0-9' }, { status: 400 });
     }
     const preferences = STATE_VARIANT_PREFERENCE[state] ?? STATE_VARIANT_PREFERENCE.confused;
 
-    const { data, error } = await getSupabase()
-      .from('slide_templates')
-      .select('*')
-      .eq('section', section)
-      .in('variant', preferences)
-      .order('sort_order', { ascending: true });
+    let query = getSupabase().from('slide_templates').select('*').in('variant', preferences).order('sort_order', { ascending: true });
+    query = q ? query : query.eq('section', section);
 
+    const { data, error } = await query;
     if (error) throw new Error(error.message);
 
     // Section numbers come from the AI planner and can shift when the lesson is
     // regenerated, so a variant must also be about this section's topic.
-    const rows = (data ?? []).filter((row: any) => !title || sameTopic(row.concept, title));
+    const matchAgainst = q || title;
+    const rows = (data ?? []).filter((row: any) => !matchAgainst || sameTopic(row.concept, matchAgainst));
 
     // pick the highest-preference variant that exists
     let chosen = null;
