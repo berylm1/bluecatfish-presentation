@@ -1,10 +1,11 @@
 import { useRef, useState } from 'react';
+import { learnerHeaders } from '@/lib/learnerSession';
 
 async function fetchClip(text: string): Promise<Blob | null> {
   try {
     const res = await fetch('/api/tts', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: learnerHeaders({ 'Content-Type': 'application/json' }),
       body: JSON.stringify({ text }),
     });
     if (!res.ok) return null;

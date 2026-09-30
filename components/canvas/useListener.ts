@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState, type MutableRefObject } from 'react';
 import type { MicLevel } from '@/components/hooks/useVoiceInput';
+import { learnerHeaders } from '@/lib/learnerSession';
 
 /*
  * The canvas page's microphone: barge-in detection and recording on ONE open
@@ -128,7 +129,7 @@ export function useListener({
           try {
             const form = new FormData();
             form.append('file', encodeWav(turn.chunks, rate), 'speech.wav');
-            const res = await fetch('/api/transcribe', { method: 'POST', body: form });
+            const res = await fetch('/api/transcribe', { method: 'POST', body: form, headers: learnerHeaders() });
             const data = await res.json();
             const text = String(data.text ?? '').trim();
             live.current.onTranscript(text.length > 2 && !NOISE.test(text) ? text : '');

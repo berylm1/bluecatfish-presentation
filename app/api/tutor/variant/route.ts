@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { rateLimit } from '@/lib/rateLimit';
 
 // Variant slide lookup — returns the best reviewed variant for a topic + learner state.
 let client: ReturnType<typeof createClient> | null = null;
@@ -118,6 +119,9 @@ async function generateExplanation(row: any, learnerState: string): Promise<stri
 
 export async function GET(request: NextRequest) {
   try {
+    // Each lookup can embed the query and write an explanation (OpenAI)
+    const limited = await rateLimit(request, 'slides');
+    if (limited) return limited;
     const params = new URL(request.url).searchParams;
     const section = Number(params.get('section'));
     const state = (params.get('state') ?? 'confused').toLowerCase();

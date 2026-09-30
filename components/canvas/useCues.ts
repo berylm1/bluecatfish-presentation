@@ -2,10 +2,11 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { CUE_TEXT, type CueKey } from '@/lib/canvas/cues';
+import { learnerHeaders } from '@/lib/learnerSession';
 
 async function liveUrl(text: string): Promise<string | null> {
   try {
-    const res = await fetch('/api/tts', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text }) });
+    const res = await fetch('/api/tts', { method: 'POST', headers: learnerHeaders({ 'Content-Type': 'application/json' }), body: JSON.stringify({ text }) });
     return res.ok ? URL.createObjectURL(await res.blob()) : null;
   } catch {
     return null;
@@ -28,7 +29,7 @@ export function useCues(enabled: boolean) {
 
   useEffect(() => {
     if (!enabled) return;
-    fetch('/api/cues').then((r) => r.json()).then((d) => { urls.current = d.urls ?? {}; }).catch(() => {});
+    fetch('/api/cues', { headers: learnerHeaders() }).then((r) => r.json()).then((d) => { urls.current = d.urls ?? {}; }).catch(() => {});
   }, [enabled]);
 
   const stop = useCallback(() => {

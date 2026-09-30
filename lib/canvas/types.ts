@@ -70,6 +70,8 @@ export interface Deck {
   source: 'hand' | 'ai';
   /** The AI lesson version (Redis key) this deck was copied from with "Start from AI". */
   basedOn?: string;
+  /** Changes with every save from the editor (not with AI fill-ins), to spot two people editing at once. */
+  editRev?: string;
   recapByAI?: boolean;
   updatedAt?: string;
   updatedBy?: string;

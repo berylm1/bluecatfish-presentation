@@ -21,6 +21,7 @@ import { CUE_TEXT, type CueKey } from '@/lib/canvas/cues';
 import { loadDeck, type Loaded } from '@/lib/canvas/loadDeck';
 import { DEFAULT_LESSON } from '@/lib/canvas/lessons';
 import type { Deck } from '@/lib/canvas/types';
+import { learnerHeaders } from '@/lib/learnerSession';
 
 /*
  * The canvas presentation (see docs/customization-plan.md).
@@ -139,7 +140,7 @@ function Player({ deck, preview }: { deck: Deck; preview: boolean }) {
   const findVariant = useCallback(async (state: string, title: string, about: string, explain = false): Promise<Variant | null> => {
     try {
       const q = new URLSearchParams({ state, title, about, ...(explain ? { explain: '1' } : {}) });
-      const res = await fetch(`/api/tutor/variant?${q}`, { signal: AbortSignal.timeout(explain ? 12000 : 6000) });
+      const res = await fetch(`/api/tutor/variant?${q}`, { headers: learnerHeaders(), signal: AbortSignal.timeout(explain ? 12000 : 6000) });
       return (await res.json()).variant ?? null;
     } catch {
       return null;
@@ -572,6 +573,7 @@ function Player({ deck, preview }: { deck: Deck; preview: boolean }) {
             value={typed}
             onChange={(e) => setTyped(e.target.value)}
             placeholder='Ask a question, or "next"…'
+            maxLength={500}
             className="px-3 py-2 rounded-l-lg bg-white/10 placeholder:text-white/40 text-sm outline-none focus:bg-white/15 w-44"
           />
           <button className="px-3 py-2 rounded-r-lg bg-cyan-500/80 hover:bg-cyan-500 text-sm font-medium">Send</button>

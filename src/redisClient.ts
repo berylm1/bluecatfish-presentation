@@ -76,3 +76,19 @@ export const scanKeys = async (pattern: string, limit = 500): Promise<string[]> 
   }
   return out;
 };
+
+/**
+ * Adds 1 to a counter that expires after ttlSec, and returns the new count
+ * (null when Redis isn't available, so callers can let the request through).
+ */
+export const incrWindow = async (key: string, ttlSec: number): Promise<number | null> => {
+  try {
+    await ensureConnected();
+    if (!redisClient.isReady) return null;
+    const n = await redisClient.incr(key);
+    if (n === 1) await redisClient.expire(key, ttlSec);
+    return n;
+  } catch {
+    return null;
+  }
+};

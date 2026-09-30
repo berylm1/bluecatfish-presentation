@@ -1,6 +1,7 @@
 import { parseDeckCommand, findByPosition, tokens, type DeckCommand, type SearchableSection } from '@/lib/deckCommands';
 import type { Deck } from './types';
 import { topicIndexes } from './queue';
+import { learnerHeaders } from '@/lib/learnerSession';
 
 // On the canvas page a slide has several clips, so a bare "next" (or "next
 // next") skips just the current clip. "next slide", "next page", "skip ahead"
@@ -65,7 +66,7 @@ export async function searchByMeaning(deck: Deck, query: string): Promise<number
   try {
     const res = await fetch('/api/deck/search', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: learnerHeaders({ 'Content-Type': 'application/json' }),
       body: JSON.stringify({ query, docs }),
       signal: AbortSignal.timeout(9000),
     });

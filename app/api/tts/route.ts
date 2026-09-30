@@ -1,12 +1,16 @@
 import { NextRequest } from 'next/server';
 import { TTS_VOICE, VOICE_INSTRUCTIONS, SIMPLE_VOICE_INSTRUCTIONS } from '@/lib/voice';
+import { MAX, rateLimit, tooLarge } from '@/lib/rateLimit';
 
 export async function POST(request: NextRequest) {
   try {
+    const limited = await rateLimit(request, 'tts');
+    if (limited) return limited;
     const body = await request.json();
     const text = (body.text as string)?.trim();
     const voice = (body.voice as string) || TTS_VOICE;
 
+    if (text && text.length > MAX.ttsText) return tooLarge('text');
     if (!text) {
       return new Response(JSON.stringify({ error: 'Missing text' }), {
         status: 400,

@@ -5,7 +5,10 @@ import { ensureLesson, isLessonId, listLessons, readDeck, writeDeck, type DeckKi
 
 export const dynamic = 'force-dynamic';
 
-// GET ?lesson=&kind=draft|live|ai → that deck (or null). PUT { lesson, deck } → saves the draft.
+// GET ?lesson=&kind=draft|live|ai → that deck (or null).
+// PUT { lesson, deck, baseRev, force? } → saves the draft. baseRev is the
+// draft's editRev when this editor loaded (or last saved) it; if someone else
+// has saved since, the answer is 409 with who and when, unless force.
 export async function GET(req: Request) {
   const params = new URL(req.url).searchParams;
   const lesson = params.get('lesson');
@@ -26,10 +29,15 @@ export async function PUT(req: Request) {
   try {
     const deck = sanitizeDeck(parsed.deck, lesson, 'hand');
     const by = await editorName(req);
+    const current = await readDeck(lesson, 'draft');
+    if (!parsed.force && current?.editRev && current.editRev !== parsed.baseRev) {
+      return NextResponse.json({ error: 'conflict', conflict: { by: current.updatedBy ?? 'someone', at: current.updatedAt ?? null } }, { status: 409 });
+    }
+    deck.editRev = Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
     const known = (await listLessons()).find((l) => l.id === lesson);
     const lessonWarning = await ensureLesson(known ?? { id: lesson, title: deck.title }, by);
     const warning = await writeDeck(lesson, 'draft', deck, by);
-    return NextResponse.json({ ok: true, savedAt: new Date().toISOString(), by, warning: warning ?? lessonWarning });
+    return NextResponse.json({ ok: true, savedAt: new Date().toISOString(), by, editRev: deck.editRev, warning: warning ?? lessonWarning });
   } catch (e) {
     return NextResponse.json({ error: e instanceof Error ? e.message : String(e) }, { status: 400 });
   }

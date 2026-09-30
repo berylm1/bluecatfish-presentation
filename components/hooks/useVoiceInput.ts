@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import fixWebmDuration from 'fix-webm-duration';
+import { learnerHeaders } from '@/lib/learnerSession';
 
 type Status = "idle" | "listening" | "processing";
 
@@ -215,7 +216,7 @@ export function useVoiceInput(
           const formData = new FormData();
           formData.append("file", blob, `recording.${ext}`);
 
-          const res = await fetch("/api/transcribe", { method: "POST", body: formData });
+          const res = await fetch("/api/transcribe", { method: "POST", body: formData, headers: learnerHeaders() });
           const data = await res.json();
 
           const text = (data.text ?? "").trim();
