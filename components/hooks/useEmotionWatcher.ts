@@ -17,6 +17,8 @@
  */
 import { useEffect, useRef, useState } from 'react';
 import { FaceLandmarker, FilesetResolver } from '@mediapipe/tasks-vision';
+import { camDebug, camDebugOn } from '@/lib/camDebug';
+import { acquireCamera, cameraVideo, releaseCamera } from '@/lib/sharedCamera';
 
 export type LearnerEmotion = 'neutral' | 'confused' | 'bored';
 /** What the face looks like right now (for the camera bubble), before any sustain or cooldown. */
@@ -49,6 +51,7 @@ export function useEmotionWatcher(
     if (!enabled) return;
     let cancelled = false;
     let stream: MediaStream | null = null;
+    let acquired = false;
 
     const start = async () => {
       setError(null);
@@ -69,13 +72,13 @@ export function useEmotionWatcher(
         if (cancelled) { landmarker.close(); return; }
         landmarkerRef.current = landmarker;
 
-        stream = await navigator.mediaDevices.getUserMedia({ video: true });
-        if (cancelled) { stream.getTracks().forEach((t) => t.stop()); return; }
-        const video = document.createElement('video');
-        video.srcObject = stream;
-        video.playsInline = true;
-        video.muted = true;
-        await video.play();
+        // The shared camera feed (lib/sharedCamera.ts), not a camera of its own
+        if (cancelled) return;
+        acquired = true;
+        stream = await acquireCamera();
+        if (cancelled) return;
+        const video = await cameraVideo(stream);
+        if (cancelled) return;
         videoRef.current = video;
         setReady(true);
 
@@ -85,6 +88,7 @@ export function useEmotionWatcher(
           return c ? c.score : 0;
         };
 
+        const debug = camDebugOn();
         const tick = () => {
           if (cancelled || !landmarkerRef.current || !videoRef.current) return;
           try {
@@ -108,6 +112,7 @@ export function useEmotionWatcher(
 
               confusedSinceRef.current = isConfused ? (confusedSinceRef.current ?? now) : null;
               flatSinceRef.current = isFlat ? (flatSinceRef.current ?? now) : null;
+              if (debug) camDebug.mood = `puzzle ${confusion.toFixed(2)} (needs 0.28) · expression ${expressive.toFixed(2)} (flat under 0.12)`;
               setLive(
                 confusedSinceRef.current && now - confusedSinceRef.current > LIVE_CONFUSED_MS ? 'confused'
                   : flatSinceRef.current && now - flatSinceRef.current > LIVE_FLAT_MS ? 'bored'
@@ -131,6 +136,7 @@ export function useEmotionWatcher(
               confusedSinceRef.current = null;
               flatSinceRef.current = null;
               setLive('none');
+              if (debug) camDebug.mood = 'no face';
             }
           } catch { /* frame skip */ }
           rafRef.current = requestAnimationFrame(tick);
@@ -147,7 +153,8 @@ export function useEmotionWatcher(
       cancelled = true;
       if (rafRef.current) cancelAnimationFrame(rafRef.current);
       landmarkerRef.current?.close();
-      stream?.getTracks().forEach((t) => t.stop());
+      // was: stop the camera's tracks. The feed is shared now: let go of it instead.
+      if (acquired) releaseCamera();
       videoRef.current = null;
     };
   }, [enabled]);

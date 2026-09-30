@@ -9,9 +9,13 @@
  *   open     at least 3 of the 4 fingers straight (tip farther from the wrist
  *            than the middle joint)
  *   upright  wrist → middle knuckle points up, within ~40° of straight up
- *   palm     the palm, not the back of the hand, faces the camera
- *   high     wrist above the lower third of the picture
+ *   high     fingertips in the upper 60% of the picture
  *   near     big enough to be the learner, not someone walking behind them
+ *
+ * `palm` (palm or back of the hand to the camera) is still worked out and
+ * shown in ?camDebug=1, but no longer required: it depends on MediaPipe
+ * telling left hands from right, and on real webcams that made every raise
+ * fail. (A raised hand either way round is a raised hand.)
  *
  * Point numbers: 0 wrist, 5/9/13/17 knuckles (index → pinky),
  * 6/10/14/18 middle joints, 8/12/16/20 fingertips.
@@ -29,7 +33,7 @@ export type HandCheck = {
 };
 
 const MAX_TILT_DEG = 40;
-const MIN_WRIST_Y = 0.67;   // wrist must be above this (0 top, 1 bottom)
+const MAX_TIP_Y = 0.6;      // a fingertip must be above this (0 top, 1 bottom)
 const MIN_HAND_SIZE = 0.06; // wrist → middle knuckle, as a share of the picture
 
 const dist = (a: Point, b: Point) => Math.hypot(a.x - b.x, a.y - b.y);
@@ -65,7 +69,8 @@ export function checkHand(lm: Point[], handedness?: string, mirrored = false, ha
     palm = learnersRight ? cross > 0 : cross < 0;
   }
 
-  const high = wrist.y < MIN_WRIST_Y;
+  const high = Math.min(lm[8].y, lm[12].y) < MAX_TIP_Y;
   const near = size > MIN_HAND_SIZE;
-  return { raised: open && upright && palm !== false && high && near, open, upright, palm, high, near };
+  // was: open && upright && palm !== false && high && near (palm made every real raise fail)
+  return { raised: open && upright && high && near, open, upright, palm, high, near };
 }

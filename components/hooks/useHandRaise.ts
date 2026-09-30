@@ -2,6 +2,8 @@
 import { useEffect, useRef, useState } from "react";
 import { HandLandmarker, FilesetResolver } from "@mediapipe/tasks-vision";
 import { checkHand } from "@/lib/handPose";
+import { camDebug, camDebugOn } from "@/lib/camDebug";
+import { acquireCamera, cameraVideo, releaseCamera } from "@/lib/sharedCamera";
 
 const RAISE_SUSTAIN_MS = 600; 
 const COOLDOWN_MS = 4000;
@@ -32,8 +34,9 @@ export function useHandRaise(enabled: boolean, onRaised: () => void) {
 
   useEffect(() => {
     if (!enabled) return
+    let acquired = false;
     let cancelled = false;
-    const debug = new URLSearchParams(window.location.search).has("handDebug");
+    const debug = camDebugOn();
 
     const start = async () => {
       setError(null);
@@ -48,7 +51,10 @@ export function useHandRaise(enabled: boolean, onRaised: () => void) {
               "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task",
           },
           runningMode: "VIDEO",
-          numHands: 2,   // either hand can be the raised one
+          numHands: 2,
+          // defaults are 0.5; a bit lower so a hand at the edge of the picture is still found
+          minHandDetectionConfidence: 0.4,
+          minHandPresenceConfidence: 0.4,   // either hand can be the raised one
         });
         if (cancelled) {
           detector.close();
@@ -56,16 +62,13 @@ export function useHandRaise(enabled: boolean, onRaised: () => void) {
         }
         detectorRef.current = detector;
 
-        const stream = await navigator.mediaDevices.getUserMedia({ video: true });
-        if (cancelled) {
-          stream.getTracks().forEach((t) => t.stop());
-          return;
-        }
-
-        const video = document.createElement("video");
-        video.srcObject = stream;
-        video.playsInline = true;
-        await video.play();
+        // The shared camera feed (lib/sharedCamera.ts), not a camera of its own
+        if (cancelled) return;
+        acquired = true;
+        const stream = await acquireCamera();
+        if (cancelled) return;
+        const video = await cameraVideo(stream);
+        if (cancelled) return;
         videoRef.current = video;
         setReady(true);
 
@@ -92,10 +95,14 @@ export function useHandRaise(enabled: boolean, onRaised: () => void) {
               return checkHand(hand, h?.categoryName, false, h?.score ?? 0);
             });
             const isRaised = checks.some((c) => c.raised);
-            // ?handDebug=1 in the address: what each check sees, twice a second
-            if (debug && now - lastLogRef.current > 500) {
+            // ?camDebug=1 in the address: what each check sees (shown by the camera bubble, and in the console)
+            if (debug && now - lastLogRef.current > 250) {
               lastLogRef.current = now;
-              console.log('[hand]', checks.length ? checks.map((c, i) => `${result.handedness?.[i]?.[0]?.categoryName ?? '?'}: ${Object.entries(c).map(([k, v]) => `${k}=${v}`).join(' ')}`).join(' | ') : 'no hand');
+              const yn = (v: boolean | null) => (v === null ? '?' : v ? '✓' : '✗');
+              camDebug.hand = checks.length
+                ? checks.map((c, i) => `${result.handedness?.[i]?.[0]?.categoryName ?? '?'} open${yn(c.open)} up${yn(c.upright)} high${yn(c.high)} near${yn(c.near)} palm${yn(c.palm)} → ${c.raised ? 'RAISED' : 'no'}`).join(' | ')
+                : 'no hand seen';
+              if (now % 2000 < 250) console.log('[hand]', camDebug.hand);
             }
 
             const samples = samplesRef.current;
@@ -173,8 +180,8 @@ export function useHandRaise(enabled: boolean, onRaised: () => void) {
       cancelled = true;
       if (rafRef.current) cancelAnimationFrame(rafRef.current);
       detectorRef.current?.close();
-      const stream = videoRef.current?.srcObject as MediaStream | undefined;
-      stream?.getTracks().forEach((t) => t.stop());
+      // was: stop the camera's tracks. The feed is shared now: let go of it instead.
+      if (acquired) releaseCamera();
     };
   }, [enabled]);
 
