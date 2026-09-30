@@ -32,53 +32,70 @@ function sameTopic(concept: string, title: string): boolean {
   return false;
 }
 
+/** How many (stemmed, non-stop) words two texts share. */
 function sharedWords(a: string, b: string): number {
-  const x = words(a ?? '');
+  const singular = (set: Set<string>) => new Set([...set].map((w) => w.replace(/s$/, '')));   // crabs = crab
+  const x = singular(words(a ?? ''));
   let n = 0;
-  for (const w of words(b)) if (x.has(w)) n++;
+  for (const w of singular(words(b ?? ''))) if (x.has(w)) n++;
   return n;
 }
 
 export async function GET(request: NextRequest) {
   try {
     const params = new URL(request.url).searchParams;
+    const section = Number(params.get('section'));
     const state = (params.get('state') ?? 'confused').toLowerCase();
     const title = params.get('title') ?? '';
-    const preferences = STATE_VARIANT_PREFERENCE[state] ?? STATE_VARIANT_PREFERENCE.confused;
+    // `q` = free-text topic search (a learner's question or a "show me the
+    // slide on X" command). Searches the whole knowledge base by concept
+    // words instead of pinning to a section number.
+    const q = (params.get('q') ?? '').trim();
 
-    // Without a section number (the canvas page, whose topics aren't numbered
-    // like the old planner's sections): match on the topic title, plus the
-    // slide's own words (`about`), and take the best match.
-    if (params.get('section') === null) {
+    // Neither a section number nor q (the canvas page, whose topics aren't
+    // numbered like the old planner's sections): match on the topic title plus
+    // the slide's own words (`about`), and take the best match.
+    if (!q && params.get('section') === null) {
       const about = params.get('about') ?? '';
-      if (!title && !about) return NextResponse.json({ error: 'title or about is required' }, { status: 400 });
-      const { data, error } = await getSupabase().from('slide_templates').select('*').in('variant', preferences);
+      if (!title && !about) return NextResponse.json({ error: 'title, about or q is required' }, { status: 400 });
+      const prefs = STATE_VARIANT_PREFERENCE[state] ?? STATE_VARIANT_PREFERENCE.confused;
+      const { data, error } = await getSupabase().from('slide_templates').select('*').in('variant', prefs);
       if (error) throw new Error(error.message);
       const scored = (data ?? [])
         .map((row: any) => ({ row, score: 2 * sharedWords(row.concept, title) + sharedWords(`${row.concept} ${row.title} ${row.body}`, about) }))
         .filter((r) => r.score >= 2)
-        .sort((a, b) => b.score - a.score || preferences.indexOf(a.row.variant) - preferences.indexOf(b.row.variant) || a.row.sort_order - b.row.sort_order);
+        .sort((a, b) => b.score - a.score || prefs.indexOf(a.row.variant) - prefs.indexOf(b.row.variant) || a.row.sort_order - b.row.sort_order);
       return NextResponse.json({ ok: true, variant: scored[0]?.row ?? null });
     }
 
-    const section = Number(params.get('section'));
     // was `section > 5` — the planner can make up to 7 sections
-    if (!Number.isInteger(section) || section < 0 || section > 9) {
+    if (!q && (!Number.isInteger(section) || section < 0 || section > 9)) {
       return NextResponse.json({ error: 'section must be 0-9' }, { status: 400 });
     }
+    const preferences = STATE_VARIANT_PREFERENCE[state] ?? STATE_VARIANT_PREFERENCE.confused;
 
-    const { data, error } = await getSupabase()
-      .from('slide_templates')
-      .select('*')
-      .eq('section', section)
-      .in('variant', preferences)
-      .order('sort_order', { ascending: true });
+    let query = getSupabase().from('slide_templates').select('*').in('variant', preferences).order('sort_order', { ascending: true });
+    query = q ? query : query.eq('section', section);
 
+    const { data, error } = await query;
     if (error) throw new Error(error.message);
 
     // Section numbers come from the AI planner and can shift when the lesson is
     // regenerated, so a variant must also be about this section's topic.
-    const rows = (data ?? []).filter((row: any) => !title || sameTopic(row.concept, title));
+    const matchAgainst = q || title;
+    let rows = (data ?? []).filter((row: any) => !matchAgainst || sameTopic(row.concept, matchAgainst));
+
+    // Fallback when the stem matcher comes up empty ("what is the blue catfish"
+    // is all stop-words): raw word overlap between the query and the concept.
+    if (matchAgainst && rows.length === 0) {
+      const rawWords = (s: string) => new Set((s.toLowerCase().match(/[a-z]+/g) ?? []).filter((w) => w.length > 2 && !['the', 'and', 'for', 'are', 'what'].includes(w)));
+      const qw = rawWords(matchAgainst);
+      rows = (data ?? []).filter((row: any) => {
+        const cw = rawWords(row.concept ?? '');
+        for (const w of qw) if (cw.has(w)) return true;
+        return false;
+      });
+    }
 
     // pick the highest-preference variant that exists
     let chosen = null;

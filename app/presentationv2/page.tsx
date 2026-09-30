@@ -382,6 +382,80 @@ const useAIChat = (currentSection: SectionWithBreakdown | undefined,
 /* ============================================================================
  * SMALL PRESENTATIONAL HELPERS
  * ========================================================================== */
+/**
+ * Live script window — a tracked view of what the professor is saying,
+ * word-synced to the narration (karaoke style). Toggleable from the deck
+ * header; sits on the right side so it never covers the slide.
+ */
+function ScriptPanel({
+  text,
+  currentTime,
+  duration,
+  isSpeaking,
+  playing,
+  sectionTitle,
+  messages,
+  onClose,
+}: {
+  text: string;
+  currentTime: number;
+  duration: number;
+  isSpeaking: boolean;
+  playing: boolean;
+  sectionTitle: string;
+  messages: { role: 'user' | 'ai'; text: string; id?: string }[];
+  onClose: () => void;
+}) {
+  const transcriptEndRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    transcriptEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
+  }, [messages.length, messages[messages.length - 1]?.text]);
+
+  return (
+    <div className="fixed right-4 top-24 bottom-8 w-80 z-40 bg-white/95 backdrop-blur rounded-2xl border border-cyan-500/40 shadow-2xl p-5 overflow-y-auto animate-[fadeInUp_0.3s_ease-out]">
+      <div className="flex items-baseline justify-between mb-3">
+        <div className="text-xs font-bold tracking-widest uppercase text-cyan-700">📜 Live transcript</div>
+        <button onClick={onClose} className="text-slate-400 hover:text-slate-700 text-lg leading-none" aria-label="Close transcript">✕</button>
+      </div>
+      <div className="text-xs text-slate-500 mb-3 truncate">{sectionTitle}</div>
+
+      {/* What the professor is narrating right now, word-synced */}
+      {playing && text && (
+        <div className="mb-4 pb-4 border-b border-slate-200">
+          <div className="text-[10px] font-bold tracking-widest uppercase text-slate-400 mb-1">Narrating now</div>
+          <HighlightedText
+            text={text}
+            currentTime={currentTime}
+            duration={duration}
+            isSpeaking={isSpeaking}
+            isActive
+            className="text-sm text-black leading-relaxed"
+          />
+        </div>
+      )}
+
+      {/* Full dialogue: the learner and the professor, as it happened */}
+      <div className="text-[10px] font-bold tracking-widest uppercase text-slate-400 mb-2">Conversation</div>
+      <div className="space-y-3">
+        {messages.map((m, i) => (
+          m.role === 'user' ? (
+            <p key={m.id ?? i} className="text-sm text-blue-900 font-semibold leading-snug">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-blue-400 block">You</span>
+              {m.text}
+            </p>
+          ) : (
+            <p key={m.id ?? i} className="text-sm text-slate-700 leading-snug">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-cyan-600 block">Professor Marine</span>
+              {m.text}
+            </p>
+          )
+        ))}
+        <div ref={transcriptEndRef} />
+      </div>
+    </div>
+  );
+}
+
 function HighlightedText({
   text,
   currentTime,
@@ -569,9 +643,11 @@ type VariantSlide = { title: string; body: string; narration: string; audio_url:
 
 function VariantSlideOverlay({
   variant,
+  doneLabel,
   onDone,
 }: {
   variant: VariantSlide | null;
+  doneLabel?: string;
   onDone: () => void;
 }) {
   if (!variant) return null;
@@ -594,7 +670,7 @@ function VariantSlideOverlay({
           onClick={onDone}
           className="px-6 py-3 bg-cyan-500 hover:bg-cyan-400 text-slate-900 rounded-xl font-semibold transition-colors"
         >
-          Got it — back to the lesson →
+          {doneLabel ?? 'Got it — back to the lesson →'}
         </button>
       </div>
     </div>
@@ -1917,6 +1993,8 @@ export default function AIPresentation() {
   const [showRemediation, setShowRemediation] = useState(false);
   const [voiceInterruptionsEnabled, setVoiceInterruptionsEnabled] = useState(false);
   const [variantSlide, setVariantSlide] = useState<VariantSlide | null>(null);
+  const [variantDoneLabel, setVariantDoneLabel] = useState<string | undefined>(undefined);
+  const [scriptOpen, setScriptOpen] = useState(false);
   const [plainKey, setPlainKey] = useState<string | null>(null);   // `${section}_${step}` showing its plain version
   // "Your turn" question: what the learner said, and whether the answer is showing
   const [askState, setAskState] = useState<{ key: string; said: string | null; revealed: boolean } | null>(null);
@@ -2399,6 +2477,24 @@ export default function AIPresentation() {
     });
     signals.record(activeSection, { questions: 1 });
     stop();
+
+    // If the question matches one of the authored slides, bring it up as the
+    // visual the professor explains against while he answers (silently —
+    // the spoken answer IS the narration; the slide's own clip would collide).
+    if (!variantSlide) {
+      fetch(`/api/tutor/variant?q=${encodeURIComponent(text)}`)
+        .then((r) => r.json())
+        .then((d) => {
+          if (d.ok && d.variant) {
+            signals.track('tutor_decision', { section: activeSection, value: { action: 'slide_with_answer', variant: d.variant.title } });
+            variantAfterRef.current = null;   // nothing to resume — the chat flow continues
+            setVariantDoneLabel('Back to the chat →');
+            setVariantSlide(d.variant);
+          }
+        })
+        .catch(() => {});
+    }
+
     sendMessage(text);
   };
 
@@ -2684,6 +2780,43 @@ export default function AIPresentation() {
         return done(say('cmd_simplify'));
       }
 
+      case 'showSlide': {
+        // The professor pulls up one of his authored slides — on demand, with
+        // the topic from the command ("show the slide on the blue crab") or
+        // the current section's slide.
+        const resumeAt = interruptedRef.current ?? (onSlide ? { section: activeSection, step: microStep } : null);
+        interruptedRef.current = null;
+        if (resumeTimerRef.current) clearTimeout(resumeTimerRef.current);
+        stop();
+        stopSpeaking();
+
+        const topic = command.query || sections[activeSection]?.title || '';
+        fetch(`/api/tutor/variant?q=${encodeURIComponent(topic)}`)
+          .then((r) => r.json())
+          .then(async (d) => {
+            if (d.ok && d.variant) {
+              signals.track('tutor_decision', { section: activeSection, value: { action: 'show_slide', variant: d.variant.title } });
+              variantAfterRef.current = () => {
+                if (resumeAt) playMicroStepAudio(resumeAt.section, resumeAt.step, null);
+              };
+              setVariantSlide(d.variant);
+              setVariantDoneLabel(undefined);
+              const url = d.variant.audio_url ?? await ttsUrl(d.variant.narration);
+              if (url) play(url, `showslide_${activeSection}`, d.variant.narration);
+              done(`Bringing up my slide: ${d.variant.title}.`);
+            } else {
+              acknowledge('cmd_notFound', say('cmd_notFound'), () => {
+                if (resumeAt) playMicroStepAudio(resumeAt.section, resumeAt.step, null);
+              });
+              done("I don't have an authored slide on that.");
+            }
+          })
+          .catch(() => {
+            if (resumeAt) playMicroStepAudio(resumeAt.section, resumeAt.step, null);
+          });
+        return true;
+      }
+
       case 'goTo': {
         // Where to pick up again if the part isn't in the lesson
         const resumeAt = interruptedRef.current ?? (onSlide ? { section: activeSection, step: microStep } : null);
@@ -2726,12 +2859,16 @@ export default function AIPresentation() {
       // Asked for help, so at least "confused"; "frustrated" gets the gentlest variant
       const mood = signals.getState(idx).last_state;
       const state = mood === 'frustrated' ? 'frustrated' : 'confused';
+      // Search the whole knowledge base by topic words — planner section
+      // numbers shift between regenerations, so pinning `section` misses
+      // (that was the bug where "lost me" fell back to the plain text box).
       const title = encodeURIComponent(sections[idx]?.title ?? '');
-      const r = await fetch(`/api/tutor/variant?section=${idx}&state=${state}&title=${title}`);
+      const r = await fetch(`/api/tutor/variant?q=${title}&state=${state}`);
       const data = await r.json();
       if (data.ok && data.variant) {
         signals.track('tutor_decision', { section: idx, value: { action: 'variant', variant: data.variant.variant, state } });
         variantAfterRef.current = after;
+        setVariantDoneLabel(undefined);
         setVariantSlide(data.variant);
         const url = data.variant.audio_url ?? await ttsUrl(data.variant.narration);
         if (url) play(url, `variant_${idx}`, data.variant.narration);
@@ -2767,6 +2904,11 @@ export default function AIPresentation() {
     };
 
     if (rating === 'lost') {
+      // Fully lost → the gentlest variant (remedial preference wins via state)
+      showVariantOrRemediation(goToQuiz);
+    } else if (rating === 'kind') {
+      // "Kind of" also gets the authored slide breakdown — a lighter touch,
+      // but the same alternative avenue: the professor's own slide.
       showVariantOrRemediation(goToQuiz);
     } else {
       stop();
@@ -3183,6 +3325,12 @@ export default function AIPresentation() {
               >
                 🎙 Interrupt {voiceInterruptionsEnabled ? 'on' : 'off'}
               </button>
+              <button
+                onClick={() => setScriptOpen((v) => !v)}
+                className={`px-4 py-2 rounded-full text-sm font-semibold shadow transition-colors ${scriptOpen ? 'bg-cyan-600 text-white' : 'bg-white text-blue-800'}`}
+              >
+                📜 Transcript {scriptOpen ? 'on' : 'off'}
+              </button>
               {voiceInterruptionsEnabled && emotionReady && lastEmotion && (
                 <div className="px-3 py-1 rounded-full text-xs font-semibold bg-white shadow" title="From the camera — on-device only">
                   {lastEmotion === 'confused' ? '🤔 Learner puzzled' : lastEmotion === 'bored' ? '😐 Drifting' : '✅ Engaged'}
@@ -3502,9 +3650,23 @@ export default function AIPresentation() {
       )}
 
       {/* Variant slide overlay */}
+      {/* Live script window — tracks the narration word-by-word */}
+      {scriptOpen && (
+        <ScriptPanel
+          text={currentText}
+          currentTime={currentTime}
+          duration={duration}
+          isSpeaking={isSpeaking}
+          playing={!!currentKey}
+          sectionTitle={sections[activeSection]?.title ?? ''}
+          messages={messages}
+          onClose={() => setScriptOpen(false)}
+        />
+      )}
       {variantSlide && (
         <VariantSlideOverlay
           variant={variantSlide}
+          doneLabel={variantDoneLabel}
           onDone={() => {
             setVariantSlide(null);
             stop();

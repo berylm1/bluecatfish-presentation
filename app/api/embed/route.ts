@@ -1,6 +1,7 @@
 export const runtime = 'nodejs';
 import { NextRequest, NextResponse } from 'next/server';
 import { lazySupabaseAdmin } from '@/lib/supabase/admin';
+import { requireIngestAdmin } from '@/lib/requireAdmin';
 import mammoth from 'mammoth';
 import extract from 'pdf-extraction';
 
@@ -67,6 +68,10 @@ async function getEmbedding(text: string): Promise<number[]> {
 
 export async function POST(request: NextRequest) {
   try {
+    // Corpus write path — restricted to ingest admins.
+    const gate = await requireIngestAdmin(request);
+    if (gate) return gate;
+
     console.log("🔥 API START");
     const body = await request.json()
     console.log("BODY RECEIVED");
