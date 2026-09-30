@@ -9,6 +9,8 @@ export type DeckCommand =
   | { kind: 'nextTopic' }
   | { kind: 'repeat' }
   | { kind: 'simplify' }
+  // "show me the slide (on X)" — pull up an authored deck slide as a teaching aid
+  | { kind: 'showSlide'; query: string }
   // soft = "tell me about X": if X isn't on a slide, let the tutor answer instead
   | { kind: 'goTo'; query: string; soft: boolean };
 
@@ -54,6 +56,7 @@ const VOCAB = [
   'complicated', 'understand', 'difficult', 'explain', 'again', 'repeat', 'replay', 'previous',
   'rewind', 'skip', 'next', 'continue', 'forward', 'ahead', 'topic', 'section', 'chapter',
   'subject', 'different', 'another', 'boring', 'already', 'basically', 'pardon', 'missed',
+  'slide', 'show', 'actual', 'authored', 'original', 'pull',
 ];
 
 // Damerau-Levenshtein distance (a swap of two letters counts as one edit)
@@ -163,6 +166,18 @@ export function parseDeckCommand(raw: string): DeckCommand | null {
 
   // A bare "what?" means "huh, I didn't get that"
   if (/^what\??$/.test(text)) return { kind: 'simplify' };
+
+  // "show me the slide (on X)" — the professor's authored slides as a teaching
+  // aid. Topic after "on/about/for" if given, else the current section.
+  const slideM = text.match(/(?:show|pull|bring|put)(?:ing)? ?(?:up )?(?:me )?(?:the |your |that |his )?(?:actual |authored |original )?(?:own )?slide/);
+  if (slideM) {
+    const qm = text.match(/slide (?:on|about|for) (.+)$/);
+    const query = (qm ? qm[1] : '').replace(/[?.!]/g, '').trim();
+    // "show me the slide" is a command; "can you show me the slide where it eats crabs?" is too
+    if (!looksLikeQuestion(text) || /\bslide\b/.test(text)) {
+      return { kind: 'showSlide', query };
+    }
+  }
 
   for (const [kind, cue] of CUES) {
     if (!cue.test(text)) continue;
