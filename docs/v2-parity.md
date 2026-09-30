@@ -18,7 +18,7 @@ the new page, ➖ = switched off on the old page too, 🔁 = done differently.
 | "Simpler please" (plain version) | 🔁 | Plain version of the current clip only, not the whole slide |
 | "You lost me" → variant slide / remediation | 🔁 | Variant slide matched by topic + slide words; else the plain version (no separate remediation text) |
 | Partner's PDF deck variants with images (migration 005) | ✅ | Same `slide_templates` rows, image shown |
-| Questions to the tutor, spoken answers | ✅ | Last exchange shown under the slide (no scrolling chat history) |
+| Questions to the tutor, spoken answers | ✅ | Last exchange under the slide; the whole conversation in the transcript |
 | Tutor decision header (simplify / advance / repeat) | ✅ | |
 | Tutor knows the learner's state | ✅ | `describeForTutor` |
 | Barge-in | 🔁 | Own listener: pre-roll, echo cancelled, adaptive levels; finishes the sentence, not the whole clip |
@@ -26,7 +26,10 @@ the new page, ➖ = switched off on the old page too, 🔁 = done differently.
 | Emotion check-in (camera) | ✅ | "yes" → another way to see it (confused) / next slide (bored) |
 | Hand raise (camera) | ✅ | |
 | Presence: pause when away, resume when back | ✅ | |
-| Self-check after each topic | ✅ | By click or voice; "Lost me" → another way to see it |
+| Self-check after each topic | ✅ | By click or voice; "Kind of" and "Lost me" swap in an authored slide first (#33) |
+| "Show me the slide (on X)" (#32) | ✅ | Authored slide, narrated, then back |
+| Answers come with slides (#32) | ✅ | Matching authored slide shown while the professor answers |
+| Script window with the whole conversation (#33, #34) | 🔁 | In the top-right transcript: narration now, conversation above it |
 | Conclusion: intro line, recap, outro | ✅ | One lesson recap instead of per-topic recap clips |
 | Learner events + learner_state | ✅ | Same tables; section = topic, step = slide in the topic |
 | Instructor view | ✅ | Reads the same tables |
