@@ -15,6 +15,7 @@ import VariantOverlay, { type Variant } from '@/components/canvas/VariantOverlay
 import { useEmotionWatcher, type LearnerEmotion } from '@/components/hooks/useEmotionWatcher';
 import { useHandRaise } from '@/components/hooks/useHandRaise';
 import { useFacePresence } from '@/components/hooks/useFacePresence';
+import CameraBubble, { type CameraSees } from '@/components/canvas/CameraBubble';
 import { describeForTutor, type SelfCheckRating } from '@/lib/learnerState';
 import { topicIndexes } from '@/lib/canvas/queue';
 import { CUE_TEXT, type CueKey } from '@/lib/canvas/cues';
@@ -72,6 +73,7 @@ const CONFUSED = /\blost me\b|\bi'?m lost\b|\b(?:don'?t|do not|didn'?t) (?:under
 const YES = /^(?:yes|yeah|yep|yup|sure|ok(?:ay)?|please|uh[- ]huh|definitely|go ahead|do it|mhm)\b/i;
 const NO = /^(?:no|nope|nah|not really|i'?m (?:good|fine|ok(?:ay)?)|all good|keep going|carry on)\b/i;
 const SPEAKING: string[] = ['playing', 'loading', 'finishing', 'waiting'];
+const HAND_RING_MS = 2500;   // how long the camera bubble stays yellow after a raised hand
 
 function Player({ deck, preview }: { deck: Deck; preview: boolean }) {
   const [started, setStarted] = useState(false);
@@ -395,10 +397,12 @@ function Player({ deck, preview }: { deck: Deck; preview: boolean }) {
   };
 
   // Busy moments are skipped in onEmotion, so the camera isn't restarted for every answer
-  const { ready: emotionReady, error: emotionError } = useEmotionWatcher(cameraOn && started, onEmotion);
+  const { ready: emotionReady, error: emotionError, live: liveFace } = useEmotionWatcher(cameraOn && started, onEmotion);
 
   // Hand raise: stop at the end of the sentence, "Do you have a question?", listen
+  const [handUpAt, setHandUpAt] = useState(0);   // for the camera bubble's yellow ring
   const onHandRaised = useCallback(() => {
+    setHandUpAt(Date.now());
     if (!started || micBusy || variant) return;
     tracking.track('hand_raise');
     resumeAfterTurn.current = true;
@@ -406,7 +410,7 @@ function Player({ deck, preview }: { deck: Deck; preview: boolean }) {
     if (tutorBusy) { tutor.finishSentence(); ask(); }
     else playerRef.current.interrupt(ask);
   }, [started, micStatus, variant, tracking, cues, talk, tutorBusy, tutor]);
-  useHandRaise(cameraOn && started, onHandRaised);
+  const { progress: handProgress } = useHandRaise(cameraOn && started, onHandRaised);
 
   // Presence: looked away → pause and wait; back → pick up again
   const { present, error: presenceError } = useFacePresence(cameraOn && started);
@@ -433,6 +437,23 @@ function Player({ deck, preview }: { deck: Deck; preview: boolean }) {
       }
     }
   }, [present, cameraOn, started, tracking, playCue, tutorBusy]);
+
+  // The camera bubble: yellow for a raised hand (for a few seconds), then what the face shows
+  const [, tick] = useState(0);
+  const handShowing = Date.now() - handUpAt < HAND_RING_MS;
+  useEffect(() => {
+    if (!handUpAt) return;
+    const t = setTimeout(() => tick((n) => n + 1), HAND_RING_MS);   // turn the yellow off again
+    return () => clearTimeout(t);
+  }, [handUpAt]);
+  const cameraSees: CameraSees =
+    emotionError || presenceError ? 'error'
+      : !emotionReady ? 'starting'
+        : handShowing ? 'hand'
+          : !present ? 'away'
+            : liveFace === 'confused' ? 'confused'
+              : liveFace === 'bored' ? 'bored'
+                : 'here';
 
   // Keyboard: → next clip, Shift+→ / PageDown next slide, ← previous slide,
   // space pause/resume, R repeat, S simpler
@@ -490,7 +511,9 @@ function Player({ deck, preview }: { deck: Deck; preview: boolean }) {
         {player.status === 'finishing' && <span className="ml-2 text-emerald-300">· finishing the sentence, then listening</span>}
       </div>
 
-      <div className="relative">
+      {cameraOn && <CameraBubble sees={cameraSees} progress={handProgress} />}
+
+      <div className="relative" data-bubble-avoid data-bubble-slide>
         {player.status === 'finished' ? (
           <div
             className="flex flex-col items-center justify-center gap-6 bg-white text-slate-900 rounded-2xl p-10 text-center"
@@ -545,7 +568,7 @@ function Player({ deck, preview }: { deck: Deck; preview: boolean }) {
 
       {/* The question and the professor's answer, while it's being answered */}
       {tutor.exchange && (
-        <div className="w-full max-w-3xl rounded-xl bg-white/10 border border-white/15 px-4 py-3 text-sm relative" role="status">
+        <div className="w-full max-w-3xl rounded-xl bg-white/10 border border-white/15 px-4 py-3 text-sm relative" role="status" data-bubble-avoid>
           <button className="absolute top-2 right-3 text-white/50 hover:text-white" onClick={tutor.clearExchange} aria-label="Close">✕</button>
           <p className="text-cyan-200/90"><b>You:</b> {tutor.exchange.question}</p>
           <p className="mt-1 text-white/90">
@@ -555,7 +578,7 @@ function Player({ deck, preview }: { deck: Deck; preview: boolean }) {
         </div>
       )}
 
-      <div className="flex flex-wrap items-center justify-center gap-2">
+      <div className="flex flex-wrap items-center justify-center gap-2" data-bubble-avoid>
         <button className={btn} onClick={player.prevSlide} disabled={player.slideIndex === 0}>⏮ Previous slide</button>
         {player.status === 'paused'
           ? <button className={btn} onClick={player.resume}>▶ Resume</button>
@@ -616,7 +639,7 @@ function Player({ deck, preview }: { deck: Deck; preview: boolean }) {
           <button className="px-3 py-2 rounded-r-lg bg-cyan-500/80 hover:bg-cyan-500 text-sm font-medium">Send</button>
         </form>
       </div>
-      <footer className="text-xs text-white/40">
+      <footer className="text-xs text-white/40" data-bubble-avoid>
         <Link href="/sources" className="underline hover:text-white/70">View sources</Link>
       </footer>
     </main>
