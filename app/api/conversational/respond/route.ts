@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { MAX, rateLimit, tooLarge } from '@/lib/rateLimit';
 import { lazySupabaseAdmin } from '@/lib/supabase/admin';
 import { classifyIntent } from '@/lib/tutorIntent';
 
@@ -31,6 +32,8 @@ async function getEmbedding(text: string): Promise<number[]> {
 
 export async function POST(request: NextRequest) {
   try {
+    const limited = await rateLimit(request, 'tutor');
+    if (limited) return limited;
     const body = await request.json();
     const systemPrompt = body.systemPrompt as string | undefined;
     const conversation = (body.conversation as ConversationMessage[] | undefined) ?? [];
@@ -44,6 +47,13 @@ export async function POST(request: NextRequest) {
 
     if (!userText) {
       return NextResponse.json({ error: 'Missing user text.' }, { status: 400 });
+    }
+    // Size caps: this endpoint pays OpenAI per word
+    if (userText.length > MAX.question) return tooLarge('question');
+    if (systemPrompt && systemPrompt.length > MAX.systemPrompt) return tooLarge('prompt');
+    conversation.splice(0, Math.max(0, conversation.length - MAX.conversationTurns));
+    for (const turn of conversation) {
+      if (typeof turn?.content === 'string') turn.content = turn.content.slice(0, MAX.conversationChars);
     }
 
     const apiKey = process.env.OPENAI_API_KEY;

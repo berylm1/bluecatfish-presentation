@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { Deck, SlideElement } from '@/lib/canvas/types';
 import { speakingOrder, spokenText, topicIndexes } from '@/lib/canvas/queue';
 import { currentAudio } from '@/lib/canvas/aiFields';
+import { learnerHeaders } from '@/lib/learnerSession';
 
 const AFTER_SLIDE_MS = 1500;    // pause after a slide's last clip before moving on
 const SILENT_SLIDE_MS = 5000;   // a slide with nothing to say stays up this long
@@ -56,7 +57,7 @@ export async function liveClip(text: string, simple: boolean): Promise<string | 
   try {
     const res = await fetch('/api/tts', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: learnerHeaders({ 'Content-Type': 'application/json' }),
       body: JSON.stringify({ text, simple }),
     });
     if (!res.ok) return null;

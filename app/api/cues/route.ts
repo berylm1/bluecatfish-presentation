@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { CUE_TEXT } from '@/lib/canvas/cues';
 import { recordClip } from '@/lib/canvas/prepare';
 import { audioKey } from '@/lib/canvas/aiFields';
+import { rateLimit } from '@/lib/rateLimit';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -12,7 +13,9 @@ export const maxDuration = 60;
 let cached: { urls: Record<string, string>; key: string } | null = null;
 const versionKey = audioKey(JSON.stringify(CUE_TEXT), false);
 
-export async function GET() {
+export async function GET(req: Request) {
+  const limited = await rateLimit(req, 'cues');
+  if (limited) return limited;
   if (cached?.key === versionKey) return NextResponse.json({ urls: cached.urls });
   const urls: Record<string, string> = {};
   await Promise.all(

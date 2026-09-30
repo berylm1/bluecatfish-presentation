@@ -1,10 +1,15 @@
 import { NextResponse } from "next/server";
+import { MAX, rateLimit, tooLarge } from "@/lib/rateLimit";
 
 export async function POST(req: Request) {
   try {
+    const limited = await rateLimit(req, "transcribe");
+    if (limited) return limited;
+    if (Number(req.headers.get("content-length") ?? 0) > MAX.audioBytes) return tooLarge("recording");
     const incoming = await req.formData();
     const file = incoming.get("file") as File;
     if (!file) throw new Error("Missing audio file");
+    if (file.size > MAX.audioBytes) return tooLarge("recording");
 
     const formData = new FormData();
     formData.append("file", file, file.name || "recording.webm");

@@ -2,6 +2,7 @@
 
 import { useCallback, useRef, useState } from 'react';
 import { useSpeechQueue } from '@/components/hooks/useSpeechQueue';
+import { learnerHeaders } from '@/lib/learnerSession';
 
 // Questions for the professor on the canvas page: the learner's question goes
 // to /api/conversational/respond (knowledge base + what's on the slide), the
@@ -39,7 +40,7 @@ export function useTutor() {
     try {
       const res = await fetch('/api/conversational/respond', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: learnerHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify({
           userText: question,
           topic: 'Blue Catfish invasion in the Chesapeake Bay',
@@ -49,6 +50,19 @@ export function useTutor() {
           conversation: historyRef.current.slice(-HISTORY_TURNS * 2),
         }),
       });
+      if (res.status === 429 || res.status === 413) {
+        // Rate-limited or too long (lib/rateLimit.ts): say so kindly, then carry on
+        const line = res.status === 413
+          ? "That's a long one! Could you ask it in a shorter way?"
+          : "Let's slow down a bit. Ask me again in a moment.";
+        speech.beginStream();
+        speech.enqueue(line);
+        speech.endStream();
+        setExchange({ question, answer: line, done: true });
+        setThinking(false);
+        await new Promise((r) => setTimeout(r, 2500));
+        return { decision: null, superseded: seq !== askSeq.current };
+      }
       if (!res.ok || !res.body) throw new Error(`The professor couldn't answer (${res.status})`);
       const d = res.headers.get('X-Tutor-Decision');
       if (d === 'repeat' || d === 'simplify' || d === 'advance') decision = d;

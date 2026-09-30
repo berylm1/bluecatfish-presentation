@@ -10,9 +10,14 @@ export const dynamic = 'force-dynamic';
 // POST { lesson } → the saved draft becomes the live deck.
 // DELETE { lesson } → takes the live deck down (the presentation goes back to the AI lesson).
 export async function POST(req: Request) {
-  const { lesson } = await req.json().catch(() => ({}));
+  const { lesson, baseRev } = await req.json().catch(() => ({}));
   if (!isLessonId(lesson)) return NextResponse.json({ error: 'Bad lesson' }, { status: 400 });
   const draft = await readDeck(lesson, 'draft');
+  // Someone saved a different draft since this editor's last save: don't
+  // publish slides the person pressing Publish hasn't seen
+  if (baseRev !== undefined && draft?.editRev && draft.editRev !== baseRev) {
+    return NextResponse.json({ error: 'conflict', conflict: { by: draft.updatedBy ?? 'someone', at: draft.updatedAt ?? null } }, { status: 409 });
+  }
   if (!draft || draft.slides.length === 0) {
     return NextResponse.json({ error: 'Save at least one slide before publishing' }, { status: 400 });
   }

@@ -568,6 +568,7 @@ function Player({ deck, preview }: { deck: Deck; preview: boolean }) {
             value={typed}
             onChange={(e) => setTyped(e.target.value)}
             placeholder='Ask a question, or "next"…'
+            maxLength={500}
             className="px-3 py-2 rounded-l-lg bg-white/10 placeholder:text-white/40 text-sm outline-none focus:bg-white/15 w-44"
           />
           <button className="px-3 py-2 rounded-r-lg bg-cyan-500/80 hover:bg-cyan-500 text-sm font-medium">Send</button>
