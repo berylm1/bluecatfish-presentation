@@ -2853,11 +2853,12 @@ export default function AIPresentation() {
 
   // Reviewed variant first (knowledge base); generated remediation as the fallback.
   // `after` is what happens once the learner is done with it.
-  const showVariantOrRemediation = async (after: () => void) => {
+  const showVariantOrRemediation = async (after: () => void, forceState?: 'confused' | 'frustrated') => {
     const idx = activeSection;
     try {
-      // Asked for help, so at least "confused"; "frustrated" gets the gentlest variant
-      const mood = signals.getState(idx).last_state;
+      // Asked for help, so at least "confused"; a forced state overrides the
+      // derived mood ('kind of' → confused preferences, 'lost me' → frustrated)
+      const mood = forceState ?? signals.getState(idx).last_state;
       const state = mood === 'frustrated' ? 'frustrated' : 'confused';
       // Search the whole knowledge base by topic words — planner section
       // numbers shift between regenerations, so pinning `section` misses
@@ -2903,13 +2904,13 @@ export default function AIPresentation() {
       else handleQuizContinue();   // quiz off: on to the next topic
     };
 
-    if (rating === 'lost') {
-      // Fully lost → the gentlest variant (remedial preference wins via state)
-      showVariantOrRemediation(goToQuiz);
-    } else if (rating === 'kind') {
-      // "Kind of" also gets the authored slide breakdown — a lighter touch,
-      // but the same alternative avenue: the professor's own slide.
-      showVariantOrRemediation(goToQuiz);
+    if (rating === 'kind') {
+      // The focus case: "kind of" → the authored slide breakdown with the
+      // lighter confused-state preference (visual/analogy), never remedial.
+      showVariantOrRemediation(goToQuiz, 'confused');
+    } else if (rating === 'lost') {
+      // Fully lost → existing path (gentlest variant preference via state)
+      showVariantOrRemediation(goToQuiz, 'frustrated');
     } else {
       stop();
       goToQuiz();
