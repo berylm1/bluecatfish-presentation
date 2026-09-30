@@ -176,21 +176,19 @@ export async function GET(request: NextRequest) {
       ranked = rows.map((row) => ({ row, score: 1 }));
     }
 
-    // Rank-first selection with a tie window: the semantically best slide wins
-    // outright — UNLESS other candidates are within 0.08 of it (same topic,
-    // different teaching style), in which case the state's variant preference
-    // picks the style (confused → analogy, lost → remedial, bored → visual).
+    // Topic-cluster selection: candidates sharing the best candidate's topic are
+    // the SAME subject in different teaching styles — the state preference
+    // picks the style. Distant topics never win over the best cluster.
     let chosen: any = null;
     ranked.sort((a, b) => b.score - a.score);
     if (ranked.length > 0) {
-      const best = ranked[0].score;
-      const nearTies = ranked.filter((r) => best - r.score <= 0.08);
+      const bestRow = ranked[0].row;
+      const cluster = ranked.filter((r) => sameTopic(r.row.concept ?? '', bestRow.concept ?? '') || sameTopic(r.row.title ?? '', bestRow.concept ?? ''));
       for (const v of preferences) {
-        const pick = nearTies.find((r) => r.row.variant === v);
+        const pick = cluster.find((r) => r.row.variant === v);
         if (pick) { chosen = pick.row; break; }
       }
-      if (!chosen && best >= 0.45) chosen = ranked[0].row;
-      if (!chosen && nearTies.length > 0) chosen = nearTies[0].row;
+      if (!chosen) chosen = ranked[0].row;
     }
 
     if (chosen && explain) {
