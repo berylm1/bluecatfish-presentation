@@ -176,20 +176,21 @@ export async function GET(request: NextRequest) {
       ranked = rows.map((row) => ({ row, score: 1 }));
     }
 
-    // Rank-first selection: the semantically best slide wins outright when
-    // it's clearly related; the state's variant preference only breaks
-    // near-ties among plausible candidates. (Preference-first was the bug
-    // where every query matched the analogy slide.)
+    // Rank-first selection with a tie window: the semantically best slide wins
+    // outright — UNLESS other candidates are within 0.08 of it (same topic,
+    // different teaching style), in which case the state's variant preference
+    // picks the style (confused → analogy, lost → remedial, bored → visual).
     let chosen: any = null;
     ranked.sort((a, b) => b.score - a.score);
-    if (ranked.length > 0 && ranked[0].score >= 0.45) {
-      chosen = ranked[0].row;
-    } else {
+    if (ranked.length > 0) {
+      const best = ranked[0].score;
+      const nearTies = ranked.filter((r) => best - r.score <= 0.08);
       for (const v of preferences) {
-        const best = ranked.filter((r) => r.row.variant === v && r.score >= 0.32)[0];
-        if (best) { chosen = best.row; break; }
+        const pick = nearTies.find((r) => r.row.variant === v);
+        if (pick) { chosen = pick.row; break; }
       }
-      if (!chosen && ranked.length > 0) chosen = ranked[0].row;
+      if (!chosen && best >= 0.45) chosen = ranked[0].row;
+      if (!chosen && nearTies.length > 0) chosen = nearTies[0].row;
     }
 
     if (chosen && explain) {
