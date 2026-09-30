@@ -1,5 +1,5 @@
 import { NextRequest } from 'next/server';
-import { TTS_VOICE, VOICE_INSTRUCTIONS } from '@/lib/voice';
+import { TTS_VOICE, VOICE_INSTRUCTIONS, SIMPLE_VOICE_INSTRUCTIONS } from '@/lib/voice';
 
 export async function POST(request: NextRequest) {
   try {
@@ -32,7 +32,8 @@ export async function POST(request: NextRequest) {
         model: 'gpt-4o-mini-tts',
         input: text,
         voice,
-        instructions: VOICE_INSTRUCTIONS,
+        // simple: the calm "simpler please" delivery
+        instructions: body.simple ? SIMPLE_VOICE_INSTRUCTIONS : VOICE_INSTRUCTIONS,
         response_format: 'mp3',
       }),
     });

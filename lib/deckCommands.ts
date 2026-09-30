@@ -225,7 +225,7 @@ function stem(w: string): string {
     .replace(/(.)\1$/, '$1');
 }
 
-function tokens(text: string): string[] {
+export function tokens(text: string): string[] {
   return (text.toLowerCase().match(/[a-z0-9]+/g) ?? [])
     .filter((w) => !STOP.has(w) && (w.length > 2 || /\d/.test(w)))
     .map(stem)
@@ -284,7 +284,7 @@ const ORDINALS: Record<string, number> = {
  * Structural targets: "topic 3", "the second section", "the last topic",
  * "the beginning". Returns null when the query isn't about position.
  */
-function findByPosition(query: string, sections: SearchableSection[]): DeckTarget | null {
+export function findByPosition(query: string, sections: SearchableSection[]): DeckTarget | null {
   const q = query.toLowerCase();
   if (/^(?:the )?(?:beginning|start)(?: of (?:the |this )?(?:topic|section))?$/.test(q)) return { section: -1, step: 0 };
   if (/^(?:the )?(?:last|final) (?:topic|section|chapter)$/.test(q)) return { section: sections.length - 1, step: 0 };

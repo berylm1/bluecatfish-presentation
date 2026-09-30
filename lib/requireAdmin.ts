@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { AUTH_COOKIE, verifyToken } from '@/lib/editorAuth';
 
 /**
  * Gate for corpus-write endpoints (/api/embed, /api/image-Ingest).
@@ -11,6 +12,13 @@ import { createClient } from '@supabase/supabase-js';
  * excludes /api), so the gate must live at the route handler.
  */
 export async function requireIngestAdmin(request: Request): Promise<NextResponse | null> {
+  // An unlocked slide editor (EDITOR_PASSWORDS, see lib/editorAuth.ts) may
+  // ingest too: the editor's image upload calls /api/image-Ingest with that
+  // cookie, not a Supabase session.
+  const cookie = request.headers.get('cookie') ?? '';
+  const m = cookie.match(new RegExp(`(?:^|;\\s*)${AUTH_COOKIE}=([^;]*)`));
+  if (m && (await verifyToken(decodeURIComponent(m[1])))) return null;
+
   const authHeader = request.headers.get('authorization') ?? '';
   const token = authHeader.replace(/^Bearer\s+/i, '');
 
