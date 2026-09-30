@@ -3,7 +3,11 @@
 // A variant slide shown over the canvas when the learner is confused: one of
 // the reviewed "explain it another way" slides (slide_templates), e.g. an
 // authored slide image from the PDF deck with its explanation.
-export type Variant = { title: string; body: string; narration: string; audio_url?: string | null; image_url?: string | null; variant?: string };
+export type Variant = {
+  title: string; body: string; narration: string; audio_url?: string | null; image_url?: string | null; variant?: string;
+  /** A fresh spoken explanation of the slide (asked for with explain=1); played instead of the stored narration. */
+  live_narration?: string;
+};
 
 export default function VariantOverlay({ variant, onDone }: { variant: Variant; onDone: () => void }) {
   return (

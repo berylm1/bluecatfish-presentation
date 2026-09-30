@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 
-// Variant slide lookup — returns the best reviewed variant for a section + learner state.
+// Variant slide lookup — returns the best reviewed variant for a topic + learner state.
 let client: ReturnType<typeof createClient> | null = null;
 function getSupabase() {
   if (!client) {
@@ -41,6 +41,81 @@ function sharedWords(a: string, b: string): number {
   return n;
 }
 
+/* ---------------------------------------------------------------
+ * Semantic matching — embed the query once, compare against cached
+ * concept embeddings (cosine). Word matching stays as the fallback
+ * for when the embedding API is unreachable.
+ * ------------------------------------------------------------- */
+const EMBED_MODEL = 'text-embedding-3-small';
+const conceptEmbeddings = new Map<string, number[]>();   // row id -> vector
+let conceptText = new Map<string, string>();             // row id -> concept + title + body head
+
+function rowText(row: any): string {
+  return `${row.concept ?? ''} ${row.title ?? ''} ${(row.body ?? '').slice(0, 300)}`;
+}
+
+async function embed(text: string): Promise<number[] | null> {
+  try {
+    const res = await fetch('https://api.openai.com/v1/embeddings', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${process.env.OPENAI_API_KEY}` },
+      body: JSON.stringify({ model: EMBED_MODEL, input: text.slice(0, 2000) }),
+    });
+    const data = await res.json();
+    const v = data?.data?.[0]?.embedding;
+    return Array.isArray(v) ? v : null;
+  } catch {
+    return null;
+  }
+}
+
+function cosine(a: number[], b: number[]): number {
+  let dot = 0, na = 0, nb = 0;
+  for (let i = 0; i < a.length; i++) { dot += a[i] * b[i]; na += a[i] * a[i]; nb += b[i] * b[i]; }
+  return na && nb ? dot / (Math.sqrt(na) * Math.sqrt(nb)) : 0;
+}
+
+/* ---------------------------------------------------------------
+ * Live explanation — the professor explains the slide conversationally
+ * (grounded in the reviewed narration + factsheet quote), instead of
+ * reading the canned clip. Falls back to the stored narration.
+ * ------------------------------------------------------------- */
+async function generateExplanation(row: any, learnerState: string): Promise<string | null> {
+  try {
+    const res = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${process.env.OPENAI_API_KEY}` },
+      body: JSON.stringify({
+        model: 'gpt-4o-mini',
+        temperature: 0.7,
+        messages: [
+          {
+            role: 'system',
+            content:
+              `You are Professor Marine, a warm, witty marine-science lecturer teaching the Blue Catfish invasion of the Chesapeake Bay. ` +
+              `The learner is ${learnerState}. You are showing them your authored slide titled "${row.title}". ` +
+              `Teach FROM the slide: start by pointing at what's on it, then expand with the reviewed fact below. ` +
+              `Speak 4-6 short conversational spoken sentences — contractions, natural rhythm, a light joke if it fits. ` +
+              `Never read the slide verbatim; explain the WHY behind it. End by inviting the learner back to the lesson.`,
+          },
+          {
+            role: 'user',
+            content:
+              `Slide title: ${row.title}\nSlide text: ${row.body}\n` +
+              `Reviewed narration (the fact to teach, do not just repeat): ${row.narration}\n` +
+              (row.source_quote ? `Factsheet backing: ${row.source_quote}` : ''),
+          },
+        ],
+        max_tokens: 220,
+      }),
+    });
+    const data = await res.json();
+    return data?.choices?.[0]?.message?.content?.trim() || null;
+  } catch {
+    return null;
+  }
+}
+
 export async function GET(request: NextRequest) {
   try {
     const params = new URL(request.url).searchParams;
@@ -51,60 +126,104 @@ export async function GET(request: NextRequest) {
     // slide on X" command). Searches the whole knowledge base by concept
     // words instead of pinning to a section number.
     const q = (params.get('q') ?? '').trim();
+    // `explain=1` — generate a fresh conversational explanation for the
+    // chosen slide instead of returning only the canned narration.
+    const explain = params.get('explain') === '1';
 
     // Neither a section number nor q (the canvas page, whose topics aren't
     // numbered like the old planner's sections): match on the topic title plus
-    // the slide's own words (`about`), and take the best match.
-    if (!q && params.get('section') === null) {
-      const about = params.get('about') ?? '';
-      if (!title && !about) return NextResponse.json({ error: 'title, about or q is required' }, { status: 400 });
-      const prefs = STATE_VARIANT_PREFERENCE[state] ?? STATE_VARIANT_PREFERENCE.confused;
-      const { data, error } = await getSupabase().from('slide_templates').select('*').in('variant', prefs);
-      if (error) throw new Error(error.message);
-      const scored = (data ?? [])
-        .map((row: any) => ({ row, score: 2 * sharedWords(row.concept, title) + sharedWords(`${row.concept} ${row.title} ${row.body}`, about) }))
-        .filter((r) => r.score >= 2)
-        .sort((a, b) => b.score - a.score || prefs.indexOf(a.row.variant) - prefs.indexOf(b.row.variant) || a.row.sort_order - b.row.sort_order);
-      return NextResponse.json({ ok: true, variant: scored[0]?.row ?? null });
-    }
+    // the slide's own words (`about`).
+    const canvas = !q && params.get('section') === null;
+    const about = params.get('about') ?? '';
+    if (canvas && !title && !about) return NextResponse.json({ error: 'title, about or q is required' }, { status: 400 });
 
     // was `section > 5` — the planner can make up to 7 sections
-    if (!q && (!Number.isInteger(section) || section < 0 || section > 9)) {
+    if (!canvas && !q && (!Number.isInteger(section) || section < 0 || section > 9)) {
       return NextResponse.json({ error: 'section must be 0-9' }, { status: 400 });
     }
     const preferences = STATE_VARIANT_PREFERENCE[state] ?? STATE_VARIANT_PREFERENCE.confused;
 
     let query = getSupabase().from('slide_templates').select('*').in('variant', preferences).order('sort_order', { ascending: true });
-    query = q ? query : query.eq('section', section);
+    query = q || canvas ? query : query.eq('section', section);
 
     const { data, error } = await query;
     if (error) throw new Error(error.message);
 
-    // Section numbers come from the AI planner and can shift when the lesson is
-    // regenerated, so a variant must also be about this section's topic.
-    const matchAgainst = q || title;
-    let rows = (data ?? []).filter((row: any) => !matchAgainst || sameTopic(row.concept, matchAgainst));
+    const rows: any[] = data ?? [];
+    const matchAgainst = canvas ? `${title}. ${about.slice(0, 300)}` : q || title;
 
-    // Fallback when the stem matcher comes up empty ("what is the blue catfish"
-    // is all stop-words): raw word overlap between the query and the concept.
-    if (matchAgainst && rows.length === 0) {
-      const rawWords = (s: string) => new Set((s.toLowerCase().match(/[a-z]+/g) ?? []).filter((w) => w.length > 2 && !['the', 'and', 'for', 'are', 'what'].includes(w)));
-      const qw = rawWords(matchAgainst);
-      rows = (data ?? []).filter((row: any) => {
-        const cw = rawWords(row.concept ?? '');
-        for (const w of qw) if (cw.has(w)) return true;
-        return false;
-      });
+    // Rank candidates. Semantic first (embeddings), word-match fallback.
+    let ranked: { row: any; score: number }[] = [];
+
+    if (matchAgainst) {
+      const qv = await embed(matchAgainst);
+      if (qv) {
+        // Slides not embedded yet (or changed) are embedded together, not one by one
+        await Promise.all(rows.map(async (row) => {
+          let v = conceptEmbeddings.get(row.id);
+          if (!v || conceptText.get(row.id) !== rowText(row)) {
+            v = (await embed(rowText(row))) ?? undefined;
+            if (v) {
+              conceptEmbeddings.set(row.id, v);
+              conceptText.set(row.id, rowText(row));
+            }
+          }
+          if (v) ranked.push({ row, score: cosine(qv, v) });
+        }));
+        ranked.sort((a, b) => b.score - a.score);
+        // keep only plausibly-related slides
+        ranked = ranked.filter((r) => r.score >= 0.32);
+      }
     }
 
-    // pick the highest-preference variant that exists
-    let chosen = null;
-    for (const v of preferences) {
-      chosen = rows.find((row: any) => row.variant === v);
-      if (chosen) break;
+    if (ranked.length === 0 && canvas) {
+      // Word matcher for the canvas page: the topic title counts double
+      ranked = rows
+        .map((row) => ({ row, score: 2 * sharedWords(row.concept, title) + sharedWords(`${row.concept} ${row.title} ${row.body}`, about) }))
+        .filter((r) => r.score >= 2);
+    } else if (ranked.length === 0 && matchAgainst) {
+      // Word matcher: stem overlap, then raw-word fallback
+      let rows2 = rows.filter((row) => sameTopic(row.concept, matchAgainst));
+      if (rows2.length === 0) {
+        const rawWords = (s: string) => new Set((s.toLowerCase().match(/[a-z]+/g) ?? []).filter((w) => w.length > 2 && !['the', 'and', 'for', 'are', 'what'].includes(w)));
+        const qw = rawWords(matchAgainst);
+        rows2 = rows.filter((row) => {
+          const cw = rawWords(row.concept ?? '');
+          for (const w of qw) if (cw.has(w)) return true;
+          return false;
+        });
+      }
+      ranked = rows2.map((row) => ({ row, score: 0.4 }));
+    } else if (!matchAgainst) {
+      ranked = rows.map((row) => ({ row, score: 1 }));
     }
 
-    return NextResponse.json({ ok: true, variant: chosen ?? null });
+    // Topic-cluster selection: candidates sharing the best candidate's topic are
+    // the SAME subject in different teaching styles — the state preference
+    // picks the style. Distant topics never win over the best cluster.
+    let chosen: any = null;
+    ranked.sort((a, b) => b.score - a.score);
+    if (ranked.length > 0) {
+      const bestRow = ranked[0].row;
+      const cluster = ranked.filter((r) => sameTopic(r.row.concept ?? '', bestRow.concept ?? '') || sameTopic(r.row.title ?? '', bestRow.concept ?? ''));
+      for (const v of preferences) {
+        const pick = cluster.find((r) => r.row.variant === v);
+        if (pick) { chosen = pick.row; break; }
+      }
+      if (!chosen) chosen = ranked[0].row;
+    }
+
+    if (chosen && explain) {
+      const live = await generateExplanation(chosen, state);
+      if (live) chosen = { ...chosen, live_narration: live, canned_narration: chosen.narration };
+    }
+
+    const debug = params.get('debug') === '1';
+    return NextResponse.json({
+      ok: true,
+      variant: chosen ?? null,
+      ...(debug ? { scores: ranked.slice(0, 6).map((r) => ({ concept: r.row.concept, variant: r.row.variant, title: r.row.title, score: Number(r.score.toFixed(3)) })) } : {}),
+    });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     console.error('tutor/variant error:', message);
