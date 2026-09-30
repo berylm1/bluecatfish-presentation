@@ -70,6 +70,7 @@ export default function CanvasPresentation() {
 // "You lost me" and friends: the learner is confused, not just asking for simpler words
 const CONFUSED = /\blost me\b|\bi'?m lost\b|\b(?:don'?t|do not|didn'?t) (?:understand|get it|get that|get this|follow)\b|\bconfus|\bwhat does (?:that|this|it) (?:even )?mean\b|^huh\b/i;
 const YES = /^(?:yes|yeah|yep|yup|sure|ok(?:ay)?|please|uh[- ]huh|definitely|go ahead|do it|mhm)\b/i;
+const NO = /^(?:no|nope|nah|not really|i'?m (?:good|fine|ok(?:ay)?)|all good|keep going|carry on)\b/i;
 const SPEAKING: string[] = ['playing', 'loading', 'finishing', 'waiting'];
 
 function Player({ deck, preview }: { deck: Deck; preview: boolean }) {
@@ -255,6 +256,13 @@ function Player({ deck, preview }: { deck: Deck; preview: boolean }) {
   const resumeAfterTurn = useRef(true);
   // The professor asked "You look puzzled…?" and is waiting for the answer
   const checkIn = useRef<LearnerEmotion | null>(null);
+  const [askingHelp, setAskingHelp] = useState<LearnerEmotion | null>(null);   // the same, for the Yes / No buttons
+  const skipTranscript = useRef(false);   // answered with a button: drop what the mic heard
+  /** How the learner answered a check-in (for the editor's heatmap: offered vs accepted). */
+  const checkInAnswered = useCallback((state: LearnerEmotion, answer: 'yes' | 'no' | 'other' | 'none', how: 'voice' | 'button') => {
+    tracking.track('tutor_decision', { action: 'checkin', state, answer, how });
+    setAskingHelp(null);
+  }, [tracking]);
 
   const handleText = useCallback((text: string) => {
     if (selfCheck) {
@@ -318,8 +326,10 @@ function Player({ deck, preview }: { deck: Deck; preview: boolean }) {
       }
     },
     onTranscript: (text) => {
+      if (skipTranscript.current) { skipTranscript.current = false; return; }
       const asked = checkIn.current;
       checkIn.current = null;
+      if (asked) checkInAnswered(asked, !text ? 'none' : YES.test(text.trim()) ? 'yes' : NO.test(text.trim()) ? 'no' : 'other', 'voice');
       if (asked && text && YES.test(text.trim())) {
         // "Want me to go over that a different way?" → yes
         if (asked === 'confused') confused();
@@ -361,11 +371,29 @@ function Player({ deck, preview }: { deck: Deck; preview: boolean }) {
       cues.play(state === 'confused' ? 'cue_confused' : 'cue_bored').then((ok) => {
         if (!ok) return;
         checkIn.current = state;
+        setAskingHelp(state);
         resumeAfterTurn.current = true;
         talk();
       });
     });
   }, [started, tutorBusy, variant, micStatus, tracking, cues, talk]);
+  /** The Yes / No buttons under a check-in (for learners without a working mic, or who'd rather click). */
+  const answerCheckInButton = (yes: boolean) => {
+    const asked = checkIn.current;
+    if (!asked) return;
+    checkIn.current = null;
+    checkInAnswered(asked, yes ? 'yes' : 'no', 'button');
+    resumeAfterTurn.current = false;   // the button decides what happens next, not the end of the mic turn
+    // The mic is listening for the spoken answer: stop it, and ignore what it heard
+    if (micStatus === 'listening' || micStatus === 'processing') {
+      skipTranscript.current = true;
+      if (micStatus === 'listening') talk();
+    }
+    if (!yes) playerRef.current.resume();
+    else if (asked === 'confused') confused();
+    else act('cmd_nextSlide', () => playerRef.current.nextSlide());
+  };
+
   // Busy moments are skipped in onEmotion, so the camera isn't restarted for every answer
   const { ready: emotionReady, error: emotionError } = useEmotionWatcher(cameraOn && started, onEmotion);
 
@@ -490,6 +518,15 @@ function Player({ deck, preview }: { deck: Deck; preview: boolean }) {
               </div>
               <p className="text-xs text-slate-500 mt-4">Or just say it.</p>
             </div>
+          </div>
+        )}
+        {askingHelp && !variant && !selfCheck && (
+          <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-20 flex items-center gap-2 px-4 py-2 rounded-full bg-slate-900/90 text-white text-sm shadow-lg" role="dialog" aria-label="The professor is checking in">
+            <span>{askingHelp === 'confused' ? 'Another way to see it?' : 'Pick up the pace?'}</span>
+            <button className="px-3 py-1 rounded-full bg-cyan-500 hover:bg-cyan-400 font-semibold" onClick={() => answerCheckInButton(true)}>
+              {askingHelp === 'confused' ? 'Yes, show me' : 'Yes'}
+            </button>
+            <button className="px-3 py-1 rounded-full bg-white/15 hover:bg-white/25" onClick={() => answerCheckInButton(false)}>No thanks</button>
           </div>
         )}
         {toast && (

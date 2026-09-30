@@ -49,6 +49,7 @@ class SignalTracker {
   private queue: QueuedEvent[] = [];
   private timer: ReturnType<typeof setTimeout> | null = null;
   private stepEnteredAt: Map<string, number> = new Map();
+  private stepValue: Record<string, unknown> | undefined;   // e.g. which slide, for the dwell event too
   private states: Map<number, SectionState> = new Map();
   private seq = 0;
 
@@ -88,10 +89,11 @@ class SignalTracker {
     this.scheduleFlush();
   }
 
-  /** Dwell bookkeeping: call on step enter. Logs step_start itself. */
-  stepEnter(section: number, step: number): void {
+  /** Dwell bookkeeping: call on step enter. Logs step_start itself. `value` goes on both events. */
+  stepEnter(section: number, step: number, value?: Record<string, unknown>): void {
     this.stepEnteredAt.set(`${section}:${step}`, Date.now());
-    this.track('step_start', { section, step });
+    this.stepValue = value;
+    this.track('step_start', { section, step, value });
   }
 
   /** Emits a dwell event for the step we just left (if any). */
@@ -102,7 +104,7 @@ class SignalTracker {
     this.stepEnteredAt.delete(lastKey);
     const [section, step] = lastKey.split(':').map(Number);
     const dwell = Date.now() - enteredAt;
-    this.track('dwell', { section, step, dwell_ms: dwell });
+    this.track('dwell', { section, step, dwell_ms: dwell, value: this.stepValue });
     this.record(section, { dwell_ms_total: dwell });
   }
 

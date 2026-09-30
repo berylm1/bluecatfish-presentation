@@ -4,6 +4,8 @@ import { useState } from 'react';
 import SlideCanvas from '@/components/canvas/SlideCanvas';
 import type { Slide } from '@/lib/canvas/types';
 import { topicIndexes } from '@/lib/canvas/queue';
+import type { SlideStats } from '@/lib/canvas/slideStats';
+import { heatTitle, heatTone } from './LearnerStats';
 
 // Left column: every slide as a thumbnail. Click to open, drag to reorder.
 // A line with the topic name marks where a new topic starts.
@@ -11,6 +13,7 @@ export default function SlideList({
   slides,
   current,
   warnCounts,
+  heat,
   onOpen,
   onMove,
   onAdd,
@@ -20,6 +23,8 @@ export default function SlideList({
   slides: Slide[];
   current: number;
   warnCounts: number[];
+  /** Learner stats by slide id (the 📊 Learners heatmap), or undefined when it's off. */
+  heat?: Record<string, SlideStats>;
   onOpen: (i: number) => void;
   onMove: (from: number, to: number) => void;
   onAdd: () => void;
@@ -65,6 +70,14 @@ export default function SlideList({
                   ⚠ {warnCounts[i]}
                 </span>
               )}
+              {heat && (() => {
+                const tone = heatTone(heat[s.id]);
+                return tone && (
+                  <span className={`absolute bottom-1 right-1 px-1 rounded text-[10px] font-bold ${tone.cls}`} title={heatTitle(heat[s.id])}>
+                    {tone.label}
+                  </span>
+                );
+              })()}
             </div>
           </div>
         ))}
