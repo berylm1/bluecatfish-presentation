@@ -176,14 +176,21 @@ export async function GET(request: NextRequest) {
       ranked = rows.map((row) => ({ row, score: 1 }));
     }
 
-    // pick the highest-preference variant among the plausible candidates
+    // Rank-first selection: the semantically best slide wins outright when
+    // it's clearly related; the state's variant preference only breaks
+    // near-ties among plausible candidates. (Preference-first was the bug
+    // where every query matched the analogy slide.)
     let chosen: any = null;
-    for (const v of preferences) {
-      const best = ranked.filter((r) => r.row.variant === v).sort((a, b) => b.score - a.score)[0];
-      if (best) { chosen = best.row; break; }
+    ranked.sort((a, b) => b.score - a.score);
+    if (ranked.length > 0 && ranked[0].score >= 0.45) {
+      chosen = ranked[0].row;
+    } else {
+      for (const v of preferences) {
+        const best = ranked.filter((r) => r.row.variant === v && r.score >= 0.32)[0];
+        if (best) { chosen = best.row; break; }
+      }
+      if (!chosen && ranked.length > 0) chosen = ranked[0].row;
     }
-    // nothing in the preference list matched but something is semantically close → use it
-    if (!chosen && ranked.length > 0) chosen = ranked.sort((a, b) => b.score - a.score)[0].row;
 
     if (chosen && explain) {
       const live = await generateExplanation(chosen, state);
