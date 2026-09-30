@@ -2791,7 +2791,7 @@ export default function AIPresentation() {
         stopSpeaking();
 
         const topic = command.query || sections[activeSection]?.title || '';
-        fetch(`/api/tutor/variant?q=${encodeURIComponent(topic)}`)
+        fetch(`/api/tutor/variant?q=${encodeURIComponent(topic)}&explain=1`)
           .then((r) => r.json())
           .then(async (d) => {
             if (d.ok && d.variant) {
@@ -2801,8 +2801,13 @@ export default function AIPresentation() {
               };
               setVariantSlide(d.variant);
               setVariantDoneLabel(undefined);
-              const url = d.variant.audio_url ?? await ttsUrl(d.variant.narration);
-              if (url) play(url, `showslide_${activeSection}`, d.variant.narration);
+              // Live explanation beats the canned clip when the server
+              // generated one — the professor teaches, not recites.
+              const narration = d.variant.live_narration ?? d.variant.narration;
+              const url = d.variant.audio_url && !d.variant.live_narration
+                ? d.variant.audio_url
+                : await ttsUrl(narration);
+              if (url) play(url, `showslide_${activeSection}`, narration);
               done(`Bringing up my slide: ${d.variant.title}.`);
             } else {
               acknowledge('cmd_notFound', say('cmd_notFound'), () => {
@@ -2864,15 +2869,19 @@ export default function AIPresentation() {
       // numbers shift between regenerations, so pinning `section` misses
       // (that was the bug where "lost me" fell back to the plain text box).
       const title = encodeURIComponent(sections[idx]?.title ?? '');
-      const r = await fetch(`/api/tutor/variant?q=${title}&state=${state}`);
+      const r = await fetch(`/api/tutor/variant?q=${title}&state=${state}&explain=1`);
       const data = await r.json();
       if (data.ok && data.variant) {
         signals.track('tutor_decision', { section: idx, value: { action: 'variant', variant: data.variant.variant, state } });
         variantAfterRef.current = after;
         setVariantDoneLabel(undefined);
         setVariantSlide(data.variant);
-        const url = data.variant.audio_url ?? await ttsUrl(data.variant.narration);
-        if (url) play(url, `variant_${idx}`, data.variant.narration);
+        // Live explanation (generated, grounded in the slide) beats the canned clip
+        const narration = data.variant.live_narration ?? data.variant.narration;
+        const url = data.variant.audio_url && !data.variant.live_narration
+          ? data.variant.audio_url
+          : await ttsUrl(narration);
+        if (url) play(url, `variant_${idx}`, narration);
         return;
       }
     } catch { /* fall through to remediation */ }
