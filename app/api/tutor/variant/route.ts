@@ -198,7 +198,12 @@ export async function GET(request: NextRequest) {
       if (live) chosen = { ...chosen, live_narration: live, canned_narration: chosen.narration };
     }
 
-    return NextResponse.json({ ok: true, variant: chosen ?? null });
+    const debug = params.get('debug') === '1';
+    return NextResponse.json({
+      ok: true,
+      variant: chosen ?? null,
+      ...(debug ? { scores: ranked.slice(0, 6).map((r) => ({ concept: r.row.concept, variant: r.row.variant, title: r.row.title, score: Number(r.score.toFixed(3)) })) } : {}),
+    });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     console.error('tutor/variant error:', message);
