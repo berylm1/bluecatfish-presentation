@@ -36,7 +36,7 @@ export function useLessonTracking(deck: Deck, started: boolean, slideIndex: numb
       signals.record(topic, { visits: 1 });
       lastTopic.current = topic;
     }
-    signals.stepEnter(topic, stepInTopic);
+    signals.stepEnter(topic, stepInTopic, { lesson: deck.lessonId, slide: deck.slides[slideIndex]?.id });
   }, [started, finished, topic, stepInTopic, slideIndex, deck]);
 
   useEffect(() => {

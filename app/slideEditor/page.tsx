@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import EditCanvas from '@/components/editor/EditCanvas';
 import SlideList from '@/components/editor/SlideList';
+import { SlideStatsPanel } from '@/components/editor/LearnerStats';
+import type { SlideStats } from '@/lib/canvas/slideStats';
 import ImageLibrary from '@/components/editor/ImageLibrary';
 import { ElementInspector, SlideInspector } from '@/components/editor/Inspector';
 import { useEditorDeck, blankDeck, blankSlide, cloneSlide, newId } from '@/components/editor/useEditorDeck';
@@ -147,6 +149,26 @@ function Editor({
   const versionsOpen = useRef(false);
   versionsOpen.current = versions !== null || confirmDelete !== null || conflict !== null;
   const [overflow, setOverflow] = useState<Record<string, string[]>>({});
+  // 📊 Learners: how each slide went for learners (a heatmap on the slide list)
+  const HEAT_DAYS = 30;
+  const [heat, setHeat] = useState<Record<string, SlideStats> | null>(null);
+  const [heatLoading, setHeatLoading] = useState(false);
+  const toggleHeat = async () => {
+    if (heat) { setHeat(null); return; }
+    setHeatLoading(true);
+    try {
+      const res = await fetch(`/api/editor/slide-stats?lesson=${encodeURIComponent(lessonId)}&days=${HEAT_DAYS}`);
+      const d = await res.json();
+      if (!res.ok) throw new Error(d.error ?? `Couldn't load learner data (${res.status})`);
+      setHeat(d.slides ?? {});
+      const n = Object.values(d.slides ?? {}).reduce((m: number, s) => Math.max(m, (s as SlideStats).learners), 0);
+      if (!n) setNotice({ text: `No learner data for this lesson in the last ${HEAT_DAYS} days yet.`, tone: 'warn' });
+    } catch (e) {
+      setNotice({ text: e instanceof Error ? e.message : String(e), tone: 'error' });
+    } finally {
+      setHeatLoading(false);
+    }
+  };
 
   const flash = useCallback((text: string, tone: 'ok' | 'warn' | 'error' = 'ok') => {
     setNotice({ text, tone });
@@ -532,6 +554,14 @@ function Editor({
         <button className={btn} onClick={addText}>＋ Text</button>
         <button className={btn} onClick={() => setPanel('images')}>＋ Image</button>
         <button className={btn} onClick={openVersions}>Start from AI…</button>
+        <button
+          className={`${btn} ${heat ? 'bg-cyan-50 border-cyan-500' : ''}`}
+          onClick={toggleHeat}
+          disabled={heatLoading}
+          title="How each slide went for learners: puzzled faces, “I’m lost”, simpler please… (last 30 days)"
+        >
+          {heatLoading ? 'Loading…' : '📊 Learners'}
+        </button>
         <div className="flex-1" />
         <span className="text-xs text-slate-500">
           {live === undefined ? '' : live ? <>Live: published {when(live.at)}{live.by ? ` by ${live.by}` : ''} · <button className="underline" onClick={unpublish}>take down</button></> : 'Not published: learners get the AI lesson'}
@@ -555,6 +585,7 @@ function Editor({
             slides={deck.slides}
             current={slideIdx}
             warnCounts={allWarnings.map((w) => w.filter((x) => x.level === 'warn').length)}
+            heat={heat ?? undefined}
             onOpen={(i) => { ed.setSlideIdx(i); ed.setSelected(null); }}
             onMove={moveSlide}
             onAdd={addSlide}
@@ -577,6 +608,7 @@ function Editor({
               warnIds={warnIds}
             />
           </div>
+          {heat && <SlideStatsPanel stats={heat[slide.id]} days={HEAT_DAYS} onClose={() => setHeat(null)} />}
           <div className="text-[11px] text-slate-400">
             Drag to move · corners to resize · arrows nudge (Shift = more) · Del removes · Ctrl+Z undo · Ctrl+S save ·{' '}
             <span className="text-violet-600">dashed purple ✨ AI = words written by the AI</span>
