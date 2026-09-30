@@ -1,6 +1,8 @@
 'use client';
 
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { camDebug, camDebugOn } from '@/lib/camDebug';
+import { acquireCamera, releaseCamera } from '@/lib/sharedCamera';
 
 /*
  * What the camera sees, in a circle in the bottom-right corner, with a
@@ -67,18 +69,16 @@ export default function CameraBubble({ sees, progress = 0 }: { sees: CameraSees;
   const size = place?.d ?? MIN;
   const [camError, setCamError] = useState(false);
 
-  // Its own view of the camera (the detectors each have theirs; the browser shares the device)
+  // The shared camera feed (lib/sharedCamera.ts), the same one the detectors watch
   useEffect(() => {
-    let stream: MediaStream | null = null;
     let stopped = false;
-    navigator.mediaDevices.getUserMedia({ video: { width: 320, height: 240 } })
+    acquireCamera()
       .then((s) => {
-        if (stopped) { s.getTracks().forEach((t) => t.stop()); return; }
-        stream = s;
+        if (stopped) return;
         if (videoRef.current) { videoRef.current.srcObject = s; videoRef.current.play().catch(() => {}); }
       })
       .catch(() => setCamError(true));
-    return () => { stopped = true; stream?.getTracks().forEach((t) => t.stop()); };
+    return () => { stopped = true; releaseCamera(); };
   }, []);
 
   // Fit the corner now, when the window changes, and every half second (boxes
@@ -89,6 +89,14 @@ export default function CameraBubble({ sees, progress = 0 }: { sees: CameraSees;
     window.addEventListener('resize', refit);
     const t = setInterval(refit, 500);
     return () => { window.removeEventListener('resize', refit); clearInterval(t); };
+  }, []);
+
+  // ?camDebug=1: what each detector sees, next to the circle
+  const [debug, setDebug] = useState<Record<string, string> | null>(null);
+  useEffect(() => {
+    if (!camDebugOn()) return;
+    const t = setInterval(() => setDebug({ ...camDebug }), 250);
+    return () => clearInterval(t);
   }, []);
 
   const state: CameraSees | 'nocam' = camError ? 'nocam' : sees;
@@ -124,6 +132,14 @@ export default function CameraBubble({ sees, progress = 0 }: { sees: CameraSees;
       >
         {raising ? '✋ hand going up…' : look.label}
       </span>
+      {debug && (
+        <div className="absolute right-full bottom-0 mr-2 w-80 rounded-lg bg-black/85 text-[11px] leading-snug text-white p-2 font-mono space-y-1">
+          <div>ring: <b>{raising ? `hand going up ${Math.round(progress * 100)}%` : state}</b></div>
+          <div>✋ {debug.hand ?? '(hand detector not running)'}</div>
+          <div>👤 {debug.face ?? '(face finder not running)'}</div>
+          <div>🙂 {debug.mood ?? '(expression reader not running)'}</div>
+        </div>
+      )}
     </div>
   );
 }
