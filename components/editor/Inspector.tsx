@@ -182,11 +182,18 @@ export function SlideInspector({
   update,
   warnings,
   onPickBackground,
+  recap,
+  recapByAI,
+  onRecap,
 }: {
   slide: Slide;
   update: (patch: Partial<Slide>) => void;
   warnings: Warning[];
   onPickBackground: () => void;
+  /** The whole lesson's end-of-lesson recap */
+  recap?: string;
+  recapByAI?: boolean;
+  onRecap: (text: string) => void;
 }) {
   return (
     <div className="flex flex-col gap-4">
@@ -227,6 +234,22 @@ export function SlideInspector({
         </div>
       )}
       <p className="text-xs text-slate-500">Click a box to edit it. Drag to move, pull the corners to resize. Drop images from the Images tab onto the slide.</p>
+
+      {/* Lesson-wide, so it sits apart from the slide's own settings */}
+      <div className="border-t border-slate-200 pt-4">
+        <h3 className="font-bold text-slate-900 mb-2">Lesson</h3>
+        <label className={label}>End-of-lesson recap <AiBadge show={recapByAI} /></label>
+        <textarea
+          rows={5}
+          className={input}
+          value={recap ?? ''}
+          placeholder="Blank: the AI writes it when you publish. What the professor says after the last slide."
+          onChange={(e) => onRecap(e.target.value)}
+        />
+        <p className="text-xs text-slate-500 mt-1">
+          {recapByAI ? 'Written by the AI: it is rewritten on each publish until you edit it.' : recap?.trim() ? 'Yours: publishing keeps it as it is.' : ''}
+        </p>
+      </div>
     </div>
   );
 }

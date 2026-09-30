@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { rateLimit } from '@/lib/rateLimit';
 
 // Semantic fallback for "go to <part>" when the client's keyword search isn't
 // sure. Embeds the query plus every slide in one call and returns the closest
@@ -40,6 +41,8 @@ function cosine(a: number[], b: number[]): number {
 
 export async function POST(req: NextRequest) {
   try {
+    const limited = await rateLimit(req, 'search');
+    if (limited) return limited;
     const body = await req.json();
     const query = String(body.query ?? '').trim().slice(0, 200);
     const docs = (Array.isArray(body.docs) ? body.docs : []).slice(0, 80) as Doc[];

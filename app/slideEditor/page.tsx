@@ -44,6 +44,7 @@ export default function SlideEditorPage() {
   const [lessonId, setLessonId] = useState<string | null>(null);
   const [initial, setInitial] = useState<{ deck: Deck; savedAt?: string; savedBy?: string; key: number } | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [reloadKey, setReloadKey] = useState(0);   // bumped to load the saved draft again
 
   useEffect(() => {
     fetch('/api/editor/lessons').then((r) => r.json()).then((d) => d.lessons && setLessons(d.lessons)).catch(() => {});
@@ -64,7 +65,7 @@ export default function SlideEditorPage() {
       })
       .catch((e) => setError(e instanceof Error ? e.message : String(e)));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [lessonId]);
+  }, [lessonId, reloadKey]);
 
   const switchLesson = (id: string) => {
     const url = new URL(window.location.href);
@@ -112,14 +113,16 @@ export default function SlideEditorPage() {
       onSwitchLesson={switchLesson}
       onNewLesson={newLesson}
       onDeleteLesson={deleteLesson}
+      onReload={() => setReloadKey((k) => k + 1)}
     />
   );
 }
 
 function Editor({
-  lessonId, lessons, initial, savedAt: initialSavedAt, savedBy: initialSavedBy, onSwitchLesson, onNewLesson, onDeleteLesson,
+  lessonId, lessons, initial, savedAt: initialSavedAt, savedBy: initialSavedBy, onSwitchLesson, onNewLesson, onDeleteLesson, onReload,
 }: {
   onDeleteLesson: (id: string) => Promise<string | null>;
+  onReload: () => void;
   lessonId: string;
   lessons: LessonInfo[];
   initial: Deck;
@@ -129,6 +132,10 @@ function Editor({
   onNewLesson: () => void;
 }) {
   const ed = useEditorDeck(initial);
+  // The saved draft this editor started from (or last saved). If someone else
+  // saves in between, saving or publishing asks before overwriting.
+  const baseRev = useRef<string | undefined>(initial.editRev);
+  const [conflict, setConflict] = useState<{ by: string; at: string | null; then: 'save' | 'publish' } | null>(null);
   const { deck, slide, slideIdx, element } = ed;
   const [panel, setPanel] = useState<'props' | 'images' | 'background'>('props');
   const [saving, setSaving] = useState(false);
@@ -138,7 +145,7 @@ function Editor({
   const [versions, setVersions] = useState<Version[] | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<{ busy: boolean; error?: string } | null>(null);
   const versionsOpen = useRef(false);
-  versionsOpen.current = versions !== null || confirmDelete !== null;
+  versionsOpen.current = versions !== null || confirmDelete !== null || conflict !== null;
   const [overflow, setOverflow] = useState<Record<string, string[]>>({});
 
   const flash = useCallback((text: string, tone: 'ok' | 'warn' | 'error' = 'ok') => {
@@ -181,18 +188,23 @@ function Editor({
 
   /* ------------------------------------------------------------ saving */
 
-  const save = useCallback(async (): Promise<boolean> => {
+  const save = useCallback(async (opts: { force?: boolean; then?: 'save' | 'publish' } = {}): Promise<boolean> => {
     setSaving(true);
     try {
       const res = await fetch('/api/editor/deck', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ lesson: lessonId, deck }),
+        body: JSON.stringify({ lesson: lessonId, deck, baseRev: baseRev.current ?? null, force: !!opts.force }),
       });
       const d = await res.json();
+      if (res.status === 409) {   // someone else saved since this editor loaded
+        setConflict({ ...d.conflict, then: opts.then ?? 'save' });
+        return false;
+      }
       if (res.status === 401) throw new Error('You were locked out: unlock again in a new tab, then press Save.');
       if (!res.ok || d.error) throw new Error(d.error || `Save failed (${res.status})`);
       ed.setDirty(false);
+      baseRev.current = d.editRev;
       setSaved({ at: d.savedAt, by: d.by });
       if (d.warning) flash(`Saved, but: ${d.warning}`, 'warn');
       else flash('Saved');
@@ -258,7 +270,12 @@ function Editor({
       ? `There ${count === 1 ? 'is 1 warning' : `are ${count} warnings`} (slides marked ⚠). Publish anyway? Learners will see this deck.`
       : 'Publish? Learners will see this deck instead of the AI lesson.';
     if (!window.confirm(ask)) return;
-    if (ed.dirty && !(await save())) return;
+    await publishNow();
+  };
+
+  /** Publish without asking (after the confirm, or after "Keep mine" in a conflict). */
+  const publishNow = async (force = false) => {
+    if ((ed.dirty || force) && !(await save({ force, then: 'publish' }))) return;
     // Learners should get finished words and audio: let the AI finish first
     if (todoHere > 0 || aiRun.current) {
       flash('Finishing the spoken words and audio before publishing…', 'warn');
@@ -267,9 +284,12 @@ function Editor({
     const d = await fetch('/api/editor/publish', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ lesson: lessonId }),
+      body: JSON.stringify({ lesson: lessonId, baseRev: baseRev.current ?? null }),
     }).then((r) => r.json());
+    if (d.conflict) return setConflict({ ...d.conflict, then: 'publish' });
     if (d.error) return flash(d.error, 'error');
+    // The recap the server wrote (or kept), so saving later doesn't lose it
+    ed.mergeRemote((deck) => { deck.recap = d.recap ?? undefined; deck.recapByAI = d.recapByAI || undefined; });
     flash(d.warning ? `Published, but: ${d.warning}` : 'Published: /presentation now plays this deck', d.warning ? 'warn' : 'ok');
     loadLive();
   };
@@ -516,7 +536,7 @@ function Editor({
         <span className="text-xs text-slate-500">
           {live === undefined ? '' : live ? <>Live: published {when(live.at)}{live.by ? ` by ${live.by}` : ''} · <button className="underline" onClick={unpublish}>take down</button></> : 'Not published: learners get the AI lesson'}
         </span>
-        <button className={btn} onClick={save} disabled={saving} title="Ctrl+S">Save</button>
+        <button className={btn} onClick={() => save()} disabled={saving} title="Ctrl+S">Save</button>
         <button className={btn} onClick={preview}>Preview ↗</button>
         <button className={primary} onClick={publish}>Publish</button>
       </div>
@@ -582,7 +602,15 @@ function Editor({
                   warnings={slideWarns.filter((w) => w.elementId === element.id)}
                 />
               ) : (
-                <SlideInspector slide={slide} update={(p) => ed.updateSlide(p)} warnings={slideWarns} onPickBackground={() => setPanel('background')} />
+                <SlideInspector
+                  slide={slide}
+                  update={(p) => ed.updateSlide(p)}
+                  warnings={slideWarns}
+                  onPickBackground={() => setPanel('background')}
+                  recap={deck.recap}
+                  recapByAI={deck.recapByAI}
+                  onRecap={(text) => ed.change((d) => { d.recap = text || undefined; d.recapByAI = undefined; }, 'deck:recap')}
+                />
               )
             ) : (
               <ImageLibrary
@@ -600,6 +628,38 @@ function Editor({
           </div>
         </aside>
       </div>
+
+      {/* Someone else saved this lesson since it was opened here */}
+      {conflict && (
+        <div className="fixed inset-0 z-[1000] bg-black/40 flex items-center justify-center p-6">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-md p-6 flex flex-col gap-4" role="alertdialog" aria-labelledby="conflict-title">
+            <h2 id="conflict-title" className="font-bold text-lg">{conflict.by} saved this lesson{conflict.at ? ` at ${when(conflict.at)}` : ''}</h2>
+            <p className="text-sm text-slate-600">
+              That was after you opened it here, so {conflict.then === 'publish' ? 'publishing now' : 'saving now'} would replace their changes with yours.
+            </p>
+            <div className="flex flex-col gap-2">
+              <button
+                className={primary}
+                onClick={() => { setConflict(null); ed.setDirty(false); onReload(); }}
+              >
+                Load their version (your unsaved changes are dropped)
+              </button>
+              <button
+                className={btn}
+                onClick={async () => {
+                  const then = conflict.then;
+                  setConflict(null);
+                  if (then === 'publish') await publishNow(true);
+                  else await save({ force: true });
+                }}
+              >
+                Keep mine ({conflict.then === 'publish' ? 'save over theirs, then publish' : 'save over theirs'})
+              </button>
+              <button className={btn} onClick={() => setConflict(null)}>Cancel</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Delete lesson: confirm first */}
       {confirmDelete && (

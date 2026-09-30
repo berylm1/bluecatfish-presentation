@@ -1,10 +1,16 @@
-# Customizable slides: plan
+# Customizable slides: how it works
 
-Hand-made slides, built in an editor, with the AI as a fallback. Built on the
-`customization` branch as a **new page** (`/presentation`), so the current
-`/presentationv2` keeps working and can keep changing on main while this is
-built. Once the new page does everything v2 does, the site switches to it.
-`/presentationv2` stays in the code as a backup.
+Hand-made slides, built in an editor, with the AI as a fallback. The lesson
+page is **`/presentation`** (the home page's Start button). The old page,
+`/presentationv2`, stays in the code as a backup behind the "Classic version"
+link and is no longer being updated. What the new page does compared with the
+old one, feature by feature: [`v2-parity.md`](v2-parity.md).
+
+**Status:** all seven steps below are built. Setup still needed on the real
+site: `EDITOR_PASSWORDS` in Vercel, migration `006_canvas_decks.sql` in
+Supabase. Worth trying there first (this sandbox couldn't reach OpenAI or the
+Supabase project): Make an AI deck, one Save with blank spoken words,
+barge-in with a real mic, the camera features.
 
 ## Slides are canvases
 
@@ -51,24 +57,48 @@ built. Once the new page does everything v2 does, the site switches to it.
   recorded once (lib/canvas/aiFields.ts, lib/canvas/prepare.ts).
 - Publish waits for the AI to finish, then writes the recap.
 
-## Commands
+## Talking to the professor
 
-| Say / press | Does |
+| Say / type / press | Does |
 |---|---|
-| "next", "next next" | skips the current clip |
-| "next slide", "next page", "skip ahead" | next slide |
-| "go back", "previous slide" | previous slide |
+| "next", "next next", → | skips the current clip |
+| "next slide", "next page", "skip ahead", Shift+→ | next slide |
+| "go back", "previous slide", ← | previous slide |
 | "next topic" | first slide of the next topic |
-| "repeat", "say that again" | replays the current clip |
-| "simpler please", "you lost me" | plain version of the current clip |
-| "go to <part>" | finds the slide that talks about it |
+| "repeat", "say that again", R | replays the current clip |
+| "simpler please", S | the plain version of the current clip only, then carries on |
+| "you lost me", "I don't understand", 😕 I'm lost, L | another way to see it: a reviewed variant slide for the topic if one matches (e.g. the authored PDF deck slide), else the plain version |
+| "go to <part>" | finds the slide (keywords, then by meaning via /api/deck/search) |
+| anything else | a question: the professor answers from the knowledge base and the slide, then the lesson resumes |
+
+Each command gets a short spoken reply first ("Skipping ahead."), recorded
+once by `/api/cues`.
+
+- **🎙 Interrupt** (opt-in, opens the mic): talk over the professor, who
+  finishes the sentence (at most ~6s), stops and listens. Talking over an
+  answer finishes that sentence. The mic is `components/canvas/useListener.ts`:
+  one echo-cancelled stream with 0.8s of pre-roll, so first words aren't lost.
+- **📷 Camera** (opt-in, stays on the device): a raised hand ("Do you have a
+  question?"), looking away (pause, then pick up again), and sustained
+  confusion or boredom ("You look puzzled… want me to go over that a
+  different way?" → yes = another way to see it / next slide).
+- **💬 Transcript**: top-right text of whatever is being said, following along
+  sentence by sentence.
+- **Self-check** after each topic: "How did that section go?" Got it / Kind of
+  / Lost me (click or say it); "Lost me" gets another way to see it first.
+- Intro line at the start; at the end "Let's take a moment to look back…",
+  the recap, and a goodbye.
+- Learner events and per-topic counters go to the same Supabase tables as the
+  old page (section = topic, step = slide in the topic), so the instructor
+  view covers both.
 
 ## Topics
 
 - The topic is an editor-only field on each slide. Learners don't see it.
 - Consecutive slides with the same topic form one topic ("next topic", "go to").
 - A blank topic is named by the AI on save.
-- The end-of-lesson recap is written by the AI on publish.
+- The end-of-lesson recap is written by the AI on publish, unless someone
+  wrote their own in the editor (Lesson → End-of-lesson recap).
 
 ## Decks and where they live
 
@@ -89,9 +119,9 @@ There can be **several lessons**. Each lesson has up to three decks:
 - **Start from AI** copies an AI lesson into the draft for editing. It lists
   every AI lesson version cached in Redis (from the very first format to the
   current one), converted to canvas slides from whatever fields that version has.
-- Until AI decks are generated in the canvas format (step 5), the "AI deck" for
-  the Blue Catfish lesson is the current AI lesson (`/api/slidesv2`) converted
-  on the fly. New lessons have no AI fallback until then.
+- Until someone makes an AI deck for it, the Blue Catfish lesson falls back to
+  the old AI lesson (`/api/slidesv2`) converted on the fly. Other lessons have
+  no fallback: "not published yet".
 - Backup tables: `supabase/migrations/006_canvas_decks.sql` (lessons, draft/live
   decks, and a history of every publish).
 
@@ -126,7 +156,12 @@ There can be **several lessons**. Each lesson has up to three decks:
   silent.
 - Warnings: text doesn't fit, box off the slide, boxes overlap, image has no
   description.
-- Preview (plays the draft) and Publish.
+- Preview (plays the draft) and Publish; take down.
+- The lesson's end-of-lesson recap (blank → the AI writes it on publish).
+- **Add the PDF deck slides to the library** (Images tab): imports the authored
+  slides in `public/deck` into the image library, once.
+- `/lessonReview` shows any lesson's deck as a readable document: each slide
+  with its text, spoken words, plain versions, timings and repeats; Print.
 
 ## Password gate
 
@@ -135,29 +170,33 @@ There can be **several lessons**. Each lesson has up to three decks:
 - Passwords live in Vercel: `EDITOR_PASSWORDS=Kai,Beryl`. The name used is
   remembered on that browser and saved as "last edited by".
 
-## Kept from `/presentationv2`
+## Shared with `/presentationv2`
 
-The new page reuses the shared files directly, so fixes reach both pages:
-`useVoiceInput` (barge-in), `interruptBus` (finish the sentence first),
-`useEmotionWatcher` (confusion check-in), `signals` (learner tracking) and
-`deckCommands` (command parsing). The wiring for those that lives inside
-`presentationv2/page.tsx` is re-created on the new page. Each PR lists what was
-brought over. Before switching, a final check makes sure the new page does
-everything v2 does.
+The new page reuses the old page's shared pieces rather than copies:
+`useEmotionWatcher`, `useHandRaise`, `useFacePresence` (camera), `signals`
+(learner tracking), `deckCommands` (command parsing), `useSpeechQueue` (spoken
+answers), `/api/conversational/respond` (the tutor), `/api/tutor/variant`
+(variant slides) and `/api/deck/search`. Two things are its own, because the
+old versions couldn't do what was asked: the mic (`useListener`, see above)
+and finishing the sentence (the old interrupt bus waits for the whole clip).
 
-Switched off with flags, not deleted: the old slide types, Manim, variant
-slides.
+Switched off with flags or left on v2 only, not deleted: the old slide types
+(quiz, true/false, guess, side by side, "your turn"), the topic picker, Manim
+animations.
 
-## Steps (one PR each)
+## Build history (one PR per step)
 
 1. **Renderer**: the new page, the 16:9 canvas, element audio in queue order
-   with highlight, commands, on a sample deck.
+   with highlight, commands.
 2. **Password gate** for the editor pages and their APIs.
 3. **Decks + editor**: Redis/Supabase storage, several lessons, the editor,
    image sidebar and upload, Preview and Publish.
 4. **Save-time AI**: spoken words, plain versions, topics, recap and audio made
    on save; the fit/overlap checks.
 5. **AI decks** in the canvas format (gpt-6-luna).
-6. **Bring over v2's features**: barge-in with sentence finish, emotion
-   check-in, tutor questions, learner tracking, instructor view.
-7. **Switch over**: final comparison with v2, then point the site at `/presentation`.
+6. **v2's features on the new page**: barge-in with sentence finish, questions,
+   transcript, spoken replies, variant slides, camera check-ins, learner
+   tracking, self-check, intro and ending.
+7. **Switch over**: feature-by-feature comparison ([v2-parity.md](v2-parity.md)),
+   links pointed at `/presentation`, lesson review for canvas decks, the
+   recap in the editor.

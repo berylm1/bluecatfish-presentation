@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { rateLimit } from '@/lib/rateLimit';
 
 // Variant slide lookup — returns the best reviewed variant for a topic + learner state.
 let client: ReturnType<typeof createClient> | null = null;
@@ -30,6 +31,15 @@ function sameTopic(concept: string, title: string): boolean {
   const a = words(concept ?? '');
   for (const w of words(title)) if (a.has(w)) return true;
   return false;
+}
+
+/** How many (stemmed, non-stop) words two texts share. */
+function sharedWords(a: string, b: string): number {
+  const singular = (set: Set<string>) => new Set([...set].map((w) => w.replace(/s$/, '')));   // crabs = crab
+  const x = singular(words(a ?? ''));
+  let n = 0;
+  for (const w of singular(words(b ?? ''))) if (x.has(w)) n++;
+  return n;
 }
 
 /* ---------------------------------------------------------------
@@ -109,6 +119,9 @@ async function generateExplanation(row: any, learnerState: string): Promise<stri
 
 export async function GET(request: NextRequest) {
   try {
+    // Each lookup can embed the query and write an explanation (OpenAI)
+    const limited = await rateLimit(request, 'slides');
+    if (limited) return limited;
     const params = new URL(request.url).searchParams;
     const section = Number(params.get('section'));
     const state = (params.get('state') ?? 'confused').toLowerCase();
@@ -121,20 +134,27 @@ export async function GET(request: NextRequest) {
     // chosen slide instead of returning only the canned narration.
     const explain = params.get('explain') === '1';
 
+    // Neither a section number nor q (the canvas page, whose topics aren't
+    // numbered like the old planner's sections): match on the topic title plus
+    // the slide's own words (`about`).
+    const canvas = !q && params.get('section') === null;
+    const about = params.get('about') ?? '';
+    if (canvas && !title && !about) return NextResponse.json({ error: 'title, about or q is required' }, { status: 400 });
+
     // was `section > 5` — the planner can make up to 7 sections
-    if (!q && (!Number.isInteger(section) || section < 0 || section > 9)) {
+    if (!canvas && !q && (!Number.isInteger(section) || section < 0 || section > 9)) {
       return NextResponse.json({ error: 'section must be 0-9' }, { status: 400 });
     }
     const preferences = STATE_VARIANT_PREFERENCE[state] ?? STATE_VARIANT_PREFERENCE.confused;
 
     let query = getSupabase().from('slide_templates').select('*').in('variant', preferences).order('sort_order', { ascending: true });
-    query = q ? query : query.eq('section', section);
+    query = q || canvas ? query : query.eq('section', section);
 
     const { data, error } = await query;
     if (error) throw new Error(error.message);
 
     const rows: any[] = data ?? [];
-    const matchAgainst = q || title;
+    const matchAgainst = canvas ? `${title}. ${about.slice(0, 300)}` : q || title;
 
     // Rank candidates. Semantic first (embeddings), word-match fallback.
     let ranked: { row: any; score: number }[] = [];
@@ -142,7 +162,8 @@ export async function GET(request: NextRequest) {
     if (matchAgainst) {
       const qv = await embed(matchAgainst);
       if (qv) {
-        for (const row of rows) {
+        // Slides not embedded yet (or changed) are embedded together, not one by one
+        await Promise.all(rows.map(async (row) => {
           let v = conceptEmbeddings.get(row.id);
           if (!v || conceptText.get(row.id) !== rowText(row)) {
             v = (await embed(rowText(row))) ?? undefined;
@@ -152,14 +173,19 @@ export async function GET(request: NextRequest) {
             }
           }
           if (v) ranked.push({ row, score: cosine(qv, v) });
-        }
+        }));
         ranked.sort((a, b) => b.score - a.score);
         // keep only plausibly-related slides
         ranked = ranked.filter((r) => r.score >= 0.32);
       }
     }
 
-    if (ranked.length === 0 && matchAgainst) {
+    if (ranked.length === 0 && canvas) {
+      // Word matcher for the canvas page: the topic title counts double
+      ranked = rows
+        .map((row) => ({ row, score: 2 * sharedWords(row.concept, title) + sharedWords(`${row.concept} ${row.title} ${row.body}`, about) }))
+        .filter((r) => r.score >= 2);
+    } else if (ranked.length === 0 && matchAgainst) {
       // Word matcher: stem overlap, then raw-word fallback
       let rows2 = rows.filter((row) => sameTopic(row.concept, matchAgainst));
       if (rows2.length === 0) {

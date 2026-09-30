@@ -112,6 +112,15 @@ export function useEditorDeck(initial: Deck) {
     }
   }, []);
 
+  /** A change the server already saved (e.g. the recap written on publish): no undo step, not "unsaved". */
+  const mergeRemote = useCallback((fn: (d: Deck) => void) => {
+    for (const snap of [...past.current, ...future.current]) fn(snap);
+    const next = structuredClone(deckRef.current);
+    fn(next);
+    deckRef.current = next;
+    setDeck(next);
+  }, []);
+
   const slide = deck.slides[Math.min(slideIdx, deck.slides.length - 1)];
   const element: SlideElement | null = slide?.elements.find((e) => e.id === selected) ?? null;
 
@@ -132,7 +141,7 @@ export function useEditorDeck(initial: Deck) {
 
   return {
     deck, slide, slideIdx, setSlideIdx, element, selected, setSelected,
-    dirty, setDirty, change, undo, redo, reset, updateElement, updateSlide, applyRemote,
+    dirty, setDirty, change, undo, redo, reset, updateElement, updateSlide, applyRemote, mergeRemote,
     canUndo: past.current.length > 0, canRedo: future.current.length > 0,
   };
 }
