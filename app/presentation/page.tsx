@@ -135,10 +135,11 @@ function Player({ deck, preview }: { deck: Deck; preview: boolean }) {
   }, [deck, slideText, tracking]);
 
   /** The best reviewed variant slide (e.g. an authored PDF deck slide) for a topic and some words, or null. */
-  const findVariant = useCallback(async (state: string, title: string, about: string): Promise<Variant | null> => {
+  // explain: also have the professor's spoken explanation of it written fresh (slower)
+  const findVariant = useCallback(async (state: string, title: string, about: string, explain = false): Promise<Variant | null> => {
     try {
-      const q = new URLSearchParams({ state, title, about });
-      const res = await fetch(`/api/tutor/variant?${q}`, { signal: AbortSignal.timeout(4000) });
+      const q = new URLSearchParams({ state, title, about, ...(explain ? { explain: '1' } : {}) });
+      const res = await fetch(`/api/tutor/variant?${q}`, { signal: AbortSignal.timeout(explain ? 12000 : 6000) });
       return (await res.json()).variant ?? null;
     } catch {
       return null;
@@ -179,7 +180,10 @@ function Player({ deck, preview }: { deck: Deck; preview: boolean }) {
     setVariant(found);
     variantMode.current = 'narrated';
     variantAfter.current = after ?? null;
-    const ok = await cues.play({ text: found.narration, url: found.audio_url });
+    // A live explanation (the professor teaches from the slide) beats the stored clip
+    const ok = await cues.play(found.live_narration
+      ? { text: found.live_narration }
+      : { text: found.narration, url: found.audio_url });
     if (ok) closeVariant();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cues]);
@@ -190,7 +194,7 @@ function Player({ deck, preview }: { deck: Deck; preview: boolean }) {
     if (SPEAKING.includes(p.status)) p.pause();
     const s = deck.slides[p.slideIndex];
     const state = mood ?? (tracking.state().last_state === 'frustrated' ? 'frustrated' : 'confused');
-    const found = await findVariant(state, s?.topic ?? '', slideText(p.slideIndex));
+    const found = await findVariant(state, s?.topic ?? '', slideText(p.slideIndex), true);
     if (found) {
       tracking.track('tutor_decision', { action: 'variant', variant: found.variant, title: found.title, state });
       presentVariant(found, after);
@@ -207,8 +211,8 @@ function Player({ deck, preview }: { deck: Deck; preview: boolean }) {
     if (SPEAKING.includes(p.status)) p.pause();
     const s = deck.slides[p.slideIndex];
     const found = query
-      ? await findVariant('confused', query, query)
-      : await findVariant('confused', s?.topic ?? '', slideText(p.slideIndex));
+      ? await findVariant('confused', query, query, true)
+      : await findVariant('confused', s?.topic ?? '', slideText(p.slideIndex), true);
     if (found) {
       tracking.track('tutor_decision', { action: 'show_slide', title: found.title });
       presentVariant(found);
