@@ -58,7 +58,19 @@ export async function GET(request: NextRequest) {
     // Section numbers come from the AI planner and can shift when the lesson is
     // regenerated, so a variant must also be about this section's topic.
     const matchAgainst = q || title;
-    const rows = (data ?? []).filter((row: any) => !matchAgainst || sameTopic(row.concept, matchAgainst));
+    let rows = (data ?? []).filter((row: any) => !matchAgainst || sameTopic(row.concept, matchAgainst));
+
+    // Fallback when the stem matcher comes up empty ("what is the blue catfish"
+    // is all stop-words): raw word overlap between the query and the concept.
+    if (matchAgainst && rows.length === 0) {
+      const rawWords = (s: string) => new Set((s.toLowerCase().match(/[a-z]+/g) ?? []).filter((w) => w.length > 2 && !['the', 'and', 'for', 'are', 'what'].includes(w)));
+      const qw = rawWords(matchAgainst);
+      rows = (data ?? []).filter((row: any) => {
+        const cw = rawWords(row.concept ?? '');
+        for (const w of qw) if (cw.has(w)) return true;
+        return false;
+      });
+    }
 
     // pick the highest-preference variant that exists
     let chosen = null;
