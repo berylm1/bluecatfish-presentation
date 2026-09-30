@@ -99,6 +99,11 @@ function Player({ deck, preview }: { deck: Deck; preview: boolean }) {
   const playerRef = useRef(player);
   playerRef.current = player;
   const tutorBusy = tutor.thinking || tutor.speaking;
+  // The conversation for the transcript, minus the answer being spoken right now
+  const lastTalk = tutor.history[tutor.history.length - 1];
+  const earlierDialogue = lastTalk && tutor.exchange?.done && lastTalk.question === tutor.exchange.question ? tutor.history.slice(0, -1) : tutor.history;
+  const tutorBusyRef = useRef(tutorBusy);
+  tutorBusyRef.current = tutorBusy;
 
   const say = useCallback((text: string) => {
     setToast(text);
@@ -129,12 +134,32 @@ function Player({ deck, preview }: { deck: Deck; preview: boolean }) {
       describeForTutor(tracking.state());
   }, [deck, slideText, tracking]);
 
+  /** The best reviewed variant slide (e.g. an authored PDF deck slide) for a topic and some words, or null. */
+  const findVariant = useCallback(async (state: string, title: string, about: string): Promise<Variant | null> => {
+    try {
+      const q = new URLSearchParams({ state, title, about });
+      const res = await fetch(`/api/tutor/variant?${q}`, { signal: AbortSignal.timeout(4000) });
+      return (await res.json()).variant ?? null;
+    } catch {
+      return null;
+    }
+  }, []);
+
   /** A question (not a command): the professor answers, then the lesson carries on. */
   const answer = useCallback(async (question: string) => {
     tracking.track('tutor_question', { question: question.slice(0, 300) }, { questions: 1 });
     const p = playerRef.current;
     if (SPEAKING.includes(p.status)) p.pause();
+    // If the question is about something one of the authored slides covers,
+    // show that slide while the professor answers
+    findVariant('confused', question, question).then((slide) => {
+      if (!slide || !tutorBusyRef.current) return;
+      tracking.track('tutor_decision', { action: 'slide_with_answer', title: slide.title });
+      variantMode.current = 'answer';
+      setVariant(slide);
+    });
     const { decision, superseded } = await tutor.ask(question, slideContext());
+    if (variantMode.current === 'answer') setVariant(null);
     if (superseded) return;   // talked over the answer: the next turn decides what happens
     if (decision) tracking.track('tutor_decision', { action: decision });
     const now = playerRef.current;
@@ -142,38 +167,62 @@ function Player({ deck, preview }: { deck: Deck; preview: boolean }) {
     else if (decision === 'advance') now.nextSlide();
     else if (decision === 'repeat') now.repeat();
     else now.resume();
-  }, [tutor, slideContext, tracking]);
+  }, [tutor, slideContext, tracking, findVariant]);
 
   /**
    * The learner is lost: show a reviewed variant slide for this topic if there
    * is one (e.g. the authored PDF deck slide), otherwise play the plain
    * version of what was just said.
    */
-  const confused = useCallback(async (after?: () => void) => {
+  /** Shows a variant slide and narrates it; then `after` (default: the lesson resumes). */
+  const presentVariant = useCallback(async (found: Variant, after?: () => void) => {
+    setVariant(found);
+    variantMode.current = 'narrated';
+    variantAfter.current = after ?? null;
+    const ok = await cues.play({ text: found.narration, url: found.audio_url });
+    if (ok) closeVariant();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cues]);
+
+  const confused = useCallback(async (after?: () => void, mood?: 'confused' | 'frustrated') => {
     tracking.track('confusion_click', {}, { confusion_marks: 1 });
     const p = playerRef.current;
     if (SPEAKING.includes(p.status)) p.pause();
     const s = deck.slides[p.slideIndex];
-    let found: Variant | null = null;
-    try {
-      const q = new URLSearchParams({ state: tracking.state().last_state === 'frustrated' ? 'frustrated' : 'confused', title: s?.topic ?? '', about: slideText(p.slideIndex) });
-      const res = await fetch(`/api/tutor/variant?${q}`, { signal: AbortSignal.timeout(4000) });
-      found = (await res.json()).variant ?? null;
-    } catch { /* no variant: the plain version below */ }
+    const state = mood ?? (tracking.state().last_state === 'frustrated' ? 'frustrated' : 'confused');
+    const found = await findVariant(state, s?.topic ?? '', slideText(p.slideIndex));
     if (found) {
-      tracking.track('tutor_decision', { action: 'variant', variant: found.variant, title: found.title });
-      setVariant(found);
-      variantAfter.current = after ?? null;
-      const ok = await cues.play({ text: found.narration, url: found.audio_url });
-      if (ok) closeVariant();
+      tracking.track('tutor_decision', { action: 'variant', variant: found.variant, title: found.title, state });
+      presentVariant(found, after);
       return;
     }
     tracking.track('tutor_decision', { action: 'plain' });
     act('cmd_simplify', () => playerRef.current.simplify());
-  }, [deck, slideText, tracking, cues, act]);
+  }, [deck, slideText, tracking, act, findVariant, presentVariant]);
+
+  /** "show me the slide (on X)": the authored slide for X (or this topic), narrated, then back to the lesson. */
+  const showSlide = useCallback(async (query: string) => {
+    tracking.track('deck_command', { kind: 'showSlide', query });
+    const p = playerRef.current;
+    if (SPEAKING.includes(p.status)) p.pause();
+    const s = deck.slides[p.slideIndex];
+    const found = query
+      ? await findVariant('confused', query, query)
+      : await findVariant('confused', s?.topic ?? '', slideText(p.slideIndex));
+    if (found) {
+      tracking.track('tutor_decision', { action: 'show_slide', title: found.title });
+      presentVariant(found);
+    } else {
+      act('cmd_notFound', () => playerRef.current.resume());
+    }
+  }, [deck, slideText, tracking, act, findVariant, presentVariant]);
 
   const variantAfter = useRef<(() => void) | null>(null);   // what happens once the variant slide is done
+  // 'narrated': the professor explains the slide itself. 'answer': it's up while
+  // the professor answers a question, and goes away with the answer.
+  const variantMode = useRef<'narrated' | 'answer'>('narrated');
   function closeVariant() {
+    if (variantMode.current === 'answer') { setVariant(null); return; }   // the answer carries on; the lesson resumes after it
     cues.stop();
     setVariant(null);
     const after = variantAfter.current;
@@ -190,7 +239,10 @@ function Player({ deck, preview }: { deck: Deck; preview: boolean }) {
     checked.current.add(sc.from);
     setSelfCheck(null);
     cues.stop();
-    if (rating === 'lost') confused(() => playerRef.current.goToSlide(sc.to));
+    // Like v2: 'kind of' and 'lost me' both get another way to see it before
+    // moving on ('lost me' the gentler, remedial kind)
+    if (rating === 'lost') confused(() => playerRef.current.goToSlide(sc.to), 'frustrated');
+    else if (rating === 'kind') confused(() => playerRef.current.goToSlide(sc.to), 'confused');
     else playerRef.current.goToSlide(sc.to);
   }, [selfCheck, tracking, cues, confused]);
 
@@ -207,7 +259,7 @@ function Player({ deck, preview }: { deck: Deck; preview: boolean }) {
       if (/\b(got it|yes|yeah|yep|good|great|easy|fine|sure|understood|next|continue|go on)\b/.test(t)) return answerSelfCheck('got');
     }
     const cmd = parseCanvasCommand(text);
-    if (variant) { cues.stop(); setVariant(null); variantAfter.current = null; }
+    if (variant && variantMode.current === 'narrated') { cues.stop(); setVariant(null); variantAfter.current = null; }
     if (!cmd) { answer(text); return; }
     if (tutorBusy) tutor.cancel();   // a command ends the answer
     const command = (kind: string, patch?: Parameters<typeof tracking.track>[2]) =>
@@ -231,6 +283,7 @@ function Player({ deck, preview }: { deck: Deck; preview: boolean }) {
         command('simplify', { simplify_requests: 1 });
         act('cmd_simplify', () => playerRef.current.simplify());
         break;
+      case 'showSlide': showSlide(cmd.query); break;
       case 'goTo': {
         const go = (target: number | null) => {
           if (target !== null) { command('goTo', { jumps: 1 }); act('cmd_goto', () => playerRef.current.goToSlide(target)); }
@@ -243,7 +296,7 @@ function Player({ deck, preview }: { deck: Deck; preview: boolean }) {
         break;
       }
     }
-  }, [deck, player, act, answer, confused, tutor, tutorBusy, tracking, variant, cues, selfCheck, answerSelfCheck]);
+  }, [deck, player, act, answer, confused, showSlide, tutor, tutorBusy, tracking, variant, cues, selfCheck, answerSelfCheck]);
 
   // Barge-in: with interruptions on, starting to talk over the professor (or
   // over an answer) makes them finish the sentence, then stop and listen.
@@ -393,10 +446,10 @@ function Player({ deck, preview }: { deck: Deck; preview: boolean }) {
   return (
     <main className="min-h-screen flex flex-col items-center justify-center gap-4 bg-gradient-to-br from-sky-950 via-slate-900 to-cyan-950 text-white px-4 py-4">
       {showTranscript && (cues.saying
-        ? <Transcript speaker="Professor Marine" text={cues.saying} />
+        ? <Transcript speaker="Professor Marine" text={cues.saying} dialogue={tutor.history} />
         : tutor.speaking || tutor.thinking
-          ? <Transcript speaker="Professor Marine · answering" text={tutor.exchange?.answer ?? ''} />
-          : !selfCheck && <Transcript speaker={player.mode === 'plain' ? 'Professor Marine · plain version' : 'Professor Marine'} text={player.captionText} getAudio={player.getAudio} />)}
+          ? <Transcript speaker="Professor Marine · answering" text={tutor.exchange?.answer ?? ''} dialogue={earlierDialogue} />
+          : !selfCheck && <Transcript speaker={player.mode === 'plain' ? 'Professor Marine · plain version' : 'Professor Marine'} text={player.captionText} getAudio={player.getAudio} dialogue={tutor.history} />)}
       <div className="text-xs uppercase tracking-widest text-cyan-200/70">
         {preview && <span className="mr-2 text-amber-300">Preview ·</span>}
         Topic {player.topicIndex + 1} of {player.topicCount} · Slide {player.slideIndex + 1} of {deck.slides.length}

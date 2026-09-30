@@ -151,6 +151,19 @@ export function parseDeckCommand(raw: string): DeckCommand | null {
   const text = normalize(raw);
   if (!text || text.split(' ').length > 16) return null;
 
+  // "show me the slide (on X)" — the professor's authored slides as a teaching
+  // aid. Topic after "on/about/for/where" if given, else the current section.
+  // Checked before "go to", whose "show me <part>" would otherwise take it.
+  const slideM = text.match(/(?:show|pull|bring|put)(?:ing)? ?(?:up )?(?:me )?(?:the |your |that |his )?(?:actual |authored |original )?(?:own )?slide/);
+  if (slideM) {
+    const qm = text.match(/slide (?:on|about|for|where|with) (.+)$/);
+    const query = (qm ? qm[1] : '').replace(/[?.!]/g, '').trim();
+    // "show me the slide" is a command; "can you show me the slide where it eats crabs?" is too
+    if (!looksLikeQuestion(text) || /\bslide\b/.test(text)) {
+      return { kind: 'showSlide', query };
+    }
+  }
+
   // "go to <part>" first, unless the part is itself a slide/topic move ("go to the next topic")
   const m = text.match(GO_TO);
   if (m) {
@@ -166,18 +179,6 @@ export function parseDeckCommand(raw: string): DeckCommand | null {
 
   // A bare "what?" means "huh, I didn't get that"
   if (/^what\??$/.test(text)) return { kind: 'simplify' };
-
-  // "show me the slide (on X)" — the professor's authored slides as a teaching
-  // aid. Topic after "on/about/for" if given, else the current section.
-  const slideM = text.match(/(?:show|pull|bring|put)(?:ing)? ?(?:up )?(?:me )?(?:the |your |that |his )?(?:actual |authored |original )?(?:own )?slide/);
-  if (slideM) {
-    const qm = text.match(/slide (?:on|about|for) (.+)$/);
-    const query = (qm ? qm[1] : '').replace(/[?.!]/g, '').trim();
-    // "show me the slide" is a command; "can you show me the slide where it eats crabs?" is too
-    if (!looksLikeQuestion(text) || /\bslide\b/.test(text)) {
-      return { kind: 'showSlide', query };
-    }
-  }
 
   for (const [kind, cue] of CUES) {
     if (!cue.test(text)) continue;

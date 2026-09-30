@@ -22,6 +22,7 @@ export function useTutor() {
   const speech = useSpeechQueue();
   const [exchange, setExchange] = useState<Exchange | null>(null);
   const [thinking, setThinking] = useState(false);
+  const [history, setHistory] = useState<Exchange[]>([]);   // the conversation so far, for the transcript
   const historyRef = useRef<{ role: 'user' | 'assistant'; content: string }[]>([]);
   const askSeq = useRef(0);
 
@@ -76,6 +77,7 @@ export function useTutor() {
       speech.endStream();
       historyRef.current.push({ role: 'user', content: question }, { role: 'assistant', content: full });
       setExchange({ question, answer: full, done: true });
+      setHistory((h) => [...h.slice(-19), { question, answer: full, done: true }]);
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       setExchange({ question, answer: msg, done: true });
@@ -120,6 +122,7 @@ export function useTutor() {
     speaking: speech.isSpeaking,
     thinking,
     exchange,
+    history,
     clearExchange: () => setExchange(null),
   };
 }
