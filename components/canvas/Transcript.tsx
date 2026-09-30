@@ -54,6 +54,7 @@ export default function Transcript({
   if (!text && !dialogue.length) return null;
   return (
     <aside
+      data-bubble-avoid
       className={`fixed top-4 right-4 z-40 w-[min(22rem,calc(100vw-2rem))] ${dialogue.length ? 'max-h-80' : 'max-h-44'} overflow-y-auto rounded-xl bg-slate-950/75 backdrop-blur-sm border border-white/10 px-3 py-2 text-sm leading-snug shadow-xl`}
       aria-live="polite"
       ref={boxRef}

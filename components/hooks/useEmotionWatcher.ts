@@ -19,6 +19,10 @@ import { useEffect, useRef, useState } from 'react';
 import { FaceLandmarker, FilesetResolver } from '@mediapipe/tasks-vision';
 
 export type LearnerEmotion = 'neutral' | 'confused' | 'bored';
+/** What the face looks like right now (for the camera bubble), before any sustain or cooldown. */
+export type LiveFace = 'none' | LearnerEmotion;
+const LIVE_CONFUSED_MS = 1500;   // a knit brow held this long shows as puzzled
+const LIVE_FLAT_MS = 8000;       // a flat face held this long shows as gone quiet
 
 const CONFUSED_SUSTAIN_MS = 5000;   // brow-knit held this long -> confused
 const BORED_SUSTAIN_MS = 20000;     // flat face held this long -> bored
@@ -39,6 +43,7 @@ export function useEmotionWatcher(
 
   const [ready, setReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [live, setLive] = useState<LiveFace>('none');
 
   useEffect(() => {
     if (!enabled) return;
@@ -103,6 +108,10 @@ export function useEmotionWatcher(
 
               confusedSinceRef.current = isConfused ? (confusedSinceRef.current ?? now) : null;
               flatSinceRef.current = isFlat ? (flatSinceRef.current ?? now) : null;
+              setLive(
+                confusedSinceRef.current && now - confusedSinceRef.current > LIVE_CONFUSED_MS ? 'confused'
+                  : flatSinceRef.current && now - flatSinceRef.current > LIVE_FLAT_MS ? 'bored'
+                    : 'neutral');
 
               const canFire = (state: string) =>
                 (lastFiredRef.current[state] ?? 0) < now - COOLDOWN_MS;
@@ -121,6 +130,7 @@ export function useEmotionWatcher(
             } else {
               confusedSinceRef.current = null;
               flatSinceRef.current = null;
+              setLive('none');
             }
           } catch { /* frame skip */ }
           rafRef.current = requestAnimationFrame(tick);
@@ -142,5 +152,5 @@ export function useEmotionWatcher(
     };
   }, [enabled]);
 
-  return { ready, error };
+  return { ready, error, live };
 }
