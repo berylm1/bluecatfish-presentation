@@ -394,6 +394,7 @@ function ScriptPanel({
   isSpeaking,
   playing,
   sectionTitle,
+  messages,
   onClose,
 }: {
   text: string;
@@ -402,29 +403,55 @@ function ScriptPanel({
   isSpeaking: boolean;
   playing: boolean;
   sectionTitle: string;
+  messages: { role: 'user' | 'ai'; text: string; id?: string }[];
   onClose: () => void;
 }) {
+  const transcriptEndRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    transcriptEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
+  }, [messages.length, messages[messages.length - 1]?.text]);
+
   return (
     <div className="fixed right-4 top-24 bottom-8 w-80 z-40 bg-white/95 backdrop-blur rounded-2xl border border-cyan-500/40 shadow-2xl p-5 overflow-y-auto animate-[fadeInUp_0.3s_ease-out]">
       <div className="flex items-baseline justify-between mb-3">
-        <div className="text-xs font-bold tracking-widest uppercase text-cyan-700">📜 Live script</div>
-        <button onClick={onClose} className="text-slate-400 hover:text-slate-700 text-lg leading-none" aria-label="Close script">✕</button>
+        <div className="text-xs font-bold tracking-widest uppercase text-cyan-700">📜 Live transcript</div>
+        <button onClick={onClose} className="text-slate-400 hover:text-slate-700 text-lg leading-none" aria-label="Close transcript">✕</button>
       </div>
       <div className="text-xs text-slate-500 mb-3 truncate">{sectionTitle}</div>
-      {playing && text ? (
-        <HighlightedText
-          text={text}
-          currentTime={currentTime}
-          duration={duration}
-          isSpeaking={isSpeaking}
-          isActive
-          className="text-sm text-black leading-relaxed"
-        />
-      ) : (
-        <p className="text-xs text-slate-400">
-          Nothing playing right now. The script follows the professor word-for-word while he speaks — turn the lecture on and watch it track here.
-        </p>
+
+      {/* What the professor is narrating right now, word-synced */}
+      {playing && text && (
+        <div className="mb-4 pb-4 border-b border-slate-200">
+          <div className="text-[10px] font-bold tracking-widest uppercase text-slate-400 mb-1">Narrating now</div>
+          <HighlightedText
+            text={text}
+            currentTime={currentTime}
+            duration={duration}
+            isSpeaking={isSpeaking}
+            isActive
+            className="text-sm text-black leading-relaxed"
+          />
+        </div>
       )}
+
+      {/* Full dialogue: the learner and the professor, as it happened */}
+      <div className="text-[10px] font-bold tracking-widest uppercase text-slate-400 mb-2">Conversation</div>
+      <div className="space-y-3">
+        {messages.map((m, i) => (
+          m.role === 'user' ? (
+            <p key={m.id ?? i} className="text-sm text-blue-900 font-semibold leading-snug">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-blue-400 block">You</span>
+              {m.text}
+            </p>
+          ) : (
+            <p key={m.id ?? i} className="text-sm text-slate-700 leading-snug">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-cyan-600 block">Professor Marine</span>
+              {m.text}
+            </p>
+          )
+        ))}
+        <div ref={transcriptEndRef} />
+      </div>
     </div>
   );
 }
@@ -2832,8 +2859,11 @@ export default function AIPresentation() {
       // Asked for help, so at least "confused"; "frustrated" gets the gentlest variant
       const mood = signals.getState(idx).last_state;
       const state = mood === 'frustrated' ? 'frustrated' : 'confused';
+      // Search the whole knowledge base by topic words — planner section
+      // numbers shift between regenerations, so pinning `section` misses
+      // (that was the bug where "lost me" fell back to the plain text box).
       const title = encodeURIComponent(sections[idx]?.title ?? '');
-      const r = await fetch(`/api/tutor/variant?section=${idx}&state=${state}&title=${title}`);
+      const r = await fetch(`/api/tutor/variant?q=${title}&state=${state}`);
       const data = await r.json();
       if (data.ok && data.variant) {
         signals.track('tutor_decision', { section: idx, value: { action: 'variant', variant: data.variant.variant, state } });
@@ -3299,7 +3329,7 @@ export default function AIPresentation() {
                 onClick={() => setScriptOpen((v) => !v)}
                 className={`px-4 py-2 rounded-full text-sm font-semibold shadow transition-colors ${scriptOpen ? 'bg-cyan-600 text-white' : 'bg-white text-blue-800'}`}
               >
-                📜 Script {scriptOpen ? 'on' : 'off'}
+                📜 Transcript {scriptOpen ? 'on' : 'off'}
               </button>
               {voiceInterruptionsEnabled && emotionReady && lastEmotion && (
                 <div className="px-3 py-1 rounded-full text-xs font-semibold bg-white shadow" title="From the camera — on-device only">
@@ -3629,6 +3659,7 @@ export default function AIPresentation() {
           isSpeaking={isSpeaking}
           playing={!!currentKey}
           sectionTitle={sections[activeSection]?.title ?? ''}
+          messages={messages}
           onClose={() => setScriptOpen(false)}
         />
       )}
