@@ -26,7 +26,7 @@ export default function Home() {
           </Link>
         </div>
       </div>
-      {/* For Kai and Beryl: the editor asks for the password (lib/editorAuth.ts) */}
+      {/* For the editors (Kai, Beryl, Dr. Cao): the editor asks for the password (lib/editorAuth.ts) */}
       <Link
         href="/slideEditor"
         className="fixed bottom-6 right-6 px-5 py-3 bg-white/80 hover:bg-white text-slate-800 font-semibold rounded-full shadow-lg border border-slate-300 transition-colors"
