@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { lazySupabaseAdmin } from "@/lib/supabase/admin";
-import { AUDIO_FOLDER } from "@/src/cacheVersion";
+import { AUDIO_FOLDER, SECTIONS_CACHE_KEY } from "@/src/cacheVersion";
+import { getValue } from "@/src/redisClient";
 import { COMMAND_ACK_TEXT } from "@/lib/deckCommands";
 import { TTS_VOICE, VOICE_INSTRUCTIONS, SIMPLE_VOICE_INSTRUCTIONS } from "@/lib/voice";
 
@@ -41,6 +42,9 @@ const CONCLUSION_OUTRO_TEXT = "And that's the whole story. Thanks for joining me
 //const KEYTERM_INTRO_TEXT = "Let's go over some key terms.";
 
 const WRAP_UP_TEXT = "How did that section go?";
+
+// The /presentationv2 intro (it used to be sent by the page; same words)
+const INTRO_TEXT = "Hey! I'm Professor Marine. Let's talk about a fish that's taking over the Chesapeake Bay. Let's start at the beginning.";
 
 const FAIL_TEXT = "It seems you didn't answer everything correctly. Let's head to review to cement what you know.";
 
@@ -419,8 +423,18 @@ function buildSectionJobs(sections: any[]): AudioJob[] {
  * ========================================================================== */
 export async function POST(req: Request) {
   try {
-    const { sections, intro } = await req.json();
-    if (!sections) throw new Error("Missing sections data");
+    // The lesson text comes from the server's own cache, never from the
+    // request. This endpoint is public: taking `sections` from the body let
+    // anyone pay for text to speech of any text, and (files are named by
+    // position and skipped once they exist) plant their own audio at
+    // section1_step0.mp3 etc. after a lesson regeneration, for every learner.
+    // was: const { sections, intro } = await req.json();
+    const cached = await getValue(SECTIONS_CACHE_KEY);
+    if (!cached) {
+      return NextResponse.json({ error: "The lesson isn't generated yet: load /api/slidesv2 first." }, { status: 409 });
+    }
+    const sections = JSON.parse(cached);
+    const intro = INTRO_TEXT;
     if (!process.env.OPENAI_API_KEY) throw new Error("Missing OpenAI API key");
 
     const jobs: AudioJob[] = [

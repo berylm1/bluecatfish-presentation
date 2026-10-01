@@ -7,6 +7,8 @@ type TextLevel = "low" | "medium" | "high" | "max";
 type AudioLevel = "none" | "low" | "medium" | "high";
 type VisualLevel = "low" | "medium" | "high";
 
+type Level = TextLevel | AudioLevel | VisualLevel | string;   // a column's option (was used without being defined)
+
 type Category = "text" | "audio" | "visual";
 
 const TEXT_LEVELS = ["low", "medium", "high", "max"];

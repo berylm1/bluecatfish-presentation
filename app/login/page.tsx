@@ -3,6 +3,12 @@
 import { useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 
+/** Where to go after signing in: the ?next= path on this site, else the home page. */
+function afterLogin(): string {
+  const n = new URLSearchParams(window.location.search).get("next");
+  return n && /^\/(?![/\\])/.test(n) ? n : "/";
+}
+
 export default function LoginPage() {
   const [mode, setMode] = useState<"magic" | "password">("magic");
 
@@ -55,7 +61,7 @@ export default function LoginPage() {
       if (error) {
         setError(error.message);
       } else {
-        window.location.href = "/learning";
+        window.location.href = afterLogin();   // was "/learning", a page that doesn't exist
       }
     } else {
       const { error } = await supabase.auth.signInWithPassword({
@@ -66,7 +72,7 @@ export default function LoginPage() {
       if (error) {
         setError(error.message);
       } else {
-        window.location.href = "/learning";
+        window.location.href = afterLogin();   // was "/learning", a page that doesn't exist
       }
     }
   };
