@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { rateLimit } from '@/lib/rateLimit';
+import { createHash } from 'crypto';
+import { getValue, setValue } from '@/src/redisClient';
 
 // Variant slide lookup — returns the best reviewed variant for a topic + learner state.
 let client: ReturnType<typeof createClient> | null = null;
@@ -218,7 +220,17 @@ export async function GET(request: NextRequest) {
     }
 
     if (chosen && explain) {
-      const live = await generateExplanation(chosen, state);
+      // The same slide for the same mood gets the same explanation for every
+      // learner, so it's written once and kept: later learners hear it at
+      // once, at no cost. The key includes the slide's words, so editing the
+      // slide writes a new one.
+      const words = [chosen.title, chosen.body, chosen.narration, chosen.source_quote].join('|');
+      const key = `explain:v1:${chosen.id}:${state}:${createHash('sha1').update(words).digest('hex').slice(0, 12)}`;
+      let live = await getValue(key);
+      if (!live) {
+        live = await generateExplanation(chosen, state);
+        if (live) await setValue(key, live);
+      }
       if (live) chosen = { ...chosen, live_narration: live, canned_narration: chosen.narration };
     }
 
