@@ -43,7 +43,10 @@ export async function POST(request: NextRequest) {
     if (limited) return limited;
     const body = await request.json();
     const systemPrompt = body.systemPrompt as string | undefined;
-    const conversation = (body.conversation as ConversationMessage[] | undefined) ?? [];
+    // Only real earlier turns: a "system" turn from the browser would sit
+    // beside the server's rules and could override them
+    const conversation = (Array.isArray(body.conversation) ? body.conversation as ConversationMessage[] : [])
+      .filter((t) => (t?.role === 'user' || t?.role === 'assistant') && typeof t.content === 'string');
     const userText = (body.userText as string | undefined)?.trim();
     const topic = body.topic as string | undefined;
     const style = body.style as string | undefined;

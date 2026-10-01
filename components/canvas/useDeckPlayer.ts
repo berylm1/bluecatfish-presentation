@@ -173,7 +173,19 @@ export function useDeckPlayer(
         // After a plain version, carry on with the slide's next clip
         setPos((p) => ({ ...p, clip: p.clip + 1, mode: 'normal' }));
       };
-      if (!url) { next(); return; }
+      if (!url) {
+        // No audio (text to speech failed or was rate-limited). Was: skip
+        // straight on, even while paused, so a lesson paused for a question
+        // jumped ahead and talked over the answer, and offline a slide
+        // flashed by in silence. Now: paused → stay (resume tries again);
+        // otherwise show the words (caption) for a reading-time pause.
+        audioRef.current = null;   // so resume retries this clip, not the one before
+        if (pausedRef.current) return;
+        setStatus('playing');
+        const words = textRef.current.split(/\s+/).filter(Boolean).length;
+        timerRef.current = setTimeout(next, Math.min(12000, Math.max(2000, words * 350)));
+        return;
+      }
       const audio = new Audio(url);
       audioRef.current = audio;
       audio.onended = next;
