@@ -14,7 +14,7 @@ import { AUTH_COOKIE, verifyToken } from '@/lib/editorAuth';
  * - per day, for the whole site: past it, that feature pauses until tomorrow
  *   (pre-recorded lesson audio is just files and is never limited)
  *
- * Unlocked editors (Kai, Beryl) are never limited. If Redis can't be reached,
+ * Unlocked editors (Kai, Beryl, Dr. Cao) are never limited. If Redis can't be reached,
  * requests are allowed: a Redis problem mustn't break the lesson.
  */
 

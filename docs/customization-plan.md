@@ -167,7 +167,7 @@ There can be **several lessons**. Each lesson has up to three decks:
 
 - `/slideEditor`, `/imageIngest`, `/textIngest`, **and their save/upload APIs**
   ask for a password first.
-- Passwords live in Vercel: `EDITOR_PASSWORDS=Kai,Beryl`. The name used is
+- Passwords live in Vercel: `EDITOR_PASSWORDS=Kai,Beryl,Dr. Cao`. The name used is
   remembered on that browser and saved as "last edited by".
 
 ## Shared with `/presentationv2`

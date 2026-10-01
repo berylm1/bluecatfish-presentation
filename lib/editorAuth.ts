@@ -1,6 +1,7 @@
 // Password gate for the editor pages and their APIs (see middleware.ts).
-// Passwords live in the EDITOR_PASSWORDS env var ("Kai,Beryl"); the password
-// someone uses is also their name ("last edited by Kai").
+// Passwords live in the EDITOR_PASSWORDS env var ("Kai,Beryl,Dr. Cao"); the
+// password someone uses is also their name ("last edited by Dr. Cao"). Names
+// may have spaces and dots.
 //
 // After unlocking, the browser keeps a signed cookie: name.expiry.signature.
 // The signature is an HMAC keyed with the password list, so changing the
@@ -71,7 +72,9 @@ async function sign(message: string): Promise<string> {
 
 export async function makeToken(name: string): Promise<string> {
   const expires = Date.now() + AUTH_DAYS * 24 * 60 * 60 * 1000;
-  const body = `${encodeURIComponent(name)}.${expires}`;
+  // Dots are encoded too: the token's parts are split on "." (a name like
+  // "Dr. Cao" otherwise made a cookie that never verified)
+  const body = `${encodeURIComponent(name).replace(/\./g, '%2E')}.${expires}`;
   return `${body}.${await sign(body)}`;
 }
 
