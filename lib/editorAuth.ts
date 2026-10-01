@@ -1,4 +1,4 @@
-// Password gate for the editor pages and their APIs (see middleware.ts).
+// Password gate for the editor pages and their APIs (see proxy.ts).
 // Passwords live in the EDITOR_PASSWORDS env var ("Kai,Beryl,Dr. Cao"); the
 // password someone uses is also their name ("last edited by Dr. Cao"). Names
 // may have spaces and dots.

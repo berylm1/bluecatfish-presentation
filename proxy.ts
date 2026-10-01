@@ -6,7 +6,7 @@ import { AUTH_COOKIE, isProtected, verifyToken } from "@/lib/editorAuth";
 // Routes that DON'T require login — everything else is protected by default
 const PUBLIC_PATHS = ["/login", "/auth/callback", "/presentation", "/presentationv2", "/lessonReview", "/textIngest", "/imageIngest"];
 
-export async function middleware(request: NextRequest) {
+export async function proxy(request: NextRequest) {
   const pathname = request.nextUrl.pathname;
 
   // Password gate: editor pages send you to /unlock, editor APIs answer 401
