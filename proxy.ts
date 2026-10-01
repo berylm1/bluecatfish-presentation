@@ -1,12 +1,12 @@
 
 import { type NextRequest, NextResponse } from "next/server";
-import { createServerClient } from "@supabase/ssr";
+import { createServerClient, type CookieOptions } from "@supabase/ssr";
 import { AUTH_COOKIE, isProtected, verifyToken } from "@/lib/editorAuth";
 
 // Routes that DON'T require login — everything else is protected by default
 const PUBLIC_PATHS = ["/login", "/auth/callback", "/presentation", "/presentationv2", "/lessonReview", "/textIngest", "/imageIngest"];
 
-export async function middleware(request: NextRequest) {
+export async function proxy(request: NextRequest) {
   const pathname = request.nextUrl.pathname;
 
   // Password gate: editor pages send you to /unlock, editor APIs answer 401
@@ -34,7 +34,7 @@ export async function middleware(request: NextRequest) {
         getAll() {
           return request.cookies.getAll();
         },
-        setAll(cookiesToSet) {
+        setAll(cookiesToSet: { name: string; value: string; options: CookieOptions }[]) {
           cookiesToSet.forEach(({ name, value }) =>
             request.cookies.set(name, value)
           );

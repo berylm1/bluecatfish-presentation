@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { lazySupabaseAdmin } from "@/lib/supabase/admin";
 import { getValue, setValue } from "@/src/redisClient";
+import { rateLimit } from "@/lib/rateLimit";
 import { SECTIONS_CACHE_KEY } from "@/src/cacheVersion";
 import { findCrossSectionRepeats } from "@/lib/lessonOverlap";
 
@@ -520,6 +521,10 @@ export async function POST(req: Request) {
     if (cachedRaw) {
       return NextResponse.json({ sections: JSON.parse(cachedRaw), source: "cache", cacheKey });
     }
+
+    // Not cached: building it costs dozens of AI calls, so it's limited
+    const limited = await rateLimit(req, 'lesson');
+    if (limited) return limited;
 
     const plan = await planSections();
     console.log('PLANNED SECTIONS:', plan);

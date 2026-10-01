@@ -59,16 +59,20 @@ export function useEmotionWatcher(
         const vision = await FilesetResolver.forVisionTasks(
           'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision/wasm'
         );
-        const landmarker = await FaceLandmarker.createFromOptions(vision, {
+        // Graphics card first (faster); without one (some Chromebooks, older
+        // laptops) that fails, so fall back to the processor instead of
+        // turning the whole camera's detection off
+        const make = (delegate: 'GPU' | 'CPU') => FaceLandmarker.createFromOptions(vision, {
           baseOptions: {
             modelAssetPath:
               'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task',
-            delegate: 'GPU',
+            delegate,
           },
           outputFaceBlendshapes: true,
           runningMode: 'VIDEO',
           numFaces: 1,
         });
+        const landmarker = await make('GPU').catch(() => make('CPU'));
         if (cancelled) { landmarker.close(); return; }
         landmarkerRef.current = landmarker;
 
@@ -89,8 +93,13 @@ export function useEmotionWatcher(
         };
 
         const debug = camDebugOn();
+        let lastCheck = 0;
         const tick = () => {
           if (cancelled || !landmarkerRef.current || !videoRef.current) return;
+          // ~10 readings a second: expressions are held for seconds (was every frame)
+          const t = performance.now();
+          if (t - lastCheck < 100) { rafRef.current = requestAnimationFrame(tick); return; }
+          lastCheck = t;
           try {
             const result = landmarkerRef.current.detectForVideo(videoRef.current, performance.now());
             const hasFace = (result?.faceLandmarks?.length ?? 0) > 0;

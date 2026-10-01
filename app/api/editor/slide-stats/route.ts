@@ -4,7 +4,7 @@ import { isLessonId } from '@/lib/canvas/store';
 import { slideStats, type EventRow } from '@/lib/canvas/slideStats';
 
 // Per-slide learner stats for the slide editor's heatmap (editor-only: the
-// password gate in middleware.ts covers /api/editor/*).
+// password gate in proxy.ts covers /api/editor/*).
 //   GET ?lesson=<id>&days=30
 
 const supabase = lazySupabaseAdmin();

@@ -47,6 +47,9 @@ async function embed(text: string): Promise<number[]> {
   return data.data[0].embedding;
 }
 
+const IMAGE_TYPES = ["image/jpeg", "image/png", "image/webp", "image/gif"];
+const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
+
 export async function POST(req: Request) {
   try {
     // Corpus write path — restricted to ingest admins.
@@ -57,12 +60,21 @@ export async function POST(req: Request) {
     const file = formData.get("file") as File;
     const manualDescription = (formData.get("description") as string | null)?.trim() || null;
 
-    if (!file) {
+    if (!file || typeof file === "string") {
       return NextResponse.json({ error: "Missing file" }, { status: 400 });
     }
+    // Pictures only, and not huge: the type was taken from the browser as is,
+    // so a web page or script could be stored (and served) as a "picture"
+    if (!IMAGE_TYPES.includes(file.type)) {
+      return NextResponse.json({ error: "Upload a JPG, PNG, WebP or GIF picture." }, { status: 415 });
+    }
+    if (file.size > MAX_IMAGE_BYTES) {
+      return NextResponse.json({ error: "That picture is over 10 MB. Please make it smaller." }, { status: 413 });
+    }
 
-    // 1. Upload image to Supabase Storage
-    const fileName = `${Date.now()}_${file.name}`;
+    // 1. Upload image to Supabase Storage (the name keeps only safe characters)
+    // was: const fileName = `${Date.now()}_${file.name}`;
+    const fileName = `${Date.now()}_${file.name.replace(/[^\w.-]+/g, "_").slice(-80)}`;
     const arrayBuffer = await file.arrayBuffer();
     const buffer = Buffer.from(arrayBuffer);
 

@@ -33,8 +33,11 @@ export async function POST(request: NextRequest) {
     const body = (await request.json()) as Record<string, unknown>;
     const sessionId = body.session_id;
     const section = body.section;
-    if (typeof sessionId !== 'string' || !sessionId || typeof section !== 'number' || !Number.isInteger(section) || section < 0 || section > 9) {
-      return NextResponse.json({ error: 'session_id and section (0-9) required' }, { status: 400 });
+    // Sessions are made by lib/signals.ts (s_<time>_<random>). Topics: was 0-9,
+    // but a hand-made canvas lesson can have more than 10 topics, and their
+    // learner state was silently refused.
+    if (typeof sessionId !== 'string' || !/^[\w-]{1,64}$/.test(sessionId) || typeof section !== 'number' || !Number.isInteger(section) || section < 0 || section > 99) {
+      return NextResponse.json({ error: 'session_id and section (0-99) required' }, { status: 400 });
     }
 
     const c = readCounters(body);

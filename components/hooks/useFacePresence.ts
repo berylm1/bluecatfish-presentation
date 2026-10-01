@@ -59,8 +59,13 @@ export function useFacePresence(enabled: boolean) {
         setReady(true);
 
         const debug = camDebugOn();
+        let lastCheck = 0;
         const loop = () => {
           if (cancelled || !detectorRef.current || !videoRef.current) return;
+          // ~8 checks a second is plenty for "is someone there" (was every frame)
+          const t = performance.now();
+          if (t - lastCheck < 125) { rafRef.current = requestAnimationFrame(loop); return; }
+          lastCheck = t;
           const result = detectorRef.current.detectForVideo(
             videoRef.current,
             performance.now()

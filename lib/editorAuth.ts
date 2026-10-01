@@ -1,4 +1,4 @@
-// Password gate for the editor pages and their APIs (see middleware.ts).
+// Password gate for the editor pages and their APIs (see proxy.ts).
 // Passwords live in the EDITOR_PASSWORDS env var ("Kai,Beryl,Dr. Cao"); the
 // password someone uses is also their name ("last edited by Dr. Cao"). Names
 // may have spaces and dots.
@@ -13,13 +13,15 @@ export const NAME_COOKIE = 'editor_name';   // readable by the page, for "Unlock
 export const AUTH_DAYS = 30;
 
 /** Pages and APIs that need the password. */
-export const PROTECTED_PAGES = ['/slideEditor', '/imageIngest', '/textIngest'];
+export const PROTECTED_PAGES = ['/slideEditor', '/imageIngest', '/textIngest', '/instructor-view'];
 export const PROTECTED_APIS = [
   '/api/editor',        // deck save / publish / upload (step 3)
   '/api/image-Ingest',  // /imageIngest uploads
   '/api/embed',         // /textIngest adds to the knowledge base
   '/api/write-mp3',     // writes audio into storage
   '/api/reanimate',     // starts a (paid) Manim render
+  '/api/instructor',    // learner data for /instructor-view (was readable by anyone)
+  '/api/chat',          // relay to the OpenClaw agent; no page uses it now, and it was open to anyone
 ];
 // Open even under /api/editor: the unlock endpoint itself
 const OPEN_APIS = ['/api/editor/unlock', '/api/editor/lock'];
