@@ -56,5 +56,8 @@ export function useLessonTracking(deck: Deck, started: boolean, slideIndex: numb
   /** How this topic is going for the learner (for the tutor and the confusion path). */
   const state = useCallback(() => signals.getState(where.current.topic), []);
 
-  return { track, state };
+  /** How one topic went (for the end-of-lesson recap). */
+  const stateOf = useCallback((topic: number) => signals.getState(topic), []);
+
+  return { track, state, stateOf };
 }

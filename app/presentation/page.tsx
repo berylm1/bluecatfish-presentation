@@ -16,7 +16,7 @@ import { useEmotionWatcher, type LearnerEmotion } from '@/components/hooks/useEm
 import { useHandRaise } from '@/components/hooks/useHandRaise';
 import { useFacePresence } from '@/components/hooks/useFacePresence';
 import CameraBubble, { type CameraSees } from '@/components/canvas/CameraBubble';
-import { describeForTutor, type SelfCheckRating } from '@/lib/learnerState';
+import { describeForTutor, type SectionState, type SelfCheckRating } from '@/lib/learnerState';
 import { topicIndexes } from '@/lib/canvas/queue';
 import { CUE_TEXT, type CueKey } from '@/lib/canvas/cues';
 import { loadDeck, type Loaded } from '@/lib/canvas/loadDeck';
@@ -84,7 +84,38 @@ const SPEAKING: string[] = ['playing', 'loading', 'finishing', 'waiting'];
 // false = the old popup (VariantOverlay) and no focus.
 const MORPH_HELPERS = true;
 const MORPH_BACK_MS = 950;   // a morph back finishes before the lesson moves to another slide
-const HAND_RING_MS = 2500;   // how long the camera bubble stays yellow after a raised hand
+const HAND_RING_MS = 2500;
+// Spotlight: while a box is being said, the rest of the slide fades to this (1 = off). Kept light on purpose.
+const SPOTLIGHT = 0.7;
+// How often Finn gets something wrong on purpose for the learner to catch (never his first turn; 0 = never)
+const FINN_MISTAKE_CHANCE = 0.5;   // how long the camera bubble stays yellow after a raised hand
+
+/** The topic the learner found hardest (by self-checks, "I'm lost"s, simpler/repeat requests), or null if none was hard. */
+function hardestTopic(deck: Deck, topicOf: number[], stateOf: (topic: number) => SectionState): string | null {
+  let best: { name: string; score: number } | null = null;
+  for (const topic of new Set(topicOf)) {
+    const st = stateOf(topic);
+    const score = (st.self_check === 'lost' ? 3 : st.self_check === 'kind' ? 1.5 : 0)
+      + st.confusion_marks + 0.5 * (st.simplify_requests + st.repeats);
+    const name = deck.slides[topicOf.indexOf(topic)]?.topic?.trim();
+    if (name && score >= 1 && (!best || score > best.score)) best = { name, score };
+  }
+  return best?.name ?? null;
+}
+
+/** A sentence for the end of the recap: the learner's name and what to look at again. */
+/** What Finn says at a topic's end: a question, or (truth set) a mistake for the learner to catch. */
+type FinnLine = { question: string; truth?: string };
+
+/** The hello with the learner's name: one clip, so there's no gap around the name. */
+const greeting = (name: string) => `Hey ${name}! I'm Professor Marine. Let's dive in.`;
+
+function personalRecap(name: string, hardest: string | null): string {
+  if (name && hardest) return `Nice work today, ${name}! ${hardest} was the trickiest part for you, so that's a great one to look at again.`;
+  if (name) return `Nice work today, ${name}! You stuck with it the whole way.`;
+  if (hardest) return `${hardest} was the trickiest part, so that's a great one to look at again.`;
+  return '';
+}
 
 function Player({ deck, preview }: { deck: Deck; preview: boolean }) {
   const [started, setStarted] = useState(false);
@@ -116,6 +147,14 @@ function Player({ deck, preview }: { deck: Deck; preview: boolean }) {
   });
   const tutor = useTutor();
   const cues = useCues(started);
+  // The personal hello is made once they stop typing their name, so Start speaks at once
+  const { preload: preloadLine } = cues;
+  useEffect(() => {
+    const name = learnerName.trim();
+    if (started || name.length < 2) return;
+    const t = setTimeout(() => preloadLine(greeting(name)), 900);
+    return () => clearTimeout(t);
+  }, [learnerName, started, preloadLine]);
   const cuesRef = useRef(cues);
   cuesRef.current = cues;
   const tracking = useLessonTracking(deck, started, player.slideIndex, player.status === 'finished');
@@ -339,36 +378,95 @@ function Player({ deck, preview }: { deck: Deck; preview: boolean }) {
   const classmateAsked = useRef<string[]>([]);
   const classmateOnRef = useRef(classmateOn);
   classmateOnRef.current = classmateOn;
+  // Finn's line for a topic, fetched (and voiced) while its last slide plays, so he speaks at once
+  const finnReady = useRef(new Map<number, Promise<FinnLine | null>>());
+  const finnLine = useCallback((topic: number): Promise<FinnLine | null> => {
+    if (!finnReady.current.has(topic)) {
+      const slides = deck.slides.map((_, i) => i).filter((i) => topicOf[i] === topic);
+      // never his first turn: first he shows how to ask, then he sometimes gets it wrong
+      const mistake = classmateAsked.current.length > 0 && Math.random() < FINN_MISTAKE_CHANCE;
+      finnReady.current.set(topic, fetchClassmate(deck.slides[slides[0]]?.topic ?? '', slides.map(slideText).join(' | '), mistake)
+        .then((line) => { if (line) cuesRef.current.preload(line.question, 'classmate'); return line; }));
+    }
+    return finnReady.current.get(topic)!;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [deck, topicOf, slideText]);
+  useEffect(() => {
+    const i = player.slideIndex;
+    const lastOfTopic = i + 1 >= deck.slides.length || topicOf[i + 1] !== topicOf[i];
+    if (started && classmateOn && lastOfTopic && !classmateTopics.current.has(topicOf[i]) && tracking.state().questions === 0) finnLine(topicOf[i]);
+  }, [started, classmateOn, player.slideIndex, deck, topicOf, tracking, finnLine]);
+
+  // Finn said something wrong on purpose: waiting for the learner to say if he's right
+  const finnCheck = useRef<((verdict: string) => void) | null>(null);
+  const micRef = useRef<{ status: string; talk: () => void }>({ status: 'off', talk: () => {} });   // the mic (set up further down)
+  const [finnWaiting, setFinnWaiting] = useState(false);
+  const finnVerdict = useCallback((verdict: string, how: 'voice' | 'button' | 'typed') => {
+    const done = finnCheck.current;
+    if (!done) return false;
+    finnCheck.current = null;
+    setFinnWaiting(false);
+    // Answered with a button or typing while the mic listens: stop it, and ignore what it heard
+    const mic = micRef.current;
+    if (how !== 'voice' && (mic.status === 'listening' || mic.status === 'processing')) {
+      skipTranscript.current = true;
+      if (mic.status === 'listening') mic.talk();
+    }
+    done(verdict);
+    return true;
+  }, []);
+
   topicEndRef.current = async (from: number, to: number) => {
     const topic = topicOf[from];
-    // Finn asks when the learner didn't ask anything in this topic (once per topic)
+    // Finn speaks when the learner didn't ask anything in this topic (once per topic)
     if (classmateOnRef.current && !classmateTopics.current.has(topic) && tracking.state().questions === 0) {
       classmateTopics.current.add(topic);
-      const slides = deck.slides.map((_, i) => i).filter((i) => topicOf[i] === topic);
-      const q = await fetchClassmate(deck.slides[from]?.topic ?? '', slides.map(slideText).join(' | '));
-      if (q && !selfCheckRef.current) {
+      const line = await finnLine(topic);
+      if (line && !selfCheckRef.current) {
+        const q = line.question;
         classmateAsked.current.push(q);
-        tracking.track('tutor_decision', { action: 'classmate', question: q.slice(0, 300) });
+        tracking.track('tutor_decision', { action: line.truth ? 'classmate_mistake' : 'classmate', question: q.slice(0, 300) });
+        const name = learnerName.trim();
+        const turnTo = name ? `Hmm. ${name}, what do you think? Is ${CLASSMATE_NAME} right?` : `Hmm. What do you think, is ${CLASSMATE_NAME} right?`;
+        if (line.truth) cues.preload(turnTo);   // ready by the time Finn finishes
         setClassmateSaying(true);
         const said = await cues.play({ text: q, who: 'classmate' });
         setClassmateSaying(false);
-        if (said) await answer(q, { asker: CLASSMATE_NAME, resume: false });
+        if (said && !line.truth) await answer(q, { asker: CLASSMATE_NAME, resume: false });
+        else if (said && line.truth) {
+          // The professor turns to the learner, and waits for their call (buttons, typing, or the mic)
+          if (await cues.play({ text: turnTo })) {
+            const verdict = await new Promise<string>((resolve) => {
+              finnCheck.current = resolve;
+              setFinnWaiting(true);
+              if (interruptOn) { resumeAfterTurn.current = false; micRef.current.talk(); }   // listen for it too
+            });
+            tracking.track('tutor_decision', { action: 'classmate_mistake_answer', answer: verdict.slice(0, 200) });
+            await tutor.ask(q, slideContext() +
+              `\n${CLASSMATE_NAME}, a classmate, just said this, and it is WRONG on purpose, to see if the learner catches it. What's actually right: ${line.truth}` +
+              `\nYou asked the learner if ${CLASSMATE_NAME} was right. The learner answered: "${verdict || '(nothing)'}".` +
+              `\nIf the learner caught the mistake, cheer them on${name ? ` by name (${name})` : ''} and say why in a sentence. If they agreed with ${CLASSMATE_NAME} or weren't sure, ` +
+              `kindly say it's an easy mix-up and explain what's right. Talk to both of them, kindly to ${CLASSMATE_NAME} too. 2 to 4 short sentences, no question at the end.`,
+              { asker: CLASSMATE_NAME });
+          }
+        }
       }
     }
     setSelfCheck({ from, to });
     cuesRef.current?.play('cue_selfCheck');
   };
 
-  /** Finn's question about what was just taught, or null (none, too slow, or rate-limited). */
-  const fetchClassmate = useCallback(async (topic: string, taught: string): Promise<string | null> => {
+  /** Finn's line about what was just taught (a question, or a mistake to catch), or null (none, too slow, or rate-limited). */
+  const fetchClassmate = useCallback(async (topic: string, taught: string, mistake = false): Promise<FinnLine | null> => {
     try {
       const res = await fetch('/api/classmate', {
         method: 'POST',
         headers: learnerHeaders({ 'Content-Type': 'application/json' }),
-        body: JSON.stringify({ topic, slideText: taught.slice(0, 2000), asked: classmateAsked.current }),
-        signal: AbortSignal.timeout(8000),
+        body: JSON.stringify({ topic, slideText: taught.slice(0, 2000), asked: classmateAsked.current, mistake }),
+        signal: AbortSignal.timeout(10000),
       });
-      return res.ok ? ((await res.json()).question ?? null) : null;
+      const d = res.ok ? await res.json() : null;
+      return d?.question ? { question: d.question, truth: d.truth || undefined } : null;
     } catch {
       return null;
     }
@@ -402,6 +500,7 @@ function Player({ deck, preview }: { deck: Deck; preview: boolean }) {
   }, [tracking]);
 
   const handleText = useCallback((text: string) => {
+    if (finnVerdict(text, 'typed')) return;   // typed their call on Finn's mistake
     if (selfCheck) {
       const t = text.toLowerCase();
       if (/\b(lost|confus|no\b|nope|didn'?t|don'?t)/.test(t)) return answerSelfCheck('lost');
@@ -446,7 +545,7 @@ function Player({ deck, preview }: { deck: Deck; preview: boolean }) {
         break;
       }
     }
-  }, [deck, player, act, answer, confused, showSlide, tutor, tutorBusy, tracking, variant, cues, selfCheck, answerSelfCheck]);
+  }, [deck, player, act, answer, confused, showSlide, tutor, tutorBusy, tracking, variant, cues, selfCheck, answerSelfCheck, finnVerdict]);
 
   // Barge-in: with interruptions on, starting to talk over the professor (or
   // over an answer) makes them finish the sentence, then stop and listen.
@@ -464,6 +563,7 @@ function Player({ deck, preview }: { deck: Deck; preview: boolean }) {
     },
     onTranscript: (text) => {
       if (skipTranscript.current) { skipTranscript.current = false; return; }
+      if (text && finnVerdict(text, 'voice')) return;   // their call on Finn's mistake
       const asked = checkIn.current;
       checkIn.current = null;
       if (asked) checkInAnswered(asked, !text ? 'none' : YES.test(text.trim()) ? 'yes' : NO.test(text.trim()) ? 'no' : 'other', 'voice');
@@ -478,19 +578,27 @@ function Player({ deck, preview }: { deck: Deck; preview: boolean }) {
       else if (resumeAfterTurn.current && !tutor.thinking) playerRef.current.resume();
     },
   });
+  micRef.current = { status: micStatus, talk };
 
-  // The end: "Let's look back…", the recap, and a goodbye
-  const { play: playCue, stop: stopCue } = cues;   // stable, unlike `cues` (which changes as lines start and stop)
+  // The end: "Let's look back…", the recap (with a word for the learner), and a goodbye
+  const { play: playCue, stop: stopCue, preload: preloadCue } = cues;   // stable, unlike `cues` (which changes as lines start and stop)
+  const { stateOf } = tracking;
   useEffect(() => {
     if (player.status !== 'finished') return;
     let cancelled = false;
+    // The recap and the personal line are ONE clip (no gap around the name),
+    // made while "Let's look back…" is playing
+    const recap = [deck.recap?.trim(), personalRecap(learnerName.trim(), hardestTopic(deck, topicOf, stateOf))].filter(Boolean).join(' ');
+    if (recap) preloadCue(recap);
     (async () => {
       if (!(await playCue('cue_conclusionIntro')) || cancelled) return;
-      if (deck.recap && (!(await playCue({ text: deck.recap })) || cancelled)) return;
+      if (recap && (!(await playCue({ text: recap })) || cancelled)) return;
       await playCue('cue_conclusionOutro');
     })();
     return () => { cancelled = true; stopCue(); };
-  }, [player.status, deck.recap, playCue, stopCue]);
+    // learnerName: as it was when the lesson ended
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [player.status, deck, topicOf, stateOf, playCue, stopCue, preloadCue]);
 
   /* ------------------------------------------------ camera: the instructor notices */
 
@@ -574,17 +682,23 @@ function Player({ deck, preview }: { deck: Deck; preview: boolean }) {
   }, [present, cameraOn, started, tracking, playCue, tutorBusy]);
 
   // The laser pointer: while a clip plays, the mark whose phrase is being said
+  // (on the lesson's slides, and on a helper while its boxes are narrated)
   const [laser, setLaser] = useState<{ elementId: string; pointer: Pointer } | null>(null);
+  const { getAudio: getCueAudio } = cues;
   useEffect(() => {
-    const el = player.activeId ? deck.slides[player.slideIndex]?.elements.find((e) => e.id === player.activeId) : null;
-    if (player.status !== 'playing' || player.mode !== 'normal' || !el?.pointers?.length || variant) { setLaser(null); return; }
+    const onHelper = !!variant?.slide && !!helperActive;
+    const el = onHelper
+      ? variant!.slide!.elements.find((e) => e.id === helperActive)
+      : player.activeId && !variant ? deck.slides[player.slideIndex]?.elements.find((e) => e.id === player.activeId) : null;
+    const live = onHelper || (player.status === 'playing' && player.mode === 'normal');
+    if (!live || !el?.pointers?.length) { setLaser(null); return; }
     const t = setInterval(() => {
-      const audio = player.getAudio();
-      const p = audio ? activePointer(el, spokenText(el), audio.currentTime, audio.duration) : null;
+      const audio = onHelper ? getCueAudio() : player.getAudio();
+      const p = audio && !audio.paused ? activePointer(el, spokenText(el), audio.currentTime, audio.duration) : null;
       setLaser((cur) => (p ? (cur?.pointer === p && cur.elementId === el.id ? cur : { elementId: el.id, pointer: p }) : null));
     }, 120);
     return () => clearInterval(t);
-  }, [player.status, player.mode, player.activeId, player.slideIndex, player.getAudio, deck, variant]);
+  }, [player.status, player.mode, player.activeId, player.slideIndex, player.getAudio, deck, variant, helperActive, getCueAudio]);
 
   // The camera bubble: yellow for a raised hand (for a few seconds), then what the face shows
   const [, tick] = useState(0);
@@ -657,7 +771,7 @@ function Player({ deck, preview }: { deck: Deck; preview: boolean }) {
             const name = learnerName.trim();
             try { localStorage.setItem('learnerName', name); } catch { /* private mode */ }
             // A name: a personal hello (spoken live); otherwise the recorded intro
-            (name ? cues.play({ text: `Hey ${name}! I'm Professor Marine. Let's dive in.` }) : cues.play('cue_intro')).finally(() => setIntroDone(true));
+            (name ? cues.play({ text: greeting(name) }) : cues.play('cue_intro')).finally(() => setIntroDone(true));
           }}
           className="px-8 py-4 rounded-2xl bg-cyan-400 hover:bg-cyan-300 text-slate-900 text-xl font-semibold"
         >
@@ -697,7 +811,7 @@ function Player({ deck, preview }: { deck: Deck; preview: boolean }) {
             <button onClick={() => { checked.current.clear(); setSelfCheck(null); cues.stop(); player.restart(); }} className="px-6 py-3 rounded-xl bg-cyan-500 hover:bg-cyan-400 font-semibold">Start over</button>
           </div>
         ) : (
-          <SlideCanvas slide={shownSlide} activeId={variant ? helperActive : player.activeId} morph={MORPH_HELPERS} laser={variant ? null : laser} />
+          <SlideCanvas slide={shownSlide} activeId={variant ? helperActive : player.activeId} morph={MORPH_HELPERS} laser={laser} spotlight={SPOTLIGHT} />
         )}
         {variant && !MORPH_HELPERS && <VariantOverlay variant={variant} onDone={closeVariant} />}
         {variant && MORPH_HELPERS && (
@@ -732,6 +846,14 @@ function Player({ deck, preview }: { deck: Deck; preview: boolean }) {
               {askingHelp === 'confused' ? 'Yes, show me' : 'Yes'}
             </button>
             <button className="px-3 py-1 rounded-full bg-white/15 hover:bg-white/25" onClick={() => answerCheckInButton(false)}>No thanks</button>
+          </div>
+        )}
+        {finnWaiting && (
+          <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-20 flex items-center gap-2 px-4 py-2 rounded-full bg-slate-900/90 text-white text-sm shadow-lg" role="dialog" aria-label={`Is ${CLASSMATE_NAME} right?`}>
+            <span>Is {CLASSMATE_NAME} right?</span>
+            <button className="px-3 py-1 rounded-full bg-amber-400 hover:bg-amber-300 text-slate-900 font-semibold" onClick={() => finnVerdict(`Not quite, ${CLASSMATE_NAME} is wrong.`, 'button')}>Not quite!</button>
+            <button className="px-3 py-1 rounded-full bg-white/15 hover:bg-white/25" onClick={() => finnVerdict(`Yes, ${CLASSMATE_NAME} is right.`, 'button')}>He&apos;s right</button>
+            <button className="px-3 py-1 rounded-full bg-white/15 hover:bg-white/25" onClick={() => finnVerdict("I'm not sure.", 'button')}>Not sure</button>
           </div>
         )}
         {classmateSaying && (

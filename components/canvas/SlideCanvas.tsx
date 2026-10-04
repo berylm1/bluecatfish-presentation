@@ -119,9 +119,11 @@ function LaserDot({ el, p, imgRef }: { el: SlideElement; p: Pointer; imgRef: Rea
   );
 }
 
-function ElementView({ el, active, laser }: { el: SlideElement; active: boolean; laser?: Pointer | null }) {
+function ElementView({ el, active, laser, dim = 1 }: { el: SlideElement; active: boolean; laser?: Pointer | null; dim?: number }) {
   const imgRef = useRef<HTMLImageElement>(null);
   const decorative = el.type === 'image' && el.silent && !el.alt;
+  // Spotlight: the rest of the slide steps back a little (never a background picture)
+  const faded = !active && !decorative && dim < 1;
   const style: CSSProperties = {
     position: 'absolute',
     left: `${el.x}%`,
@@ -131,7 +133,9 @@ function ElementView({ el, active, laser }: { el: SlideElement; active: boolean;
     zIndex: el.z ?? (decorative ? 0 : 1),
     borderRadius: '1.2cqh',
     padding: el.type === 'text' ? '0.8cqh 1cqw' : 0,
-    transition: 'box-shadow 300ms ease, background-color 300ms ease, transform 300ms ease',
+    transition: 'box-shadow 300ms ease, background-color 300ms ease, transform 300ms ease, opacity 450ms ease, filter 450ms ease',
+    opacity: faded ? dim : 1,
+    filter: faded ? 'saturate(0.8)' : 'none',
     // The element being spoken: a soft glow, nothing that moves the layout
     boxShadow: active ? '0 0 0 0.35cqh rgba(34, 211, 238, 0.85), 0 0 3cqh rgba(34, 211, 238, 0.45)' : 'none',
     backgroundColor: active && el.type === 'text' ? 'rgba(34, 211, 238, 0.10)' : 'transparent',
@@ -179,6 +183,21 @@ function Content({ el }: { el: SlideElement }) {
   );
 }
 
+/**
+ * Text during a morph, laid out once at its own box's size (in slide units)
+ * and pinned to the moving box's corner: the words don't re-wrap or shrink
+ * every frame while the box changes size, they just fade.
+ */
+function FrozenText({ el }: { el: TextElement }) {
+  return (
+    <div style={{ position: 'absolute', left: 0, top: 0, width: `${el.w}cqw`, height: `${el.h}cqh`, padding: '0.8cqh 1cqw' }}>
+      <FitText el={el} />
+    </div>
+  );
+}
+
+const sameBox = (a: SlideElement, b: SlideElement) => Math.abs(a.w - b.w) < 0.5 && Math.abs(a.h - b.h) < 0.5;
+
 const sameContent = (a: SlideElement, b: SlideElement) =>
   a.type === 'text' && b.type === 'text' ? a.text === b.text && a.style === b.style
     : a.type === 'image' && b.type === 'image' ? a.src === b.src : false;
@@ -202,8 +221,24 @@ function MorphLayer({ plan, on }: { plan: MorphPlan; on: boolean }) {
         </div>
       ))}
       {plan.pairs.map(([a, b]) => {
-        const same = sameContent(a, b);
         const isImage = a.type === 'image';
+        if (a.type === 'text' && b.type === 'text' && !(sameContent(a, b) && sameBox(a, b))) {
+          // was: both texts cross-faded across the whole move, re-wrapping as the box grew.
+          // Now the old words fade out in the first part of the move and the new ones fade in as it lands, with no blank between.
+          return (
+            <div key={`pair-${a.id}-${b.id}`} data-morph-pair={`${a.id}>${b.id}`}
+              style={{ position: 'absolute', ...box(on ? b : a), zIndex: (on ? b.z : a.z) ?? 1, borderRadius: '1.2cqh', transition: move }}>
+              <div style={{ position: 'absolute', inset: 0, opacity: on ? 0 : 1, transition: `opacity ${MORPH_MS * 0.4}ms ease` }}>
+                <FrozenText el={a} />
+              </div>
+              <div style={{ position: 'absolute', inset: 0, opacity: on ? 1 : 0,
+                transition: `opacity ${MORPH_MS * 0.5}ms ease ${MORPH_MS * 0.35}ms` }}>
+                <FrozenText el={b} />
+              </div>
+            </div>
+          );
+        }
+        const same = sameContent(a, b);
         return (
           <div key={`pair-${a.id}-${b.id}`} data-morph-pair={`${a.id}>${b.id}`}
             style={{ position: 'absolute', ...box(on ? b : a), zIndex: (on ? b.z : a.z) ?? 1, borderRadius: '1.2cqh', transition: move }}>
@@ -271,6 +306,7 @@ export default function SlideCanvas({
   shadow = true,
   morph = false,
   laser,
+  spotlight = 1,
   children,
 }: {
   slide: Slide;
@@ -282,6 +318,8 @@ export default function SlideCanvas({
   morph?: boolean;
   /** The laser pointer: which element it's on and which mark */
   laser?: { elementId: string; pointer: Pointer } | null;
+  /** While an element is being said, the others' opacity (1 = no spotlight) */
+  spotlight?: number;
   /** Drawn on top of the slide (the editor's selection boxes) */
   children?: React.ReactNode;
 }) {
@@ -308,7 +346,8 @@ export default function SlideCanvas({
       }}
     >
       {morphing ? <MorphLayer plan={morphing.plan} on={morphing.on} /> : slide.elements.map((el) => (
-        <ElementView key={el.id} el={el} active={el.id === activeId} laser={laser?.elementId === el.id ? laser.pointer : null} />
+        <ElementView key={el.id} el={el} active={el.id === activeId} laser={laser?.elementId === el.id ? laser.pointer : null}
+          dim={activeId && slide.elements.some((e) => e.id === activeId) ? spotlight : 1} />
       ))}
       {children}
     </div>

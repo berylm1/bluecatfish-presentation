@@ -36,7 +36,8 @@ export const SAMPLE_DECK: Deck = {
         elements: [
           { id: 's1-title', type: 'text', x: 5, y: 4, w: 90, h: 13, text: 'A fish as heavy as a grown-up', style: 'title', align: 'center', color: '#0b3b5c', silent: true },
           { id: 's1-fish', type: 'image', x: 4, y: 22, w: 52, h: 56, src: '/canvas-sample/catfish.svg', alt: 'A blue catfish with long whiskers', fit: 'contain',
-            say: "Here's a way to picture it. The biggest blue catfish weigh about as much as a grown-up person. So if you ever see one in the bay, that's not a fish you carry home in a bucket." },
+            say: "Here's a way to picture it. The biggest blue catfish weigh about as much as a grown-up person. So if you ever see one in the bay, that's not a fish you carry home in a bucket.",
+            pointers: [{ word: 'biggest blue catfish', x: 50, y: 55 }] },
           { id: 's1-weight', type: 'text', x: 60, y: 26, w: 36, h: 18, text: '100+ pounds', style: 'bigNumber', align: 'center', color: '#0b3b5c', silent: true },
           { id: 's1-h1', type: 'text', x: 60, y: 48, w: 36, h: 26, text: '≈ a grown-up\n≈ 20 bowling balls', style: 'body', bold: true, align: 'center', color: '#0b3b5c',
             say: "Or think bowling balls: a really big blue catfish weighs about as much as twenty of them. Twenty! Good luck reeling that in." },
