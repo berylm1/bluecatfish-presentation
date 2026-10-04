@@ -13,6 +13,7 @@ import { acquireCamera, releaseCamera } from '@/lib/sharedCamera';
  *   violet  gone quiet (flat face for a while)
  *   red     away (no face)
  *   green   here, watching
+ *   blue    getting to know the learner's normal face (the first ~10 s)
  *   grey    starting up / camera or detection problem
  *
  * The circle sizes itself to the empty corner: it never covers the slide or
@@ -20,7 +21,7 @@ import { acquireCamera, releaseCamera } from '@/lib/sharedCamera';
  * shown here, never recorded or sent anywhere.
  */
 
-export type CameraSees = 'starting' | 'error' | 'hand' | 'away' | 'confused' | 'bored' | 'here';
+export type CameraSees = 'starting' | 'learning' | 'error' | 'hand' | 'away' | 'confused' | 'bored' | 'here';
 
 const LOOK: Record<CameraSees | 'nocam', { ring: string; label: string }> = {
   hand: { ring: '#facc15', label: '✋ hand up' },
@@ -29,6 +30,7 @@ const LOOK: Record<CameraSees | 'nocam', { ring: string; label: string }> = {
   away: { ring: '#f87171', label: '🚫 away' },
   here: { ring: '#34d399', label: '🙂 watching' },
   starting: { ring: '#94a3b8', label: 'starting…' },
+  learning: { ring: '#38bdf8', label: '👀 getting to know you…' },
   error: { ring: '#94a3b8', label: '⚠ detection off' },   // the picture works, the face/hand models didn't load
   nocam: { ring: '#94a3b8', label: '⚠ no camera' },
 };

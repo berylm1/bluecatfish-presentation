@@ -431,7 +431,7 @@ function Player({ deck, preview }: { deck: Deck; preview: boolean }) {
   };
 
   // Busy moments are skipped in onEmotion, so the camera isn't restarted for every answer
-  const { ready: emotionReady, error: emotionError, live: liveFace } = useEmotionWatcher(cameraOn && started, onEmotion);
+  const { ready: emotionReady, error: emotionError, live: liveFace, learning: faceLearning } = useEmotionWatcher(cameraOn && started, onEmotion);
 
   // Hand raise: stop at the end of the sentence, "Do you have a question?", listen
   const [handUpAt, setHandUpAt] = useState(0);   // for the camera bubble's yellow ring
@@ -485,6 +485,7 @@ function Player({ deck, preview }: { deck: Deck; preview: boolean }) {
       : !emotionReady ? 'starting'
         : handShowing ? 'hand'
           : !present ? 'away'
+            : faceLearning ? 'learning'   // the first ~10 s: learning their normal face
             : liveFace === 'confused' ? 'confused'
               : liveFace === 'bored' ? 'bored'
                 : 'here';

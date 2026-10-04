@@ -4,6 +4,7 @@ import { HandLandmarker, FilesetResolver } from "@mediapipe/tasks-vision";
 import { checkHand } from "@/lib/handPose";
 import { camDebug, camDebugOn } from "@/lib/camDebug";
 import { acquireCamera, cameraVideo, releaseCamera } from "@/lib/sharedCamera";
+import { learner } from "@/lib/learnerBaseline";
 
 const RAISE_SUSTAIN_MS = 600; 
 const COOLDOWN_MS = 4000;
@@ -90,9 +91,11 @@ export function useHandRaise(enabled: boolean, onRaised: () => void) {
 
             // Raised: an open hand, fingers up, palm to the camera, high enough
             // and near enough (lib/handPose.ts). Any of the (up to two) hands.
+            // measured against the learner's face when it's in view (same picture, same coordinates)
+            const face = learner.faceNow(Date.now());
             const checks = (result.landmarks ?? []).map((hand, i) => {
               const h = result.handedness?.[i]?.[0];
-              return checkHand(hand, h?.categoryName, false, h?.score ?? 0);
+              return checkHand(hand, h?.categoryName, false, h?.score ?? 0, face);
             });
             const isRaised = checks.some((c) => c.raised);
             // ?camDebug=1 in the address: what each check sees (shown by the camera bubble, and in the console)
@@ -102,6 +105,7 @@ export function useHandRaise(enabled: boolean, onRaised: () => void) {
               camDebug.hand = checks.length
                 ? checks.map((c, i) => `${result.handedness?.[i]?.[0]?.categoryName ?? '?'} open${yn(c.open)} up${yn(c.upright)} high${yn(c.high)} near${yn(c.near)} palm${yn(c.palm)} → ${c.raised ? 'RAISED' : 'no'}`).join(' | ')
                 : 'no hand seen';
+              camDebug.hand += face ? ' (measured against your face)' : ' (no face: picture rules)';
               if (now % 2000 < 250) console.log('[hand]', camDebug.hand);
             }
 
