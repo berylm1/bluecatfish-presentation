@@ -23,6 +23,7 @@ import { loadDeck, type Loaded } from '@/lib/canvas/loadDeck';
 import { DEFAULT_LESSON } from '@/lib/canvas/lessons';
 import type { Deck } from '@/lib/canvas/types';
 import { learnerHeaders } from '@/lib/learnerSession';
+import { focusSlide, helperSlide } from '@/lib/canvas/morph';
 
 /*
  * The canvas presentation (see docs/customization-plan.md).
@@ -73,6 +74,11 @@ const CONFUSED = /\blost me\b|\bi'?m lost\b|\b(?:don'?t|do not|didn'?t) (?:under
 const YES = /^(?:yes|yeah|yep|yup|sure|ok(?:ay)?|please|uh[- ]huh|definitely|go ahead|do it|mhm)\b/i;
 const NO = /^(?:no|nope|nah|not really|i'?m (?:good|fine|ok(?:ay)?)|all good|keep going|carry on)\b/i;
 const SPEAKING: string[] = ['playing', 'loading', 'finishing', 'waiting'];
+// The slide itself turns into the helper ("another way to see it") and into
+// the focused plain-words version ("simpler please"), instead of a popup.
+// false = the old popup (VariantOverlay) and no focus.
+const MORPH_HELPERS = true;
+const MORPH_BACK_MS = 950;   // a morph back finishes before the lesson moves to another slide
 const HAND_RING_MS = 2500;   // how long the camera bubble stays yellow after a raised hand
 
 function Player({ deck, preview }: { deck: Deck; preview: boolean }) {
@@ -235,7 +241,8 @@ function Player({ deck, preview }: { deck: Deck; preview: boolean }) {
     setVariant(null);
     const after = variantAfter.current;
     variantAfter.current = null;
-    if (after) after();
+    // was: if (after) after(); — moving to another slide at once cut the morph back short
+    if (after) { if (MORPH_HELPERS) setTimeout(after, MORPH_BACK_MS); else after(); }
     else playerRef.current.resume();
   }
 
@@ -475,6 +482,17 @@ function Player({ deck, preview }: { deck: Deck; preview: boolean }) {
     return () => window.removeEventListener('keydown', onKey);
   }, [started, player, confused]);
 
+  // What the slide shows right now: the slide, the helper it morphed into, or
+  // the element being explained, focused and in plain words
+  const baseSlide = deck.slides[player.slideIndex];
+  const focusId = player.mode === 'plain' ? player.activeId : null;
+  const shownSlide = useMemo(() => {
+    if (!MORPH_HELPERS || !baseSlide) return baseSlide;
+    if (variant) return helperSlide(baseSlide, variant);
+    if (player.mode === 'plain') return focusSlide(baseSlide, focusId) ?? baseSlide;
+    return baseSlide;
+  }, [baseSlide, variant, player.mode, focusId]);
+
   if (!started) {
     return (
       <main className="min-h-screen flex flex-col items-center justify-center gap-6 bg-gradient-to-br from-sky-950 via-slate-900 to-cyan-950 text-white p-6">
@@ -524,9 +542,18 @@ function Player({ deck, preview }: { deck: Deck; preview: boolean }) {
             <button onClick={() => { checked.current.clear(); setSelfCheck(null); cues.stop(); player.restart(); }} className="px-6 py-3 rounded-xl bg-cyan-500 hover:bg-cyan-400 font-semibold">Start over</button>
           </div>
         ) : (
-          <SlideCanvas slide={slide} activeId={player.activeId} />
+          <SlideCanvas slide={shownSlide} activeId={variant ? null : player.activeId} morph={MORPH_HELPERS} />
         )}
-        {variant && <VariantOverlay variant={variant} onDone={closeVariant} />}
+        {variant && !MORPH_HELPERS && <VariantOverlay variant={variant} onDone={closeVariant} />}
+        {variant && MORPH_HELPERS && (
+          <button
+            onClick={closeVariant}
+            className="absolute bottom-3 right-3 z-20 px-4 py-2 rounded-full bg-cyan-500 hover:bg-cyan-400 text-slate-900 text-sm font-semibold shadow-lg"
+            aria-label="Another way to see it: back to the lesson"
+          >
+            Got it, back to the lesson →
+          </button>
+        )}
         {selfCheck && !variant && (
           <div className="absolute inset-0 z-20 flex items-center justify-center bg-slate-950/70 backdrop-blur-sm rounded-2xl" role="dialog" aria-label="How did that go?">
             <div className="bg-white text-slate-900 rounded-2xl p-8 text-center shadow-2xl">

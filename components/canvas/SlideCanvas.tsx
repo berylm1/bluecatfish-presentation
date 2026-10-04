@@ -2,6 +2,7 @@
 
 import { useLayoutEffect, useRef, useState, type CSSProperties } from 'react';
 import type { Slide, SlideElement, TextElement, TextStyle } from '@/lib/canvas/types';
+import { planMorph, sameBase, type MorphPlan } from '@/lib/canvas/morph';
 
 // Font sizes are % of the slide height (container query units), so text keeps
 // its size relative to the slide on any screen.
@@ -97,6 +98,104 @@ function ElementView({ el, active }: { el: SlideElement; active: boolean }) {
   );
 }
 
+/* ------------------------------------------------------------- morphing */
+
+const MORPH_MS = 900;
+const EASE = 'cubic-bezier(0.65, 0, 0.35, 1)';
+
+const box = (e: SlideElement): CSSProperties => ({ left: `${e.x}%`, top: `${e.y}%`, width: `${e.w}%`, height: `${e.h}%` });
+
+/** An element's content, without its box (the morph moves the box). */
+function Content({ el }: { el: SlideElement }) {
+  if (el.type === 'text') {
+    return <div style={{ position: 'absolute', inset: 0, padding: '0.8cqh 1cqw' }}><FitText el={el} /></div>;
+  }
+  return (
+    // eslint-disable-next-line @next/next/no-img-element
+    <img src={el.src} alt="" draggable={false}
+      style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: el.fit ?? 'contain', borderRadius: 'inherit', pointerEvents: 'none' }} />
+  );
+}
+
+const sameContent = (a: SlideElement, b: SlideElement) =>
+  a.type === 'text' && b.type === 'text' ? a.text === b.text && a.style === b.style
+    : a.type === 'image' && b.type === 'image' ? a.src === b.src : false;
+
+/**
+ * The slide turning into another: paired elements glide and resize from
+ * their old place to their new one while the old content dissolves into the
+ * new (pictures through a soft blur, text by cross-fading); unpaired ones
+ * fade out (old) or in (new, a moment later). `on` flips false → true one
+ * frame after mounting, which starts the CSS transitions.
+ */
+function MorphLayer({ plan, on }: { plan: MorphPlan; on: boolean }) {
+  const move = `left ${MORPH_MS}ms ${EASE}, top ${MORPH_MS}ms ${EASE}, width ${MORPH_MS}ms ${EASE}, height ${MORPH_MS}ms ${EASE}`;
+  const fade = (ms: number, delay = 0) => `opacity ${ms}ms ease ${delay}ms, filter ${ms}ms ease ${delay}ms, transform ${ms}ms ${EASE} ${delay}ms`;
+  return (
+    <>
+      {plan.leaving.map((a) => (
+        <div key={`out-${a.id}`} style={{ position: 'absolute', ...box(a), zIndex: a.z ?? 1, borderRadius: '1.2cqh',
+          opacity: on ? 0 : 1, transform: on ? 'scale(0.92)' : 'none', filter: on ? 'blur(4px)' : 'none', transition: fade(MORPH_MS * 0.5) }}>
+          <Content el={a} />
+        </div>
+      ))}
+      {plan.pairs.map(([a, b]) => {
+        const same = sameContent(a, b);
+        const isImage = a.type === 'image';
+        return (
+          <div key={`pair-${a.id}-${b.id}`} data-morph-pair={`${a.id}>${b.id}`}
+            style={{ position: 'absolute', ...box(on ? b : a), zIndex: (on ? b.z : a.z) ?? 1, borderRadius: '1.2cqh', transition: move }}>
+            {same ? <Content el={b} /> : (
+              <>
+                <div style={{ position: 'absolute', inset: 0, transition: fade(MORPH_MS * 0.7),
+                  opacity: on ? 0 : 1, filter: on && isImage ? 'blur(10px)' : 'none', transform: on && isImage ? 'scale(1.06)' : 'none' }}>
+                  <Content el={a} />
+                </div>
+                <div style={{ position: 'absolute', inset: 0, transition: fade(MORPH_MS * 0.7, MORPH_MS * 0.3),
+                  opacity: on ? 1 : 0, filter: !on && isImage ? 'blur(10px)' : 'none', transform: !on && isImage ? 'scale(0.94)' : 'none' }}>
+                  <Content el={b} />
+                </div>
+              </>
+            )}
+          </div>
+        );
+      })}
+      {plan.entering.map((b) => (
+        <div key={`in-${b.id}`} style={{ position: 'absolute', ...box(b), zIndex: b.z ?? 1, borderRadius: '1.2cqh',
+          opacity: on ? 1 : 0, transform: on ? 'none' : 'scale(0.92)', filter: on ? 'none' : 'blur(4px)', transition: fade(MORPH_MS * 0.6, MORPH_MS * 0.4) }}>
+          <Content el={b} />
+        </div>
+      ))}
+    </>
+  );
+}
+
+/**
+ * When the slide changes to another version of itself (the helper, the
+ * focused version, back again), runs the morph between them. Changes to a
+ * different slide aren't morphed.
+ */
+function useMorph(slide: Slide, enabled: boolean) {
+  const shown = useRef(slide);   // the slide last drawn (its latest content)
+  const [morph, setMorph] = useState<{ plan: MorphPlan; on: boolean } | null>(null);
+  // Only a change of slide (id) starts a morph: the page re-renders all the
+  // time, and restarting on every render would freeze the animation halfway
+  useLayoutEffect(() => {
+    const from = shown.current;
+    if (!enabled || from.id === slide.id || !sameBase(from.id, slide.id)) { setMorph(null); return; }
+    if (typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) { setMorph(null); return; }
+    setMorph({ plan: planMorph(from, slide), on: false });
+    let raf2 = 0;
+    const raf1 = requestAnimationFrame(() => { raf2 = requestAnimationFrame(() => setMorph((m) => m && { ...m, on: true })); });
+    const done = setTimeout(() => setMorph(null), MORPH_MS + 150);
+    return () => { cancelAnimationFrame(raf1); cancelAnimationFrame(raf2); clearTimeout(done); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [slide.id, enabled]);
+  // After the effect above, so it still sees the previous slide when the id changes
+  useLayoutEffect(() => { shown.current = slide; });
+  return morph;
+}
+
 /**
  * One 16:9 slide, as big as fits in 80% of the screen. Elements are placed by
  * percent, so the layout is identical at any size.
@@ -106,6 +205,7 @@ export default function SlideCanvas({
   activeId,
   width = 'min(80vw, calc(80vh * 16 / 9))',
   shadow = true,
+  morph = false,
   children,
 }: {
   slide: Slide;
@@ -113,10 +213,13 @@ export default function SlideCanvas({
   /** CSS width; the height follows at 16:9. Thumbnails and the editor pass their own. */
   width?: string;
   shadow?: boolean;
+  /** Morph (instead of switching) when the slide changes to another version of itself, e.g. its helper */
+  morph?: boolean;
   /** Drawn on top of the slide (the editor's selection boxes) */
   children?: React.ReactNode;
 }) {
   const bg = slide.background ?? {};
+  const morphing = useMorph(slide, morph);
   return (
     <div
       data-slide-id={slide.id}
@@ -137,7 +240,7 @@ export default function SlideCanvas({
         backgroundPosition: 'center',
       }}
     >
-      {slide.elements.map((el) => (
+      {morphing ? <MorphLayer plan={morphing.plan} on={morphing.on} /> : slide.elements.map((el) => (
         <ElementView key={el.id} el={el} active={el.id === activeId} />
       ))}
       {children}
