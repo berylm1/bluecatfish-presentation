@@ -27,7 +27,7 @@ import { focusSlide, helperSlide, ownHelper } from '@/lib/canvas/morph';
 import { speakingOrder, spokenText } from '@/lib/canvas/queue';
 import { currentAudio } from '@/lib/canvas/aiFields';
 import { activePointer } from '@/lib/canvas/laser';
-import type { Pointer } from '@/lib/canvas/types';
+import type { Pointer, Slide } from '@/lib/canvas/types';
 
 /*
  * The canvas presentation (see docs/customization-plan.md).
@@ -170,15 +170,44 @@ function Player({ deck, preview }: { deck: Deck; preview: boolean }) {
     else resolve();
   }), []);
 
+  /** The professor's drawing for a question, or null (no drawing helps, too slow, or rate-limited). */
+  const fetchBoard = useCallback(async (question: string, topic: string, onSlide: string): Promise<Slide | null> => {
+    try {
+      const res = await fetch('/api/tutor/board', {
+        method: 'POST',
+        headers: learnerHeaders({ 'Content-Type': 'application/json' }),
+        body: JSON.stringify({ question, topic, slideText: onSlide }),
+        signal: AbortSignal.timeout(15000),
+      });
+      return res.ok ? ((await res.json()).board ?? null) : null;
+    } catch {
+      return null;
+    }
+  }, []);
+
   /** A question (not a command): the professor answers, then the lesson carries on. */
   const answer = useCallback(async (question: string) => {
     tracking.track('tutor_question', { question: question.slice(0, 300) }, { questions: 1 });
     // was: pause at once (mid-word). Now the sentence finishes while the answer is being written.
     const quiet = finishThenPause();
+    // The professor draws while answering: a board the slide morphs into
+    // (a chart, a comparison, steps), when a drawing helps
+    const base = deck.slides[playerRef.current.slideIndex];
+    let drew = false;
+    if (MORPH_HELPERS && base) {
+      fetchBoard(question, base.topic ?? '', slideText(playerRef.current.slideIndex)).then((board) => {
+        if (!board || !tutorBusyRef.current) return;
+        drew = true;
+        tracking.track('tutor_decision', { action: 'board', title: String(board.elements[0]?.type === 'text' ? board.elements[0].text : '') });
+        variantMode.current = 'answer';
+        // keeps the slide's background, so it's the slide turning into the board
+        setVariant({ title: '', body: '', narration: '', variant: 'board', slide: { ...board, id: `${base.id}~board`, background: base.background } });
+      });
+    }
     // If the question is about something one of the authored slides covers,
-    // show that slide while the professor answers
+    // show that slide while the professor answers (unless there's a drawing)
     findVariant('confused', question, question).then((slide) => {
-      if (!slide || !tutorBusyRef.current) return;
+      if (!slide || drew || !tutorBusyRef.current) return;
       tracking.track('tutor_decision', { action: 'slide_with_answer', title: slide.title });
       variantMode.current = 'answer';
       setVariant(slide);
@@ -192,7 +221,7 @@ function Player({ deck, preview }: { deck: Deck; preview: boolean }) {
     else if (decision === 'advance') now.nextSlide();
     else if (decision === 'repeat') now.repeat();
     else now.resume();
-  }, [tutor, slideContext, tracking, findVariant, finishThenPause]);
+  }, [tutor, slideContext, tracking, findVariant, finishThenPause, deck, slideText]);
 
   /**
    * The learner is lost: show a reviewed variant slide for this topic if there

@@ -1,4 +1,4 @@
-import type { Deck, ImageElement, Slide, SlideElement, TextElement, TextStyle } from './types';
+import type { ChartElement, Deck, ImageElement, Slide, SlideElement, TextElement, TextStyle } from './types';
 
 // Cleans a deck that came from the editor (or an AI) before it's stored:
 // known fields only, numbers kept on the slide, strings capped, and only
@@ -60,6 +60,14 @@ function element(raw: any, fallbackId: string): SlideElement | null {
       bold: bool(raw.bold),
       align: ['left', 'center', 'right'].includes(raw.align) ? raw.align : undefined,
     };
+    return el;
+  }
+  if (raw.type === 'chart') {
+    const bars = (Array.isArray(raw.bars) ? raw.bars : []).slice(0, 6)
+      .map((b: any) => ({ label: str(b?.label, 30) ?? '', value: num(b?.value, 0, 1e9, 0), color: color(b?.color) }))
+      .filter((b: { label: string }) => b.label);
+    if (!bars.length) return null;
+    const el: ChartElement = { ...base, type: 'chart', bars, unit: str(raw.unit, 12), alt: str(raw.alt, 2000) };
     return el;
   }
   if (raw.type === 'image') {

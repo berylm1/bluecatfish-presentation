@@ -1,7 +1,7 @@
 'use client';
 
 import { useLayoutEffect, useRef, useState, type CSSProperties } from 'react';
-import type { Slide, SlideElement, TextElement, TextStyle } from '@/lib/canvas/types';
+import type { ChartElement, Slide, SlideElement, TextElement, TextStyle } from '@/lib/canvas/types';
 import { planMorph, sameBase, type MorphPlan } from '@/lib/canvas/morph';
 import { contentRect } from '@/lib/canvas/laser';
 import type { Pointer } from '@/lib/canvas/types';
@@ -65,6 +65,30 @@ function FitText({ el }: { el: TextElement }) {
   );
 }
 
+const BAR_COLORS = ['#2563eb', '#f97316', '#16a34a', '#a855f7', '#e11d48', '#0891b2'];
+
+/** A bar chart that draws itself: the bars grow up one after another, values on top, labels below. */
+function ChartView({ el }: { el: ChartElement }) {
+  const max = Math.max(...el.bars.map((b) => b.value), 1);
+  const fmt = (v: number) => `${v.toLocaleString('en-US', { maximumFractionDigits: 1 })}${el.unit ? ` ${el.unit}` : ''}`;
+  return (
+    <div role="img" aria-label={el.alt ?? el.bars.map((b) => `${b.label}: ${fmt(b.value)}`).join(', ')}
+      style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'flex-end', gap: '3%', padding: '1cqh 2% 0' }}>
+      {el.bars.map((b, i) => (
+        <div key={i} style={{ flex: 1, height: '100%', display: 'flex', flexDirection: 'column', justifyContent: 'flex-end', alignItems: 'center', minWidth: 0 }}>
+          <div style={{ fontSize: '3.4cqh', fontWeight: 800, color: '#0f172a', whiteSpace: 'nowrap' }}>{fmt(b.value)}</div>
+          <div style={{
+            width: '78%', height: `${Math.max(2, (b.value / max) * 62)}%`, background: b.color ?? BAR_COLORS[i % BAR_COLORS.length],
+            borderRadius: '0.8cqh 0.8cqh 0 0', transformOrigin: 'bottom',
+            animation: `bar-grow 700ms cubic-bezier(0.34, 1.3, 0.64, 1) ${200 + i * 220}ms both`,
+          }} />
+          <div style={{ fontSize: '2.8cqh', fontWeight: 600, color: '#334155', textAlign: 'center', lineHeight: 1.15, marginTop: '0.6cqh', overflowWrap: 'anywhere' }}>{b.label}</div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 /**
  * The laser dot: a red point with a glow and a soft pulse. It glides from mark
  * to mark on the same element. For a picture, the mark is placed on the
@@ -117,6 +141,8 @@ function ElementView({ el, active, laser }: { el: SlideElement; active: boolean;
     <div style={style} data-element-id={el.id} data-active={active || undefined}>
       {el.type === 'text' ? (
         <FitText el={el} />
+      ) : el.type === 'chart' ? (
+        <ChartView el={el} />
       ) : (
         // eslint-disable-next-line @next/next/no-img-element
         <img
@@ -145,6 +171,7 @@ function Content({ el }: { el: SlideElement }) {
   if (el.type === 'text') {
     return <div style={{ position: 'absolute', inset: 0, padding: '0.8cqh 1cqw' }}><FitText el={el} /></div>;
   }
+  if (el.type === 'chart') return <ChartView el={el} />;
   return (
     // eslint-disable-next-line @next/next/no-img-element
     <img src={el.src} alt="" draggable={false}
@@ -195,9 +222,11 @@ function MorphLayer({ plan, on }: { plan: MorphPlan; on: boolean }) {
           </div>
         );
       })}
-      {plan.entering.map((b) => (
+      {plan.entering.map((b, i) => (
         <div key={`in-${b.id}`} style={{ position: 'absolute', ...box(b), zIndex: b.z ?? 1, borderRadius: '1.2cqh',
-          opacity: on ? 1 : 0, transform: on ? 'none' : 'scale(0.92)', filter: on ? 'none' : 'blur(4px)', transition: fade(MORPH_MS * 0.6, MORPH_MS * 0.4) }}>
+          opacity: on ? 1 : 0, transform: on ? 'none' : 'scale(0.92)', filter: on ? 'none' : 'blur(4px)',
+          // one after another, as if drawn
+          transition: fade(MORPH_MS * 0.6, MORPH_MS * 0.4 + Math.min(i, 4) * 120) }}>
           <Content el={b} />
         </div>
       ))}

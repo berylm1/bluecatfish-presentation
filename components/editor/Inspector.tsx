@@ -54,7 +54,7 @@ export function ElementInspector({
   return (
     <div className="flex flex-col gap-4">
       <div className="flex items-center justify-between">
-        <h3 className="font-bold text-slate-900">{el.type === 'text' ? 'Text box' : 'Image'}</h3>
+        <h3 className="font-bold text-slate-900">{el.type === 'text' ? 'Text box' : el.type === 'chart' ? 'Bar chart' : 'Image'}</h3>
         <div className="flex gap-1">
           <button className={small} onClick={onDuplicate} title="Duplicate (Ctrl+D)">Duplicate</button>
           <button className={`${small} text-red-600`} onClick={onDelete} title="Delete (Del)">Delete</button>
@@ -93,6 +93,35 @@ export function ElementInspector({
                 {a === 'left' ? '⯇ Left' : a === 'center' ? 'Center' : 'Right ⯈'}
               </button>
             ))}
+          </div>
+        </>
+      ) : el.type === 'chart' ? (
+        <>
+          <div>
+            <label className={label}>Bars</label>
+            <div className="flex flex-col gap-1">
+              {el.bars.map((b, i) => (
+                <div key={i} className="flex gap-1">
+                  <input className={input} value={b.label} placeholder="Label"
+                    onChange={(e) => update({ bars: el.bars.map((x, j) => (j === i ? { ...x, label: e.target.value } : x)) })} />
+                  <input className={`${input} w-24`} type="number" min={0} value={b.value}
+                    onChange={(e) => update({ bars: el.bars.map((x, j) => (j === i ? { ...x, value: Math.max(0, Number(e.target.value) || 0) } : x)) })} />
+                  <button className={`${small} text-red-600`} disabled={el.bars.length <= 1} aria-label={`Remove bar ${i + 1}`}
+                    onClick={() => update({ bars: el.bars.filter((_, j) => j !== i) })}>✕</button>
+                </div>
+              ))}
+              {el.bars.length < 6 && <button className={`${small} self-start`} onClick={() => update({ bars: [...el.bars, { label: 'New', value: 1 }] })}>+ Add a bar</button>}
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <div>
+              <label className={label}>Unit</label>
+              <input className={input} value={el.unit ?? ''} placeholder="lbs, %, years" onChange={(e) => update({ unit: e.target.value || undefined })} />
+            </div>
+          </div>
+          <div>
+            <label className={label}>Description</label>
+            <textarea rows={2} className={input} value={el.alt ?? ''} placeholder="What the chart shows" onChange={(e) => update({ alt: e.target.value || undefined })} />
           </div>
         </>
       ) : (

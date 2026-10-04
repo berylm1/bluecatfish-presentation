@@ -61,7 +61,17 @@ export interface ImageElement extends ElementBase {
   fit?: 'cover' | 'contain';
 }
 
-export type SlideElement = TextElement | ImageElement;
+/** A simple bar chart (the professor's "drawn" answers: how big, how many, then vs now). */
+export interface ChartElement extends ElementBase {
+  type: 'chart';
+  bars: { label: string; value: number; color?: string }[];
+  /** Shown after each value ("lbs", "%") */
+  unit?: string;
+  /** What the chart shows, in words (screen readers; the spoken words are written from it) */
+  alt?: string;
+}
+
+export type SlideElement = TextElement | ImageElement | ChartElement;
 
 /**
  * The slide's helper: another version of it, shown when the learner is lost.
