@@ -3,7 +3,7 @@ import { TTS_VOICE, VOICE_INSTRUCTIONS, SIMPLE_VOICE_INSTRUCTIONS } from '@/lib/
 import type { Deck, Slide, SlideElement } from './types';
 import { spokenText } from './queue';
 import {
-  applyPatches, audioKey, fingerprint, needsAudio, needsPlain, needsPlainAudio, needsSay, needsTopic,
+  applyPatches, audioKey, fingerprint, helperElements, needsAudio, needsHelper, needsPlain, needsPlainAudio, needsSay, needsTopic,
   plainText, sayBasis, slideBasis, type Patch,
 } from './aiFields';
 
@@ -13,53 +13,14 @@ import {
 // budget; the editor calls again until nothing is left.
 
 const supabase = lazySupabaseAdmin();
-const MODEL = 'gpt-6-luna';
 const CONCURRENCY = 6;
 const AUDIO_BUCKET = 'slide-audio';
 const AUDIO_FOLDER = 'canvas';
 
-export const STYLE =
-  'You are Professor Marine, a fun science teacher talking to 10 to 14 year olds about the blue catfish invasion ' +
-  'of the Chesapeake Bay. Upbeat and conversational, like telling a story. A little goofy, with light, dry, ' +
-  'playful sarcasm aimed at the fish, never at the learner. Facts must be exactly right.';
-
-/* ------------------------------------------------------------ OpenAI */
-
-export async function chat(system: string, user: string, json = false, maxTokens = 2000): Promise<string> {
-  const res = await fetch('https://api.openai.com/v1/chat/completions', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${process.env.OPENAI_API_KEY}` },
-    body: JSON.stringify({
-      model: MODEL,
-      reasoning_effort: 'low',
-      ...(json ? { response_format: { type: 'json_object' } } : {}),
-      messages: [{ role: 'system', content: system }, { role: 'user', content: user }],
-      max_completion_tokens: maxTokens,
-    }),
-  });
-  const raw = await res.text();
-  let data: any = null;
-  try { data = JSON.parse(raw); } catch { /* not JSON: a proxy or outage page */ }
-  const text = data?.choices?.[0]?.message?.content?.trim();
-  if (!res.ok || !text) throw new Error(data?.error?.message || `OpenAI request failed (${res.status}): ${raw.slice(0, 120)}`);
-  return text;
-}
-
-export async function knowledge(query: string, count = 6): Promise<string> {
-  try {
-    const emb = await fetch('https://api.openai.com/v1/embeddings', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${process.env.OPENAI_API_KEY}` },
-      body: JSON.stringify({ model: 'text-embedding-3-small', input: query.slice(0, 2000) }),
-    }).then((r) => r.json());
-    const { data, error } = await supabase.rpc('match_documents3', { query_embedding: emb.data[0].embedding, match_count: count });
-    if (error) throw new Error(error.message);
-    return (data ?? []).map((r: any) => String(r.content ?? '')).filter(Boolean).join('\n\n');
-  } catch (e) {
-    console.warn('Knowledge base lookup failed:', e);
-    return '';
-  }
-}
+// Shared AI helpers live in ai.ts (re-exported here: generate.ts imports them from this file)
+export { STYLE, chat, knowledge } from './ai';
+import { STYLE, chat, knowledge } from './ai';
+import { draftHelper } from './helperDraft';
 
 const otherText = (slide: Slide, el: SlideElement) =>
   slide.elements.filter((e) => e.id !== el.id).map(sayBasis).filter(Boolean).join(' | ');
@@ -152,9 +113,17 @@ async function pool<T>(items: T[], deadline: number, work: (item: T) => Promise<
   await Promise.all(Array.from({ length: Math.min(CONCURRENCY, items.length) }, worker));
 }
 
-type Job = { slide: Slide; el: SlideElement };
-const jobs = (deck: Deck, need: (el: SlideElement) => boolean): Job[] =>
-  deck.slides.flatMap((slide) => slide.elements.filter(need).map((el) => ({ slide, el })));
+type Job = { slide: Slide; el: SlideElement; helper?: boolean };
+/** Elements that need something; withHelpers also looks at the helpers' elements (as their own slide, for context). */
+const jobs = (deck: Deck, need: (el: SlideElement) => boolean, withHelpers = false): Job[] =>
+  deck.slides.flatMap((slide) => [
+    ...slide.elements.filter(need).map((el) => ({ slide, el })),
+    ...(withHelpers ? helperElements(slide).filter(need).map((el) => ({
+      slide: { id: `${slide.id}~helper`, topic: slide.topic, elements: helperElements(slide) } as Slide, el, helper: true,
+    })) : []),
+  ]);
+// Patches address the real slide, not the helper view
+const baseId = (id: string) => id.split('~')[0];
 
 /**
  * Does as much as fits before `deadline`, on a working copy of the deck.
@@ -185,11 +154,17 @@ export async function prepareDeck(source: Deck, deadline: number): Promise<{ pat
     : Promise.resolve();
   await Promise.all([
     topicTask,
-    pool(jobs(deck, needsSay), deadline, async ({ slide, el }) => {
+    pool(jobs(deck, needsSay, true), deadline, async ({ slide, el, helper }) => {
       try {
         const say = await writeSay(el, slide, deck);
-        keep({ slideId: slide.id, elId: el.id, kind: 'say', say, sayFrom: fingerprint(sayBasis(el)) });
+        keep({ slideId: baseId(slide.id), elId: el.id, helper, kind: 'say', say, sayFrom: fingerprint(sayBasis(el)) });
       } catch (e) { fail('Writing spoken words', e); }
+    }),
+    // Helpers ("explain it another way" versions the slide morphs into) for slides without one
+    pool(deck.slides.filter(needsHelper), deadline, async (slide) => {
+      try {
+        keep({ slideId: slide.id, kind: 'helper', helper: await draftHelper(slide, deck) });
+      } catch (e) { fail('Drafting a helper', e); }
     }),
   ]);
 
@@ -203,16 +178,16 @@ export async function prepareDeck(source: Deck, deadline: number): Promise<{ pat
 
   // 3. Audio for the spoken words and the plain versions
   const clips = [
-    ...jobs(deck, needsAudio).map((j) => ({ ...j, simple: false })),
+    ...jobs(deck, needsAudio, true).map((j) => ({ ...j, simple: false })),
     ...jobs(deck, needsPlainAudio).map((j) => ({ ...j, simple: true })),
   ];
-  await pool(clips, deadline, async ({ slide, el, simple }) => {
+  await pool(clips, deadline, async ({ slide, el, simple, helper }) => {
     try {
       const text = simple ? plainText(el) : spokenText(el);
       const { url, key } = await recordClip(text, simple);
       keep(simple
-        ? { slideId: slide.id, elId: el.id, kind: 'plainAudio', plainAudioUrl: url, plainAudioFor: key }
-        : { slideId: slide.id, elId: el.id, kind: 'audio', audioUrl: url, audioFor: key });
+        ? { slideId: baseId(slide.id), elId: el.id, helper, kind: 'plainAudio', plainAudioUrl: url, plainAudioFor: key }
+        : { slideId: baseId(slide.id), elId: el.id, helper, kind: 'audio', audioUrl: url, audioFor: key });
     } catch (e) { fail('Making audio', e); }
   });
 

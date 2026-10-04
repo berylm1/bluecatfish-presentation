@@ -28,6 +28,19 @@ export const SAMPLE_DECK: Deck = {
           plain: 'Blue catfish eat almost any food they can find.' },
         { id: 's1-waves', type: 'image', x: 0, y: 86, w: 100, h: 14, src: '/canvas-sample/waves.svg', fit: 'cover', silent: true, z: 0 },
       ],
+      // What the slide morphs into when a learner is lost: same ids morph from
+      // the slide's elements (title, fish, weight, waves); h-ids fade in
+      helper: {
+        elements: [
+          { id: 's1-title', type: 'text', x: 5, y: 4, w: 90, h: 13, text: 'A fish as heavy as a grown-up', style: 'title', align: 'center', color: '#0b3b5c', silent: true },
+          { id: 's1-fish', type: 'image', x: 4, y: 22, w: 52, h: 56, src: '/canvas-sample/catfish.svg', alt: 'A blue catfish with long whiskers', fit: 'contain',
+            say: "Here's a way to picture it. The biggest blue catfish weigh about as much as a grown-up person. So if you ever see one in the bay, that's not a fish you carry home in a bucket." },
+          { id: 's1-weight', type: 'text', x: 60, y: 26, w: 36, h: 18, text: '100+ pounds', style: 'bigNumber', align: 'center', color: '#0b3b5c', silent: true },
+          { id: 's1-h1', type: 'text', x: 60, y: 48, w: 36, h: 26, text: '≈ a grown-up\n≈ 20 bowling balls', style: 'body', bold: true, align: 'center', color: '#0b3b5c',
+            say: "Or think bowling balls: a really big blue catfish weighs about as much as twenty of them. Twenty! Good luck reeling that in." },
+          { id: 's1-waves', type: 'image', x: 0, y: 86, w: 100, h: 14, src: '/canvas-sample/waves.svg', fit: 'cover', silent: true, z: 0 },
+        ],
+      },
     },
     {
       id: 's2',

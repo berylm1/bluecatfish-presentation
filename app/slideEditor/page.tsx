@@ -7,7 +7,8 @@ import { SlideStatsPanel } from '@/components/editor/LearnerStats';
 import type { SlideStats } from '@/lib/canvas/slideStats';
 import ImageLibrary from '@/components/editor/ImageLibrary';
 import { ElementInspector, SlideInspector } from '@/components/editor/Inspector';
-import { useEditorDeck, blankDeck, blankSlide, cloneSlide, newId } from '@/components/editor/useEditorDeck';
+import { useEditorDeck, blankDeck, blankSlide, cloneSlide, newId, elementsOf, helperView } from '@/components/editor/useEditorDeck';
+import SlideCanvas from '@/components/canvas/SlideCanvas';
 import { slideWarnings, type Warning } from '@/lib/canvas/checks';
 import { speakingOrder } from '@/lib/canvas/queue';
 import { deckFromAnyVersion } from '@/lib/canvas/fromLegacy';
@@ -204,7 +205,10 @@ function Editor({
     return [...fit, ...slideWarnings(s)];
   }, [deck, overflow]);
   const allWarnings = useMemo(() => deck.slides.map((_, i) => warningsFor(i)), [deck, warningsFor]);
-  const slideWarns = allWarnings[slideIdx] ?? [];
+  // On the helper layer: the helper's own checks (overlaps, text that doesn't fit, ...)
+  const slideWarns = useMemo(() => ed.layer === 'helper'
+    ? [...(overflow[slide.id] ?? []).map((id) => ({ elementId: id, level: 'warn' as const, message: 'Text doesn’t fit its box, even at the smallest size: make the box bigger or the text shorter' })), ...slideWarnings(slide)]
+    : allWarnings[slideIdx] ?? [], [ed.layer, overflow, slide, allWarnings, slideIdx]);
   const warnIds = useMemo(() => new Set(slideWarns.filter((w) => w.level === 'warn' && w.elementId).map((w) => w.elementId!)), [slideWarns]);
   const order = useMemo(() => speakingOrder(slide), [slide]);
 
@@ -441,7 +445,7 @@ function Editor({
   };
 
   const addElement = (el: SlideElement) => {
-    ed.change((d) => { d.slides[slideIdx].elements.push(el); });
+    ed.change((d) => { elementsOf(d.slides[slideIdx], ed.layer).push(el); });
     ed.setSelected(el.id);
     setPanel('props');
   };
@@ -457,9 +461,33 @@ function Editor({
   const deleteElement = useCallback(() => {
     if (!ed.selected) return;
     const id = ed.selected;
-    ed.change((d) => { const s = d.slides[slideIdx]; s.elements = s.elements.filter((e) => e.id !== id); });
+    ed.change((d) => {
+      const s = d.slides[slideIdx];
+      if (ed.layer === 'helper') { const h = elementsOf(s, 'helper'); h.splice(h.findIndex((e) => e.id === id), 1); }
+      else s.elements = s.elements.filter((e) => e.id !== id);
+    });
     ed.setSelected(null);
   }, [ed, slideIdx]);
+
+  /* ------------------------------------------------------- the helper */
+  // The helper is what the slide morphs into when a learner is lost. A helper
+  // element with the same id as a slide element morphs from it.
+  const main = ed.mainSlide;
+  const helperState = !main?.helper?.elements.length ? (main?.helper?.off ? 'off' : 'none') : main.helper.byAI ? 'ai' : 'yours';
+  const switchLayer = (l: 'main' | 'helper') => { ed.setLayer(l); ed.setSelected(null); };
+  const copyIntoHelper = () => ed.change((d) => {
+    const s = d.slides[slideIdx];
+    const h = elementsOf(s, 'helper');
+    h.splice(0, h.length, ...structuredClone(s.elements));   // same ids: every box morphs from itself
+  });
+  const aiHelper = () => ed.change((d) => { d.slides[slideIdx].helper = undefined; });   // the AI drafts it on the next save
+  const noHelper = () => ed.change((d) => { d.slides[slideIdx].helper = { elements: [], off: true }; });
+  const [morphPreview, setMorphPreview] = useState<boolean | null>(null);   // null = closed; true = showing the helper
+  useEffect(() => {
+    if (morphPreview === null) return;
+    const t = setTimeout(() => setMorphPreview((v) => (v === null ? null : !v)), 2600);
+    return () => clearTimeout(t);
+  }, [morphPreview]);
 
   const duplicateElement = useCallback(() => {
     if (!element) return;
@@ -596,7 +624,41 @@ function Editor({
 
         {/* canvas */}
         <main className="flex-1 min-w-0 flex flex-col items-center justify-center p-4 gap-2" onPointerDown={() => ed.setSelected(null)}>
-          <div className="text-xs text-slate-500">Slide {slideIdx + 1} of {deck.slides.length}{slide.topic ? ` · ${slide.topic}` : ''}</div>
+          <div className="flex flex-wrap items-center justify-center gap-3 text-xs text-slate-500" onPointerDown={(e) => e.stopPropagation()}>
+            <span>Slide {slideIdx + 1} of {deck.slides.length}{main?.topic ? ` · ${main.topic}` : ''}</span>
+            <div className="inline-flex rounded-md border border-slate-300 overflow-hidden" role="tablist" aria-label="Which version">
+              <button role="tab" aria-selected={ed.layer === 'main'} onClick={() => switchLayer('main')}
+                className={`px-3 py-1 ${ed.layer === 'main' ? 'bg-cyan-600 text-white' : 'bg-white hover:bg-slate-50 text-slate-700'}`}>Main slide</button>
+              <button role="tab" aria-selected={ed.layer === 'helper'} onClick={() => switchLayer('helper')}
+                className={`px-3 py-1 border-l border-slate-300 ${ed.layer === 'helper' ? 'bg-violet-600 text-white' : 'bg-white hover:bg-slate-50 text-slate-700'}`}
+                title="What this slide morphs into when a learner says they're lost">
+                Helper (when lost){helperState === 'ai' ? ' ✨' : helperState === 'none' ? ' ·' : helperState === 'off' ? ' ✕' : ''}
+              </button>
+            </div>
+            {ed.layer === 'helper' && helperState !== 'none' && helperState !== 'off' && (
+              <>
+                <button className="underline" onClick={() => setMorphPreview(true)}>▶ Preview the morph</button>
+                <button className="underline" onClick={aiHelper} title="Throw this helper away; the AI drafts a new one when you save">Redo with AI</button>
+                <button className="underline text-red-600" onClick={noHelper}>No helper</button>
+              </>
+            )}
+          </div>
+          {ed.layer === 'helper' && (helperState === 'none' || helperState === 'off') ? (
+            <div className="w-full max-w-2xl aspect-video rounded-xl border-2 border-dashed border-violet-300 bg-violet-50/60 flex flex-col items-center justify-center gap-3 p-6 text-center text-sm text-slate-700" onPointerDown={(e) => e.stopPropagation()}>
+              <p className="max-w-md">
+                {helperState === 'off'
+                  ? 'This slide has no helper: when a learner is lost, the professor zooms in on the part being explained and says it in plain words.'
+                  : 'No helper yet. When you save, the AI drafts one: the slide explained another way, which the slide morphs into when a learner is lost.'}
+              </p>
+              <div className="flex flex-wrap gap-2 justify-center">
+                <button className={primary} onClick={copyIntoHelper}>Start from a copy of this slide</button>
+                {helperState === 'off'
+                  ? <button className={btn} onClick={aiHelper}>Let the AI draft one</button>
+                  : <button className={btn} onClick={noHelper}>No helper for this slide</button>}
+              </div>
+              <p className="text-xs text-slate-500 max-w-md">Copied boxes morph from the box they were copied from: move them, resize them, change their words or pictures. New boxes fade in.</p>
+            </div>
+          ) : (
           <div className="w-full flex justify-center" onPointerDown={(e) => e.stopPropagation()}>
             <EditCanvas
               slide={slide}
@@ -608,7 +670,14 @@ function Editor({
               warnIds={warnIds}
             />
           </div>
-          {heat && <SlideStatsPanel stats={heat[slide.id]} days={HEAT_DAYS} onClose={() => setHeat(null)} />}
+          )}
+          {heat && <SlideStatsPanel stats={heat[main.id]} days={HEAT_DAYS} onClose={() => setHeat(null)} />}
+          {morphPreview !== null && main && (
+            <div className="fixed inset-0 z-50 bg-slate-950/70 flex flex-col items-center justify-center gap-3 p-6" onPointerDown={(e) => { e.stopPropagation(); setMorphPreview(null); }} role="dialog" aria-label="Morph preview">
+              <SlideCanvas slide={morphPreview ? helperView(main) : main} morph width="min(80vw, calc(75vh * 16 / 9))" />
+              <p className="text-sm text-white/80">{morphPreview ? 'Helper (when lost)' : 'Main slide'} · loops until you click</p>
+            </div>
+          )}
           <div className="text-[11px] text-slate-400">
             Drag to move · corners to resize · arrows nudge (Shift = more) · Del removes · Ctrl+Z undo · Ctrl+S save ·{' '}
             <span className="text-violet-600">dashed purple ✨ AI = words written by the AI</span>

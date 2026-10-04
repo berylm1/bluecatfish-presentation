@@ -23,7 +23,9 @@ import { loadDeck, type Loaded } from '@/lib/canvas/loadDeck';
 import { DEFAULT_LESSON } from '@/lib/canvas/lessons';
 import type { Deck } from '@/lib/canvas/types';
 import { learnerHeaders } from '@/lib/learnerSession';
-import { focusSlide, helperSlide } from '@/lib/canvas/morph';
+import { focusSlide, helperSlide, ownHelper } from '@/lib/canvas/morph';
+import { speakingOrder, spokenText } from '@/lib/canvas/queue';
+import { currentAudio } from '@/lib/canvas/aiFields';
 
 /*
  * The canvas presentation (see docs/customization-plan.md).
@@ -190,6 +192,20 @@ function Player({ deck, preview }: { deck: Deck; preview: boolean }) {
     setVariant(found);
     variantMode.current = 'narrated';
     variantAfter.current = after ?? null;
+    if (found.slide) {
+      // The slide's own helper: each speaking box in turn, highlighted while it's said
+      const seq = ++helperSeq.current;
+      const boxes = speakingOrder(found.slide);
+      for (const el of boxes) {
+        if (seq !== helperSeq.current) return;
+        setHelperActive(el.id);
+        const played = await cues.play({ text: spokenText(el), url: currentAudio(el, 'normal') });
+        if (!played || seq !== helperSeq.current) { setHelperActive(null); return; }   // closed or talked over
+      }
+      setHelperActive(null);
+      if (boxes.length && seq === helperSeq.current) closeVariant();
+      return;   // nothing to say: it stays up until "Got it, back to the lesson"
+    }
     // A live explanation (the professor teaches from the slide) beats the stored clip
     const ok = await cues.play(found.live_narration
       ? { text: found.live_narration }
@@ -204,6 +220,13 @@ function Player({ deck, preview }: { deck: Deck; preview: boolean }) {
     if (SPEAKING.includes(p.status)) p.pause();
     const s = deck.slides[p.slideIndex];
     const state = mood ?? (tracking.state().last_state === 'frustrated' ? 'frustrated' : 'confused');
+    // The slide's own helper (made in the editor or drafted by the AI) comes first
+    const own = MORPH_HELPERS && s ? ownHelper(s) : null;
+    if (own) {
+      tracking.track('tutor_decision', { action: 'helper', byAI: !!s?.helper?.byAI, state });
+      presentVariant({ title: '', body: '', narration: '', slide: own, variant: 'helper' }, after);
+      return;
+    }
     const found = await findVariant(state, s?.topic ?? '', slideText(p.slideIndex), true);
     if (found) {
       tracking.track('tutor_decision', { action: 'variant', variant: found.variant, title: found.title, state });
@@ -232,6 +255,8 @@ function Player({ deck, preview }: { deck: Deck; preview: boolean }) {
   }, [deck, slideText, tracking, act, findVariant, presentVariant]);
 
   const variantAfter = useRef<(() => void) | null>(null);   // what happens once the variant slide is done
+  const helperSeq = useRef(0);   // bumped to stop narrating a helper box by box
+  const [helperActive, setHelperActive] = useState<string | null>(null);   // the helper box being said
   // 'narrated': the professor explains the slide itself. 'answer': it's up while
   // the professor answers a question, and goes away with the answer.
   const variantMode = useRef<'narrated' | 'answer'>('narrated');
@@ -239,6 +264,8 @@ function Player({ deck, preview }: { deck: Deck; preview: boolean }) {
     if (variantMode.current === 'answer') { setVariant(null); return; }   // the answer carries on; the lesson resumes after it
     cues.stop();
     setVariant(null);
+    helperSeq.current++;
+    setHelperActive(null);
     const after = variantAfter.current;
     variantAfter.current = null;
     // was: if (after) after(); — moving to another slide at once cut the morph back short
@@ -488,6 +515,7 @@ function Player({ deck, preview }: { deck: Deck; preview: boolean }) {
   const focusId = player.mode === 'plain' ? player.activeId : null;
   const shownSlide = useMemo(() => {
     if (!MORPH_HELPERS || !baseSlide) return baseSlide;
+    if (variant?.slide) return variant.slide;   // the slide's own helper
     if (variant) return helperSlide(baseSlide, variant);
     if (player.mode === 'plain') return focusSlide(baseSlide, focusId) ?? baseSlide;
     return baseSlide;
@@ -542,7 +570,7 @@ function Player({ deck, preview }: { deck: Deck; preview: boolean }) {
             <button onClick={() => { checked.current.clear(); setSelfCheck(null); cues.stop(); player.restart(); }} className="px-6 py-3 rounded-xl bg-cyan-500 hover:bg-cyan-400 font-semibold">Start over</button>
           </div>
         ) : (
-          <SlideCanvas slide={shownSlide} activeId={variant ? null : player.activeId} morph={MORPH_HELPERS} />
+          <SlideCanvas slide={shownSlide} activeId={variant ? helperActive : player.activeId} morph={MORPH_HELPERS} />
         )}
         {variant && !MORPH_HELPERS && <VariantOverlay variant={variant} onDone={closeVariant} />}
         {variant && MORPH_HELPERS && (

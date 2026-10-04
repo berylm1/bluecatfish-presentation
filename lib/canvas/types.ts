@@ -51,6 +51,21 @@ export interface ImageElement extends ElementBase {
 
 export type SlideElement = TextElement | ImageElement;
 
+/**
+ * The slide's helper: another version of it, shown when the learner is lost.
+ * The slide morphs into it (and back): a helper element with the same id as
+ * an element on the slide morphs from that element; new ids fade in.
+ */
+export interface SlideHelper {
+  elements: SlideElement[];
+  /** Drafted by the AI on save and not edited since (a person's edits are never overwritten). */
+  byAI?: boolean;
+  /** Fingerprint of the slide it was drafted from: when the slide changes, an AI draft is redone. */
+  from?: string;
+  /** "No helper for this slide": the AI won't draft one. */
+  off?: boolean;
+}
+
 export interface Slide {
   id: string;
   /** Editor-only. Consecutive slides with the same topic form one topic. */
@@ -59,6 +74,7 @@ export interface Slide {
   topicFrom?: string;
   background?: { color?: string; image?: string };
   elements: SlideElement[];
+  helper?: SlideHelper;
 }
 
 export interface Deck {

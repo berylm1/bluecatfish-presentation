@@ -34,8 +34,8 @@ function cost(a: SlideElement, b: SlideElement): number {
 }
 
 /**
- * Which element on `from` becomes which on `to`. The same id always pairs
- * (the plain-words version keeps every id); otherwise the cheapest pairs are
+ * Which element on `from` becomes which on `to`. The same id always pairs,
+ * and when any ids match, only those pair. Otherwise the cheapest pairs are
  * taken first: titles with titles, pictures with the nearest picture, text
  * with the nearest text of the same kind.
  */
@@ -48,6 +48,11 @@ export function planMorph(from: Slide, to: Slide): MorphPlan {
     const a = from.elements.find((x) => x.id === b.id && freeA.has(x) && x.type === b.type);
     if (a) { pairs.push([a, b]); freeA.delete(a); freeB.delete(b); }
   }
+
+  // Slides that share ids (a helper made in the editor or by the AI, the
+  // focused version) link by id only: what isn't linked fades, as the editor
+  // promises. Guessing pairs is for helpers built without links (authored ones).
+  if (pairs.length) return { pairs, leaving: [...freeA], entering: [...freeB] };
 
   const options: { a: SlideElement; b: SlideElement; c: number }[] = [];
   for (const a of freeA) for (const b of freeB) {
@@ -110,6 +115,13 @@ export function focusSlide(base: Slide, elementId: string | null | undefined): S
       : { ...el, ...big, align: 'center' }
     : { ...el, ...big, fit: 'contain' };
   return { id: `${base.id}~focus`, background: base.background, elements: [focused] };
+}
+
+/** The slide's own helper as a slide (null when it has none or it's turned off). */
+export function ownHelper(base: Slide): Slide | null {
+  const h = base.helper;
+  if (!h || h.off || !h.elements.length) return null;
+  return { id: `${base.id}~helper`, topic: base.topic, background: base.background, elements: h.elements };
 }
 
 /** Whether two slides are versions of the same slide (base, helper, focus): then a change between them morphs. */

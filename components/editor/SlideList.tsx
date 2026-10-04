@@ -70,6 +70,12 @@ export default function SlideList({
                   ⚠ {warnCounts[i]}
                 </span>
               )}
+              {!!s.helper?.elements.length && (
+                <span className="absolute bottom-1 left-6 px-1 rounded bg-violet-500 text-[10px] font-bold text-white"
+                  title={s.helper.byAI ? 'Has a helper drafted by the AI (what it morphs into when a learner is lost)' : 'Has a helper (what it morphs into when a learner is lost)'}>
+                  ⇄{s.helper.byAI ? ' ✨' : ''}
+                </span>
+              )}
               {heat && (() => {
                 const tone = heatTone(heat[s.id]);
                 return tone && (

@@ -1,5 +1,7 @@
 'use client';
 
+import type { Slide } from '@/lib/canvas/types';
+
 // A variant slide shown over the canvas when the learner is confused: one of
 // the reviewed "explain it another way" slides (slide_templates), e.g. an
 // authored slide image from the PDF deck with its explanation.
@@ -7,6 +9,8 @@ export type Variant = {
   title: string; body: string; narration: string; audio_url?: string | null; image_url?: string | null; variant?: string;
   /** A fresh spoken explanation of the slide (asked for with explain=1); played instead of the stored narration. */
   live_narration?: string;
+  /** The slide's own helper (made in the editor or drafted by the AI): morphed into and narrated box by box. */
+  slide?: Slide;
 };
 
 export default function VariantOverlay({ variant, onDone }: { variant: Variant; onDone: () => void }) {

@@ -16,10 +16,10 @@ import { chat, knowledge, STYLE, writeRecap } from './prepare';
 
 const supabase = lazySupabaseAdmin();
 
-type LibImage = { id: string; url: string; description: string };
+export type LibImage = { id: string; url: string; description: string };
 type TopicPlan = { title: string; query: string; covers: string[] };
 
-async function imagesFor(query: string, count: number): Promise<LibImage[]> {
+export async function imagesFor(query: string, count: number): Promise<LibImage[]> {
   try {
     const emb = await fetch('https://api.openai.com/v1/embeddings', {
       method: 'POST',
@@ -39,7 +39,7 @@ async function imagesFor(query: string, count: number): Promise<LibImage[]> {
 
 // The canvas format, explained to the model. Numbers come from fitEstimate.ts
 // so the model's sense of "fits" matches the checker's.
-function formatGuide(): string {
+export function formatGuide(): string {
   const m = (style: 'title' | 'body' | 'caption' | 'bigNumber', w: number) => {
     const { charsPerLine, lineHeight } = textMetrics(style, w);
     return `${style}: in a box ${w} wide, about ${charsPerLine} characters per line, each line ${lineHeight.toFixed(1)} tall`;
@@ -126,7 +126,7 @@ function toSlide(raw: any, topic: string, images: LibImage[], id: string): Slide
 }
 
 /** What's wrong with a slide, in words the model can act on (empty = fine). */
-function problems(raw: any, slide: Slide, images: LibImage[]): string[] {
+export function problems(raw: any, slide: Slide, images: LibImage[]): string[] {
   const out: string[] = [];
   const known = new Set(images.map((i) => i.id));
   for (const e of Array.isArray(raw?.elements) ? raw.elements : []) {
@@ -153,7 +153,7 @@ function problems(raw: any, slide: Slide, images: LibImage[]): string[] {
 }
 
 /** Last resort for what the retry didn't fix: grow boxes that overflow, as far as the slide allows. */
-function autoFix(slide: Slide): void {
+export function autoFix(slide: Slide): void {
   for (const e of slide.elements) {
     if (e.type !== 'text' || fitStatus(e) !== 'overflows') continue;
     const want = Math.ceil(neededHeight(e, 0.8));

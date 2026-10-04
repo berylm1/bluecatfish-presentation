@@ -85,6 +85,20 @@ function slide(raw: any, i: number): Slide {
   }
   const bg = raw?.background ?? {};
   const background = { color: color(bg.color), image: safeUrl(bg.image) };
+  // The helper version: same element rules, its own unique ids
+  let helper: Slide['helper'];
+  if (raw?.helper && typeof raw.helper === 'object') {
+    const hel = (Array.isArray(raw.helper.elements) ? raw.helper.elements : [])
+      .slice(0, MAX_ELEMENTS)
+      .map((e: unknown, j: number) => element(e, `h${i}-${j}`))
+      .filter(Boolean) as SlideElement[];
+    const hseen = new Set<string>();
+    for (const [j, e] of hel.entries()) {
+      if (hseen.has(e.id)) e.id = `${e.id}-h${j}`;
+      hseen.add(e.id);
+    }
+    helper = { elements: hel, byAI: bool(raw.helper.byAI), from: tag(raw.helper.from), off: bool(raw.helper.off) };
+  }
   return {
     id: id(raw?.id, `s${i}`),
     topic: str(raw?.topic, 200),
@@ -92,6 +106,7 @@ function slide(raw: any, i: number): Slide {
     topicFrom: tag(raw?.topicFrom),
     background: background.color || background.image ? background : undefined,
     elements,
+    helper,
   };
 }
 
