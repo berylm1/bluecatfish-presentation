@@ -4,9 +4,9 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { CUE_TEXT, type CueKey } from '@/lib/canvas/cues';
 import { learnerHeaders } from '@/lib/learnerSession';
 
-async function liveUrl(text: string): Promise<string | null> {
+async function liveUrl(text: string, who?: 'classmate'): Promise<string | null> {
   try {
-    const res = await fetch('/api/tts', { method: 'POST', headers: learnerHeaders({ 'Content-Type': 'application/json' }), body: JSON.stringify({ text }) });
+    const res = await fetch('/api/tts', { method: 'POST', headers: learnerHeaders({ 'Content-Type': 'application/json' }), body: JSON.stringify({ text, who }) });
     return res.ok ? URL.createObjectURL(await res.blob()) : null;
   } catch {
     return null;
@@ -42,7 +42,8 @@ export function useCues(enabled: boolean) {
   }, []);
 
   /** Plays a cue by key, or any text (spoken live, cached per text). */
-  const play = useCallback((what: CueKey | { text: string; url?: string | null }): Promise<boolean> => {
+  /** who: 'classmate' = Finn's voice instead of the professor's */
+  const play = useCallback((what: CueKey | { text: string; url?: string | null; who?: 'classmate' }): Promise<boolean> => {
     stop();
     const my = ++seq.current;
     const text = typeof what === 'string' ? CUE_TEXT[what] : what.text;
@@ -50,8 +51,10 @@ export function useCues(enabled: boolean) {
     let source: Promise<string | null>;
     if (known) source = Promise.resolve(known);
     else {
-      if (!live.current.has(text)) live.current.set(text, liveUrl(text));
-      source = live.current.get(text)!;
+      const who = typeof what === 'string' ? undefined : what.who;
+      const key = `${who ?? ''}|${text}`;
+      if (!live.current.has(key)) live.current.set(key, liveUrl(text, who));
+      source = live.current.get(key)!;
     }
     setSaying(text);
     return new Promise<boolean>((resolve) => {

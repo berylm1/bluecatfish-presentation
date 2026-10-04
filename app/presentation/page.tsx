@@ -23,6 +23,7 @@ import { loadDeck, type Loaded } from '@/lib/canvas/loadDeck';
 import { DEFAULT_LESSON } from '@/lib/canvas/lessons';
 import type { Deck } from '@/lib/canvas/types';
 import { learnerHeaders } from '@/lib/learnerSession';
+import { CLASSMATE_NAME } from '@/lib/voice';
 import { focusSlide, helperSlide, ownHelper } from '@/lib/canvas/morph';
 import { speakingOrder, spokenText } from '@/lib/canvas/queue';
 import { currentAudio } from '@/lib/canvas/aiFields';
@@ -92,17 +93,26 @@ function Player({ deck, preview }: { deck: Deck; preview: boolean }) {
   const [interruptOn, setInterruptOn] = useState(false);   // talk over the professor (opt-in: opens the mic)
   const [cameraOn, setCameraOn] = useState(false);         // emotion check-in, presence, hand raise (opt-in)
   const [showTranscript, setShowTranscript] = useState(true);   // top-right text of what's being said
+  const [classmateOn, setClassmateOn] = useState(true);         // Finn, the AI classmate, asks questions at topic ends
+  const [classmateSaying, setClassmateSaying] = useState(false);
+  // What to call the learner (optional, asked on the start screen; remembered on this browser)
+  const [learnerName, setLearnerName] = useState('');
+  useEffect(() => { try { setLearnerName(localStorage.getItem('learnerName') ?? ''); } catch { /* private mode */ } }, []);
+  const topicEndRef = useRef<(from: number, to: number) => void>(() => {});
   const [variant, setVariant] = useState<Variant | null>(null);
   const [mood, setMood] = useState<LearnerEmotion | null>(null);
   const [introDone, setIntroDone] = useState(false);
   // Between topics: "How did that section go?" (from = last slide of the topic, to = where next)
   const [selfCheck, setSelfCheck] = useState<{ from: number; to: number } | null>(null);
+  const selfCheckRef = useRef(selfCheck);
+  selfCheckRef.current = selfCheck;
   const checked = useRef(new Set<number>());   // topic-end slides already asked about
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const topicOf = useMemo(() => topicIndexes(deck.slides), [deck]);
   const player = useDeckPlayer(deck, started && introDone, {
     holdBefore: (from, to) => !checked.current.has(from) && (to >= deck.slides.length || topicOf[to] !== topicOf[from]),
-    onHold: (from, to) => { setSelfCheck({ from, to }); cuesRef.current?.play('cue_selfCheck'); },
+    // End of a topic: maybe Finn asks something first, then "How did that section go?"
+    onHold: (from, to) => { topicEndRef.current(from, to); },
   });
   const tutor = useTutor();
   const cues = useCues(started);
@@ -145,8 +155,9 @@ function Player({ deck, preview }: { deck: Deck; preview: boolean }) {
     const speaking = s.elements.find((e) => e.id === p.activeId);
     return `Lesson: ${deck.title}. Topic: ${s.topic ?? ''}. On screen: ${slideText(p.slideIndex)}.` +
       (speaking?.say ? ` The professor was just saying: "${speaking.say}"` : '') +
+      (learnerName ? ` The learner's name is ${learnerName}; use it now and then, not in every answer.` : '') +
       describeForTutor(tracking.state());
-  }, [deck, slideText, tracking]);
+  }, [deck, slideText, tracking, learnerName]);
 
   /** The best reviewed variant slide (e.g. an authored PDF deck slide) for a topic and some words, or null. */
   // explain: also have the professor's spoken explanation of it written fresh (slower)
@@ -186,8 +197,13 @@ function Player({ deck, preview }: { deck: Deck; preview: boolean }) {
   }, []);
 
   /** A question (not a command): the professor answers, then the lesson carries on. */
-  const answer = useCallback(async (question: string) => {
-    tracking.track('tutor_question', { question: question.slice(0, 300) }, { questions: 1 });
+  const answer = useCallback(async (question: string, opts: {
+    /** A classmate asked it (their name): not counted as the learner's question */
+    asker?: string;
+    /** false: don't carry on with the lesson afterwards (the caller decides what's next) */
+    resume?: boolean;
+  } = {}) => {
+    tracking.track('tutor_question', { question: question.slice(0, 300), ...(opts.asker ? { asker: opts.asker } : {}) }, opts.asker ? undefined : { questions: 1 });
     // was: pause at once (mid-word). Now the sentence finishes while the answer is being written.
     const quiet = finishThenPause();
     // The professor draws while answering: a board the slide morphs into
@@ -212,9 +228,13 @@ function Player({ deck, preview }: { deck: Deck; preview: boolean }) {
       variantMode.current = 'answer';
       setVariant(slide);
     });
-    const { decision, superseded } = await tutor.ask(question, slideContext(), { holdUntil: quiet });
+    const context = slideContext() + (opts.asker
+      ? `\nThis question is from ${opts.asker}, a classmate (not the learner). Answer ${opts.asker} by name, as a teacher answers a student in class.`
+      : '');
+    const { decision, superseded } = await tutor.ask(question, context, { holdUntil: quiet, asker: opts.asker });
     if (variantMode.current === 'answer') setVariant(null);
     if (superseded) return;   // talked over the answer: the next turn decides what happens
+    if (opts.resume === false) return;
     if (decision) tracking.track('tutor_decision', { action: decision });
     const now = playerRef.current;
     if (decision === 'simplify') now.simplify();
@@ -313,6 +333,46 @@ function Player({ deck, preview }: { deck: Deck; preview: boolean }) {
     if (after) { if (MORPH_HELPERS) setTimeout(after, MORPH_BACK_MS); else after(); }
     else playerRef.current.resume();
   }
+
+  /* --------------------------------------------- Finn, the AI classmate */
+  const classmateTopics = useRef(new Set<number>());   // topics Finn already asked about
+  const classmateAsked = useRef<string[]>([]);
+  const classmateOnRef = useRef(classmateOn);
+  classmateOnRef.current = classmateOn;
+  topicEndRef.current = async (from: number, to: number) => {
+    const topic = topicOf[from];
+    // Finn asks when the learner didn't ask anything in this topic (once per topic)
+    if (classmateOnRef.current && !classmateTopics.current.has(topic) && tracking.state().questions === 0) {
+      classmateTopics.current.add(topic);
+      const slides = deck.slides.map((_, i) => i).filter((i) => topicOf[i] === topic);
+      const q = await fetchClassmate(deck.slides[from]?.topic ?? '', slides.map(slideText).join(' | '));
+      if (q && !selfCheckRef.current) {
+        classmateAsked.current.push(q);
+        tracking.track('tutor_decision', { action: 'classmate', question: q.slice(0, 300) });
+        setClassmateSaying(true);
+        const said = await cues.play({ text: q, who: 'classmate' });
+        setClassmateSaying(false);
+        if (said) await answer(q, { asker: CLASSMATE_NAME, resume: false });
+      }
+    }
+    setSelfCheck({ from, to });
+    cuesRef.current?.play('cue_selfCheck');
+  };
+
+  /** Finn's question about what was just taught, or null (none, too slow, or rate-limited). */
+  const fetchClassmate = useCallback(async (topic: string, taught: string): Promise<string | null> => {
+    try {
+      const res = await fetch('/api/classmate', {
+        method: 'POST',
+        headers: learnerHeaders({ 'Content-Type': 'application/json' }),
+        body: JSON.stringify({ topic, slideText: taught.slice(0, 2000), asked: classmateAsked.current }),
+        signal: AbortSignal.timeout(8000),
+      });
+      return res.ok ? ((await res.json()).question ?? null) : null;
+    } catch {
+      return null;
+    }
+  }, []);
 
   /** The self-check answer: noted for the topic; "lost me" gets another way to see it first. */
   const answerSelfCheck = useCallback((rating: SelfCheckRating) => {
@@ -581,10 +641,23 @@ function Player({ deck, preview }: { deck: Deck; preview: boolean }) {
         {preview && <div className="px-3 py-1 rounded-full bg-amber-400 text-slate-900 text-sm font-semibold">{deck.source === 'ai' ? 'Preview of the AI deck' : 'Preview of the saved draft'}</div>}
         <h1 className="text-4xl font-bold text-center">{deck.title}</h1>
         <p className="text-slate-300 text-center max-w-md">Turn your sound on. Ask the professor anything, or say &quot;next&quot;, &quot;next slide&quot;, &quot;repeat&quot; or &quot;simpler please&quot; at any time.</p>
+        <label className="flex flex-col items-center gap-1 text-sm text-slate-300">
+          What should Professor Marine call you? (optional)
+          <input
+            value={learnerName}
+            onChange={(e) => setLearnerName(e.target.value.replace(/[^\p{L}\p{N} '.-]/gu, '').slice(0, 24))}
+            placeholder="Your first name"
+            maxLength={24}
+            className="px-3 py-2 rounded-lg bg-white/10 text-white text-center placeholder:text-white/40 outline-none focus:bg-white/15 w-56"
+          />
+        </label>
         <button
           onClick={() => {
             setStarted(true);
-            cues.play('cue_intro').finally(() => setIntroDone(true));
+            const name = learnerName.trim();
+            try { localStorage.setItem('learnerName', name); } catch { /* private mode */ }
+            // A name: a personal hello (spoken live); otherwise the recorded intro
+            (name ? cues.play({ text: `Hey ${name}! I'm Professor Marine. Let's dive in.` }) : cues.play('cue_intro')).finally(() => setIntroDone(true));
           }}
           className="px-8 py-4 rounded-2xl bg-cyan-400 hover:bg-cyan-300 text-slate-900 text-xl font-semibold"
         >
@@ -600,7 +673,7 @@ function Player({ deck, preview }: { deck: Deck; preview: boolean }) {
   return (
     <main className="min-h-screen flex flex-col items-center justify-center gap-4 bg-gradient-to-br from-sky-950 via-slate-900 to-cyan-950 text-white px-4 py-4">
       {showTranscript && (cues.saying
-        ? <Transcript speaker="Professor Marine" text={cues.saying} dialogue={tutor.history} />
+        ? <Transcript speaker={classmateSaying ? `${CLASSMATE_NAME} · classmate` : 'Professor Marine'} text={cues.saying} dialogue={tutor.history} />
         : tutor.speaking || tutor.thinking
           ? <Transcript speaker="Professor Marine · answering" text={tutor.exchange?.answer ?? ''} dialogue={earlierDialogue} />
           : !selfCheck && <Transcript speaker={player.mode === 'plain' ? 'Professor Marine · plain version' : 'Professor Marine'} text={player.captionText} getAudio={player.getAudio} dialogue={tutor.history} />)}
@@ -661,6 +734,11 @@ function Player({ deck, preview }: { deck: Deck; preview: boolean }) {
             <button className="px-3 py-1 rounded-full bg-white/15 hover:bg-white/25" onClick={() => answerCheckInButton(false)}>No thanks</button>
           </div>
         )}
+        {classmateSaying && (
+          <div className="absolute bottom-3 left-3 z-20 flex items-center gap-2 px-3 py-1.5 rounded-full bg-amber-300 text-slate-900 text-sm font-semibold shadow-lg" role="status">
+            <span aria-hidden>🙋</span> {CLASSMATE_NAME} asks…
+          </div>
+        )}
         {toast && (
           <div className="absolute top-3 left-1/2 -translate-x-1/2 px-4 py-2 rounded-full bg-slate-900/85 text-white text-sm shadow-lg" role="status">
             {toast}
@@ -679,7 +757,7 @@ function Player({ deck, preview }: { deck: Deck; preview: boolean }) {
       {tutor.exchange && (
         <div className="w-full max-w-3xl rounded-xl bg-white/10 border border-white/15 px-4 py-3 text-sm relative" role="status" data-bubble-avoid>
           <button className="absolute top-2 right-3 text-white/50 hover:text-white" onClick={tutor.clearExchange} aria-label="Close">✕</button>
-          <p className="text-cyan-200/90"><b>You:</b> {tutor.exchange.question}</p>
+          <p className={tutor.exchange.asker ? 'text-amber-200' : 'text-cyan-200/90'}><b>{tutor.exchange.asker ?? 'You'}:</b> {tutor.exchange.question}</p>
           <p className="mt-1 text-white/90">
             <b>Professor Marine:</b>{' '}
             {tutor.thinking && !tutor.exchange.answer ? <span className="animate-pulse">thinking…</span> : tutor.exchange.answer}
@@ -731,6 +809,10 @@ function Player({ deck, preview }: { deck: Deck; preview: boolean }) {
             {mood && ` · ${mood === 'confused' ? '😕 puzzled' : mood === 'bored' ? '😐 quiet' : '🙂'}`}
           </span>
         )}
+        <button className={`${btn} ${classmateOn ? 'bg-amber-400/30 hover:bg-amber-400/40' : ''}`} onClick={() => setClassmateOn((v) => !v)}
+          title={`${CLASSMATE_NAME}, an AI classmate, asks the professor a question at the end of a topic when you didn't`}>
+          🙋 {CLASSMATE_NAME} {classmateOn ? 'on' : 'off'}
+        </button>
         <button className={`${btn} ${showTranscript ? 'bg-white/20' : ''}`} onClick={() => setShowTranscript((v) => !v)} title="Show the words being said (top right)">
           💬 Transcript {showTranscript ? 'on' : 'off'}
         </button>
