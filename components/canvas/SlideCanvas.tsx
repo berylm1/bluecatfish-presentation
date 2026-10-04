@@ -3,6 +3,8 @@
 import { useLayoutEffect, useRef, useState, type CSSProperties } from 'react';
 import type { Slide, SlideElement, TextElement, TextStyle } from '@/lib/canvas/types';
 import { planMorph, sameBase, type MorphPlan } from '@/lib/canvas/morph';
+import { contentRect } from '@/lib/canvas/laser';
+import type { Pointer } from '@/lib/canvas/types';
 
 // Font sizes are % of the slide height (container query units), so text keeps
 // its size relative to the slide on any screen.
@@ -63,7 +65,38 @@ function FitText({ el }: { el: TextElement }) {
   );
 }
 
-function ElementView({ el, active }: { el: SlideElement; active: boolean }) {
+/**
+ * The laser dot: a red point with a glow and a soft pulse. It glides from mark
+ * to mark on the same element. For a picture, the mark is placed on the
+ * picture itself (letterboxing taken into account).
+ */
+function LaserDot({ el, p, imgRef }: { el: SlideElement; p: Pointer; imgRef: React.RefObject<HTMLImageElement | null> }) {
+  const [, rerender] = useState(0);
+  const img = imgRef.current;
+  const box = img?.parentElement?.getBoundingClientRect();
+  const r = el.type === 'image' && img && box
+    ? contentRect(box.width, box.height, img.naturalWidth, img.naturalHeight, el.fit ?? 'contain')
+    : { x: 0, y: 0, w: 100, h: 100 };
+  useLayoutEffect(() => { if (el.type === 'image' && img && !img.complete) img.addEventListener('load', () => rerender((n) => n + 1), { once: true }); }, [el.type, img]);
+  return (
+    <span
+      data-laser={p.word}
+      aria-hidden
+      style={{
+        position: 'absolute', zIndex: 5, pointerEvents: 'none',
+        left: `${r.x + (p.x / 100) * r.w}%`, top: `${r.y + (p.y / 100) * r.h}%`,
+        width: '3cqh', height: '3cqh', marginLeft: '-1.5cqh', marginTop: '-1.5cqh', borderRadius: '50%',
+        background: 'radial-gradient(circle, #fff 0 18%, #ff2d2d 30%, rgba(255,45,45,0.55) 60%, rgba(255,45,45,0) 72%)',
+        boxShadow: '0 0 1.6cqh 0.4cqh rgba(255, 40, 40, 0.65)',
+        transition: 'left 450ms cubic-bezier(0.65,0,0.35,1), top 450ms cubic-bezier(0.65,0,0.35,1)',
+        animation: 'laser-pulse 1.1s ease-in-out infinite',
+      }}
+    />
+  );
+}
+
+function ElementView({ el, active, laser }: { el: SlideElement; active: boolean; laser?: Pointer | null }) {
+  const imgRef = useRef<HTMLImageElement>(null);
   const decorative = el.type === 'image' && el.silent && !el.alt;
   const style: CSSProperties = {
     position: 'absolute',
@@ -87,6 +120,7 @@ function ElementView({ el, active }: { el: SlideElement; active: boolean }) {
       ) : (
         // eslint-disable-next-line @next/next/no-img-element
         <img
+          ref={imgRef}
           src={el.src}
           alt={decorative ? '' : el.alt ?? ''}
           aria-hidden={decorative || undefined}
@@ -94,6 +128,7 @@ function ElementView({ el, active }: { el: SlideElement; active: boolean }) {
           style={{ width: '100%', height: '100%', objectFit: el.fit ?? 'contain', borderRadius: 'inherit', pointerEvents: 'none' }}
         />
       )}
+      {laser && <LaserDot el={el} p={laser} imgRef={imgRef} />}
     </div>
   );
 }
@@ -206,6 +241,7 @@ export default function SlideCanvas({
   width = 'min(80vw, calc(80vh * 16 / 9))',
   shadow = true,
   morph = false,
+  laser,
   children,
 }: {
   slide: Slide;
@@ -215,6 +251,8 @@ export default function SlideCanvas({
   shadow?: boolean;
   /** Morph (instead of switching) when the slide changes to another version of itself, e.g. its helper */
   morph?: boolean;
+  /** The laser pointer: which element it's on and which mark */
+  laser?: { elementId: string; pointer: Pointer } | null;
   /** Drawn on top of the slide (the editor's selection boxes) */
   children?: React.ReactNode;
 }) {
@@ -241,7 +279,7 @@ export default function SlideCanvas({
       }}
     >
       {morphing ? <MorphLayer plan={morphing.plan} on={morphing.on} /> : slide.elements.map((el) => (
-        <ElementView key={el.id} el={el} active={el.id === activeId} />
+        <ElementView key={el.id} el={el} active={el.id === activeId} laser={laser?.elementId === el.id ? laser.pointer : null} />
       ))}
       {children}
     </div>

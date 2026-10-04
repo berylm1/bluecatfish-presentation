@@ -31,7 +31,10 @@ export function useTutor() {
    * Asks and speaks the answer. Resolves when the answer has been spoken (or
    * was cut off), with the tutor's deck decision if it made one.
    */
-  const ask = useCallback(async (question: string, slideContext: string): Promise<{ decision: TutorDecision; superseded: boolean }> => {
+  const ask = useCallback(async (question: string, slideContext: string, opts: {
+    /** Don't start speaking before this settles (the lesson finishing its sentence); the answer is written meanwhile */
+    holdUntil?: Promise<void>;
+  } = {}): Promise<{ decision: TutorDecision; superseded: boolean }> => {
     const seq = ++askSeq.current;
     speech.stopSpeaking();
     setExchange({ question, answer: '', done: false });
@@ -50,6 +53,9 @@ export function useTutor() {
           conversation: historyRef.current.slice(-HISTORY_TURNS * 2),
         }),
       });
+      // The answer is on its way; the professor speaks once the lesson's sentence is over
+      if (opts.holdUntil) await opts.holdUntil.catch(() => {});
+      if (seq !== askSeq.current) return { decision: null, superseded: true };
       if (res.status === 429 || res.status === 413) {
         // Rate-limited or too long (lib/rateLimit.ts): say so kindly, then carry on
         const line = res.status === 413

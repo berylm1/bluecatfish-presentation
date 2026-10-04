@@ -4,6 +4,14 @@
 
 export type TextStyle = 'title' | 'body' | 'caption' | 'bigNumber';
 
+/**
+ * A laser-pointer mark: when the professor says `word` (a phrase from the
+ * element's spoken words), a red dot points at (x, y). For an image, x/y are
+ * % of the picture itself (so the mark stays on the whiskers however the box
+ * is sized); for text, % of the box.
+ */
+export interface Pointer { x: number; y: number; word: string }
+
 interface ElementBase {
   id: string;
   x: number;          // left edge, % of slide width
@@ -30,6 +38,10 @@ interface ElementBase {
   plainFrom?: string;
   audioFor?: string;
   plainAudioFor?: string;
+  /** Laser-pointer marks (up to 3). An empty list = a person chose none. */
+  pointers?: Pointer[];
+  pointersByAI?: boolean;
+  pointersFrom?: string;   // fingerprint of the picture + spoken words they were placed for
 }
 
 export interface TextElement extends ElementBase {

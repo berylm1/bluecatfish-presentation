@@ -45,6 +45,18 @@ export function sentenceEnd(text: string, t: number, duration: number): number {
   return Math.min(duration, t + MAX_FINISH_S);
 }
 
+/** When the sentence being spoken at `t` started, in seconds (to replay it after an interruption). */
+export function sentenceStart(text: string, t: number, duration: number): number {
+  if (!Number.isFinite(duration) || duration <= 0) return 0;
+  let start = 0;
+  for (const share of sentenceStops(text)) {
+    const end = share * duration;
+    if (end > t + 0.05) break;   // this sentence runs past t: it's the one being spoken
+    start = end;
+  }
+  return Math.min(start, Math.max(0, duration - 0.1));
+}
+
 type Pos = {
   slide: number;
   clip: number;               // index into the slide's speaking order
@@ -97,6 +109,9 @@ export function useDeckPlayer(
   const holdRef = useRef<(() => void) | null>(null);   // set while finishing a sentence: runs once stopped
   const finishTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const pausedRef = useRef(false);   // pause asked for; a clip that finishes loading waits
+  // Interrupted mid-sentence: where that sentence began. The learner talked
+  // over it (it was ducked), so resume plays it again from there.
+  const replayRef = useRef<number | null>(null);
 
   const orders = useMemo(() => deck.slides.map(speakingOrder), [deck]);
   const topics = useMemo(() => topicIndexes(deck.slides), [deck]);
@@ -136,6 +151,7 @@ export function useDeckPlayer(
     }
     let cancelled = false;
     pausedRef.current = false;   // a new position always plays
+    replayRef.current = null;    // (and has nothing to replay)
     const clear = () => {
       if (timerRef.current) clearTimeout(timerRef.current);
       timerRef.current = null;
@@ -229,6 +245,7 @@ export function useDeckPlayer(
     repeat: () => setPos((p) => ({ ...p, clip: clampedClip, mode: 'normal', token: p.token + 1 })),
     simplify: () => setPos((p) => ({ ...p, clip: clampedClip, mode: 'plain', token: p.token + 1 })),
     pause: () => {
+      replayRef.current = null;   // a plain pause picks up exactly where it stopped
       if (timerRef.current) clearTimeout(timerRef.current);
       if (finishTimerRef.current) clearInterval(finishTimerRef.current);
       holdRef.current = null;
@@ -240,7 +257,14 @@ export function useDeckPlayer(
       if (statusRef.current !== 'paused' && !pausedRef.current) return;
       pausedRef.current = false;
       const audio = audioRef.current;
-      if (audio && audio.ended) {
+      const replayAt = replayRef.current;
+      replayRef.current = null;
+      if (audio && replayAt !== null) {
+        // back after an interruption: say the sentence that was talked over again
+        audio.currentTime = replayAt;
+        audio.volume = 1;
+        audio.play().then(() => setStatus('playing')).catch(() => {});
+      } else if (audio && audio.ended) {
         // stopped right at the end of a clip: carry on with the next one
         setPos((p) => ({ ...p, clip: p.clip + 1, mode: 'normal', token: p.token + 1 }));
       } else if (audio && audio.paused) {
@@ -267,6 +291,7 @@ export function useDeckPlayer(
         return;
       }
       holdRef.current = onStopped ?? (() => {});
+      replayRef.current = sentenceStart(textRef.current, audio.currentTime, audio.duration);
       audio.volume = DUCK_VOLUME;
       setStatus('finishing');
       const stopAt = sentenceEnd(textRef.current, audio.currentTime, audio.duration);

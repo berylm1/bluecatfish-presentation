@@ -3,6 +3,7 @@
 import { useRef, useState } from 'react';
 import SlideCanvas from '@/components/canvas/SlideCanvas';
 import type { Slide, SlideElement } from '@/lib/canvas/types';
+import { contentRect } from '@/lib/canvas/laser';
 
 // The slide being edited: the real renderer underneath, and on top a box per
 // element that can be clicked, dragged and resized. Positions stay in percent.
@@ -26,6 +27,8 @@ export default function EditCanvas({
   onDropImage,
   onEditText,
   warnIds,
+  placing,
+  onPlace,
 }: {
   slide: Slide;
   selected: string | null;
@@ -35,6 +38,9 @@ export default function EditCanvas({
   onDropImage: (img: { url: string; description: string }, x: number, y: number) => void;
   onEditText: () => void;
   warnIds: Set<string>;
+  /** Placing a laser mark on this element: the next click on it puts the mark there */
+  placing?: { elId: string; index: number } | null;
+  onPlace?: (x: number, y: number) => void;
 }) {
   const wrapRef = useRef<HTMLDivElement>(null);
   const [guides, setGuides] = useState<{ v: boolean; h: boolean }>({ v: false, h: false });
@@ -96,6 +102,23 @@ export default function EditCanvas({
     onDropImage(JSON.parse(raw), ((e.clientX - rect.left) / rect.width) * 100, ((e.clientY - rect.top) / rect.height) * 100);
   };
 
+  // Where a picture is drawn in its box (marks on a picture are % of the picture itself)
+  const picRect = (el: SlideElement) => {
+    if (el.type !== 'image') return { x: 0, y: 0, w: 100, h: 100 };
+    const img = wrapRef.current?.querySelector<HTMLImageElement>(`[data-element-id="${CSS.escape(el.id)}"] img`);
+    const box = img?.parentElement?.getBoundingClientRect();
+    return img && box ? contentRect(box.width, box.height, img.naturalWidth, img.naturalHeight, el.fit ?? 'contain') : { x: 0, y: 0, w: 100, h: 100 };
+  };
+  const placeAt = (e: React.PointerEvent, el: SlideElement) => {
+    e.stopPropagation();
+    e.preventDefault();
+    const box = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    const r = picRect(el);
+    const bx = ((e.clientX - box.left) / box.width) * 100, by = ((e.clientY - box.top) / box.height) * 100;
+    const round = (v: number) => Math.round(Math.min(100, Math.max(0, v)) * 10) / 10;
+    onPlace?.(round(((bx - r.x) / r.w) * 100), round(((by - r.y) / r.h) * 100));
+  };
+
   // Front-most first, so clicks land on what's on top
   const ordered = [...slide.elements].sort((a, b) => (a.z ?? 1) - (b.z ?? 1));
 
@@ -139,6 +162,18 @@ export default function EditCanvas({
                     ✨ AI
                   </span>
                 </>
+              )}
+              {/* Laser marks of the selected element, numbered */}
+              {isSel && (el.pointers ?? []).map((m, i) => {
+                const r = picRect(el);
+                return (
+                  <span key={i} className="absolute w-4 h-4 -ml-2 -mt-2 rounded-full bg-red-500 border-2 border-white text-[9px] font-bold text-white flex items-center justify-center pointer-events-none shadow"
+                    style={{ left: `${r.x + (m.x / 100) * r.w}%`, top: `${r.y + (m.y / 100) * r.h}%`, zIndex: 2 }}>{i + 1}</span>
+                );
+              })}
+              {placing?.elId === el.id && (
+                <div className="absolute inset-0 cursor-crosshair bg-red-500/10 outline outline-2 outline-dashed outline-red-500" style={{ zIndex: 3 }}
+                  onPointerDown={(e) => placeAt(e, el)} title="Click where the laser should point" />
               )}
               {isSel && HANDLES.map((h) => (
                 <span

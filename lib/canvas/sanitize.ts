@@ -44,6 +44,11 @@ function element(raw: any, fallbackId: string): SlideElement | null {
     plainFrom: tag(raw.plainFrom),
     audioFor: tag(raw.audioFor),
     plainAudioFor: tag(raw.plainAudioFor),
+    pointers: Array.isArray(raw.pointers)
+      ? raw.pointers.slice(0, 3).map((p: any) => ({ x: num(p?.x, 0, 100, 50), y: num(p?.y, 0, 100, 50), word: str(p?.word, 60) ?? '' })).filter((p: { word: string }) => p.word)
+      : undefined,
+    pointersByAI: bool(raw.pointersByAI),
+    pointersFrom: tag(raw.pointersFrom),
   };
   if (raw.type === 'text') {
     const el: TextElement = {

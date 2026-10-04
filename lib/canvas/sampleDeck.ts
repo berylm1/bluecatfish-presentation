@@ -16,7 +16,9 @@ export const SAMPLE_DECK: Deck = {
         { id: 's1-title', type: 'text', x: 20, y: 4, w: 60, h: 13, text: 'Meet the Blue Catfish', style: 'title', align: 'center', color: '#0b3b5c', silent: true },
         { id: 's1-fish', type: 'image', x: 30, y: 30, w: 40, h: 40, src: '/canvas-sample/catfish.svg', alt: 'A blue catfish with long whiskers', fit: 'contain',
           say: "Say hello to the blue catfish. Those long whiskers are called barbels, and they're covered in taste buds, so this fish can basically taste the water around it. Not the most glamorous superpower, but it works.",
-          plain: 'This is a blue catfish. The long whiskers help it taste and find food.' },
+          plain: 'This is a blue catfish. The long whiskers help it taste and find food.',
+          // laser-pointer marks: % of the picture itself
+          pointers: [{ word: 'long whiskers', x: 6, y: 64 }, { word: 'taste buds', x: 9, y: 76 }] },
         { id: 's1-weight', type: 'text', x: 3, y: 30, w: 25, h: 20, text: 'Can weigh over 100 pounds', style: 'body', bold: true, color: '#0b3b5c',
           say: "First, the size. A big blue catfish can weigh more than a hundred pounds. That's heavier than most of the kids in your class. Imagine trying to reel that in.",
           plain: 'Blue catfish can get really heavy, more than 100 pounds.' },

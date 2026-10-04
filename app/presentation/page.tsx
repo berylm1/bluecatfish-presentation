@@ -26,6 +26,8 @@ import { learnerHeaders } from '@/lib/learnerSession';
 import { focusSlide, helperSlide, ownHelper } from '@/lib/canvas/morph';
 import { speakingOrder, spokenText } from '@/lib/canvas/queue';
 import { currentAudio } from '@/lib/canvas/aiFields';
+import { activePointer } from '@/lib/canvas/laser';
+import type { Pointer } from '@/lib/canvas/types';
 
 /*
  * The canvas presentation (see docs/customization-plan.md).
@@ -158,11 +160,21 @@ function Player({ deck, preview }: { deck: Deck; preview: boolean }) {
     }
   }, []);
 
+  /**
+   * Lets the lesson finish the sentence it's in (at most a few seconds), then
+   * pause; resolves once it's quiet. Resuming later replays that sentence.
+   */
+  const finishThenPause = useCallback((): Promise<void> => new Promise((resolve) => {
+    const p = playerRef.current;
+    if (SPEAKING.includes(p.status)) p.interrupt(() => resolve());
+    else resolve();
+  }), []);
+
   /** A question (not a command): the professor answers, then the lesson carries on. */
   const answer = useCallback(async (question: string) => {
     tracking.track('tutor_question', { question: question.slice(0, 300) }, { questions: 1 });
-    const p = playerRef.current;
-    if (SPEAKING.includes(p.status)) p.pause();
+    // was: pause at once (mid-word). Now the sentence finishes while the answer is being written.
+    const quiet = finishThenPause();
     // If the question is about something one of the authored slides covers,
     // show that slide while the professor answers
     findVariant('confused', question, question).then((slide) => {
@@ -171,7 +183,7 @@ function Player({ deck, preview }: { deck: Deck; preview: boolean }) {
       variantMode.current = 'answer';
       setVariant(slide);
     });
-    const { decision, superseded } = await tutor.ask(question, slideContext());
+    const { decision, superseded } = await tutor.ask(question, slideContext(), { holdUntil: quiet });
     if (variantMode.current === 'answer') setVariant(null);
     if (superseded) return;   // talked over the answer: the next turn decides what happens
     if (decision) tracking.track('tutor_decision', { action: decision });
@@ -180,7 +192,7 @@ function Player({ deck, preview }: { deck: Deck; preview: boolean }) {
     else if (decision === 'advance') now.nextSlide();
     else if (decision === 'repeat') now.repeat();
     else now.resume();
-  }, [tutor, slideContext, tracking, findVariant]);
+  }, [tutor, slideContext, tracking, findVariant, finishThenPause]);
 
   /**
    * The learner is lost: show a reviewed variant slide for this topic if there
@@ -472,6 +484,19 @@ function Player({ deck, preview }: { deck: Deck; preview: boolean }) {
     }
   }, [present, cameraOn, started, tracking, playCue, tutorBusy]);
 
+  // The laser pointer: while a clip plays, the mark whose phrase is being said
+  const [laser, setLaser] = useState<{ elementId: string; pointer: Pointer } | null>(null);
+  useEffect(() => {
+    const el = player.activeId ? deck.slides[player.slideIndex]?.elements.find((e) => e.id === player.activeId) : null;
+    if (player.status !== 'playing' || player.mode !== 'normal' || !el?.pointers?.length || variant) { setLaser(null); return; }
+    const t = setInterval(() => {
+      const audio = player.getAudio();
+      const p = audio ? activePointer(el, spokenText(el), audio.currentTime, audio.duration) : null;
+      setLaser((cur) => (p ? (cur?.pointer === p && cur.elementId === el.id ? cur : { elementId: el.id, pointer: p }) : null));
+    }, 120);
+    return () => clearInterval(t);
+  }, [player.status, player.mode, player.activeId, player.slideIndex, player.getAudio, deck, variant]);
+
   // The camera bubble: yellow for a raised hand (for a few seconds), then what the face shows
   const [, tick] = useState(0);
   const handShowing = Date.now() - handUpAt < HAND_RING_MS;
@@ -570,7 +595,7 @@ function Player({ deck, preview }: { deck: Deck; preview: boolean }) {
             <button onClick={() => { checked.current.clear(); setSelfCheck(null); cues.stop(); player.restart(); }} className="px-6 py-3 rounded-xl bg-cyan-500 hover:bg-cyan-400 font-semibold">Start over</button>
           </div>
         ) : (
-          <SlideCanvas slide={shownSlide} activeId={variant ? helperActive : player.activeId} morph={MORPH_HELPERS} />
+          <SlideCanvas slide={shownSlide} activeId={variant ? helperActive : player.activeId} morph={MORPH_HELPERS} laser={variant ? null : laser} />
         )}
         {variant && !MORPH_HELPERS && <VariantOverlay variant={variant} onDone={closeVariant} />}
         {variant && MORPH_HELPERS && (
