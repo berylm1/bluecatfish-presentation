@@ -482,7 +482,10 @@ function Editor({
   });
   const aiHelper = () => ed.change((d) => { d.slides[slideIdx].helper = undefined; });   // the AI drafts it on the next save
   const noHelper = () => ed.change((d) => { d.slides[slideIdx].helper = { elements: [], off: true }; });
-  const [morphPreview, setMorphPreview] = useState<boolean | null>(null);   // null = closed; true = showing the helper
+  const [morphPreview, setMorphPreview] = useState<boolean | null>(null);
+  // The laser mark being placed on the selected element (index), if any
+  const [placingMark, setPlacingMark] = useState<number | null>(null);
+  useEffect(() => { setPlacingMark(null); }, [ed.selected, slideIdx, ed.layer]);   // null = closed; true = showing the helper
   useEffect(() => {
     if (morphPreview === null) return;
     const t = setTimeout(() => setMorphPreview((v) => (v === null ? null : !v)), 2600);
@@ -668,6 +671,14 @@ function Editor({
               onDropImage={(img, x, y) => addImage(img, x, y)}
               onEditText={() => { setPanel('props'); setTimeout(() => document.getElementById('inspector-text')?.focus(), 0); }}
               warnIds={warnIds}
+              placing={placingMark !== null && element ? { elId: element.id, index: placingMark } : null}
+              onPlace={(x, y) => {
+                if (!element || placingMark === null) return;
+                const marks = [...(element.pointers ?? [])];
+                if (marks[placingMark]) marks[placingMark] = { ...marks[placingMark], x, y };
+                ed.updateElement(element.id, { pointers: marks, pointersByAI: undefined });
+                setPlacingMark(null);
+              }}
             />
           </div>
           )}
@@ -701,6 +712,8 @@ function Editor({
                   onDuplicate={duplicateElement}
                   onLayer={layer}
                   warnings={slideWarns.filter((w) => w.elementId === element.id)}
+                  placing={placingMark}
+                  onPlacePointer={setPlacingMark}
                 />
               ) : (
                 <SlideInspector

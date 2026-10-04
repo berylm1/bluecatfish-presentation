@@ -31,6 +31,28 @@ export async function chat(system: string, user: string, json = false, maxTokens
   return text;
 }
 
+/** chat, looking at a picture too (for the laser marks). */
+export async function chatVision(system: string, user: string, imageUrl: string): Promise<string> {
+  const res = await fetch('https://api.openai.com/v1/chat/completions', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${process.env.OPENAI_API_KEY}` },
+    body: JSON.stringify({
+      model: MODEL,
+      reasoning_effort: 'low',
+      response_format: { type: 'json_object' },
+      messages: [
+        { role: 'system', content: system },
+        { role: 'user', content: [{ type: 'text', text: user }, { type: 'image_url', image_url: { url: imageUrl } }] },
+      ],
+      max_completion_tokens: 1500,
+    }),
+  });
+  const data = await res.json().catch(() => null);
+  const text = data?.choices?.[0]?.message?.content?.trim();
+  if (!res.ok || !text) throw new Error(data?.error?.message || `OpenAI request failed (${res.status})`);
+  return text;
+}
+
 export async function knowledge(query: string, count = 6): Promise<string> {
   try {
     const emb = await fetch('https://api.openai.com/v1/embeddings', {

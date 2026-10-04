@@ -113,7 +113,7 @@ export function focusSlide(base: Slide, elementId: string | null | undefined): S
       // a sentence or two reads big, like a headline; a longer paragraph at normal size
       ? { ...el, ...big, text: el.plain.trim(), style: el.plain.trim().length <= 160 ? 'title' : 'body', align: 'center' }
       : { ...el, ...big, align: 'center' }
-    : { ...el, ...big, fit: 'contain' };
+    : el.type === 'image' ? { ...el, ...big, fit: 'contain' } : { ...el, ...big };
   return { id: `${base.id}~focus`, background: base.background, elements: [focused] };
 }
 

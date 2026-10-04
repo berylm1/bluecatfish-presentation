@@ -388,3 +388,21 @@ body {
 .footer a:hover {
   color: #67e8f9;
 }
+
+/* The laser pointer's soft pulse (components/canvas/SlideCanvas.tsx) */
+@keyframes laser-pulse {
+  0%, 100% { transform: scale(1); opacity: 1; }
+  50% { transform: scale(1.25); opacity: 0.85; }
+}
+@media (prefers-reduced-motion: reduce) {
+  [data-laser] { animation: none !important; transition: none !important; }
+}
+
+/* Chart bars growing up as they're "drawn" (components/canvas/SlideCanvas.tsx) */
+@keyframes bar-grow {
+  from { transform: scaleY(0); }
+  to { transform: scaleY(1); }
+}
+@media (prefers-reduced-motion: reduce) {
+  [role="img"] > div > div { animation: none !important; }
+}

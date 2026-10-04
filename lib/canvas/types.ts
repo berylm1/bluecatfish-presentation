@@ -4,6 +4,14 @@
 
 export type TextStyle = 'title' | 'body' | 'caption' | 'bigNumber';
 
+/**
+ * A laser-pointer mark: when the professor says `word` (a phrase from the
+ * element's spoken words), a red dot points at (x, y). For an image, x/y are
+ * % of the picture itself (so the mark stays on the whiskers however the box
+ * is sized); for text, % of the box.
+ */
+export interface Pointer { x: number; y: number; word: string }
+
 interface ElementBase {
   id: string;
   x: number;          // left edge, % of slide width
@@ -30,6 +38,10 @@ interface ElementBase {
   plainFrom?: string;
   audioFor?: string;
   plainAudioFor?: string;
+  /** Laser-pointer marks (up to 3). An empty list = a person chose none. */
+  pointers?: Pointer[];
+  pointersByAI?: boolean;
+  pointersFrom?: string;   // fingerprint of the picture + spoken words they were placed for
 }
 
 export interface TextElement extends ElementBase {
@@ -49,7 +61,17 @@ export interface ImageElement extends ElementBase {
   fit?: 'cover' | 'contain';
 }
 
-export type SlideElement = TextElement | ImageElement;
+/** A simple bar chart (the professor's "drawn" answers: how big, how many, then vs now). */
+export interface ChartElement extends ElementBase {
+  type: 'chart';
+  bars: { label: string; value: number; color?: string }[];
+  /** Shown after each value ("lbs", "%") */
+  unit?: string;
+  /** What the chart shows, in words (screen readers; the spoken words are written from it) */
+  alt?: string;
+}
+
+export type SlideElement = TextElement | ImageElement | ChartElement;
 
 /**
  * The slide's helper: another version of it, shown when the learner is lost.

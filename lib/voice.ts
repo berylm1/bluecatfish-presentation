@@ -9,6 +9,14 @@ export const VOICE_INSTRUCTIONS =
   'dry, playful sarcasm and a small pause before the punchline. Slow down a little on ' +
   'numbers and key facts so they land. Warm and kind, never mocking the listener.';
 
+// Finn, the AI classmate who asks the professor questions: a different,
+// younger-sounding voice
+export const CLASSMATE_NAME = 'Finn';
+export const CLASSMATE_VOICE = 'verse';
+export const CLASSMATE_INSTRUCTIONS =
+  'You are a curious, friendly 12 year old student asking your teacher a question in class. Sound young, ' +
+  'genuinely curious and a little excited, quick and natural, like a real kid, not an actor.';
+
 // "Simpler please" clips: same voice, but calm and clear instead of jokey
 export const SIMPLE_VOICE_INSTRUCTIONS =
   'You are a patient, kind teacher helping a 10 year old who is a bit lost. Speak slowly ' +

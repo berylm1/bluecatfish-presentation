@@ -4,7 +4,8 @@ import type { LessonInfo } from './lessons';
 import { sanitizeDeck } from './sanitize';
 import { fitStatus, neededHeight, textMetrics } from './fitEstimate';
 import { fingerprint, sayBasis, slideBasis } from './aiFields';
-import { chat, knowledge, STYLE, writeRecap } from './prepare';
+import { chat, knowledge, STYLE } from './ai';
+import { writeRecap } from './prepare';
 
 // Step 5: the AI makes a whole deck in the canvas format.
 //   1. plan the lesson's topics from the knowledge base

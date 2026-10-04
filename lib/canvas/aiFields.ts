@@ -1,4 +1,4 @@
-import type { Deck, Slide, SlideElement, SlideHelper } from './types';
+import type { Deck, Pointer, Slide, SlideElement, SlideHelper } from './types';
 import { spokenText } from './queue';
 import { TTS_VOICE, VOICE_INSTRUCTIONS, SIMPLE_VOICE_INSTRUCTIONS } from '@/lib/voice';
 
@@ -93,6 +93,20 @@ export function needsHelper(slide: Slide): boolean {
 /** The helper's elements (empty when there's none). */
 export const helperElements = (slide: Slide): SlideElement[] => slide.helper?.elements ?? [];
 
+/** What laser marks are placed for: the picture and the words said about it. */
+export const pointersBasis = (el: SlideElement) => (el.type === 'image' ? `${el.src}|${spokenText(el)}` : '');
+
+/**
+ * Should the AI place laser marks on this picture? Only a speaking picture
+ * the model can see (a web address), never over a person's marks (an empty
+ * list included: they chose none), and again when the picture or words change.
+ */
+export function needsPointers(el: SlideElement): boolean {
+  if (el.type !== 'image' || !speaksAtAll(el) || !/^https:\/\//.test(el.src) || !spokenText(el)) return false;
+  if (el.pointers === undefined) return true;
+  return !!el.pointersByAI && el.pointersFrom !== fingerprint(pointersBasis(el));
+}
+
 export function needsTopic(slide: Slide): boolean {
   if (!slide.topic?.trim()) return true;
   return !!slide.topicByAI && slide.topicFrom !== fingerprint(slideBasis(slide));
@@ -100,6 +114,7 @@ export function needsTopic(slide: Slide): boolean {
 
 export interface Todo {
   helpers: number;
+  pointers: number;
   topics: number;
   say: number;
   plain: number;
@@ -107,7 +122,7 @@ export interface Todo {
 }
 
 export function countTodo(deck: Deck): Todo {
-  const t: Todo = { helpers: 0, topics: 0, say: 0, plain: 0, audio: 0 };
+  const t: Todo = { helpers: 0, pointers: 0, topics: 0, say: 0, plain: 0, audio: 0 };
   for (const s of deck.slides) {
     if (needsTopic(s)) t.topics++;
     if (needsHelper(s)) t.helpers++;
@@ -116,17 +131,19 @@ export function countTodo(deck: Deck): Todo {
       if (needsPlain(e)) t.plain++;
       if (needsAudio(e)) t.audio++;
       if (needsPlainAudio(e)) t.audio++;
+      if (needsPointers(e)) t.pointers++;
     }
     // Helper elements speak too (no plain version: the helper IS the simpler way)
     for (const e of helperElements(s)) {
       if (needsSay(e)) t.say++;
       if (needsAudio(e)) t.audio++;
+      if (needsPointers(e)) t.pointers++;
     }
   }
   return t;
 }
 
-export const todoTotal = (t: Todo) => t.helpers + t.topics + t.say + t.plain + t.audio;
+export const todoTotal = (t: Todo) => t.helpers + t.pointers + t.topics + t.say + t.plain + t.audio;
 
 /* -------------------------------------------------------- applying */
 
@@ -138,7 +155,8 @@ export type Patch =
   | (At & { kind: 'say'; say: string; sayFrom: string })
   | (At & { kind: 'plain'; plain: string; plainFrom: string })
   | (At & { kind: 'audio'; audioUrl: string; audioFor: string })
-  | (At & { kind: 'plainAudio'; plainAudioUrl: string; plainAudioFor: string });
+  | (At & { kind: 'plainAudio'; plainAudioUrl: string; plainAudioFor: string })
+  | (At & { kind: 'pointers'; pointers: Pointer[]; pointersFrom: string });
 
 /**
  * Applies AI results to a deck, but only where they still fit: the source is
@@ -184,6 +202,12 @@ export function applyPatches(deck: Deck, patches: Patch[]): number {
       case 'audio':
         if (audioKey(spokenText(el), false) === p.audioFor) {
           Object.assign(el, { audioUrl: p.audioUrl, audioFor: p.audioFor });
+          applied++;
+        }
+        break;
+      case 'pointers':
+        if ((el.pointers === undefined || el.pointersByAI) && fingerprint(pointersBasis(el)) === p.pointersFrom) {
+          Object.assign(el, { pointers: p.pointers, pointersByAI: true, pointersFrom: p.pointersFrom });
           applied++;
         }
         break;

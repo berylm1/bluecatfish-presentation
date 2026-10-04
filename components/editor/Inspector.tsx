@@ -36,8 +36,13 @@ export function ElementInspector({
   onDuplicate,
   onLayer,
   warnings,
+  placing,
+  onPlacePointer,
 }: {
   el: SlideElement;
+  /** The laser mark being placed (click on the slide to put it), if any */
+  placing?: number | null;
+  onPlacePointer?: (index: number | null) => void;
   /** 1-based speaking position, or null when silent */
   order: number | null;
   update: (patch: Partial<SlideElement>) => void;
@@ -49,7 +54,7 @@ export function ElementInspector({
   return (
     <div className="flex flex-col gap-4">
       <div className="flex items-center justify-between">
-        <h3 className="font-bold text-slate-900">{el.type === 'text' ? 'Text box' : 'Image'}</h3>
+        <h3 className="font-bold text-slate-900">{el.type === 'text' ? 'Text box' : el.type === 'chart' ? 'Bar chart' : 'Image'}</h3>
         <div className="flex gap-1">
           <button className={small} onClick={onDuplicate} title="Duplicate (Ctrl+D)">Duplicate</button>
           <button className={`${small} text-red-600`} onClick={onDelete} title="Delete (Del)">Delete</button>
@@ -88,6 +93,35 @@ export function ElementInspector({
                 {a === 'left' ? '⯇ Left' : a === 'center' ? 'Center' : 'Right ⯈'}
               </button>
             ))}
+          </div>
+        </>
+      ) : el.type === 'chart' ? (
+        <>
+          <div>
+            <label className={label}>Bars</label>
+            <div className="flex flex-col gap-1">
+              {el.bars.map((b, i) => (
+                <div key={i} className="flex gap-1">
+                  <input className={input} value={b.label} placeholder="Label"
+                    onChange={(e) => update({ bars: el.bars.map((x, j) => (j === i ? { ...x, label: e.target.value } : x)) })} />
+                  <input className={`${input} w-24`} type="number" min={0} value={b.value}
+                    onChange={(e) => update({ bars: el.bars.map((x, j) => (j === i ? { ...x, value: Math.max(0, Number(e.target.value) || 0) } : x)) })} />
+                  <button className={`${small} text-red-600`} disabled={el.bars.length <= 1} aria-label={`Remove bar ${i + 1}`}
+                    onClick={() => update({ bars: el.bars.filter((_, j) => j !== i) })}>✕</button>
+                </div>
+              ))}
+              {el.bars.length < 6 && <button className={`${small} self-start`} onClick={() => update({ bars: [...el.bars, { label: 'New', value: 1 }] })}>+ Add a bar</button>}
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <div>
+              <label className={label}>Unit</label>
+              <input className={input} value={el.unit ?? ''} placeholder="lbs, %, years" onChange={(e) => update({ unit: e.target.value || undefined })} />
+            </div>
+          </div>
+          <div>
+            <label className={label}>Description</label>
+            <textarea rows={2} className={input} value={el.alt ?? ''} placeholder="What the chart shows" onChange={(e) => update({ alt: e.target.value || undefined })} />
           </div>
         </>
       ) : (
@@ -155,6 +189,7 @@ export function ElementInspector({
                 onChange={(e) => update({ queue: e.target.value === '' ? undefined : Math.max(1, Math.round(Number(e.target.value))) })}
               />
             </div>
+            <LaserMarks el={el} update={update} placing={placing ?? null} onPlace={onPlacePointer} />
           </>
         )}
       </div>
@@ -249,6 +284,55 @@ export function SlideInspector({
         <p className="text-xs text-slate-500 mt-1">
           {recapByAI ? 'Written by the AI: it is rewritten on each publish until you edit it.' : recap?.trim() ? 'Yours: publishing keeps it as it is.' : ''}
         </p>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Laser-pointer marks: when the professor says the phrase, a red dot points
+ * at the spot. "Place" then a click on the slide puts the mark there.
+ */
+function LaserMarks({ el, update, placing, onPlace }: {
+  el: SlideElement;
+  update: (patch: Partial<SlideElement>) => void;
+  placing: number | null;
+  onPlace?: (index: number | null) => void;
+}) {
+  const marks = el.pointers ?? [];
+  const spoken = (el.say ?? (el.type === 'text' ? el.text : '')).toLowerCase();
+  const set = (next: typeof marks) => update({ pointers: next, pointersByAI: undefined });   // a person's marks: the AI leaves them alone
+  return (
+    <div>
+      <label className={label}>🔴 Laser pointer <AiBadge show={el.pointersByAI} /></label>
+      <p className="text-xs text-slate-500 mb-2">When the professor says a phrase, a red dot points at a spot{el.type === 'image' ? ' on the picture' : ''}.</p>
+      <div className="flex flex-col gap-1.5">
+        {marks.map((m, i) => {
+          const heard = !m.word.trim() || spoken.includes(m.word.toLowerCase().trim());
+          return (
+            <div key={i} className="flex flex-col gap-0.5">
+              <div className="flex gap-1 items-center">
+                <span className="w-5 h-5 shrink-0 rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center">{i + 1}</span>
+                <input
+                  className={input}
+                  value={m.word}
+                  placeholder="Phrase from the spoken words"
+                  onChange={(e) => set(marks.map((x, j) => (j === i ? { ...x, word: e.target.value } : x)))}
+                />
+                <button className={`${small} ${placing === i ? 'bg-red-500 text-white hover:bg-red-600' : ''}`} onClick={() => onPlace?.(placing === i ? null : i)}>
+                  {placing === i ? 'Click the slide…' : 'Place'}
+                </button>
+                <button className={`${small} text-red-600`} onClick={() => { onPlace?.(null); set(marks.filter((_, j) => j !== i)); }} aria-label={`Remove mark ${i + 1}`}>✕</button>
+              </div>
+              {!heard && <p className="text-[11px] text-amber-700 pl-6">The spoken words don’t contain this phrase, so the dot won’t show.</p>}
+            </div>
+          );
+        })}
+        {marks.length < 3 && (
+          <button className={`${small} self-start`} onClick={() => { set([...marks, { word: '', x: 50, y: 50 }]); onPlace?.(marks.length); }}>
+            + Add a mark
+          </button>
+        )}
       </div>
     </div>
   );

@@ -1,9 +1,10 @@
 import { lazySupabaseAdmin } from '@/lib/supabase/admin';
 import { TTS_VOICE, VOICE_INSTRUCTIONS, SIMPLE_VOICE_INSTRUCTIONS } from '@/lib/voice';
-import type { Deck, Slide, SlideElement } from './types';
+import type { Deck, Pointer, Slide, SlideElement } from './types';
 import { spokenText } from './queue';
 import {
-  applyPatches, audioKey, fingerprint, helperElements, needsAudio, needsHelper, needsPlain, needsPlainAudio, needsSay, needsTopic,
+  applyPatches, audioKey, fingerprint, helperElements, needsAudio, needsHelper, needsPlain, needsPlainAudio, needsPointers, needsSay, needsTopic,
+  pointersBasis,
   plainText, sayBasis, slideBasis, type Patch,
 } from './aiFields';
 
@@ -19,7 +20,7 @@ const AUDIO_FOLDER = 'canvas';
 
 // Shared AI helpers live in ai.ts (re-exported here: generate.ts imports them from this file)
 export { STYLE, chat, knowledge } from './ai';
-import { STYLE, chat, knowledge } from './ai';
+import { STYLE, chat, chatVision, knowledge } from './ai';
 import { draftHelper } from './helperDraft';
 
 const otherText = (slide: Slide, el: SlideElement) =>
@@ -38,6 +39,30 @@ async function writeSay(el: SlideElement, slide: Slide, deck: Deck): Promise<str
       'Name the subject in the first sentence (never open with "It", "This" or "They"), because learners can jump straight here.',
     `Lesson: ${deck.title}\nTopic: ${slide.topic ?? '(not set)'}\n${what}\nOther things on this slide: ${otherText(slide, el) || '(nothing)'}\n\nKnowledge base excerpts:\n${facts || '(none found)'}`,
   );
+}
+
+/** Up to 3 laser marks on a picture: what to point at while saying which phrase. */
+async function placePointers(el: SlideElement): Promise<Pointer[]> {
+  if (el.type !== 'image') return [];
+  const spoken = spokenText(el);
+  const out = JSON.parse(await chatVision(
+    'You place a teacher\'s laser pointer on a picture shown in a lesson. Given the picture and what the teacher says about it, ' +
+      'pick up to 3 moments where pointing at one specific, clearly visible part of the picture helps (the words name or describe it). ' +
+      'For each: "word" = the short phrase (1-4 words) copied EXACTLY from the spoken words, at the moment to point; ' +
+      '"x", "y" = that spot in the picture, in percent of its width and height (0-100, from the top-left). ' +
+      'Only point at things you can clearly see. None is fine. Reply as JSON: {"points": [{"word": "...", "x": 0, "y": 0}]}',
+    `What the teacher says: "${spoken}"\nPicture description: ${el.alt ?? '(none)'}`,
+    el.src,
+  ));
+  const lower = spoken.toLowerCase();
+  return (Array.isArray(out.points) ? out.points : [])
+    .filter((p: any) => typeof p?.word === 'string' && p.word.trim() && lower.includes(p.word.toLowerCase().trim()))
+    .slice(0, 3)
+    .map((p: any) => ({
+      word: p.word.trim().slice(0, 60),
+      x: Math.min(100, Math.max(0, Math.round(Number(p.x) * 10) / 10 || 50)),
+      y: Math.min(100, Math.max(0, Math.round(Number(p.y) * 10) / 10 || 50)),
+    }));
 }
 
 async function writePlain(spoken: string): Promise<string> {
@@ -174,6 +199,13 @@ export async function prepareDeck(source: Deck, deadline: number): Promise<{ pat
       const spoken = spokenText(el);
       keep({ slideId: slide.id, elId: el.id, kind: 'plain', plain: await writePlain(spoken), plainFrom: fingerprint(spoken) });
     } catch (e) { fail('Writing a plain version', e); }
+  });
+
+  // 2b. Laser marks on pictures (from the spoken words, including ones just written)
+  await pool(jobs(deck, needsPointers, true), deadline, async ({ slide, el, helper }) => {
+    try {
+      keep({ slideId: baseId(slide.id), elId: el.id, helper, kind: 'pointers', pointers: await placePointers(el), pointersFrom: fingerprint(pointersBasis(el)) });
+    } catch (e) { fail('Placing laser marks', e); }
   });
 
   // 3. Audio for the spoken words and the plain versions
