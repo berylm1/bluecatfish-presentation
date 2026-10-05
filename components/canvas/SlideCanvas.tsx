@@ -97,9 +97,10 @@ function LaserDot({ el, p, imgRef }: { el: SlideElement; p: Pointer; imgRef: Rea
   );
 }
 
-function ElementView({ el, active, laser, dim = 1, interactive = false, onActivityDone, activityHint, solvedActivities, settledActivities }: {
+function ElementView({ el, active, laser, dim = 1, interactive = false, onActivityDone, activityHint, solvedActivities, settledActivities, activitySounds, onActivityMistake }: {
   el: SlideElement; active: boolean; laser?: Pointer | null; dim?: number; interactive?: boolean; onActivityDone?: (id: string) => void; activityHint?: number;
-  solvedActivities?: ReadonlySet<string>; settledActivities?: ReadonlySet<string>;
+  solvedActivities?: ReadonlySet<string>; settledActivities?: ReadonlySet<string>; activitySounds?: boolean;
+  onActivityMistake?: (elementId: string, what: string) => void;
 }) {
   const imgRef = useRef<HTMLImageElement>(null);
   const decorative = el.type === 'image' && el.silent && !el.alt;
@@ -133,7 +134,8 @@ function ElementView({ el, active, laser, dim = 1, interactive = false, onActivi
       ) : el.type === 'activity' ? (
         // a fresh start whenever the box itself changes (the editor)
         <ActivityView key={JSON.stringify([el.kind, el.items, el.groups, el.slider, el.src])} el={el} interactive={interactive} onDone={() => onActivityDone?.(el.id)} hintNonce={activityHint}
-          solved={solvedActivities?.has(el.id)} quiet={settledActivities?.has(el.id)} />
+          solved={solvedActivities?.has(el.id)} quiet={settledActivities?.has(el.id)} sounds={activitySounds}
+          onMistake={(what) => onActivityMistake?.(el.id, what)} />
       ) : (
         // eslint-disable-next-line @next/next/no-img-element
         <img
@@ -313,6 +315,8 @@ function SlideCanvas({
   solvedActivities,
   settledActivities,
   settledTick: _settledTick,
+  activitySounds = false,
+  onActivityMistake,
   children,
 }: {
   slide: Slide;
@@ -338,6 +342,10 @@ function SlideCanvas({
   settledActivities?: ReadonlySet<string>;
   /** Bump when the sets above change (they're the same objects, so the memo wouldn't see it) */
   settledTick?: number;
+  /** Hands-on boxes make little sounds */
+  activitySounds?: boolean;
+  /** A wrong move in a hands-on box (for the learner stats) */
+  onActivityMistake?: (elementId: string, what: string) => void;
   /** Drawn on top of the slide (the editor's selection boxes) */
   children?: React.ReactNode;
 }) {
@@ -366,7 +374,7 @@ function SlideCanvas({
       {morphing ? <Solved.Provider value={solvedActivities}><MorphLayer plan={morphing.plan} on={morphing.on} /></Solved.Provider> : slide.elements.map((el) => (
         <ElementView key={el.id} el={el} active={el.id === activeId} laser={laser?.elementId === el.id ? laser.pointer : null}
           dim={activeId && slide.elements.some((e) => e.id === activeId) ? spotlight : 1}
-          interactive={interactive} onActivityDone={onActivityDone} activityHint={activityHint} solvedActivities={solvedActivities} settledActivities={settledActivities} />
+          interactive={interactive} onActivityDone={onActivityDone} activityHint={activityHint} solvedActivities={solvedActivities} settledActivities={settledActivities} activitySounds={activitySounds} onActivityMistake={onActivityMistake} />
       ))}
       {children}
     </div>

@@ -21,6 +21,26 @@ export function heatTitle(s: SlideStats): string {
   return `${s.struggled} of ${s.learners} learner${s.learners === 1 ? '' : 's'} struggled on this slide`;
 }
 
+/** The slide's hands-on box: how often it's done or skipped, how long it takes, which items trip learners up. */
+function HandsOnRow({ h }: { h: NonNullable<SlideStats['handsOn']> }) {
+  const doneShare = h.started ? Math.round((h.done / h.started) * 100) : null;
+  return (
+    <div className="mt-1.5 pt-1.5 border-t border-slate-100 flex flex-wrap gap-x-4 gap-y-1">
+      <span className="font-semibold text-slate-900">🖐 Hands-on</span>
+      <span className="whitespace-nowrap">done <b>{h.done}</b> of <b>{h.started}</b>{doneShare !== null && ` (${doneShare}%)`}</span>
+      {h.skipped > 0 && <span className="whitespace-nowrap" title="Learners who pressed Skip">skipped <b>{h.skipped}</b></span>}
+      {h.avgSeconds !== null && <span className="whitespace-nowrap">⏱ avg <b>{h.avgSeconds}</b>s to finish</span>}
+      {h.wrong > 0 && <span className="whitespace-nowrap" title="Drops in the wrong group, steps tapped out of order">✗ wrong moves <b>{h.wrong}</b></span>}
+      {h.hints > 0 && <span className="whitespace-nowrap" title="“I’m lost” or a puzzled face while doing it: the hand showed again">👆 needed the hint <b>{h.hints}</b></span>}
+      {h.hardest.length > 0 && (
+        <span className="whitespace-nowrap" title="What went wrong most often">
+          trickiest: {h.hardest.map(([item, n], i) => <span key={item}>{i ? ', ' : ''}<b>{item}</b> ({n})</span>)}
+        </span>
+      )}
+    </div>
+  );
+}
+
 export function SlideStatsPanel({ stats, days, onClose }: { stats: SlideStats | undefined; days: number; onClose: () => void }) {
   const row = (label: string, n: number | string | null, hint?: string) =>
     n === 0 || n === null ? null : (
@@ -58,6 +78,7 @@ export function SlideStatsPanel({ stats, days, onClose }: { stats: SlideStats | 
           {row('⏱ avg seconds here', stats.avgSeconds)}
         </div>
       )}
+      {stats?.handsOn && <HandsOnRow h={stats.handsOn} />}
     </div>
   );
 }

@@ -112,10 +112,20 @@ export default function EditCanvas({
   const placeAt = (e: React.PointerEvent, el: SlideElement) => {
     e.stopPropagation();
     e.preventDefault();
+    const round = (v: number) => Math.round(Math.min(100, Math.max(0, v)) * 10) / 10;
+    if (el.type === 'activity') {
+      // An explore spot: % of the picture inside the hands-on box (under its instruction line)
+      const img = wrapRef.current?.querySelector<HTMLImageElement>(`[data-element-id="${CSS.escape(el.id)}"] [data-activity] img`);
+      if (!img) return;
+      const ib = img.getBoundingClientRect();
+      const r = contentRect(ib.width, ib.height, img.naturalWidth, img.naturalHeight, 'contain');
+      const bx = ((e.clientX - ib.left) / ib.width) * 100, by = ((e.clientY - ib.top) / ib.height) * 100;
+      onPlace?.(round(((bx - r.x) / r.w) * 100), round(((by - r.y) / r.h) * 100));
+      return;
+    }
     const box = (e.currentTarget as HTMLElement).getBoundingClientRect();
     const r = picRect(el);
     const bx = ((e.clientX - box.left) / box.width) * 100, by = ((e.clientY - box.top) / box.height) * 100;
-    const round = (v: number) => Math.round(Math.min(100, Math.max(0, v)) * 10) / 10;
     onPlace?.(round(((bx - r.x) / r.w) * 100), round(((by - r.y) / r.h) * 100));
   };
 
@@ -173,7 +183,7 @@ export default function EditCanvas({
               })}
               {placing?.elId === el.id && (
                 <div className="absolute inset-0 cursor-crosshair bg-red-500/10 outline outline-2 outline-dashed outline-red-500" style={{ zIndex: 3 }}
-                  onPointerDown={(e) => placeAt(e, el)} title="Click where the laser should point" />
+                  onPointerDown={(e) => placeAt(e, el)} title={el.type === 'activity' ? 'Click where the spot goes on the picture' : 'Click where the laser should point'} />
               )}
               {isSel && HANDLES.map((h) => (
                 <span

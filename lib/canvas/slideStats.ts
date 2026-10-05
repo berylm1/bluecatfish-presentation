@@ -30,13 +30,27 @@ export type SlideStats = {
   helpAccepted: number;      //   … and they said yes
   avgSeconds: number | null; // average time on the slide
   away: number;              // looked away / left the camera
+  /** The slide's hands-on box (null when it has none, or nobody got to it) */
+  handsOn: HandsOnStats | null;
+};
+
+export type HandsOnStats = {
+  started: number;           // the lesson waited for a learner to do it
+  done: number;
+  skipped: number;
+  hints: number;             // "I'm lost" / a puzzled face while doing it: the hand showed again
+  wrong: number;             // wrong moves (a drop in the wrong group, a step out of order)
+  avgSeconds: number | null; // from the learner's turn to done
+  /** What went wrong most: [item, times], most first (at most 5) */
+  hardest: [string, number][];
 };
 
 const empty = (): SlideStats => ({
   learners: 0, struggled: 0, share: 0, puzzledFace: 0, boredFace: 0, lostClicks: 0, simpler: 0,
   repeats: 0, questions: 0, selfCheck: { got: 0, kind: 0, lost: 0 }, helpOffered: 0, helpAccepted: 0,
-  avgSeconds: null, away: 0,
+  avgSeconds: null, away: 0, handsOn: null,
 });
+const emptyHandsOn = (): HandsOnStats => ({ started: 0, done: 0, skipped: 0, hints: 0, wrong: 0, avgSeconds: null, hardest: [] });
 
 /** Stats per slide id. */
 export function slideStats(rows: EventRow[]): Record<string, SlideStats> {
@@ -44,6 +58,8 @@ export function slideStats(rows: EventRow[]): Record<string, SlideStats> {
   const seen: Record<string, Set<string>> = {};
   const struggled: Record<string, Set<string>> = {};
   const dwell: Record<string, number[]> = {};
+  const handsOnTimes: Record<string, number[]> = {};
+  const wrongItems: Record<string, Record<string, number>> = {};
 
   for (const r of rows) {
     const slide = typeof r.value?.slide === 'string' ? r.value.slide : null;
@@ -71,6 +87,21 @@ export function slideStats(rows: EventRow[]): Record<string, SlideStats> {
         if (v.action === 'checkin') {
           s.helpOffered++;
           if (v.answer === 'yes') s.helpAccepted++;
+        } else if (typeof v.action === 'string' && v.action.startsWith('activity_')) {
+          const h = (s.handsOn ??= emptyHandsOn());
+          if (v.action === 'activity_start') h.started++;
+          else if (v.action === 'activity_done') {
+            h.done++;
+            if (typeof v.seconds === 'number' && v.seconds > 0 && v.seconds < 900) (handsOnTimes[slide] ??= []).push(v.seconds);
+          } else if (v.action === 'activity_skip') h.skipped++;
+          else if (v.action === 'activity_hint') h.hints++;
+          else if (v.action === 'activity_wrong') {
+            h.wrong++;
+            if (typeof v.item === 'string' && v.item) {
+              const w = (wrongItems[slide] ??= {});
+              w[v.item] = (w[v.item] ?? 0) + 1;
+            }
+          }
         }
         break;
       case 'dwell':
@@ -86,6 +117,11 @@ export function slideStats(rows: EventRow[]): Record<string, SlideStats> {
     s.share = s.learners ? s.struggled / s.learners : 0;
     const d = dwell[slide];
     s.avgSeconds = d?.length ? Math.round(d.reduce((a, b) => a + b, 0) / d.length / 1000) : null;
+    if (s.handsOn) {
+      const t = handsOnTimes[slide];
+      s.handsOn.avgSeconds = t?.length ? Math.round(t.reduce((a, b) => a + b, 0) / t.length) : null;
+      s.handsOn.hardest = Object.entries(wrongItems[slide] ?? {}).sort((a, b) => b[1] - a[1]).slice(0, 5);
+    }
   }
   return out;
 }

@@ -136,7 +136,7 @@ export function ElementInspector({
       ) : el.type === 'diagram' ? (
         <DiagramFields key={el.id} el={el} update={update} />
       ) : el.type === 'activity' ? (
-        <ActivityFields key={el.id} el={el} update={update} />
+        <ActivityFields key={el.id} el={el} update={update} placing={placing ?? null} onPlace={onPlacePointer} />
       ) : (
         <>
           {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -202,8 +202,14 @@ export function ElementInspector({
                 onChange={(e) => update({ queue: e.target.value === '' ? undefined : Math.max(1, Math.round(Number(e.target.value))) })}
               />
             </div>
-            <LaserMarks el={el} update={update} placing={placing ?? null} onPlace={onPlacePointer} />
+            {/* (a hands-on box has its own spots to place; a laser on it would make no sense) */}
+            {el.type !== 'activity' && <LaserMarks el={el} update={update} placing={placing ?? null} onPlace={onPlacePointer} />}
           </>
+        )}
+        {el.silent && el.type !== 'activity' && (
+          <p className="text-xs text-slate-500">
+            🔴 No laser pointer: silent elements don’t speak, so there’s nothing for the dot to follow. Untick Silent to give it words (and laser marks).
+          </p>
         )}
       </div>
 
@@ -319,6 +325,17 @@ function LaserMarks({ el, update, placing, onPlace }: {
     <div>
       <label className={label}>🔴 Laser pointer <AiBadge show={el.pointersByAI} /></label>
       <p className="text-xs text-slate-500 mb-2">When the professor says a phrase, a red dot points at a spot{el.type === 'image' ? ' on the picture' : ''}.</p>
+      {!marks.length && (
+        <p className="text-xs text-slate-500 mb-2">
+          {el.pointers === undefined && el.type === 'image' && /^https:\/\//.test(el.src)
+            ? 'No marks yet: when you save, the AI looks at the picture and places up to 3 where they help (sometimes none). Or add your own.'
+            : el.pointers === undefined && el.type === 'image'
+              ? 'No marks yet, and the AI can’t look at this picture (it isn’t a web address), so add them here if you want the dot.'
+              : el.pointers === undefined
+                ? 'No marks: the AI only places them on pictures. Add your own to point at part of this box.'
+                : 'None: you (or the AI) chose no marks for this one.'}
+        </p>
+      )}
       <div className="flex flex-col gap-1.5">
         {marks.map((m, i) => {
           const heard = !m.word.trim() || spoken.includes(m.word.toLowerCase().trim());
@@ -426,7 +443,45 @@ function DiagramFields({ el, update }: { el: DiagramElement; update: Update }) {
   );
 }
 
-function ActivityFields({ el, update }: { el: ActivityElement; update: Update }) {
+/**
+ * The explore box's spots: a name, what the learner finds out, and where it is.
+ * "Place" then a click on the picture puts it there (like a laser mark).
+ * (was: typed as "Name | fact | x | y" lines)
+ */
+function SpotRows({ el, set, placing, onPlace }: {
+  el: ActivityElement; set: (patch: Partial<ActivityElement>) => void; placing: number | null; onPlace?: (index: number | null) => void;
+}) {
+  const items = el.items ?? [];
+  const change = (i: number, patch: Partial<NonNullable<ActivityElement['items']>[number]>) => set({ items: items.map((it, j) => (j === i ? { ...it, ...patch } : it)) });
+  return (
+    <div>
+      <label className={label}>Spots (up to 8)</label>
+      <div className="flex flex-col gap-2">
+        {items.map((it, i) => (
+          <div key={i} className="flex flex-col gap-1 border border-slate-200 rounded-md p-1.5">
+            <div className="flex gap-1 items-center">
+              <span className="w-5 h-5 shrink-0 rounded-full bg-orange-500 text-white text-[10px] font-bold flex items-center justify-center">{i + 1}</span>
+              <input className={input} value={it.text} placeholder="Name (Whiskers)" onChange={(e) => change(i, { text: e.target.value })} />
+              <button className={`${small} ${placing === i ? 'bg-orange-500 text-white hover:bg-orange-600' : ''}`} onClick={() => onPlace?.(placing === i ? null : i)}>
+                {placing === i ? 'Click the picture…' : 'Place'}
+              </button>
+              <button className={`${small} text-red-600`} aria-label={`Remove spot ${i + 1}`}
+                onClick={() => { onPlace?.(null); set({ items: items.filter((_, j) => j !== i) }); }}>✕</button>
+            </div>
+            <input className={input} value={it.back ?? ''} placeholder="What they find out (They taste the water)" onChange={(e) => change(i, { back: e.target.value || undefined })} />
+          </div>
+        ))}
+        {items.length < 8 && (
+          <button className={`${small} self-start`} onClick={() => { set({ items: [...items, { text: 'New spot', x: 50, y: 50 }] }); onPlace?.(items.length); }}>
+            + Add a spot
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function ActivityFields({ el, update, placing = null, onPlace }: { el: ActivityElement; update: Update; placing?: number | null; onPlace?: (index: number | null) => void }) {
   const set = (patch: Partial<ActivityElement>) => update(patch as Partial<SlideElement>);
   const items = el.items ?? [];
   return (
@@ -476,9 +531,7 @@ function ActivityFields({ el, update }: { el: ActivityElement; update: Update })
             <label className={label}>Picture address</label>
             <input className={input} value={el.src ?? ''} placeholder="https://… or /canvas-sample/catfish.svg" onChange={(e) => set({ src: e.target.value || undefined })} />
           </div>
-          <LinesField id="act-spots" title="Spots (up to 8)" hint="Name | what they find out | x | y  (x, y = % across and down the picture)"
-            initial={items.map((i) => join(i.text, i.back, i.x, i.y)).join('\n')}
-            onLines={(l) => set({ items: l.slice(0, 8).map((c) => ({ text: c[0], back: c[1] || undefined, x: numOr(c[2]) ?? 50, y: numOr(c[3]) ?? 50 })) })} />
+          <SpotRows el={el} set={set} placing={placing} onPlace={onPlace} />
         </>
       )}
       {el.kind === 'slider' && (

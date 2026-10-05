@@ -716,6 +716,14 @@ function Editor({
               placing={placingMark !== null && element ? { elId: element.id, index: placingMark } : null}
               onPlace={(x, y) => {
                 if (!element || placingMark === null) return;
+                if (element.type === 'activity') {
+                  // an explore spot (the hands-on box's own "Place")
+                  const items = [...(element.items ?? [])];
+                  if (items[placingMark]) items[placingMark] = { ...items[placingMark], x, y };
+                  ed.updateElement(element.id, { items } as Partial<SlideElement>);
+                  setPlacingMark(null);
+                  return;
+                }
                 const marks = [...(element.pointers ?? [])];
                 if (marks[placingMark]) marks[placingMark] = { ...marks[placingMark], x, y };
                 ed.updateElement(element.id, { pointers: marks, pointersByAI: undefined });

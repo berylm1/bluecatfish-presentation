@@ -92,6 +92,7 @@ const HAND_RING_MS = 2500;   // how long the camera bubble stays yellow after a 
 const SPOTLIGHT = 0.7;
 // How often Finn gets something wrong on purpose for the learner to catch (never his first turn; 0 = never)
 const FINN_MISTAKE_CHANCE = 0.5;
+const MIN_VISUAL_MS = 3000;   // a board (or slide) shown with an answer stays up at least this long
 
 /** The topic the learner found hardest (by self-checks, "I'm lost"s, simpler/repeat requests), or null if none was hard. */
 function hardestTopic(deck: Deck, topicOf: number[], stateOf: (topic: number) => SectionState): string | null {
@@ -129,13 +130,21 @@ function Player({ deck, preview, startAt = 0 }: { deck: Deck; preview: boolean; 
   const [showTranscript, setShowTranscript] = useState(true);   // top-right text of what's being said
   const [classmateOn, setClassmateOn] = useState(true);         // Finn, the AI classmate, asks questions at topic ends
   const [classmateSaying, setClassmateSaying] = useState(false);
+  // Hands-on sounds (pop, bonk, chime): on unless turned off (remembered on this browser)
+  const [soundsOn, setSoundsOn] = useState(true);
+  useEffect(() => { try { setSoundsOn(localStorage.getItem('handsOnSounds') !== 'off'); } catch { /* private mode */ } }, []);
+  const toggleSounds = () => setSoundsOn((on) => {
+    try { localStorage.setItem('handsOnSounds', on ? 'off' : 'on'); } catch { /* private mode */ }
+    return !on;
+  });
   // What to call the learner (optional, asked on the start screen; remembered on this browser)
   const [learnerName, setLearnerName] = useState('');
   useEffect(() => { try { setLearnerName(localStorage.getItem('learnerName') ?? ''); } catch { /* private mode */ } }, []);
   const topicEndRef = useRef<(from: number, to: number) => void>(() => {});
   // Hands-on boxes: the ones finished this lesson, and the one it's waiting on now
   const activitiesDone = useRef(new Set<string>());
-  const activitiesSolved = useRef(new Set<string>());   // done by the learner (not skipped): drawn finished if drawn again
+  const activitiesSolved = useRef(new Set<string>());
+  const turnStarted = useRef(new Map<string, number>());   // when the learner's turn began (time to finish, for the stats)   // done by the learner (not skipped): drawn finished if drawn again
   const [yourTurn, setYourTurn] = useState<string | null>(null);
   const yourTurnRef = useRef(yourTurn);
   yourTurnRef.current = yourTurn;
@@ -157,7 +166,11 @@ function Player({ deck, preview, startAt = 0 }: { deck: Deck; preview: boolean; 
     onHold: (from, to) => { topicEndRef.current(from, to); },
     // A hands-on box: after the professor says what to do, the learner's turn (until done or skipped)
     waitAfter: (el) => el.type === 'activity' && activityReady(el) && !activitiesDone.current.has(el.id),
-    onWait: (el) => { setYourTurn(el.id); tracking.track('tutor_decision', { action: 'activity_start', kind: el.type === 'activity' ? el.kind : '' }); },
+    onWait: (el) => {
+      setYourTurn(el.id);
+      turnStarted.current.set(el.id, Date.now());
+      tracking.track('tutor_decision', { action: 'activity_start', kind: el.type === 'activity' ? el.kind : '' });
+    },
     startAt,
   });
   const tutor = useTutor();
@@ -273,6 +286,7 @@ function Player({ deck, preview, startAt = 0 }: { deck: Deck; preview: boolean; 
     // (was: both looked up at once and each shown as it arrived, so the slide
     // jumped to the authored slide and then again to the board)
     let answering = true;   // a visual that arrives after the answer is over isn't shown
+    let shownAt = 0;        // when it went up (it stays at least MIN_VISUAL_MS, so it never just flashes)
     if (MORPH_HELPERS && base && !handsOn) {
       const wantBoard = question.trim().split(/\s+/).length >= 3;
       Promise.all([
@@ -281,6 +295,7 @@ function Player({ deck, preview, startAt = 0 }: { deck: Deck; preview: boolean; 
       ]).then(([board, slide]) => {
         if (!answering) return;
         variantMode.current = 'answer';
+        if (board || slide) shownAt = Date.now();
         if (board) {
           tracking.track('tutor_decision', { action: 'board', title: String(board.elements[0]?.type === 'text' ? board.elements[0].text : '') });
           // keeps the slide's background, so it's the slide turning into the board
@@ -296,6 +311,9 @@ function Player({ deck, preview, startAt = 0 }: { deck: Deck; preview: boolean; 
       : '');
     const { decision, superseded } = await tutor.ask(question, context, { holdUntil: quiet, asker: opts.asker });
     answering = false;
+    // A drawing that arrived near the end of the answer stays up a moment before the slide turns back
+    const left = shownAt && !superseded ? MIN_VISUAL_MS - (Date.now() - shownAt) : 0;
+    if (left > 0) await new Promise((r) => setTimeout(r, left));
     if (variantMode.current === 'answer') setVariant(null);
     if (superseded) return;   // talked over the answer: the next turn decides what happens
     if (opts.resume === false) return;
@@ -689,6 +707,7 @@ function Player({ deck, preview, startAt = 0 }: { deck: Deck; preview: boolean; 
     // Puzzled while doing a hands-on box: no interruption, just the hand showing how again
     if (state === 'confused' && yourTurnRef.current) {
       tracking.track('emotion_state', { state, during: 'activity' }, { confusion_marks: 1 });
+      tracking.track('tutor_decision', { action: 'activity_hint', why: 'face' });
       setActivityHint((n) => n + 1);
       return;
     }
@@ -793,11 +812,17 @@ function Player({ deck, preview, startAt = 0 }: { deck: Deck; preview: boolean; 
     activitiesDone.current.add(id);
     activitiesSolved.current.add(id);
     setSettledTick((n) => n + 1);
-    track('tutor_decision', { action: 'activity_done' });
+    const began = turnStarted.current.get(id);
+    turnStarted.current.delete(id);
+    track('tutor_decision', { action: 'activity_done', ...(began ? { seconds: Math.round((Date.now() - began) / 1000) } : {}) });
     if (yourTurnRef.current !== id) return;   // done while the professor was still explaining: the lesson just carries on
     setYourTurn(null);
     playCue({ text: praise }).then(() => { if (playerRef.current.activeId === id) playerRef.current.nextClip(); });
   }, [track, playCue, praise]);
+  // A wrong move (for the editor's learner stats: which items trip learners up)
+  const onActivityMistake = useCallback((_id: string, what: string) => {
+    track('tutor_decision', { action: 'activity_wrong', item: what.slice(0, 80) });
+  }, [track]);
   const skipActivity = () => {
     const id = yourTurnRef.current;
     if (!id) return;
@@ -937,7 +962,7 @@ function Player({ deck, preview, startAt = 0 }: { deck: Deck; preview: boolean; 
         ) : (
           <SlideCanvas slide={shownSlide} activeId={variant ? helperActive : player.activeId} morph={MORPH_HELPERS} laser={laser} spotlight={SPOTLIGHT}
             interactive onActivityDone={onActivityDone} activityHint={activityHint}
-            solvedActivities={activitiesSolved.current} settledActivities={activitiesDone.current} settledTick={settledTick} />
+            solvedActivities={activitiesSolved.current} settledActivities={activitiesDone.current} settledTick={settledTick} activitySounds={soundsOn} onActivityMistake={onActivityMistake} />
         )}
         {variant && !MORPH_HELPERS && <VariantOverlay variant={variant} onDone={closeVariant} />}
         {variant && MORPH_HELPERS && (
@@ -1067,6 +1092,9 @@ function Player({ deck, preview, startAt = 0 }: { deck: Deck; preview: boolean; 
         <button className={`${btn} ${classmateOn ? 'bg-amber-400/30 hover:bg-amber-400/40' : ''}`} onClick={() => setClassmateOn((v) => !v)}
           title={`${CLASSMATE_NAME}, an AI classmate, asks the professor a question at the end of a topic when you didn't`}>
           🙋 {CLASSMATE_NAME} {classmateOn ? 'on' : 'off'}
+        </button>
+        <button className={`${btn} ${soundsOn ? 'bg-white/20' : ''}`} onClick={toggleSounds} title="Little sounds when you do the hands-on activities">
+          {soundsOn ? '🔔' : '🔕'} Sounds {soundsOn ? 'on' : 'off'}
         </button>
         <button className={`${btn} ${showTranscript ? 'bg-white/20' : ''}`} onClick={() => setShowTranscript((v) => !v)} title="Show the words being said (top right)">
           💬 Transcript {showTranscript ? 'on' : 'off'}

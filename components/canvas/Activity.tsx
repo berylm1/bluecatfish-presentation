@@ -5,6 +5,7 @@ import type { ActivityElement } from '@/lib/canvas/types';
 import { contentRect } from '@/lib/canvas/laser';
 import { PALETTE } from './Visuals';
 import { activityReady } from '@/lib/canvas/queue';
+import { playSound, type HandsOnSound } from '@/lib/canvas/sounds';
 
 /*
  * A hands-on box (see ActivityElement): sort into groups, tap in order, flip
@@ -19,8 +20,12 @@ import { activityReady } from '@/lib/canvas/queue';
 const IDLE_HINT_MS = 9000;   // stopped this long before finishing: the hand shows again
 const INK = '#0f172a';
 
-export default function ActivityView({ el, interactive, onDone, hintNonce = 0, solved = false, quiet = false }: {
+export default function ActivityView({ el, interactive, onDone, hintNonce = 0, solved = false, quiet = false, sounds = false, onMistake }: {
   el: ActivityElement; interactive: boolean; onDone?: () => void;
+  /** A wrong move, with what it was about ("Blue catfish → Native"), for the editor's learner stats */
+  onMistake?: (what: string) => void;
+  /** Pops, bonks and a chime (lib/canvas/sounds.ts) */
+  sounds?: boolean;
   /** Done or skipped: no hand or glow (it can still be played with) */
   quiet?: boolean;
   /**
@@ -39,6 +44,12 @@ export default function ActivityView({ el, interactive, onDone, hintNonce = 0, s
   const idle = useRef<ReturnType<typeof setTimeout> | null>(null);
   // state, not a ref: the hand measures it in its own layout effect, which runs before a parent's ref is set
   const [area, setArea] = useState<HTMLDivElement | null>(null);
+  const soundsRef = useRef(sounds);
+  soundsRef.current = sounds;
+  const sound = useCallback((k: HandsOnSound) => { if (soundsRef.current) playSound(k); }, []);
+  const onMistakeRef = useRef(onMistake);
+  onMistakeRef.current = onMistake;
+  const mistake = useCallback((what: string) => { onMistakeRef.current?.(what); }, []);
   const onDoneRef = useRef(onDone);
   onDoneRef.current = onDone;
 
@@ -59,12 +70,13 @@ export default function ActivityView({ el, interactive, onDone, hintNonce = 0, s
     if (idle.current) clearTimeout(idle.current);
     setDone(true);
     setJustDone(true);
+    if (soundsRef.current) playSound('done');
     onDoneRef.current?.();
   }, []);
 
   const ready = activityReady(el);
   const hint = interactive && ready && !touched && !done && !quiet;
-  const kit: Kit = { interactive: interactive && ready && !done, hint, touch, finish, solved };
+  const kit: Kit = { interactive: interactive && ready && !done, hint, touch, finish, solved, sound, mistake };
   // A half-made box: the editor shows what's missing; learners see nothing (it isn't waited on either)
   if (!ready && interactive) return null;
   return (
@@ -96,7 +108,10 @@ export default function ActivityView({ el, interactive, onDone, hintNonce = 0, s
   );
 }
 
-type Kit = { interactive: boolean; hint: boolean; touch: () => void; finish: () => void; solved: boolean };
+type Kit = {
+  interactive: boolean; hint: boolean; touch: () => void; finish: () => void; solved: boolean;
+  sound: (k: HandsOnSound) => void; mistake: (what: string) => void;
+};
 
 /* ---------------------------------------------------------------- hint */
 
@@ -162,7 +177,10 @@ function Sort({ el, kit }: { el: ActivityElement; kit: Kit }) {
       const next = { ...placed, [i]: bin };
       setPlaced(next);
       if (Object.keys(next).length === items.length) kit.finish();
+      else kit.sound('good');
     } else {
+      kit.sound('bad');
+      kit.mistake(`${items[i].text} → ${groups[bin] ?? ''}`);
       setWrong({ item: i, bin });
       setTimeout(() => setWrong((w) => (w?.item === i ? null : w)), 600);
     }
@@ -256,7 +274,10 @@ function Order({ el, kit }: { el: ActivityElement; kit: Kit }) {
     if (k === next) {
       setNext(next + 1);
       if (next + 1 === items.length) kit.finish();
+      else kit.sound('good');
     } else {
+      kit.sound('bad');
+      kit.mistake(`${items[k].text} (too early)`);
       setWrong(k);
       setTimeout(() => setWrong((w) => (w === k ? null : w)), 500);
     }
@@ -294,6 +315,7 @@ function Cards({ el, kit }: { el: ActivityElement; kit: Kit }) {
     kit.touch();
     const next = new Set(flipped).add(i);
     setFlipped(next);
+    kit.sound('good');
     if (next.size === items.length) setTimeout(kit.finish, 900);   // a moment to read the last one
   };
   const cols = items.length <= 3 ? items.length : items.length === 4 ? 2 : 3;
@@ -345,6 +367,7 @@ function Hotspots({ el, kit }: { el: ActivityElement; kit: Kit }) {
     if (!kit.interactive) return;
     kit.touch();
     setActive(i);
+    if (!opened.has(i)) kit.sound('good');
     const next = new Set(opened).add(i);
     setOpened(next);
     if (next.size === items.length) setTimeout(kit.finish, 1500);
@@ -397,6 +420,8 @@ function Slider({ el, kit }: { el: ActivityElement; kit: Kit }) {
   const change = (v: number) => {
     if (!kit.interactive) return;
     kit.touch();
+    const stopAt = (x: number) => [...stops].reverse().findIndex((st) => x >= st.at);
+    if (stopAt(v) !== stopAt(value)) kit.sound('tick');   // reached another stop
     setValue(v);
     if (v >= stops[stops.length - 1].at) kit.finish();
   };
