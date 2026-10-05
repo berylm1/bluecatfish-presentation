@@ -94,6 +94,10 @@ const SPOTLIGHT = 0.7;
 // How often Finn gets something wrong on purpose for the learner to catch (never his first turn; 0 = never)
 const FINN_MISTAKE_CHANCE = 0.5;
 const MIN_VISUAL_MS = 3000;
+// The slide as big as fits with the header and the controls under it (was 80% of the screen height,
+// so on a 1366×768 laptop the controls pushed the top of the slide off the screen)
+const SLIDE_WIDTH = 'min(88vw, calc((100vh - 190px) * 16 / 9))';
+const EXCHANGE_HIDE_MS = 12000;   // the question + answer box under the slide goes away this long after the answer
 const FINN_HANDS_ON_DELAY_MS = 900;   // Finn's go in a hands-on box, this long after the learner's turn begins
 const STEP_IN_AFTER = 2;              // the same item wrong this many times: the professor explains it
 const STEP_IN_MAX = 2;                // at most this many explanations per hands-on box   // a board (or slide) shown with an answer stays up at least this long
@@ -140,6 +144,16 @@ function Player({ deck, preview, startAt = 0 }: { deck: Deck; preview: boolean; 
   const [interruptOn, setInterruptOn] = useState(false);   // talk over the professor (opt-in: opens the mic)
   const [cameraOn, setCameraOn] = useState(false);         // emotion check-in, presence, hand raise (opt-in)
   const [showTranscript, setShowTranscript] = useState(true);   // top-right text of what's being said
+  const [optionsOpen, setOptionsOpen] = useState(false);          // the ⚙ Options menu
+  const optionsRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!optionsOpen) return;
+    const close = (e: PointerEvent) => { if (!optionsRef.current?.contains(e.target as Node)) setOptionsOpen(false); };
+    const esc = (e: KeyboardEvent) => { if (e.key === 'Escape') setOptionsOpen(false); };
+    window.addEventListener('pointerdown', close);
+    window.addEventListener('keydown', esc);
+    return () => { window.removeEventListener('pointerdown', close); window.removeEventListener('keydown', esc); };
+  }, [optionsOpen]);
   const [classmateOn, setClassmateOn] = useState(true);         // Finn, the AI classmate, asks questions at topic ends
   const [classmateSaying, setClassmateSaying] = useState(false);
   // Hands-on sounds (pop, bonk, chime): on unless turned off (remembered on this browser)
@@ -215,6 +229,15 @@ function Player({ deck, preview, startAt = 0 }: { deck: Deck; preview: boolean; 
   const earlierDialogue = lastTalk && tutor.exchange?.done && lastTalk.question === tutor.exchange.question ? tutor.history.slice(0, -1) : tutor.history;
   const tutorBusyRef = useRef(tutorBusy);
   tutorBusyRef.current = tutorBusy;
+  // The question + answer box under the slide goes away a while after the answer (the transcript keeps it)
+  const { clearExchange } = tutor;
+  const clearExchangeRef = useRef(clearExchange);
+  clearExchangeRef.current = clearExchange;
+  useEffect(() => {
+    if (!tutor.exchange?.done || tutor.speaking) return;
+    const t = setTimeout(() => clearExchangeRef.current(), EXCHANGE_HIDE_MS);
+    return () => clearTimeout(t);
+  }, [tutor.exchange, tutor.speaking]);
 
   const say = useCallback((text: string) => {
     setToast(text);
@@ -995,6 +1018,8 @@ function Player({ deck, preview, startAt = 0 }: { deck: Deck; preview: boolean; 
     const onKey = (e: KeyboardEvent) => {
       // Typing, or keys meant for a control (Space on a button, a hands-on box): not lesson shortcuts
       const t = e.target as HTMLElement | null;
+      // The self-check: 1 got it, 2 kind of, 3 lost me
+      if (selfCheck && !variant && ['1', '2', '3'].includes(e.key) && t?.tagName !== 'INPUT') { answerSelfCheck(e.key === '1' ? 'got' : e.key === '2' ? 'kind' : 'lost'); return; }
       if (t && (['INPUT', 'TEXTAREA', 'SELECT'].includes(t.tagName) || t.closest?.('[data-activity]'))) return;
       if (t?.tagName === 'BUTTON' && (e.key === ' ' || e.key === 'Enter')) return;   // the button's own click (was: clicked AND pause/resume)
       if (e.key === 'ArrowRight' && e.shiftKey) player.nextSlide();
@@ -1009,7 +1034,7 @@ function Player({ deck, preview, startAt = 0 }: { deck: Deck; preview: boolean; 
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [started, player, confused]);
+  }, [started, player, confused, selfCheck, variant, answerSelfCheck]);
 
   // What the slide shows right now: the slide, the helper it morphed into, or
   // the element being explained, focused and in plain words
@@ -1023,6 +1048,14 @@ function Player({ deck, preview, startAt = 0 }: { deck: Deck; preview: boolean; 
     return baseSlide;
   }, [baseSlide, variant, player.mode, focusId]);
 
+  function startLesson() {
+    setStarted(true);
+    const name = learnerName.trim();
+    try { localStorage.setItem('learnerName', name); } catch { /* private mode */ }
+    // A name: a personal hello (spoken live); otherwise the recorded intro
+    (name ? cues.play({ text: greeting(name) }) : cues.play('cue_intro')).finally(() => setIntroDone(true));
+  }
+
   if (!started) {
     return (
       <main className="min-h-screen flex flex-col items-center justify-center gap-6 bg-gradient-to-br from-sky-950 via-slate-900 to-cyan-950 text-white p-6">
@@ -1034,19 +1067,15 @@ function Player({ deck, preview, startAt = 0 }: { deck: Deck; preview: boolean; 
           <input
             value={learnerName}
             onChange={(e) => setLearnerName(e.target.value.replace(/[^\p{L}\p{N} '.-]/gu, '').slice(0, 24))}
+            onKeyDown={(e) => { if (e.key === 'Enter') startLesson(); }}
+            autoFocus
             placeholder="Your first name"
             maxLength={24}
             className="px-3 py-2 rounded-lg bg-white/10 text-white text-center placeholder:text-white/40 outline-none focus:bg-white/15 w-56"
           />
         </label>
         <button
-          onClick={() => {
-            setStarted(true);
-            const name = learnerName.trim();
-            try { localStorage.setItem('learnerName', name); } catch { /* private mode */ }
-            // A name: a personal hello (spoken live); otherwise the recorded intro
-            (name ? cues.play({ text: greeting(name) }) : cues.play('cue_intro')).finally(() => setIntroDone(true));
-          }}
+          onClick={startLesson}
           className="px-8 py-4 rounded-2xl bg-cyan-400 hover:bg-cyan-300 text-slate-900 text-xl font-semibold"
         >
           Start Lesson
@@ -1056,6 +1085,9 @@ function Player({ deck, preview, startAt = 0 }: { deck: Deck; preview: boolean; 
   }
 
   const slide = deck.slides[player.slideIndex];
+  // the end screen: the hardest topic, to go over again
+  const hardestName = player.status === 'finished' ? hardestTopic(deck, topicOf, stateOf) : null;
+  const finishedHardest = hardestName ? { name: hardestName, index: deck.slides.findIndex((s) => s.topic?.trim() === hardestName) } : null;
   const btn = 'px-3 py-2 rounded-lg bg-white/10 hover:bg-white/20 text-sm font-medium transition-colors disabled:opacity-40';
 
   return (
@@ -1070,6 +1102,11 @@ function Player({ deck, preview, startAt = 0 }: { deck: Deck; preview: boolean; 
         Topic {player.topicIndex + 1} of {player.topicCount} · Slide {player.slideIndex + 1} of {deck.slides.length}
         {player.mode === 'plain' && <span className="ml-2 text-amber-300">· plain version</span>}
         {player.status === 'finishing' && <span className="ml-2 text-emerald-300">· finishing the sentence, then listening</span>}
+        {/* how far through the lesson */}
+        <div className="mt-1.5 h-1 rounded-full bg-white/10 overflow-hidden" aria-hidden>
+          <div className="h-full bg-cyan-300/70 rounded-full transition-[width] duration-700"
+            style={{ width: `${player.status === 'finished' ? 100 : ((player.slideIndex + (player.clipCount ? Math.min(player.clipIndex, player.clipCount) / player.clipCount : 0)) / deck.slides.length) * 100}%` }} />
+        </div>
       </div>
 
       {cameraOn && <CameraBubble sees={cameraSees} progress={handProgress} />}
@@ -1078,10 +1115,17 @@ function Player({ deck, preview, startAt = 0 }: { deck: Deck; preview: boolean; 
         {player.status === 'finished' ? (
           <div
             className="flex flex-col items-center justify-center gap-6 bg-white text-slate-900 rounded-2xl p-10 text-center"
-            style={{ width: 'min(80vw, calc(80vh * 16 / 9))', aspectRatio: '16 / 9' }}
+            style={{ width: SLIDE_WIDTH, aspectRatio: '16 / 9' }}
           >
-            <h2 className="text-3xl font-bold">That&apos;s the lesson!</h2>
+            <h2 className="text-3xl font-bold">That&apos;s the lesson{learnerName.trim() ? `, ${learnerName.trim()}` : ''}!</h2>
             {deck.recap && <p className="text-lg max-w-2xl">{deck.recap}</p>}
+            {finishedHardest && (
+              <p className="text-base text-slate-600 max-w-xl">
+                <b>{finishedHardest.name}</b> was the trickiest part.{' '}
+                <button className="underline text-cyan-700 hover:text-cyan-600 font-semibold"
+                  onClick={() => { cues.stop(); player.goToSlide(finishedHardest.index); }}>Go over it again →</button>
+              </p>
+            )}
             <button onClick={() => {
               // a fresh lesson: Finn asks again, hands-on boxes wait again
               checked.current.clear(); activitiesDone.current.clear(); activitiesSolved.current.clear(); classmateTopics.current.clear(); classmateAsked.current = []; finnReady.current.clear();
@@ -1090,7 +1134,7 @@ function Player({ deck, preview, startAt = 0 }: { deck: Deck; preview: boolean; 
             }} className="px-6 py-3 rounded-xl bg-cyan-500 hover:bg-cyan-400 font-semibold">Start over</button>
           </div>
         ) : (
-          <SlideCanvas slide={shownSlide} activeId={variant ? helperActive : player.activeId} morph={MORPH_HELPERS} laser={laser} spotlight={SPOTLIGHT}
+          <SlideCanvas slide={shownSlide} width={SLIDE_WIDTH} activeId={variant ? helperActive : player.activeId} morph={MORPH_HELPERS} laser={laser} spotlight={SPOTLIGHT}
             interactive onActivityDone={onActivityDone} activityHint={activityHint}
             solvedActivities={activitiesSolved.current} settledActivities={activitiesDone.current} settledTick={settledTick} activitySounds={soundsOn} onActivityMistake={onActivityMistake}
             finnMoves={finnMoves} onFinn={onFinn} activityGuides={activityGuides} />
@@ -1114,10 +1158,11 @@ function Player({ deck, preview, startAt = 0 }: { deck: Deck; preview: boolean; 
                   <button key={r} onClick={() => answerSelfCheck(r)} className="flex flex-col items-center gap-1 px-5 py-4 rounded-xl border-2 border-slate-200 hover:border-cyan-500 hover:bg-cyan-50">
                     <span className="text-4xl">{emoji}</span>
                     <span className="font-semibold">{label}</span>
+                    <kbd className="text-[10px] text-slate-400 font-mono">{r === 'got' ? 1 : r === 'kind' ? 2 : 3}</kbd>
                   </button>
                 ))}
               </div>
-              <p className="text-xs text-slate-500 mt-4">Or just say it.</p>
+              <p className="text-xs text-slate-500 mt-4">Or just say it (or press 1, 2 or 3).</p>
             </div>
           </div>
         )}
@@ -1130,24 +1175,26 @@ function Player({ deck, preview, startAt = 0 }: { deck: Deck; preview: boolean; 
             <button className="px-3 py-1 rounded-full bg-white/15 hover:bg-white/25" onClick={() => answerCheckInButton(false)}>No thanks</button>
           </div>
         )}
-        {yourTurn && !variant && !selfCheck && (
-          // top-left: the bottom of the slide is where hands-on boxes have their controls
-          <div className="absolute top-3 left-3 z-20 flex items-center gap-2 px-4 py-2 rounded-full bg-slate-900/90 text-white text-sm shadow-lg" role="status">
-            <span>🖐 Your turn: try it on the slide</span>
-            <button className="px-3 py-1 rounded-full bg-white/15 hover:bg-white/25" onClick={skipActivity}>Skip</button>
-          </div>
-        )}
+        {/* top-left: the bottom of the slide is where hands-on boxes have their controls (was: Finn's chip covered the slider) */}
+        <div className="absolute top-3 left-3 z-20 flex flex-col items-start gap-1.5 pointer-events-none">
+          {yourTurn && !variant && !selfCheck && (
+            <div className="pointer-events-auto flex items-center gap-2 px-4 py-2 rounded-full bg-slate-900/90 text-white text-sm shadow-lg" role="status">
+              <span>🖐 Your turn: try it on the slide</span>
+              <button className="px-3 py-1 rounded-full bg-white/15 hover:bg-white/25" onClick={skipActivity}>Skip</button>
+            </div>
+          )}
+          {classmateSaying && (
+            <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-amber-300 text-slate-900 text-sm font-semibold shadow-lg animate-pulse" role="status">
+              <span aria-hidden>🙋</span> {CLASSMATE_NAME} {yourTurn ? 'is having a go…' : 'asks…'}
+            </div>
+          )}
+        </div>
         {finnWaiting && (
           <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-20 flex items-center gap-2 px-4 py-2 rounded-full bg-slate-900/90 text-white text-sm shadow-lg" role="dialog" aria-label={`Is ${CLASSMATE_NAME} right?`}>
             <span>Is {CLASSMATE_NAME} right?</span>
             <button className="px-3 py-1 rounded-full bg-amber-400 hover:bg-amber-300 text-slate-900 font-semibold" onClick={() => finnVerdict(`Not quite, ${CLASSMATE_NAME} is wrong.`, 'button')}>Not quite!</button>
             <button className="px-3 py-1 rounded-full bg-white/15 hover:bg-white/25" onClick={() => finnVerdict(`Yes, ${CLASSMATE_NAME} is right.`, 'button')}>He&apos;s right</button>
             <button className="px-3 py-1 rounded-full bg-white/15 hover:bg-white/25" onClick={() => finnVerdict("I'm not sure.", 'button')}>Not sure</button>
-          </div>
-        )}
-        {classmateSaying && (
-          <div className="absolute bottom-3 left-3 z-20 flex items-center gap-2 px-3 py-1.5 rounded-full bg-amber-300 text-slate-900 text-sm font-semibold shadow-lg" role="status">
-            <span aria-hidden>🙋</span> {CLASSMATE_NAME} asks…
           </div>
         )}
         {toast && (
@@ -1193,43 +1240,51 @@ function Player({ deck, preview, startAt = 0 }: { deck: Deck; preview: boolean; 
         >
           {micStatus === 'listening' ? '● Listening…' : micStatus === 'processing' ? '…' : '🎤 Talk'}
         </button>
-        <button
-          className={`${btn} ${interruptOn ? 'bg-emerald-500/70 hover:bg-emerald-500' : ''}`}
-          onClick={() => {
-            setInterruptOn((on) => !on);
-            if (!interruptOn) say('Interrupt on: just start talking and the professor will finish the sentence and listen.');
-          }}
-          title="Talk over the professor any time (uses the microphone)"
-        >
-          🎙 Interrupt {interruptOn ? 'on' : 'off'}
-        </button>
         {(interruptOn || micStatus === 'listening') && <MicMeter levelRef={levelRef} listening={micStatus === 'listening'} />}
-        <button
-          className={`${btn} ${cameraOn ? 'bg-emerald-500/70 hover:bg-emerald-500' : ''}`}
-          onClick={() => {
-            setCameraOn((on) => !on);
-            if (!cameraOn) say('Camera on: raise your hand to ask, and the professor notices if you look lost or step away. Nothing leaves your device.');
-          }}
-          title="Hand raise, “you look puzzled” check-ins and pause-when-away (camera stays on this device)"
-        >
-          📷 Camera {cameraOn ? 'on' : 'off'}
-        </button>
         {cameraOn && (
           <span className="text-xs text-white/70">
             {emotionError || presenceError ? `⚠ camera unavailable (${emotionError || presenceError})` : !emotionReady ? 'starting…' : present ? '👤 here' : '🚫 away'}
             {mood && ` · ${mood === 'confused' ? '😕 puzzled' : mood === 'bored' ? '😐 quiet' : '🙂'}`}
           </span>
         )}
-        <button className={`${btn} ${classmateOn ? 'bg-amber-400/30 hover:bg-amber-400/40' : ''}`} onClick={() => setClassmateOn((v) => !v)}
-          title={`${CLASSMATE_NAME}, an AI classmate, asks the professor a question at the end of a topic when you didn't`}>
-          🙋 {CLASSMATE_NAME} {classmateOn ? 'on' : 'off'}
-        </button>
-        <button className={`${btn} ${soundsOn ? 'bg-white/20' : ''}`} onClick={toggleSounds} title="Little sounds when you do the hands-on activities">
-          {soundsOn ? '🔔' : '🔕'} Sounds {soundsOn ? 'on' : 'off'}
-        </button>
-        <button className={`${btn} ${showTranscript ? 'bg-white/20' : ''}`} onClick={() => setShowTranscript((v) => !v)} title="Show the words being said (top right)">
-          💬 Transcript {showTranscript ? 'on' : 'off'}
-        </button>
+        {/* The on/off switches, in one menu (was: five more buttons, so the controls took two rows) */}
+        <div className="relative" ref={optionsRef}>
+          <button className={`${btn} ${optionsOpen ? 'bg-white/25' : ''}`} onClick={() => setOptionsOpen((o) => !o)} aria-expanded={optionsOpen}
+            title="Interrupt, camera, Finn, sounds, transcript">
+            ⚙ Options
+            {/* what's on, at a glance */}
+            <span className="ml-1.5 text-xs opacity-80">{[interruptOn && '🎙', cameraOn && '📷', classmateOn && '🙋', soundsOn && '🔔', showTranscript && '💬'].filter(Boolean).join('')}</span>
+          </button>
+          {optionsOpen && (
+            <div className="absolute bottom-full mb-2 right-0 z-30 w-72 rounded-xl bg-slate-900/95 border border-white/15 shadow-2xl p-2 flex flex-col gap-1" role="menu">
+              {([
+                ['🎙', 'Interrupt', 'Talk over the professor any time (uses the microphone)', interruptOn, () => {
+                  setInterruptOn((on) => !on);
+                  if (!interruptOn) say('Interrupt on: just start talking and the professor will finish the sentence and listen.');
+                }],
+                ['📷', 'Camera', 'Raise your hand to ask; the professor notices if you look lost or step away. Stays on this device.', cameraOn, () => {
+                  setCameraOn((on) => !on);
+                  if (!cameraOn) say('Camera on: raise your hand to ask, and the professor notices if you look lost or step away. Nothing leaves your device.');
+                }],
+                ['🙋', CLASSMATE_NAME, 'Your AI classmate: asks questions, has a go at the hands-on activities', classmateOn, () => setClassmateOn((v) => !v)],
+                ['🔔', 'Sounds', 'Little sounds in the hands-on activities', soundsOn, toggleSounds],
+                ['💬', 'Transcript', 'The words being said, top right', showTranscript, () => setShowTranscript((v) => !v)],
+              ] as const).map(([icon, name, hint, on, toggle]) => (
+                <button key={name} role="menuitemcheckbox" aria-checked={on} onClick={toggle}
+                  className="flex items-center gap-2 px-2.5 py-2 rounded-lg hover:bg-white/10 text-left">
+                  <span className="text-lg" aria-hidden>{icon}</span>
+                  <span className="flex-1 min-w-0">
+                    <span className="block text-sm font-medium">{name}</span>
+                    <span className="block text-[11px] text-white/55 leading-tight">{hint}</span>
+                  </span>
+                  <span className={`w-9 h-5 rounded-full p-0.5 transition-colors ${on ? 'bg-emerald-500' : 'bg-white/20'}`} aria-hidden>
+                    <span className={`block w-4 h-4 rounded-full bg-white transition-transform ${on ? 'translate-x-4' : ''}`} />
+                  </span>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
         <form
           onSubmit={(e) => { e.preventDefault(); if (typed.trim()) handleText(typed); setTyped(''); }}
           className="flex"

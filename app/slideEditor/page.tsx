@@ -614,12 +614,12 @@ function Editor({
         <button className={btn} onClick={ed.redo} disabled={!ed.canRedo} title="Redo (Ctrl+Shift+Z)">↷ Redo</button>
         <button className={btn} onClick={addText}>＋ Text</button>
         <button className={btn} onClick={() => setPanel('images')}>＋ Image</button>
-        <select className={btn} value="" aria-label="Add a chart or diagram"
+        <select className={`${btn} w-32`} value="" aria-label="Add a chart or diagram"
           onChange={(e) => { const k = e.target.value as (typeof VISUAL_KINDS)[number][0]; if (k) addElement(visualTemplate(k)); }}>
           <option value="">＋ Visual…</option>
           {VISUAL_KINDS.map(([k, name]) => <option key={k} value={k}>{name}</option>)}
         </select>
-        <select className={btn} value="" aria-label="Add a hands-on box" disabled={!!handsOnBusy}
+        <select className={`${btn} ${handsOnBusy ? 'w-64' : 'w-36'}`} value="" aria-label="Add a hands-on box" disabled={!!handsOnBusy}
           onChange={(e) => { const k = e.target.value; if (k === 'ai') aiHandsOn(); else if (k) addElement(activityTemplate(k as (typeof ACTIVITY_KINDS)[number][0])); }}>
           <option value="">{handsOnBusy ? '✨ Making a hands-on slide…' : '🖐 Hands-on…'}</option>
           <option value="ai">✨ Hands-on slide from this slide (AI)</option>
@@ -677,7 +677,7 @@ function Editor({
               <button role="tab" aria-selected={ed.layer === 'helper'} onClick={() => switchLayer('helper')}
                 className={`px-3 py-1 border-l border-slate-300 ${ed.layer === 'helper' ? 'bg-violet-600 text-white' : 'bg-white hover:bg-slate-50 text-slate-700'}`}
                 title="What this slide morphs into when a learner says they're lost">
-                Helper (when lost){helperState === 'ai' ? ' ✨' : helperState === 'none' ? ' ·' : helperState === 'off' ? ' ✕' : ''}
+                Helper (when lost){helperState === 'ai' ? ' ✨' : helperState === 'none' ? ' (none yet)' : helperState === 'off' ? ' ✕' : ''}
               </button>
             </div>
             {ed.layer === 'helper' && helperState !== 'none' && helperState !== 'off' && (
