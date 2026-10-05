@@ -1,6 +1,6 @@
 'use client';
 
-import { useLayoutEffect, useRef, useState, type CSSProperties } from 'react';
+import { memo, useLayoutEffect, useRef, useState, type CSSProperties } from 'react';
 import type { Slide, SlideElement, TextElement, TextStyle } from '@/lib/canvas/types';
 import { ChartView, DiagramView } from './Visuals';
 import ActivityView from './Activity';
@@ -97,8 +97,8 @@ function LaserDot({ el, p, imgRef }: { el: SlideElement; p: Pointer; imgRef: Rea
   );
 }
 
-function ElementView({ el, active, laser, dim = 1, interactive = false, onActivityDone }: {
-  el: SlideElement; active: boolean; laser?: Pointer | null; dim?: number; interactive?: boolean; onActivityDone?: (id: string) => void;
+function ElementView({ el, active, laser, dim = 1, interactive = false, onActivityDone, activityHint }: {
+  el: SlideElement; active: boolean; laser?: Pointer | null; dim?: number; interactive?: boolean; onActivityDone?: (id: string) => void; activityHint?: number;
 }) {
   const imgRef = useRef<HTMLImageElement>(null);
   const decorative = el.type === 'image' && el.silent && !el.alt;
@@ -131,7 +131,7 @@ function ElementView({ el, active, laser, dim = 1, interactive = false, onActivi
         <DiagramView el={el} />
       ) : el.type === 'activity' ? (
         // a fresh start whenever the box itself changes (the editor)
-        <ActivityView key={JSON.stringify([el.kind, el.items, el.groups, el.slider, el.src])} el={el} interactive={interactive} onDone={() => onActivityDone?.(el.id)} />
+        <ActivityView key={JSON.stringify([el.kind, el.items, el.groups, el.slider, el.src])} el={el} interactive={interactive} onDone={() => onActivityDone?.(el.id)} hintNonce={activityHint} />
       ) : (
         // eslint-disable-next-line @next/next/no-img-element
         <img
@@ -286,7 +286,14 @@ function useMorph(slide: Slide, enabled: boolean) {
  * One 16:9 slide, as big as fits in 80% of the screen. Elements are placed by
  * percent, so the layout is identical at any size.
  */
-export default function SlideCanvas({
+/**
+ * The lesson page re-renders a lot (each chunk of a streamed answer, the
+ * camera, the captions): memo keeps the slide from re-rendering when nothing
+ * it shows has changed.
+ */
+export default memo(SlideCanvas);
+
+function SlideCanvas({
   slide,
   activeId,
   width = 'min(80vw, calc(80vh * 16 / 9))',
@@ -296,6 +303,7 @@ export default function SlideCanvas({
   spotlight = 1,
   interactive = false,
   onActivityDone,
+  activityHint,
   children,
 }: {
   slide: Slide;
@@ -313,6 +321,8 @@ export default function SlideCanvas({
   interactive?: boolean;
   /** A hands-on box was finished */
   onActivityDone?: (elementId: string) => void;
+  /** Bump to show hands-on boxes' example hand again (the learner seems stuck) */
+  activityHint?: number;
   /** Drawn on top of the slide (the editor's selection boxes) */
   children?: React.ReactNode;
 }) {
@@ -341,7 +351,7 @@ export default function SlideCanvas({
       {morphing ? <MorphLayer plan={morphing.plan} on={morphing.on} /> : slide.elements.map((el) => (
         <ElementView key={el.id} el={el} active={el.id === activeId} laser={laser?.elementId === el.id ? laser.pointer : null}
           dim={activeId && slide.elements.some((e) => e.id === activeId) ? spotlight : 1}
-          interactive={interactive} onActivityDone={onActivityDone} />
+          interactive={interactive} onActivityDone={onActivityDone} activityHint={activityHint} />
       ))}
       {children}
     </div>

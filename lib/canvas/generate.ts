@@ -1,5 +1,6 @@
 import { lazySupabaseAdmin } from '@/lib/supabase/admin';
 import { ACTIVITY_GUIDE, VISUALS_GUIDE } from './visualGuide';
+import { activityReady } from './queue';
 import type { Deck, Slide, SlideElement, TextElement } from './types';
 import type { LessonInfo } from './lessons';
 import { sanitizeDeck } from './sanitize';
@@ -217,6 +218,12 @@ export async function generateAiDeck(lesson: LessonInfo): Promise<{ deck: Deck; 
 
   // Clean like any saved deck (clamps boxes onto the slide, drops bad fields)
   const deck = sanitizeDeck({ title: lesson.title, slides: perTopic.flat() }, lesson.id, 'ai');
+  // A hands-on box the model left half made (no groups, one card) is dropped, and so is a slide left with only its title
+  deck.slides = deck.slides.filter((s) => {
+    const before = s.elements.length;
+    s.elements = s.elements.filter((e) => e.type !== 'activity' || activityReady(e));
+    return s.elements.length === before || s.elements.some((e) => !e.silent);
+  });
   deck.slides.forEach(markAi);
   try {
     deck.recap = await writeRecap(deck);

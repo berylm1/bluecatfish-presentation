@@ -9,6 +9,7 @@ export const maxDuration = 60;
 // from the slide being edited (editors only: under /api/editor, see proxy.ts).
 export async function POST(req: Request) {
   const body = await req.json().catch(() => ({}));
+  if (!body?.slide || typeof body.slide !== 'object') return NextResponse.json({ error: 'Bad slide' }, { status: 400 });
   let slide;
   try {
     slide = sanitizeDeck({ slides: [body.slide] }, 'draft', 'hand').slides[0];

@@ -37,11 +37,13 @@ async function writeSay(el: SlideElement, slide: Slide, deck: Deck): Promise<str
         // a hands-on box: the words invite the learner to do it (the lesson waits for them)
         ? `A HANDS-ON ACTIVITY the learner does next: ${basis}. In 20 to 40 words, start with "Your turn" (or similar), say in one line why it's worth doing, and say exactly what to do (drag, tap, slide). NEVER give away the answers.`
         : `A TEXT BOX on the slide that reads: "${basis}". Explain and expand on it in fresh words; never read it out word for word.`;
+  // A hands-on box's words are short instructions that open with "Your turn" (was: the 40-80 word explanation rules, which contradicted them)
+  const handsOn = el.type === 'activity';
   return chat(
-    `${STYLE}\nWrite what the professor SAYS while this part of the slide is highlighted. 40 to 80 words (about 15-30 seconds), ` +
+    `${STYLE}\nWrite what the professor SAYS while this part of the slide is highlighted. ${handsOn ? '20 to 40 words' : '40 to 80 words (about 15-30 seconds)'}, ` +
       'plain spoken sentences, no lists, no stage directions, no quotation marks around the whole thing. At most one joke. ' +
       'Every fact must come from the knowledge base excerpts or the slide itself; if they don\'t cover something, leave it out. ' +
-      'Name the subject in the first sentence (never open with "It", "This" or "They"), because learners can jump straight here.',
+      (handsOn ? '' : 'Name the subject in the first sentence (never open with "It", "This" or "They"), because learners can jump straight here.'),
     `Lesson: ${deck.title}\nTopic: ${slide.topic ?? '(not set)'}\n${what}\nOther things on this slide: ${otherText(slide, el) || '(nothing)'}\n\nKnowledge base excerpts:\n${facts || '(none found)'}`,
   );
 }

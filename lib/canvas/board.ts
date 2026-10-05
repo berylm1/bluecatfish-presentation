@@ -10,7 +10,8 @@ import { autoFix, type LibImage } from './generate';
 export function toBoard(raw: any, images: LibImage[]): Slide | null {
   if (!raw?.board || !Array.isArray(raw.board.elements) || !raw.board.elements.length) return null;
   const lib = new Map(images.map((i) => [i.id, i]));
-  const elements = raw.board.elements.slice(0, 5).flatMap((e: any, j: number) => {
+  // A board is drawn, not done: no hands-on boxes on it
+  const elements = raw.board.elements.filter((e: any) => ['text', 'image', 'chart', 'diagram'].includes(e?.type)).slice(0, 5).flatMap((e: any, j: number) => {
     const base = { ...e, id: `board-${j + 1}`, silent: true, say: undefined, plain: undefined };
     if (e?.type === 'image') {
       const img = lib.get(String(e.image));

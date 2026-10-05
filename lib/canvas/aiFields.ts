@@ -87,6 +87,7 @@ export function needsHelper(slide: Slide): boolean {
   const h = slide.helper;
   if (h?.off) return false;
   if (!slide.elements.some(speaksAtAll)) return false;   // nothing taught here (a title card): no helper
+  if (slide.elements.some((e) => e.type === 'activity')) return false;   // a hands-on slide is already the other way to see it
   if (!h || !h.elements.length) return true;
   return !!h.byAI && h.from !== fingerprint(slideBasis(slide));
 }

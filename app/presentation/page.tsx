@@ -84,11 +84,11 @@ const SPEAKING: string[] = ['playing', 'loading', 'finishing', 'waiting'];
 // false = the old popup (VariantOverlay) and no focus.
 const MORPH_HELPERS = true;
 const MORPH_BACK_MS = 950;   // a morph back finishes before the lesson moves to another slide
-const HAND_RING_MS = 2500;
+const HAND_RING_MS = 2500;   // how long the camera bubble stays yellow after a raised hand
 // Spotlight: while a box is being said, the rest of the slide fades to this (1 = off). Kept light on purpose.
 const SPOTLIGHT = 0.7;
 // How often Finn gets something wrong on purpose for the learner to catch (never his first turn; 0 = never)
-const FINN_MISTAKE_CHANCE = 0.5;   // how long the camera bubble stays yellow after a raised hand
+const FINN_MISTAKE_CHANCE = 0.5;
 
 /** The topic the learner found hardest (by self-checks, "I'm lost"s, simpler/repeat requests), or null if none was hard. */
 function hardestTopic(deck: Deck, topicOf: number[], stateOf: (topic: number) => SectionState): string | null {
@@ -103,13 +103,13 @@ function hardestTopic(deck: Deck, topicOf: number[], stateOf: (topic: number) =>
   return best?.name ?? null;
 }
 
-/** A sentence for the end of the recap: the learner's name and what to look at again. */
 /** What Finn says at a topic's end: a question, or (truth set) a mistake for the learner to catch. */
 type FinnLine = { question: string; truth?: string };
 
 /** The hello with the learner's name: one clip, so there's no gap around the name. */
 const greeting = (name: string) => `Hey ${name}! I'm Professor Marine. Let's dive in.`;
 
+/** A sentence for the end of the recap: the learner's name and what to look at again. */
 function personalRecap(name: string, hardest: string | null): string {
   if (name && hardest) return `Nice work today, ${name}! ${hardest} was the trickiest part for you, so that's a great one to look at again.`;
   if (name) return `Nice work today, ${name}! You stuck with it the whole way.`;
@@ -133,6 +133,9 @@ function Player({ deck, preview }: { deck: Deck; preview: boolean }) {
   // Hands-on boxes: the ones finished this lesson, and the one it's waiting on now
   const activitiesDone = useRef(new Set<string>());
   const [yourTurn, setYourTurn] = useState<string | null>(null);
+  const yourTurnRef = useRef(yourTurn);
+  yourTurnRef.current = yourTurn;
+  const [activityHint, setActivityHint] = useState(0);   // bumped: the hands-on box shows its example hand again
   const [variant, setVariant] = useState<Variant | null>(null);
   const [mood, setMood] = useState<LearnerEmotion | null>(null);
   const [introDone, setIntroDone] = useState(false);
@@ -201,6 +204,8 @@ function Player({ deck, preview }: { deck: Deck; preview: boolean }) {
     return `Lesson: ${deck.title}. Topic: ${s.topic ?? ''}. On screen: ${slideText(p.slideIndex)}.` +
       (speaking?.say ? ` The professor was just saying: "${speaking.say}"` : '') +
       (learnerName ? ` The learner's name is ${learnerName}; use it now and then, not in every answer.` : '') +
+      // the hands-on box's answers are on screen (above): the professor helps them get there, not past it
+      (yourTurnRef.current ? ' The learner is in the middle of the hands-on activity on this slide: give a hint that helps them think, never the answers.' : '') +
       describeForTutor(tracking.state());
   }, [deck, slideText, tracking, learnerName]);
 
@@ -255,8 +260,11 @@ function Player({ deck, preview }: { deck: Deck; preview: boolean }) {
     // (a chart, a comparison, steps), when a drawing helps
     const base = deck.slides[playerRef.current.slideIndex];
     let drew = false;
+    // In the middle of a hands-on box the slide stays as it is: turning it into a board
+    // (or another slide) and back would start the box over
+    const handsOn = yourTurnRef.current !== null;
     // (not for a two-word "why not?": a paid call each time, and nothing to draw)
-    if (MORPH_HELPERS && base && question.trim().split(/\s+/).length >= 3) {
+    if (MORPH_HELPERS && base && !handsOn && question.trim().split(/\s+/).length >= 3) {
       fetchBoard(question, base.topic ?? '', slideText(playerRef.current.slideIndex)).then((board) => {
         if (!board || !tutorBusyRef.current) return;
         drew = true;
@@ -268,7 +276,7 @@ function Player({ deck, preview }: { deck: Deck; preview: boolean }) {
     }
     // If the question is about something one of the authored slides covers,
     // show that slide while the professor answers (unless there's a drawing)
-    findVariant('confused', question, question).then((slide) => {
+    if (!handsOn) findVariant('confused', question, question).then((slide) => {
       if (!slide || drew || !tutorBusyRef.current) return;
       tracking.track('tutor_decision', { action: 'slide_with_answer', title: slide.title });
       variantMode.current = 'answer';
@@ -321,14 +329,34 @@ function Player({ deck, preview }: { deck: Deck; preview: boolean }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cues]);
 
+  /** The helper for slide i: its own, or for a hands-on slide the nearest earlier slide's in the same topic. */
+  const helperFor = useCallback((i: number): Slide | null => {
+    const s = deck.slides[i];
+    const own = s ? ownHelper(s) : null;
+    if (own || !s?.elements.some((e) => e.type === 'activity')) return own;
+    for (let j = i - 1; j >= 0 && topicOf[j] === topicOf[i]; j--) {
+      const h = ownHelper(deck.slides[j]);
+      if (h) return h;
+    }
+    return null;
+  }, [deck, topicOf]);
+
   const confused = useCallback(async (after?: () => void, mood?: 'confused' | 'frustrated') => {
     tracking.track('confusion_click', {}, { confusion_marks: 1 });
+    // Stuck on a hands-on box: the professor says what to do again and the hand shows how (what's done stays done)
+    if (yourTurnRef.current) {
+      tracking.track('tutor_decision', { action: 'activity_hint' });
+      setActivityHint((n) => n + 1);
+      playerRef.current.repeat();
+      return;
+    }
     const p = playerRef.current;
     if (SPEAKING.includes(p.status)) p.pause();
     const s = deck.slides[p.slideIndex];
     const state = mood ?? (tracking.state().last_state === 'frustrated' ? 'frustrated' : 'confused');
-    // The slide's own helper (made in the editor or drafted by the AI) comes first
-    const own = MORPH_HELPERS && s ? ownHelper(s) : null;
+    // The slide's own helper (made in the editor or drafted by the AI) comes first;
+    // on a hands-on slide (which has none), the helper of the slide that taught it
+    const own = MORPH_HELPERS ? helperFor(p.slideIndex) : null;
     if (own) {
       tracking.track('tutor_decision', { action: 'helper', byAI: !!s?.helper?.byAI, state });
       presentVariant({ title: '', body: '', narration: '', slide: own, variant: 'helper' }, after);
@@ -342,7 +370,7 @@ function Player({ deck, preview }: { deck: Deck; preview: boolean }) {
     }
     tracking.track('tutor_decision', { action: 'plain' });
     act('cmd_simplify', () => playerRef.current.simplify());
-  }, [deck, slideText, tracking, act, findVariant, presentVariant]);
+  }, [deck, slideText, tracking, act, findVariant, presentVariant, helperFor]);
 
   /** "show me the slide (on X)": the authored slide for X (or this topic), narrated, then back to the lesson. */
   const showSlide = useCallback(async (query: string) => {
@@ -621,6 +649,12 @@ function Player({ deck, preview }: { deck: Deck; preview: boolean }) {
   // Emotion check-in: sustained confusion or boredom on camera → the professor
   // finishes the sentence, asks, and listens; "yes" helps, silence carries on.
   const onEmotion = useCallback((state: LearnerEmotion) => {
+    // Puzzled while doing a hands-on box: no interruption, just the hand showing how again
+    if (state === 'confused' && yourTurnRef.current) {
+      tracking.track('emotion_state', { state, during: 'activity' }, { confusion_marks: 1 });
+      setActivityHint((n) => n + 1);
+      return;
+    }
     const p = playerRef.current;
     if (!started || tutorBusy || variant || checkIn.current || micBusy || !SPEAKING.includes(p.status)) return;
     setMood(state);
@@ -714,17 +748,16 @@ function Player({ deck, preview }: { deck: Deck; preview: boolean }) {
   }, [player.status, player.mode, player.activeId, player.slideIndex, player.getAudio, deck, variant, helperActive, getCueAudio]);
 
   /* ------------------------------------------------ hands-on boxes */
-  const yourTurnRef = useRef(yourTurn);
-  yourTurnRef.current = yourTurn;
   const praise = learnerName.trim() ? `Nice work, ${learnerName.trim()}!` : 'Nice work!';
   useEffect(() => { if (yourTurn) preloadCue(praise); }, [yourTurn, praise, preloadCue]);   // ready the moment they finish
+  const { track } = tracking;   // stable (the tracking object itself is new every render)
   const onActivityDone = useCallback((id: string) => {
     activitiesDone.current.add(id);
-    tracking.track('tutor_decision', { action: 'activity_done' });
+    track('tutor_decision', { action: 'activity_done' });
     if (yourTurnRef.current !== id) return;   // done while the professor was still explaining: the lesson just carries on
     setYourTurn(null);
     playCue({ text: praise }).then(() => { if (playerRef.current.activeId === id) playerRef.current.nextClip(); });
-  }, [tracking, playCue, praise]);
+  }, [track, playCue, praise]);
   const skipActivity = () => {
     const id = yourTurnRef.current;
     if (!id) return;
@@ -733,6 +766,10 @@ function Player({ deck, preview }: { deck: Deck; preview: boolean }) {
     setYourTurn(null);
     playerRef.current.nextClip();
   };
+  // Back on a hands-on slide (going back, or starting over): the lesson waits for it again
+  useEffect(() => {
+    for (const e of deck.slides[player.slideIndex]?.elements ?? []) if (e.type === 'activity') activitiesDone.current.delete(e.id);
+  }, [player.slideIndex, deck]);
   // Moved on some other way (a command, a jump): no longer their turn
   useEffect(() => { if (yourTurn && player.activeId !== yourTurn) setYourTurn(null); }, [yourTurn, player.activeId, player.slideIndex]);
 
@@ -759,7 +796,10 @@ function Player({ deck, preview }: { deck: Deck; preview: boolean }) {
   useEffect(() => {
     if (!started) return;
     const onKey = (e: KeyboardEvent) => {
-      if ((e.target as HTMLElement)?.tagName === 'INPUT') return;
+      // Typing, or keys meant for a control (Space on a button, a hands-on box): not lesson shortcuts
+      const t = e.target as HTMLElement | null;
+      if (t && (['INPUT', 'TEXTAREA', 'SELECT'].includes(t.tagName) || t.closest?.('[data-activity]'))) return;
+      if (t?.tagName === 'BUTTON' && (e.key === ' ' || e.key === 'Enter')) return;   // the button's own click (was: clicked AND pause/resume)
       if (e.key === 'ArrowRight' && e.shiftKey) player.nextSlide();
       else if (e.key === 'ArrowRight') player.nextClip();
       else if (e.key === 'PageDown') player.nextSlide();
@@ -845,11 +885,15 @@ function Player({ deck, preview }: { deck: Deck; preview: boolean }) {
           >
             <h2 className="text-3xl font-bold">That&apos;s the lesson!</h2>
             {deck.recap && <p className="text-lg max-w-2xl">{deck.recap}</p>}
-            <button onClick={() => { checked.current.clear(); setSelfCheck(null); cues.stop(); player.restart(); }} className="px-6 py-3 rounded-xl bg-cyan-500 hover:bg-cyan-400 font-semibold">Start over</button>
+            <button onClick={() => {
+              // a fresh lesson: Finn asks again, hands-on boxes wait again
+              checked.current.clear(); activitiesDone.current.clear(); classmateTopics.current.clear(); classmateAsked.current = []; finnReady.current.clear();
+              setSelfCheck(null); setYourTurn(null); cues.stop(); player.restart();
+            }} className="px-6 py-3 rounded-xl bg-cyan-500 hover:bg-cyan-400 font-semibold">Start over</button>
           </div>
         ) : (
           <SlideCanvas slide={shownSlide} activeId={variant ? helperActive : player.activeId} morph={MORPH_HELPERS} laser={laser} spotlight={SPOTLIGHT}
-            interactive onActivityDone={onActivityDone} />
+            interactive onActivityDone={onActivityDone} activityHint={activityHint} />
         )}
         {variant && !MORPH_HELPERS && <VariantOverlay variant={variant} onDone={closeVariant} />}
         {variant && MORPH_HELPERS && (
@@ -935,7 +979,7 @@ function Player({ deck, preview }: { deck: Deck; preview: boolean }) {
       <div className="flex flex-wrap items-center justify-center gap-2" data-bubble-avoid>
         <button className={btn} onClick={player.prevSlide} disabled={player.slideIndex === 0}>⏮ Previous slide</button>
         {player.status === 'paused'
-          ? <button className={btn} onClick={player.resume}>▶ Resume</button>
+          ? <button className={btn} onClick={player.resume} disabled={!!yourTurn} title={yourTurn ? 'Your turn: finish the hands-on box, or Skip' : undefined}>▶ Resume</button>
           : <button className={btn} onClick={player.pause} disabled={player.status === 'finished'}>⏸ Pause</button>}
         <button className={btn} onClick={player.nextClip}>⏭ Next</button>
         <button className={btn} onClick={player.nextSlide}>⏩ Next slide</button>

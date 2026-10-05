@@ -19,29 +19,45 @@ import { activityReady } from '@/lib/canvas/queue';
 const IDLE_HINT_MS = 9000;   // stopped this long before finishing: the hand shows again
 const INK = '#0f172a';
 
-export default function ActivityView({ el, interactive, onDone }: { el: ActivityElement; interactive: boolean; onDone?: () => void }) {
+export default function ActivityView({ el, interactive, onDone, hintNonce = 0 }: {
+  el: ActivityElement; interactive: boolean; onDone?: () => void;
+  /** Changes when the learner seems stuck ("I'm lost", a puzzled face): the hand shows again */
+  hintNonce?: number;
+}) {
   const [touched, setTouched] = useState(false);
   const [done, setDone] = useState(false);
+  const doneRef = useRef(false);
+  const alive = useRef(true);   // a delayed finish (the last card, the last spot) after the box is gone doesn't count
   const idle = useRef<ReturnType<typeof setTimeout> | null>(null);
   // state, not a ref: the hand measures it in its own layout effect, which runs before a parent's ref is set
   const [area, setArea] = useState<HTMLDivElement | null>(null);
   const onDoneRef = useRef(onDone);
   onDoneRef.current = onDone;
 
-  useEffect(() => () => { if (idle.current) clearTimeout(idle.current); }, []);
+  useEffect(() => {
+    alive.current = true;
+    return () => { alive.current = false; if (idle.current) clearTimeout(idle.current); };
+  }, []);
+  useEffect(() => { if (hintNonce) setTouched(false); }, [hintNonce]);
   const touch = useCallback(() => {
     setTouched(true);
     if (idle.current) clearTimeout(idle.current);
     idle.current = setTimeout(() => setTouched(false), IDLE_HINT_MS);
   }, []);
   const finish = useCallback(() => {
+    // was: the side effect inside a setDone updater, which React may run twice (dev): onDone twice
+    if (doneRef.current || !alive.current) return;
+    doneRef.current = true;
     if (idle.current) clearTimeout(idle.current);
-    setDone((was) => { if (!was) setTimeout(() => onDoneRef.current?.(), 0); return true; });
+    setDone(true);
+    onDoneRef.current?.();
   }, []);
 
   const ready = activityReady(el);
   const hint = interactive && ready && !touched && !done;
   const kit: Kit = { interactive: interactive && ready && !done, hint, touch, finish };
+  // A half-made box: the editor shows what's missing; learners see nothing (it isn't waited on either)
+  if (!ready && interactive) return null;
   return (
     <div data-activity={el.kind} style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', gap: '1cqh' }}>
       {el.prompt && (

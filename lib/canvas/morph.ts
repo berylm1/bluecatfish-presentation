@@ -106,7 +106,8 @@ export function helperSlide(base: Slide, h: HelperContent): Slide {
  */
 export function focusSlide(base: Slide, elementId: string | null | undefined): Slide | null {
   const el = base.elements.find((e) => e.id === elementId) ?? base.elements.find((e) => !e.silent);
-  if (!el) return null;
+  // A hands-on box is already the main thing: zooming in would start it over (the learner's progress lost)
+  if (!el || el.type === 'activity') return null;
   const big = { x: 7, y: 8, w: 86, h: 84 };
   const focused: SlideElement = el.type === 'text'
     ? el.plain?.trim()
