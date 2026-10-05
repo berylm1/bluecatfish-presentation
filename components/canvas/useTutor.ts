@@ -58,7 +58,7 @@ export function useTutor() {
       });
       // The answer is on its way; the professor speaks once the lesson's sentence is over
       if (opts.holdUntil) await opts.holdUntil.catch(() => {});
-      if (seq !== askSeq.current) return { decision: null, superseded: true };
+      if (seq !== askSeq.current) { res.body?.cancel().catch(() => {}); return { decision: null, superseded: true }; }   // talked over: drop the answer
       if (res.status === 429 || res.status === 413) {
         // Rate-limited or too long (lib/rateLimit.ts): say so kindly, then carry on
         const line = res.status === 413
@@ -98,7 +98,8 @@ export function useTutor() {
       }
       if (seq === askSeq.current && pending.trim()) speech.enqueue(pending);
       speech.endStream();
-      historyRef.current.push({ role: 'user', content: question }, { role: 'assistant', content: full });
+      // A classmate's line is remembered as theirs, not as something the learner said
+      historyRef.current.push({ role: 'user', content: opts.asker ? `(${opts.asker}, a classmate, said: ${question})` : question }, { role: 'assistant', content: full });
       setExchange({ question, asker: opts.asker, answer: full, done: true });
       setHistory((h) => [...h.slice(-19), { question, asker: opts.asker, answer: full, done: true }]);
     } catch (e) {

@@ -1,6 +1,6 @@
 import { parseDeckCommand, findByPosition, tokens, type DeckCommand, type SearchableSection } from '@/lib/deckCommands';
 import type { Deck } from './types';
-import { topicIndexes } from './queue';
+import { shownWords, topicIndexes } from './queue';
 import { learnerHeaders } from '@/lib/learnerSession';
 
 // On the canvas page a slide has several clips, so a bare "next" (or "next
@@ -37,7 +37,7 @@ export function findSlide(deck: Deck, query: string, currentSlide: number): numb
   if (!q.length) return null;
   let best = { slide: -1, score: 0, covered: 0 };
   deck.slides.forEach((slide, i) => {
-    const shown = tokens([slide.topic ?? '', ...slide.elements.map((e) => (e.type === 'text' ? e.text : e.alt ?? ''))].join(' '));
+    const shown = tokens([slide.topic ?? '', ...slide.elements.map(shownWords)].join(' '));
     const spoken = tokens(slide.elements.map((e) => e.say ?? '').join(' '));
     let score = 0;
     let covered = 0;
@@ -61,7 +61,7 @@ export async function searchByMeaning(deck: Deck, query: string): Promise<number
     section: topics[i],
     step: i - topics.indexOf(topics[i]),
     title: s.topic ?? '',
-    text: s.elements.map((e) => [e.type === 'text' ? e.text : e.alt ?? '', e.say ?? ''].join(' ')).join(' '),
+    text: s.elements.map((e) => [shownWords(e), e.say ?? ''].join(' ')).join(' '),
   }));
   try {
     const res = await fetch('/api/deck/search', {

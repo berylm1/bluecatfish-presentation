@@ -2,6 +2,7 @@ import type { Deck, Slide, SlideElement, SlideHelper, TextElement } from './type
 import { STYLE, chat, knowledge } from './ai';
 import { autoFix, formatGuide, imagesFor, problems, type LibImage } from './generate';
 import { fingerprint, sayBasis, slideBasis } from './aiFields';
+import { shownWords } from './queue';
 
 /*
  * The AI's draft of a slide's helper: the "explain it another way" version
@@ -16,7 +17,7 @@ const MAX_ELEMENTS = 5;
 function describe(slide: Slide): string {
   return JSON.stringify(slide.elements.map((e) => ({
     id: e.id, type: e.type, x: e.x, y: e.y, w: e.w, h: e.h,
-    ...(e.type === 'text' ? { style: e.style, text: e.text } : { description: e.alt ?? '' }),
+    ...(e.type === 'text' ? { style: e.style, text: e.text } : { description: shownWords(e) }),
     ...(e.silent ? { silent: true } : {}),
     ...(e.say ? { says: e.say.slice(0, 300) } : {}),
   })));

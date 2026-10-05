@@ -94,6 +94,13 @@ export function useDeckPlayer(
      */
     holdBefore?: (from: number, to: number) => boolean;
     onHold?: (from: number, to: number) => void;
+    /**
+     * Asked when an element's clip is over: true → stop there, paused, and
+     * call onWait (a hands-on box: the learner's turn). The page carries on
+     * with nextClip() when they're done.
+     */
+    waitAfter?: (el: SlideElement) => boolean;
+    onWait?: (el: SlideElement) => void;
   } = {},
 ) {
   const optsRef = useRef(opts);
@@ -112,6 +119,8 @@ export function useDeckPlayer(
   // Interrupted mid-sentence: where that sentence began. The learner talked
   // over it (it was ducked), so resume plays it again from there.
   const replayRef = useRef<number | null>(null);
+  // Waiting for the learner (waitAfter): resume doesn't skip past it, only nextClip / a move does
+  const waitingRef = useRef(false);
 
   const orders = useMemo(() => deck.slides.map(speakingOrder), [deck]);
   const topics = useMemo(() => topicIndexes(deck.slides), [deck]);
@@ -152,6 +161,7 @@ export function useDeckPlayer(
     let cancelled = false;
     pausedRef.current = false;   // a new position always plays
     replayRef.current = null;    // (and has nothing to replay)
+    waitingRef.current = false;
     const clear = () => {
       if (timerRef.current) clearTimeout(timerRef.current);
       timerRef.current = null;
@@ -186,6 +196,14 @@ export function useDeckPlayer(
         if (cancelled) return;
         // Interrupted and the clip ran out while finishing its sentence: stop here
         if (holdRef.current) { stopFinishing(); return; }
+        // The learner's turn (a hands-on box): wait here until the page says go on
+        if (optsRef.current.waitAfter?.(el)) {
+          waitingRef.current = true;
+          pausedRef.current = true;
+          setStatus('paused');
+          optsRef.current.onWait?.(el);
+          return;
+        }
         // After a plain version, carry on with the slide's next clip
         setPos((p) => ({ ...p, clip: p.clip + 1, mode: 'normal' }));
       };
@@ -255,6 +273,8 @@ export function useDeckPlayer(
     },
     resume: () => {
       if (statusRef.current !== 'paused' && !pausedRef.current) return;
+      // Still the learner's turn (after a question, or ▶): stay, it's the hands-on box that moves the lesson on
+      if (waitingRef.current) return;
       pausedRef.current = false;
       const audio = audioRef.current;
       const replayAt = replayRef.current;

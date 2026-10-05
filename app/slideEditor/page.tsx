@@ -14,7 +14,8 @@ import { speakingOrder } from '@/lib/canvas/queue';
 import { deckFromAnyVersion } from '@/lib/canvas/fromLegacy';
 import { countTodo, todoTotal } from '@/lib/canvas/aiFields';
 import { DEFAULT_LESSON, type LessonInfo } from '@/lib/canvas/lessons';
-import type { Deck, SlideElement } from '@/lib/canvas/types';
+import type { Deck, Slide, SlideElement } from '@/lib/canvas/types';
+import { ACTIVITY_KINDS, VISUAL_KINDS, activityTemplate, visualTemplate } from '@/components/editor/templates';
 
 /*
  * Slide editor (docs/customization-plan.md, step 3). Password-protected by the
@@ -458,12 +459,40 @@ function Editor({
     });
   };
 
+  // ✨ The AI makes a hands-on slide from what this slide teaches; it goes in after it
+  const [handsOnBusy, setHandsOnBusy] = useState(false);
+  const aiHandsOn = async () => {
+    const from = ed.mainSlide;
+    if (!from) return;
+    setHandsOnBusy(true);
+    try {
+      const res = await fetch('/api/editor/activity', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ slide: from, lessonTitle: deck.title }),
+      });
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok || !d.slide) throw new Error(d.error ?? `HTTP ${res.status}`);
+      const made: Slide = { ...d.slide, id: newId('s'), elements: d.slide.elements.map((e: SlideElement) => ({ ...e, id: newId('el') })) };
+      const at = deck.slides.indexOf(from) + 1;
+      ed.change((dd) => { dd.slides.splice(at, 0, made); });
+      ed.setLayer('main');
+      ed.setSlideIdx(at);
+      ed.setSelected(made.elements.find((e) => e.type === 'activity')?.id ?? null);
+      flash('Hands-on slide added after this one: try it in the preview, and change anything on the right.', 'ok');
+    } catch (e) {
+      flash(`Couldn't make a hands-on slide: ${e instanceof Error ? e.message : String(e)}`, 'error');
+    } finally {
+      setHandsOnBusy(false);
+    }
+  };
+
   const deleteElement = useCallback(() => {
     if (!ed.selected) return;
     const id = ed.selected;
     ed.change((d) => {
       const s = d.slides[slideIdx];
-      if (ed.layer === 'helper') { const h = elementsOf(s, 'helper'); h.splice(h.findIndex((e) => e.id === id), 1); }
+      // (was: splice(findIndex) — a missing id (-1) removed the last box instead)
+      if (ed.layer === 'helper') { const h = elementsOf(s, 'helper'); const i = h.findIndex((e) => e.id === id); if (i >= 0) h.splice(i, 1); }
       else s.elements = s.elements.filter((e) => e.id !== id);
     });
     ed.setSelected(null);
@@ -584,6 +613,17 @@ function Editor({
         <button className={btn} onClick={ed.redo} disabled={!ed.canRedo} title="Redo (Ctrl+Shift+Z)">↷ Redo</button>
         <button className={btn} onClick={addText}>＋ Text</button>
         <button className={btn} onClick={() => setPanel('images')}>＋ Image</button>
+        <select className={btn} value="" aria-label="Add a chart or diagram"
+          onChange={(e) => { const k = e.target.value as (typeof VISUAL_KINDS)[number][0]; if (k) addElement(visualTemplate(k)); }}>
+          <option value="">＋ Visual…</option>
+          {VISUAL_KINDS.map(([k, name]) => <option key={k} value={k}>{name}</option>)}
+        </select>
+        <select className={btn} value="" aria-label="Add a hands-on box" disabled={!!handsOnBusy}
+          onChange={(e) => { const k = e.target.value; if (k === 'ai') aiHandsOn(); else if (k) addElement(activityTemplate(k as (typeof ACTIVITY_KINDS)[number][0])); }}>
+          <option value="">{handsOnBusy ? '✨ Making a hands-on slide…' : '🖐 Hands-on…'}</option>
+          <option value="ai">✨ Hands-on slide from this slide (AI)</option>
+          {ACTIVITY_KINDS.map(([k, name]) => <option key={k} value={k}>＋ {name} (example to edit)</option>)}
+        </select>
         <button className={btn} onClick={openVersions}>Start from AI…</button>
         <button
           className={`${btn} ${heat ? 'bg-cyan-50 border-cyan-500' : ''}`}

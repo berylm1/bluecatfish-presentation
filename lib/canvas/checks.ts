@@ -19,7 +19,8 @@ function overlapShare(a: SlideElement, b: SlideElement): number {
 }
 
 const label = (el: SlideElement) =>
-  el.type === 'text' ? `“${(el.text || 'empty text').slice(0, 24)}${el.text.length > 24 ? '…' : ''}”` : 'an image';
+  el.type === 'text' ? `“${(el.text || 'empty text').slice(0, 24)}${el.text.length > 24 ? '…' : ''}”`
+    : el.type === 'chart' ? 'a chart' : el.type === 'diagram' ? 'a diagram' : el.type === 'activity' ? 'the hands-on box' : 'an image';
 
 export function slideWarnings(slide: Slide): Warning[] {
   const out: Warning[] = [];

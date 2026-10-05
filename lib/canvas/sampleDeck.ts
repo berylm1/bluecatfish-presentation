@@ -64,6 +64,24 @@ export const SAMPLE_DECK: Deck = {
       ],
     },
     {
+      // A hands-on slide: the slider (from what s2 teaches: hand-sized → as long as you are tall)
+      id: 's2b',
+      topic: 'Meet the Blue Catfish',
+      background: { color: '#ecfeff' },
+      elements: [
+        { id: 's2b-title', type: 'text', x: 5, y: 4, w: 90, h: 13, text: 'Watch one grow', style: 'title', align: 'center', color: '#0b3b5c', silent: true },
+        { id: 's2b-grow', type: 'activity', kind: 'slider', x: 6, y: 20, w: 88, h: 76, prompt: 'Drag the slider to make it older',
+          src: '/canvas-sample/catfish.svg', alt: 'A blue catfish',
+          slider: { label: 'Age', unit: 'years', min: 0, max: 20, step: 1, stops: [
+            { at: 0, text: 'Just hatched: about the size of your hand', scale: 0.3 },
+            { at: 4, text: 'A few years of eating everything: a lot bigger', scale: 0.7 },
+            { at: 12, text: 'Almost nothing in the Bay can eat it now', scale: 1 },
+            { at: 20, text: 'As long as you are tall!', scale: 1.25 },
+          ] },
+          say: 'Your turn! Grab the slider and make this blue catfish older, year by year, and watch what happens to its size.' },
+      ],
+    },
+    {
       id: 's3',
       topic: "Why They're a Problem",
       background: { color: '#0b3b5c' },
@@ -90,6 +108,19 @@ export const SAMPLE_DECK: Deck = {
         { id: 's4-crab', type: 'image', x: 62, y: 25, w: 33, h: 45, src: '/canvas-sample/crab.svg', alt: 'A blue crab', fit: 'contain',
           say: "Meet the blue crab. Maryland loves it, restaurants love it, and unfortunately, so do blue catfish.",
           plain: 'This is a blue crab. Blue catfish like to eat them.' },
+      ],
+    },
+    {
+      // A hands-on slide: sort (from what s3 and s4 teach)
+      id: 's4b',
+      topic: "Why They're a Problem",
+      background: { color: '#f0fdf4' },
+      elements: [
+        { id: 's4b-title', type: 'text', x: 5, y: 4, w: 90, h: 13, text: 'Who belongs in the Bay?', style: 'title', align: 'center', color: '#14532d', silent: true },
+        { id: 's4b-sort', type: 'activity', kind: 'sort', x: 6, y: 20, w: 88, h: 76, prompt: 'Drag each one: native, or invader?',
+          groups: ['Native to the Bay', 'Invader'],
+          items: [{ text: 'Blue crab', group: 0 }, { text: 'Blue catfish', group: 1 }, { text: 'Striped bass', group: 0 }, { text: 'Flathead catfish', group: 1 }],
+          say: 'Your turn! Some of these animals have always lived in the Chesapeake Bay, and some came from somewhere else. Drag each one into the group where it belongs.' },
       ],
     },
   ],

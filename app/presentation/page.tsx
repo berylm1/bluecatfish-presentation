@@ -25,7 +25,7 @@ import type { Deck } from '@/lib/canvas/types';
 import { learnerHeaders } from '@/lib/learnerSession';
 import { CLASSMATE_NAME } from '@/lib/voice';
 import { focusSlide, helperSlide, ownHelper } from '@/lib/canvas/morph';
-import { speakingOrder, spokenText } from '@/lib/canvas/queue';
+import { activityReady, shownWords, speakingOrder, spokenText } from '@/lib/canvas/queue';
 import { currentAudio } from '@/lib/canvas/aiFields';
 import { activePointer } from '@/lib/canvas/laser';
 import type { Pointer, Slide } from '@/lib/canvas/types';
@@ -130,6 +130,9 @@ function Player({ deck, preview }: { deck: Deck; preview: boolean }) {
   const [learnerName, setLearnerName] = useState('');
   useEffect(() => { try { setLearnerName(localStorage.getItem('learnerName') ?? ''); } catch { /* private mode */ } }, []);
   const topicEndRef = useRef<(from: number, to: number) => void>(() => {});
+  // Hands-on boxes: the ones finished this lesson, and the one it's waiting on now
+  const activitiesDone = useRef(new Set<string>());
+  const [yourTurn, setYourTurn] = useState<string | null>(null);
   const [variant, setVariant] = useState<Variant | null>(null);
   const [mood, setMood] = useState<LearnerEmotion | null>(null);
   const [introDone, setIntroDone] = useState(false);
@@ -144,6 +147,9 @@ function Player({ deck, preview }: { deck: Deck; preview: boolean }) {
     holdBefore: (from, to) => !checked.current.has(from) && (to >= deck.slides.length || topicOf[to] !== topicOf[from]),
     // End of a topic: maybe Finn asks something first, then "How did that section go?"
     onHold: (from, to) => { topicEndRef.current(from, to); },
+    // A hands-on box: after the professor says what to do, the learner's turn (until done or skipped)
+    waitAfter: (el) => el.type === 'activity' && activityReady(el) && !activitiesDone.current.has(el.id),
+    onWait: (el) => { setYourTurn(el.id); tracking.track('tutor_decision', { action: 'activity_start', kind: el.type === 'activity' ? el.kind : '' }); },
   });
   const tutor = useTutor();
   const cues = useCues(started);
@@ -185,7 +191,7 @@ function Player({ deck, preview }: { deck: Deck; preview: boolean }) {
   /** What the learner is looking at, for the tutor: the slide's text and what's being said. */
   const slideText = useCallback((i: number) => {
     const s = deck.slides[i];
-    return s ? s.elements.map((e) => (e.type === 'text' ? e.text : e.alt ? `[image: ${e.alt}]` : '')).filter(Boolean).join(' | ') : '';
+    return s ? s.elements.map((e) => (e.type === 'text' ? e.text : shownWords(e) ? `[${e.type}: ${shownWords(e)}]` : '')).filter(Boolean).join(' | ') : '';
   }, [deck]);
   const slideContext = useCallback(() => {
     const p = playerRef.current;
@@ -249,7 +255,8 @@ function Player({ deck, preview }: { deck: Deck; preview: boolean }) {
     // (a chart, a comparison, steps), when a drawing helps
     const base = deck.slides[playerRef.current.slideIndex];
     let drew = false;
-    if (MORPH_HELPERS && base) {
+    // (not for a two-word "why not?": a paid call each time, and nothing to draw)
+    if (MORPH_HELPERS && base && question.trim().split(/\s+/).length >= 3) {
       fetchBoard(question, base.topic ?? '', slideText(playerRef.current.slideIndex)).then((board) => {
         if (!board || !tutorBusyRef.current) return;
         drew = true;
@@ -398,10 +405,11 @@ function Player({ deck, preview }: { deck: Deck; preview: boolean }) {
   }, [started, classmateOn, player.slideIndex, deck, topicOf, tracking, finnLine]);
 
   // Finn said something wrong on purpose: waiting for the learner to say if he's right
-  const finnCheck = useRef<((verdict: string) => void) | null>(null);
+  // null = called off (the learner moved on, or gave a command instead)
+  const finnCheck = useRef<((verdict: string | null) => void) | null>(null);
   const micRef = useRef<{ status: string; talk: () => void }>({ status: 'off', talk: () => {} });   // the mic (set up further down)
   const [finnWaiting, setFinnWaiting] = useState(false);
-  const finnVerdict = useCallback((verdict: string, how: 'voice' | 'button' | 'typed') => {
+  const finnVerdict = useCallback((verdict: string | null, how: 'voice' | 'button' | 'typed') => {
     const done = finnCheck.current;
     if (!done) return false;
     finnCheck.current = null;
@@ -436,11 +444,12 @@ function Player({ deck, preview }: { deck: Deck; preview: boolean }) {
         else if (said && line.truth) {
           // The professor turns to the learner, and waits for their call (buttons, typing, or the mic)
           if (await cues.play({ text: turnTo })) {
-            const verdict = await new Promise<string>((resolve) => {
+            const verdict = await new Promise<string | null>((resolve) => {
               finnCheck.current = resolve;
               setFinnWaiting(true);
               if (interruptOn) { resumeAfterTurn.current = false; micRef.current.talk(); }   // listen for it too
             });
+            if (verdict === null) return;   // moved on: no answer, and no "How did that section go?" on another slide
             tracking.track('tutor_decision', { action: 'classmate_mistake_answer', answer: verdict.slice(0, 200) });
             await tutor.ask(q, slideContext() +
               `\n${CLASSMATE_NAME}, a classmate, just said this, and it is WRONG on purpose, to see if the learner catches it. What's actually right: ${line.truth}` +
@@ -452,9 +461,12 @@ function Player({ deck, preview }: { deck: Deck; preview: boolean }) {
         }
       }
     }
+    if (playerRef.current.slideIndex !== from) return;   // the learner went somewhere else meanwhile
     setSelfCheck({ from, to });
     cuesRef.current?.play('cue_selfCheck');
   };
+  // Leaving the slide while Finn waits for the learner's call: call it off
+  useEffect(() => { finnVerdict(null, 'button'); }, [player.slideIndex, finnVerdict]);
 
   /** Finn's line about what was just taught (a question, or a mistake to catch), or null (none, too slow, or rate-limited). */
   const fetchClassmate = useCallback(async (topic: string, taught: string, mistake = false): Promise<FinnLine | null> => {
@@ -500,7 +512,8 @@ function Player({ deck, preview }: { deck: Deck; preview: boolean }) {
   }, [tracking]);
 
   const handleText = useCallback((text: string) => {
-    if (finnVerdict(text, 'typed')) return;   // typed their call on Finn's mistake
+    // Their call on Finn's mistake (a command, like "next", calls it off and is done instead)
+    if (finnCheck.current) { if (!parseCanvasCommand(text)) { finnVerdict(text, 'typed'); return; } finnVerdict(null, 'typed'); }
     if (selfCheck) {
       const t = text.toLowerCase();
       if (/\b(lost|confus|no\b|nope|didn'?t|don'?t)/.test(t)) return answerSelfCheck('lost');
@@ -563,7 +576,7 @@ function Player({ deck, preview }: { deck: Deck; preview: boolean }) {
     },
     onTranscript: (text) => {
       if (skipTranscript.current) { skipTranscript.current = false; return; }
-      if (text && finnVerdict(text, 'voice')) return;   // their call on Finn's mistake
+      if (text && finnCheck.current && !parseCanvasCommand(text)) { finnVerdict(text, 'voice'); return; }   // their call on Finn's mistake
       const asked = checkIn.current;
       checkIn.current = null;
       if (asked) checkInAnswered(asked, !text ? 'none' : YES.test(text.trim()) ? 'yes' : NO.test(text.trim()) ? 'no' : 'other', 'voice');
@@ -700,6 +713,29 @@ function Player({ deck, preview }: { deck: Deck; preview: boolean }) {
     return () => clearInterval(t);
   }, [player.status, player.mode, player.activeId, player.slideIndex, player.getAudio, deck, variant, helperActive, getCueAudio]);
 
+  /* ------------------------------------------------ hands-on boxes */
+  const yourTurnRef = useRef(yourTurn);
+  yourTurnRef.current = yourTurn;
+  const praise = learnerName.trim() ? `Nice work, ${learnerName.trim()}!` : 'Nice work!';
+  useEffect(() => { if (yourTurn) preloadCue(praise); }, [yourTurn, praise, preloadCue]);   // ready the moment they finish
+  const onActivityDone = useCallback((id: string) => {
+    activitiesDone.current.add(id);
+    tracking.track('tutor_decision', { action: 'activity_done' });
+    if (yourTurnRef.current !== id) return;   // done while the professor was still explaining: the lesson just carries on
+    setYourTurn(null);
+    playCue({ text: praise }).then(() => { if (playerRef.current.activeId === id) playerRef.current.nextClip(); });
+  }, [tracking, playCue, praise]);
+  const skipActivity = () => {
+    const id = yourTurnRef.current;
+    if (!id) return;
+    tracking.track('tutor_decision', { action: 'activity_skip' });
+    activitiesDone.current.add(id);
+    setYourTurn(null);
+    playerRef.current.nextClip();
+  };
+  // Moved on some other way (a command, a jump): no longer their turn
+  useEffect(() => { if (yourTurn && player.activeId !== yourTurn) setYourTurn(null); }, [yourTurn, player.activeId, player.slideIndex]);
+
   // The camera bubble: yellow for a raised hand (for a few seconds), then what the face shows
   const [, tick] = useState(0);
   const handShowing = Date.now() - handUpAt < HAND_RING_MS;
@@ -812,7 +848,8 @@ function Player({ deck, preview }: { deck: Deck; preview: boolean }) {
             <button onClick={() => { checked.current.clear(); setSelfCheck(null); cues.stop(); player.restart(); }} className="px-6 py-3 rounded-xl bg-cyan-500 hover:bg-cyan-400 font-semibold">Start over</button>
           </div>
         ) : (
-          <SlideCanvas slide={shownSlide} activeId={variant ? helperActive : player.activeId} morph={MORPH_HELPERS} laser={laser} spotlight={SPOTLIGHT} />
+          <SlideCanvas slide={shownSlide} activeId={variant ? helperActive : player.activeId} morph={MORPH_HELPERS} laser={laser} spotlight={SPOTLIGHT}
+            interactive onActivityDone={onActivityDone} />
         )}
         {variant && !MORPH_HELPERS && <VariantOverlay variant={variant} onDone={closeVariant} />}
         {variant && MORPH_HELPERS && (
@@ -847,6 +884,13 @@ function Player({ deck, preview }: { deck: Deck; preview: boolean }) {
               {askingHelp === 'confused' ? 'Yes, show me' : 'Yes'}
             </button>
             <button className="px-3 py-1 rounded-full bg-white/15 hover:bg-white/25" onClick={() => answerCheckInButton(false)}>No thanks</button>
+          </div>
+        )}
+        {yourTurn && !variant && !selfCheck && (
+          // top-left: the bottom of the slide is where hands-on boxes have their controls
+          <div className="absolute top-3 left-3 z-20 flex items-center gap-2 px-4 py-2 rounded-full bg-slate-900/90 text-white text-sm shadow-lg" role="status">
+            <span>🖐 Your turn: try it on the slide</span>
+            <button className="px-3 py-1 rounded-full bg-white/15 hover:bg-white/25" onClick={skipActivity}>Skip</button>
           </div>
         )}
         {finnWaiting && (

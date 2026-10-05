@@ -5,6 +5,7 @@ import { getValue, setValue } from '@/src/redisClient';
 import { chat, knowledge, STYLE } from '@/lib/canvas/ai';
 import { formatGuide, imagesFor, problems } from '@/lib/canvas/generate';
 import { toBoard } from '@/lib/canvas/board';
+import { VISUALS_GUIDE } from '@/lib/canvas/visualGuide';
 
 /*
  * The professor draws while answering: for a question that a quick drawing
@@ -24,9 +25,12 @@ what eats what. Otherwise reply {"board": null}. Facts only from the knowledge b
 
 A board has 2 to 5 elements, all "silent": true (your spoken answer comes separately):
 - a short title (under 7 words) naming the idea,
-- and some of: a bar chart, a big number with a label, short text boxes (under 8 words each; "→" works as an arrow), one picture.
-Bar chart element: {"type":"chart","x":..,"y":..,"w":..,"h":..,"bars":[{"label":"Blue catfish","value":100},{"label":"You","value":90}],"unit":"lbs","silent":true}
-(2-5 bars, short labels; leave room: h at least 40). Keep it simple and big: this is a board for kids, not a report.
+- and ONE main visual that fits the question best: a chart (bar, line or pie) or a diagram (steps, cycle, timeline, compare, sizes),
+  or a big number with a label, or one picture; plus at most one or two short text boxes (under 8 words each).
+  Pick by the question: how big / how many → bar or sizes; over time → line or timeline; how it happens → steps; goes round → cycle;
+  this vs that → compare; parts of a whole → pie.
+${VISUALS_GUIDE}
+Keep it simple and big: this is a board for kids, not a report.
 
 ${formatGuide()}
 
@@ -41,7 +45,7 @@ export async function POST(req: Request) {
   const slideText = String(body.slideText ?? '').slice(0, 1500);
   if (!question) return NextResponse.json({ error: 'question required' }, { status: 400 });
 
-  const key = `board:v1:${createHash('sha1').update(`${question.toLowerCase()}|${topic}|${slideText}`).digest('hex').slice(0, 16)}`;
+  const key = `board:v2:${createHash('sha1').update(`${question.toLowerCase()}|${topic}|${slideText}`).digest('hex').slice(0, 16)}`;
   const cached = await getValue(key);
   if (cached) return NextResponse.json({ board: JSON.parse(cached) });
 

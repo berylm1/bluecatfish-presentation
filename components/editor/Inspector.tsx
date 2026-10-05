@@ -1,6 +1,7 @@
 'use client';
 
-import type { Slide, SlideElement, TextStyle } from '@/lib/canvas/types';
+import { useState } from 'react';
+import type { ActivityElement, ChartElement, DiagramElement, Slide, SlideElement, TextStyle } from '@/lib/canvas/types';
 import type { Warning } from '@/lib/canvas/checks';
 
 // Right-hand panel: everything about the selected element, or the slide when
@@ -54,7 +55,7 @@ export function ElementInspector({
   return (
     <div className="flex flex-col gap-4">
       <div className="flex items-center justify-between">
-        <h3 className="font-bold text-slate-900">{el.type === 'text' ? 'Text box' : el.type === 'chart' ? 'Bar chart' : 'Image'}</h3>
+        <h3 className="font-bold text-slate-900">{el.type === 'text' ? 'Text box' : el.type === 'chart' ? 'Chart' : el.type === 'diagram' ? 'Diagram' : el.type === 'activity' ? 'Hands-on box' : 'Image'}</h3>
         <div className="flex gap-1">
           <button className={small} onClick={onDuplicate} title="Duplicate (Ctrl+D)">Duplicate</button>
           <button className={`${small} text-red-600`} onClick={onDelete} title="Delete (Del)">Delete</button>
@@ -98,7 +99,15 @@ export function ElementInspector({
       ) : el.type === 'chart' ? (
         <>
           <div>
-            <label className={label}>Bars</label>
+            <label className={label}>Kind</label>
+            <select className={input} value={el.kind ?? 'bar'} onChange={(e) => update({ kind: e.target.value === 'bar' ? undefined : e.target.value as ChartElement['kind'] } as Partial<SlideElement>)}>
+              <option value="bar">Bars (how big, how many)</option>
+              <option value="line">Line (a change over time; label = when)</option>
+              <option value="pie">Pie (parts of a whole)</option>
+            </select>
+          </div>
+          <div>
+            <label className={label}>{el.kind === 'line' ? 'Points' : el.kind === 'pie' ? 'Slices' : 'Bars'}</label>
             <div className="flex flex-col gap-1">
               {el.bars.map((b, i) => (
                 <div key={i} className="flex gap-1">
@@ -124,6 +133,10 @@ export function ElementInspector({
             <textarea rows={2} className={input} value={el.alt ?? ''} placeholder="What the chart shows" onChange={(e) => update({ alt: e.target.value || undefined })} />
           </div>
         </>
+      ) : el.type === 'diagram' ? (
+        <DiagramFields key={el.id} el={el} update={update} />
+      ) : el.type === 'activity' ? (
+        <ActivityFields key={el.id} el={el} update={update} />
       ) : (
         <>
           {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -337,3 +350,155 @@ function LaserMarks({ el, update, placing, onPlace }: {
     </div>
   );
 }
+
+/* ------------------------------------------------ diagrams and hands-on */
+
+/**
+ * A list edited as lines of text ("Label | detail"). It keeps what's typed
+ * (half-typed lines included) and hands the parsed list up on every change.
+ */
+function LinesField({ id, title, hint, initial, rows = 5, onLines }: {
+  id: string; title: string; hint: string; initial: string; rows?: number; onLines: (lines: string[][]) => void;
+}) {
+  const [text, setText] = useState(initial);
+  return (
+    <div>
+      <label className={label} htmlFor={id}>{title}</label>
+      <textarea id={id} rows={rows} className={`${input} font-mono text-xs`} value={text} placeholder={hint}
+        onChange={(e) => {
+          setText(e.target.value);
+          onLines(e.target.value.split('\n').map((l) => l.split(/\s*(?:\||→|->)\s*/).map((c) => c.trim())).filter((c) => c[0]));
+        }} />
+      <p className="text-[11px] text-slate-500 mt-1">{hint}</p>
+    </div>
+  );
+}
+const numOr = (v: string | undefined) => (v !== undefined && v !== '' && Number.isFinite(Number(v)) ? Number(v) : undefined);
+const join = (...cols: (string | number | undefined)[]) => {
+  const out = cols.map((c) => (c === undefined ? '' : String(c)));
+  while (out.length > 1 && !out[out.length - 1]) out.pop();
+  return out.join(' | ');
+};
+
+type Update = (patch: Partial<SlideElement>) => void;
+
+function DiagramFields({ el, update }: { el: DiagramElement; update: Update }) {
+  const set = (patch: Partial<DiagramElement>) => update(patch as Partial<SlideElement>);
+  return (
+    <>
+      <div>
+        <label className={label}>Kind</label>
+        <select className={input} value={el.kind} onChange={(e) => set({ kind: e.target.value as DiagramElement['kind'] })}>
+          <option value="steps">Steps (boxes joined by arrows)</option>
+          <option value="cycle">Cycle (round a circle)</option>
+          <option value="timeline">Timeline (label = when)</option>
+          <option value="compare">Compare (two columns)</option>
+          <option value="sizes">Sizes (circles by value)</option>
+        </select>
+      </div>
+      {el.kind === 'compare' && (
+        <div className="grid grid-cols-2 gap-2">
+          {[0, 1].map((i) => (
+            <input key={i} className={input} placeholder={i ? 'Right header' : 'Left header'} value={el.columns?.[i] ?? ''}
+              onChange={(e) => { const c: [string, string] = [el.columns?.[0] ?? '', el.columns?.[1] ?? '']; c[i] = e.target.value; set({ columns: c[0] || c[1] ? c : undefined }); }} />
+          ))}
+        </div>
+      )}
+      <LinesField id="diagram-items" title="Items (one per line, up to 8)"
+        hint={el.kind === 'compare' ? 'Left | Right' : el.kind === 'sizes' ? 'Label | value | note' : el.kind === 'timeline' ? 'When | What happened' : 'Label | detail'}
+        initial={el.items.map((i) => (el.kind === 'sizes' ? join(i.label, i.value, i.detail) : join(i.label, i.detail))).join('\n')}
+        onLines={(lines) => set({
+          items: lines.slice(0, 8).map((c) => (el.kind === 'sizes'
+            ? { label: c[0], value: numOr(c[1]) ?? 1, detail: c[2] || undefined }
+            : { label: c[0], detail: c[1] || undefined })),
+        })} />
+      {el.kind === 'sizes' && (
+        <div>
+          <label className={label}>Unit</label>
+          <input className={input} value={el.unit ?? ''} placeholder="lbs, feet" onChange={(e) => set({ unit: e.target.value || undefined })} />
+        </div>
+      )}
+      <div>
+        <label className={label}>Description</label>
+        <textarea rows={2} className={input} value={el.alt ?? ''} placeholder="Blank: made from the items" onChange={(e) => set({ alt: e.target.value || undefined })} />
+      </div>
+    </>
+  );
+}
+
+function ActivityFields({ el, update }: { el: ActivityElement; update: Update }) {
+  const set = (patch: Partial<ActivityElement>) => update(patch as Partial<SlideElement>);
+  const items = el.items ?? [];
+  return (
+    <>
+      <p className="text-xs text-slate-600 bg-cyan-50 border border-cyan-200 rounded-md px-2 py-1.5">
+        🖐 A hands-on box. In the lesson the professor says its spoken words (what to do), then waits until the learner has done it
+        (a pointing hand shows how). It should use what this slide teaches.
+      </p>
+      <div>
+        <label className={label}>Kind</label>
+        <select className={input} value={el.kind} onChange={(e) => set({ kind: e.target.value as ActivityElement['kind'] })}>
+          <option value="sort">Sort: drag each item into its group</option>
+          <option value="order">Order: tap the steps in the right order</option>
+          <option value="cards">Cards: guess, then flip to check</option>
+          <option value="hotspots">Explore: tap spots on a picture</option>
+          <option value="slider">Slider: move it and watch what changes</option>
+        </select>
+      </div>
+      <div>
+        <label className={label}>Instruction shown on the box</label>
+        <input className={input} value={el.prompt ?? ''} placeholder="Drag each fish to where it came from" onChange={(e) => set({ prompt: e.target.value || undefined })} />
+      </div>
+      {el.kind === 'sort' && (
+        <>
+          <LinesField id="act-groups" title="Groups (2 to 4, one per line)" hint="One group name per line" rows={3}
+            initial={(el.groups ?? []).join('\n')} onLines={(l) => set({ groups: l.slice(0, 4).map((c) => c[0]) })} />
+          <LinesField id="act-items" title="Items (up to 8)" hint="Item → Group name (or the group's number, from 1)"
+            initial={items.map((i) => `${i.text} → ${el.groups?.[i.group ?? 0] ?? ''}`).join('\n')}
+            onLines={(l) => set({ items: l.slice(0, 8).map((c) => {
+              const byName = (el.groups ?? []).findIndex((g) => g.toLowerCase() === (c[1] ?? '').toLowerCase());
+              const n = numOr(c[1]);
+              return { text: c[0], group: byName >= 0 ? byName : n !== undefined ? Math.max(0, n - 1) : 0 };
+            }) })} />
+        </>
+      )}
+      {el.kind === 'order' && (
+        <LinesField id="act-steps" title="Steps, in the RIGHT order (they're shuffled for the learner)" hint="One step per line, first to last"
+          initial={items.map((i) => i.text).join('\n')} onLines={(l) => set({ items: l.slice(0, 8).map((c) => ({ text: c[0] })) })} />
+      )}
+      {el.kind === 'cards' && (
+        <LinesField id="act-cards" title="Cards (up to 8)" hint="Front (the question or guess) | Back (the answer)"
+          initial={items.map((i) => join(i.text, i.back)).join('\n')} onLines={(l) => set({ items: l.slice(0, 8).map((c) => ({ text: c[0], back: c[1] || undefined })) })} />
+      )}
+      {el.kind === 'hotspots' && (
+        <>
+          <div>
+            <label className={label}>Picture address</label>
+            <input className={input} value={el.src ?? ''} placeholder="https://… or /canvas-sample/catfish.svg" onChange={(e) => set({ src: e.target.value || undefined })} />
+          </div>
+          <LinesField id="act-spots" title="Spots (up to 8)" hint="Name | what they find out | x | y  (x, y = % across and down the picture)"
+            initial={items.map((i) => join(i.text, i.back, i.x, i.y)).join('\n')}
+            onLines={(l) => set({ items: l.slice(0, 8).map((c) => ({ text: c[0], back: c[1] || undefined, x: numOr(c[2]) ?? 50, y: numOr(c[3]) ?? 50 })) })} />
+        </>
+      )}
+      {el.kind === 'slider' && (
+        <>
+          <div className="grid grid-cols-2 gap-2">
+            <input className={input} placeholder="Label (Age)" value={el.slider?.label ?? ''} onChange={(e) => set({ slider: { ...sliderOf(el), label: e.target.value } })} />
+            <input className={input} placeholder="Unit (years)" value={el.slider?.unit ?? ''} onChange={(e) => set({ slider: { ...sliderOf(el), unit: e.target.value || undefined } })} />
+            <input className={input} type="number" placeholder="From" value={el.slider?.min ?? 0} onChange={(e) => set({ slider: { ...sliderOf(el), min: Number(e.target.value) || 0 } })} />
+            <input className={input} type="number" placeholder="To" value={el.slider?.max ?? 10} onChange={(e) => set({ slider: { ...sliderOf(el), max: Number(e.target.value) || 0 } })} />
+          </div>
+          <div>
+            <label className={label}>Picture address (optional: it grows with the scale)</label>
+            <input className={input} value={el.src ?? ''} placeholder="https://… or /canvas-sample/catfish.svg" onChange={(e) => set({ src: e.target.value || undefined })} />
+          </div>
+          <LinesField id="act-stops" title="Stops (2 to 8): what shows from each value up" hint="At value | what it says | picture scale (0.1 to 3, optional)"
+            initial={(el.slider?.stops ?? []).map((st) => join(st.at, st.text, st.scale)).join('\n')}
+            onLines={(l) => set({ slider: { ...sliderOf(el), stops: l.slice(0, 8).map((c) => ({ at: numOr(c[0]) ?? 0, text: c[1] ?? '', scale: numOr(c[2]) })).filter((st) => st.text).sort((a, b) => a.at - b.at) } })} />
+        </>
+      )}
+    </>
+  );
+}
+const sliderOf = (el: ActivityElement): NonNullable<ActivityElement['slider']> => el.slider ?? { label: '', min: 0, max: 10, stops: [] };

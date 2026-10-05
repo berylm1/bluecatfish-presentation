@@ -31,7 +31,12 @@ async function writeSay(el: SlideElement, slide: Slide, deck: Deck): Promise<str
   const facts = await knowledge(`${slide.topic ?? ''} ${basis}`);
   const what = el.type === 'image'
     ? `An IMAGE on the slide. Its description: "${basis}". Point the learner to it naturally ("Take a look at…"), say what it shows, and why it matters here. Only describe what the description says is in it.`
-    : `A TEXT BOX on the slide that reads: "${basis}". Explain and expand on it in fresh words; never read it out word for word.`;
+    : el.type === 'chart' || el.type === 'diagram'
+      ? `A ${el.type === 'chart' ? 'CHART' : 'DIAGRAM'} on the slide: ${basis}. Walk the learner through it ("Look at…"): what it shows and what the big takeaway is.`
+      : el.type === 'activity'
+        // a hands-on box: the words invite the learner to do it (the lesson waits for them)
+        ? `A HANDS-ON ACTIVITY the learner does next: ${basis}. In 20 to 40 words, start with "Your turn" (or similar), say in one line why it's worth doing, and say exactly what to do (drag, tap, slide). NEVER give away the answers.`
+        : `A TEXT BOX on the slide that reads: "${basis}". Explain and expand on it in fresh words; never read it out word for word.`;
   return chat(
     `${STYLE}\nWrite what the professor SAYS while this part of the slide is highlighted. 40 to 80 words (about 15-30 seconds), ` +
       'plain spoken sentences, no lists, no stage directions, no quotation marks around the whole thing. At most one joke. ' +

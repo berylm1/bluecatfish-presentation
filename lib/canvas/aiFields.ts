@@ -1,5 +1,5 @@
 import type { Deck, Pointer, Slide, SlideElement, SlideHelper } from './types';
-import { spokenText } from './queue';
+import { shownWords, spokenText } from './queue';
 import { TTS_VOICE, VOICE_INSTRUCTIONS, SIMPLE_VOICE_INSTRUCTIONS } from '@/lib/voice';
 
 // Save-time AI (step 4): what still needs writing or recording, and how the
@@ -31,7 +31,8 @@ export function fingerprint(text: string): string {
 
 /** What the spoken words are written from: the box's text, or the image's description. */
 export function sayBasis(el: SlideElement): string {
-  return (el.type === 'text' ? el.text : el.alt ?? '').trim();
+  // was: text or alt only (a chart, diagram or hands-on box without a description had nothing to write from)
+  return shownWords(el).trim();
 }
 
 export function plainText(el: SlideElement): string {

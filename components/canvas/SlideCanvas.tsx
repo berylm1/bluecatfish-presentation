@@ -1,7 +1,9 @@
 'use client';
 
 import { useLayoutEffect, useRef, useState, type CSSProperties } from 'react';
-import type { ChartElement, Slide, SlideElement, TextElement, TextStyle } from '@/lib/canvas/types';
+import type { Slide, SlideElement, TextElement, TextStyle } from '@/lib/canvas/types';
+import { ChartView, DiagramView } from './Visuals';
+import ActivityView from './Activity';
 import { planMorph, sameBase, type MorphPlan } from '@/lib/canvas/morph';
 import { contentRect } from '@/lib/canvas/laser';
 import type { Pointer } from '@/lib/canvas/types';
@@ -65,30 +67,6 @@ function FitText({ el }: { el: TextElement }) {
   );
 }
 
-const BAR_COLORS = ['#2563eb', '#f97316', '#16a34a', '#a855f7', '#e11d48', '#0891b2'];
-
-/** A bar chart that draws itself: the bars grow up one after another, values on top, labels below. */
-function ChartView({ el }: { el: ChartElement }) {
-  const max = Math.max(...el.bars.map((b) => b.value), 1);
-  const fmt = (v: number) => `${v.toLocaleString('en-US', { maximumFractionDigits: 1 })}${el.unit ? ` ${el.unit}` : ''}`;
-  return (
-    <div role="img" aria-label={el.alt ?? el.bars.map((b) => `${b.label}: ${fmt(b.value)}`).join(', ')}
-      style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'flex-end', gap: '3%', padding: '1cqh 2% 0' }}>
-      {el.bars.map((b, i) => (
-        <div key={i} style={{ flex: 1, height: '100%', display: 'flex', flexDirection: 'column', justifyContent: 'flex-end', alignItems: 'center', minWidth: 0 }}>
-          <div style={{ fontSize: '3.4cqh', fontWeight: 800, color: '#0f172a', whiteSpace: 'nowrap' }}>{fmt(b.value)}</div>
-          <div style={{
-            width: '78%', height: `${Math.max(2, (b.value / max) * 62)}%`, background: b.color ?? BAR_COLORS[i % BAR_COLORS.length],
-            borderRadius: '0.8cqh 0.8cqh 0 0', transformOrigin: 'bottom',
-            animation: `bar-grow 700ms cubic-bezier(0.34, 1.3, 0.64, 1) ${200 + i * 220}ms both`,
-          }} />
-          <div style={{ fontSize: '2.8cqh', fontWeight: 600, color: '#334155', textAlign: 'center', lineHeight: 1.15, marginTop: '0.6cqh', overflowWrap: 'anywhere' }}>{b.label}</div>
-        </div>
-      ))}
-    </div>
-  );
-}
-
 /**
  * The laser dot: a red point with a glow and a soft pulse. It glides from mark
  * to mark on the same element. For a picture, the mark is placed on the
@@ -119,7 +97,9 @@ function LaserDot({ el, p, imgRef }: { el: SlideElement; p: Pointer; imgRef: Rea
   );
 }
 
-function ElementView({ el, active, laser, dim = 1 }: { el: SlideElement; active: boolean; laser?: Pointer | null; dim?: number }) {
+function ElementView({ el, active, laser, dim = 1, interactive = false, onActivityDone }: {
+  el: SlideElement; active: boolean; laser?: Pointer | null; dim?: number; interactive?: boolean; onActivityDone?: (id: string) => void;
+}) {
   const imgRef = useRef<HTMLImageElement>(null);
   const decorative = el.type === 'image' && el.silent && !el.alt;
   // Spotlight: the rest of the slide steps back a little (never a background picture)
@@ -132,7 +112,7 @@ function ElementView({ el, active, laser, dim = 1 }: { el: SlideElement; active:
     height: `${el.h}%`,
     zIndex: el.z ?? (decorative ? 0 : 1),
     borderRadius: '1.2cqh',
-    padding: el.type === 'text' ? '0.8cqh 1cqw' : 0,
+    padding: el.type === 'text' ? '0.8cqh 1cqw' : el.type === 'activity' ? '1cqh' : 0,
     transition: 'box-shadow 300ms ease, background-color 300ms ease, transform 300ms ease, opacity 450ms ease, filter 450ms ease',
     opacity: faded ? dim : 1,
     filter: faded ? 'saturate(0.8)' : 'none',
@@ -147,6 +127,11 @@ function ElementView({ el, active, laser, dim = 1 }: { el: SlideElement; active:
         <FitText el={el} />
       ) : el.type === 'chart' ? (
         <ChartView el={el} />
+      ) : el.type === 'diagram' ? (
+        <DiagramView el={el} />
+      ) : el.type === 'activity' ? (
+        // a fresh start whenever the box itself changes (the editor)
+        <ActivityView key={JSON.stringify([el.kind, el.items, el.groups, el.slider, el.src])} el={el} interactive={interactive} onDone={() => onActivityDone?.(el.id)} />
       ) : (
         // eslint-disable-next-line @next/next/no-img-element
         <img
@@ -176,6 +161,8 @@ function Content({ el }: { el: SlideElement }) {
     return <div style={{ position: 'absolute', inset: 0, padding: '0.8cqh 1cqw' }}><FitText el={el} /></div>;
   }
   if (el.type === 'chart') return <ChartView el={el} />;
+  if (el.type === 'diagram') return <DiagramView el={el} />;
+  if (el.type === 'activity') return <ActivityView el={el} interactive={false} />;
   return (
     // eslint-disable-next-line @next/next/no-img-element
     <img src={el.src} alt="" draggable={false}
@@ -307,6 +294,8 @@ export default function SlideCanvas({
   morph = false,
   laser,
   spotlight = 1,
+  interactive = false,
+  onActivityDone,
   children,
 }: {
   slide: Slide;
@@ -320,6 +309,10 @@ export default function SlideCanvas({
   laser?: { elementId: string; pointer: Pointer } | null;
   /** While an element is being said, the others' opacity (1 = no spotlight) */
   spotlight?: number;
+  /** Hands-on boxes can be used (the lesson); elsewhere they're drawn as they start */
+  interactive?: boolean;
+  /** A hands-on box was finished */
+  onActivityDone?: (elementId: string) => void;
   /** Drawn on top of the slide (the editor's selection boxes) */
   children?: React.ReactNode;
 }) {
@@ -347,7 +340,8 @@ export default function SlideCanvas({
     >
       {morphing ? <MorphLayer plan={morphing.plan} on={morphing.on} /> : slide.elements.map((el) => (
         <ElementView key={el.id} el={el} active={el.id === activeId} laser={laser?.elementId === el.id ? laser.pointer : null}
-          dim={activeId && slide.elements.some((e) => e.id === activeId) ? spotlight : 1} />
+          dim={activeId && slide.elements.some((e) => e.id === activeId) ? spotlight : 1}
+          interactive={interactive} onActivityDone={onActivityDone} />
       ))}
       {children}
     </div>
