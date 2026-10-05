@@ -25,6 +25,8 @@ export const LIMITS = {
   tts: { perSession: 30, perAddress: 200, windowSec: 60, perDay: 20000, label: 'read-aloud requests' },
   transcribe: { perSession: 20, perAddress: 120, windowSec: 60, perDay: 6000, label: 'recordings' },
   search: { perSession: 20, perAddress: 120, windowSec: 60, perDay: 5000, label: 'searches' },
+  classmate: { perSession: 6, perAddress: 60, windowSec: 60, perDay: 3000, label: 'classmate questions' },
+  board: { perSession: 10, perAddress: 60, windowSec: 60, perDay: 3000, label: 'drawings' },
   slides: { perSession: 15, perAddress: 120, windowSec: 60, perDay: 5000, label: 'slide lookups' },
   // Making the whole /presentationv2 lesson (only when it isn't cached yet): many paid calls
   lesson: { perSession: 2, perAddress: 4, windowSec: 3600, perDay: 20, label: 'lesson builds' },

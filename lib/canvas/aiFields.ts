@@ -1,5 +1,5 @@
-import type { Deck, Slide, SlideElement } from './types';
-import { spokenText } from './queue';
+import type { Deck, Pointer, Slide, SlideElement, SlideHelper } from './types';
+import { shownWords, spokenText } from './queue';
 import { TTS_VOICE, VOICE_INSTRUCTIONS, SIMPLE_VOICE_INSTRUCTIONS } from '@/lib/voice';
 
 // Save-time AI (step 4): what still needs writing or recording, and how the
@@ -31,7 +31,8 @@ export function fingerprint(text: string): string {
 
 /** What the spoken words are written from: the box's text, or the image's description. */
 export function sayBasis(el: SlideElement): string {
-  return (el.type === 'text' ? el.text : el.alt ?? '').trim();
+  // was: text or alt only (a chart, diagram or hands-on box without a description had nothing to write from)
+  return shownWords(el).trim();
 }
 
 export function plainText(el: SlideElement): string {
@@ -77,12 +78,45 @@ export function needsPlainAudio(el: SlideElement): boolean {
   return speaksAtAll(el) && !!plain && el.plainAudioFor !== audioKey(plain, true);
 }
 
+/**
+ * Does the slide need its helper drafted (or redrafted)? Yes when it has
+ * none, or the AI drafted it from a version of the slide that has since
+ * changed. Never when a person edited it or turned it off.
+ */
+export function needsHelper(slide: Slide): boolean {
+  const h = slide.helper;
+  if (h?.off) return false;
+  if (!slide.elements.some(speaksAtAll)) return false;   // nothing taught here (a title card): no helper
+  if (slide.elements.some((e) => e.type === 'activity')) return false;   // a hands-on slide is already the other way to see it
+  if (!h || !h.elements.length) return true;
+  return !!h.byAI && h.from !== fingerprint(slideBasis(slide));
+}
+
+/** The helper's elements (empty when there's none). */
+export const helperElements = (slide: Slide): SlideElement[] => slide.helper?.elements ?? [];
+
+/** What laser marks are placed for: the picture and the words said about it. */
+export const pointersBasis = (el: SlideElement) => (el.type === 'image' ? `${el.src}|${spokenText(el)}` : '');
+
+/**
+ * Should the AI place laser marks on this picture? Only a speaking picture
+ * the model can see (a web address), never over a person's marks (an empty
+ * list included: they chose none), and again when the picture or words change.
+ */
+export function needsPointers(el: SlideElement): boolean {
+  if (el.type !== 'image' || !speaksAtAll(el) || !/^https:\/\//.test(el.src) || !spokenText(el)) return false;
+  if (el.pointers === undefined) return true;
+  return !!el.pointersByAI && el.pointersFrom !== fingerprint(pointersBasis(el));
+}
+
 export function needsTopic(slide: Slide): boolean {
   if (!slide.topic?.trim()) return true;
   return !!slide.topicByAI && slide.topicFrom !== fingerprint(slideBasis(slide));
 }
 
 export interface Todo {
+  helpers: number;
+  pointers: number;
   topics: number;
   say: number;
   plain: number;
@@ -90,29 +124,41 @@ export interface Todo {
 }
 
 export function countTodo(deck: Deck): Todo {
-  const t: Todo = { topics: 0, say: 0, plain: 0, audio: 0 };
+  const t: Todo = { helpers: 0, pointers: 0, topics: 0, say: 0, plain: 0, audio: 0 };
   for (const s of deck.slides) {
     if (needsTopic(s)) t.topics++;
+    if (needsHelper(s)) t.helpers++;
     for (const e of s.elements) {
       if (needsSay(e)) t.say++;
       if (needsPlain(e)) t.plain++;
       if (needsAudio(e)) t.audio++;
       if (needsPlainAudio(e)) t.audio++;
+      if (needsPointers(e)) t.pointers++;
+    }
+    // Helper elements speak too (no plain version: the helper IS the simpler way)
+    for (const e of helperElements(s)) {
+      if (needsSay(e)) t.say++;
+      if (needsAudio(e)) t.audio++;
+      if (needsPointers(e)) t.pointers++;
     }
   }
   return t;
 }
 
-export const todoTotal = (t: Todo) => t.topics + t.say + t.plain + t.audio;
+export const todoTotal = (t: Todo) => t.helpers + t.pointers + t.topics + t.say + t.plain + t.audio;
 
 /* -------------------------------------------------------- applying */
 
+/** Element patches can be for the slide's elements or (helper: true) its helper's. */
+type At = { slideId: string; elId: string; helper?: boolean };
 export type Patch =
   | { slideId: string; kind: 'topic'; topic: string; topicFrom: string }
-  | { slideId: string; elId: string; kind: 'say'; say: string; sayFrom: string }
-  | { slideId: string; elId: string; kind: 'plain'; plain: string; plainFrom: string }
-  | { slideId: string; elId: string; kind: 'audio'; audioUrl: string; audioFor: string }
-  | { slideId: string; elId: string; kind: 'plainAudio'; plainAudioUrl: string; plainAudioFor: string };
+  | { slideId: string; kind: 'helper'; helper: SlideHelper }
+  | (At & { kind: 'say'; say: string; sayFrom: string })
+  | (At & { kind: 'plain'; plain: string; plainFrom: string })
+  | (At & { kind: 'audio'; audioUrl: string; audioFor: string })
+  | (At & { kind: 'plainAudio'; plainAudioUrl: string; plainAudioFor: string })
+  | (At & { kind: 'pointers'; pointers: Pointer[]; pointersFrom: string });
 
 /**
  * Applies AI results to a deck, but only where they still fit: the source is
@@ -131,7 +177,16 @@ export function applyPatches(deck: Deck, patches: Patch[]): number {
       }
       continue;
     }
-    const el = slide.elements.find((e) => e.id === p.elId);
+    if (p.kind === 'helper') {
+      // Only into an empty or AI-drafted helper, and only if the slide is still what it was drafted from
+      const h = slide.helper;
+      if (!h?.off && (!h || !h.elements.length || h.byAI) && fingerprint(slideBasis(slide)) === p.helper.from) {
+        slide.helper = structuredClone(p.helper);
+        applied++;
+      }
+      continue;
+    }
+    const el = (p.helper ? helperElements(slide) : slide.elements).find((e) => e.id === p.elId);
     if (!el) continue;
     switch (p.kind) {
       case 'say':
@@ -149,6 +204,12 @@ export function applyPatches(deck: Deck, patches: Patch[]): number {
       case 'audio':
         if (audioKey(spokenText(el), false) === p.audioFor) {
           Object.assign(el, { audioUrl: p.audioUrl, audioFor: p.audioFor });
+          applied++;
+        }
+        break;
+      case 'pointers':
+        if ((el.pointers === undefined || el.pointersByAI) && fingerprint(pointersBasis(el)) === p.pointersFrom) {
+          Object.assign(el, { pointers: p.pointers, pointersByAI: true, pointersFrom: p.pointersFrom });
           applied++;
         }
         break;

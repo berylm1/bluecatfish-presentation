@@ -7,13 +7,15 @@ import { SlideStatsPanel } from '@/components/editor/LearnerStats';
 import type { SlideStats } from '@/lib/canvas/slideStats';
 import ImageLibrary from '@/components/editor/ImageLibrary';
 import { ElementInspector, SlideInspector } from '@/components/editor/Inspector';
-import { useEditorDeck, blankDeck, blankSlide, cloneSlide, newId } from '@/components/editor/useEditorDeck';
+import { useEditorDeck, blankDeck, blankSlide, cloneSlide, newId, elementsOf, helperView } from '@/components/editor/useEditorDeck';
+import SlideCanvas from '@/components/canvas/SlideCanvas';
 import { slideWarnings, type Warning } from '@/lib/canvas/checks';
 import { speakingOrder } from '@/lib/canvas/queue';
 import { deckFromAnyVersion } from '@/lib/canvas/fromLegacy';
 import { countTodo, todoTotal } from '@/lib/canvas/aiFields';
 import { DEFAULT_LESSON, type LessonInfo } from '@/lib/canvas/lessons';
-import type { Deck, SlideElement } from '@/lib/canvas/types';
+import type { Deck, Slide, SlideElement } from '@/lib/canvas/types';
+import { ACTIVITY_KINDS, VISUAL_KINDS, activityTemplate, visualTemplate } from '@/components/editor/templates';
 
 /*
  * Slide editor (docs/customization-plan.md, step 3). Password-protected by the
@@ -204,7 +206,10 @@ function Editor({
     return [...fit, ...slideWarnings(s)];
   }, [deck, overflow]);
   const allWarnings = useMemo(() => deck.slides.map((_, i) => warningsFor(i)), [deck, warningsFor]);
-  const slideWarns = allWarnings[slideIdx] ?? [];
+  // On the helper layer: the helper's own checks (overlaps, text that doesn't fit, ...)
+  const slideWarns = useMemo(() => ed.layer === 'helper'
+    ? [...(overflow[slide.id] ?? []).map((id) => ({ elementId: id, level: 'warn' as const, message: 'Text doesn’t fit its box, even at the smallest size: make the box bigger or the text shorter' })), ...slideWarnings(slide)]
+    : allWarnings[slideIdx] ?? [], [ed.layer, overflow, slide, allWarnings, slideIdx]);
   const warnIds = useMemo(() => new Set(slideWarns.filter((w) => w.level === 'warn' && w.elementId).map((w) => w.elementId!)), [slideWarns]);
   const order = useMemo(() => speakingOrder(slide), [slide]);
 
@@ -281,9 +286,10 @@ function Editor({
     return run;
   }, [lessonId, ed]);
 
-  const preview = async () => {
+  /** fromHere: the preview starts at the slide being edited (no clicking through the whole lesson to test one slide) */
+  const preview = async (fromHere = false) => {
     if (ed.dirty && !(await save())) return;
-    window.open(`/presentation?lesson=${encodeURIComponent(lessonId)}&preview=1`, '_blank');
+    window.open(`/presentation?lesson=${encodeURIComponent(lessonId)}&preview=1${fromHere ? `&slide=${slideIdx + 1}` : ''}`, '_blank');
   };
 
   const publish = async () => {
@@ -441,7 +447,7 @@ function Editor({
   };
 
   const addElement = (el: SlideElement) => {
-    ed.change((d) => { d.slides[slideIdx].elements.push(el); });
+    ed.change((d) => { elementsOf(d.slides[slideIdx], ed.layer).push(el); });
     ed.setSelected(el.id);
     setPanel('props');
   };
@@ -454,12 +460,67 @@ function Editor({
     });
   };
 
+  // ✨ The AI makes a hands-on slide from what this slide teaches; it goes in after it
+  const [handsOnBusy, setHandsOnBusy] = useState(false);
+  const aiHandsOn = async () => {
+    const from = ed.mainSlide;
+    if (!from) return;
+    setHandsOnBusy(true);
+    try {
+      const res = await fetch('/api/editor/activity', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ slide: from, lessonTitle: deck.title }),
+      });
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok || !d.slide) throw new Error(d.error ?? `HTTP ${res.status}`);
+      const made: Slide = { ...d.slide, id: newId('s'), elements: d.slide.elements.map((e: SlideElement) => ({ ...e, id: newId('el') })) };
+      const at = deck.slides.indexOf(from) + 1;
+      ed.change((dd) => { dd.slides.splice(at, 0, made); });
+      ed.setLayer('main');
+      ed.setSlideIdx(at);
+      ed.setSelected(made.elements.find((e) => e.type === 'activity')?.id ?? null);
+      flash('Hands-on slide added after this one: try it in the preview, and change anything on the right.', 'ok');
+    } catch (e) {
+      flash(`Couldn't make a hands-on slide: ${e instanceof Error ? e.message : String(e)}`, 'error');
+    } finally {
+      setHandsOnBusy(false);
+    }
+  };
+
   const deleteElement = useCallback(() => {
     if (!ed.selected) return;
     const id = ed.selected;
-    ed.change((d) => { const s = d.slides[slideIdx]; s.elements = s.elements.filter((e) => e.id !== id); });
+    ed.change((d) => {
+      const s = d.slides[slideIdx];
+      // (was: splice(findIndex) — a missing id (-1) removed the last box instead)
+      if (ed.layer === 'helper') { const h = elementsOf(s, 'helper'); const i = h.findIndex((e) => e.id === id); if (i >= 0) h.splice(i, 1); }
+      else s.elements = s.elements.filter((e) => e.id !== id);
+    });
     ed.setSelected(null);
   }, [ed, slideIdx]);
+
+  /* ------------------------------------------------------- the helper */
+  // The helper is what the slide morphs into when a learner is lost. A helper
+  // element with the same id as a slide element morphs from it.
+  const main = ed.mainSlide;
+  const helperState = !main?.helper?.elements.length ? (main?.helper?.off ? 'off' : 'none') : main.helper.byAI ? 'ai' : 'yours';
+  const switchLayer = (l: 'main' | 'helper') => { ed.setLayer(l); ed.setSelected(null); };
+  const copyIntoHelper = () => ed.change((d) => {
+    const s = d.slides[slideIdx];
+    const h = elementsOf(s, 'helper');
+    h.splice(0, h.length, ...structuredClone(s.elements));   // same ids: every box morphs from itself
+  });
+  const aiHelper = () => ed.change((d) => { d.slides[slideIdx].helper = undefined; });   // the AI drafts it on the next save
+  const noHelper = () => ed.change((d) => { d.slides[slideIdx].helper = { elements: [], off: true }; });
+  const [morphPreview, setMorphPreview] = useState<boolean | null>(null);
+  // The laser mark being placed on the selected element (index), if any
+  const [placingMark, setPlacingMark] = useState<number | null>(null);
+  useEffect(() => { setPlacingMark(null); }, [ed.selected, slideIdx, ed.layer]);   // null = closed; true = showing the helper
+  useEffect(() => {
+    if (morphPreview === null) return;
+    const t = setTimeout(() => setMorphPreview((v) => (v === null ? null : !v)), 2600);
+    return () => clearTimeout(t);
+  }, [morphPreview]);
 
   const duplicateElement = useCallback(() => {
     if (!element) return;
@@ -553,6 +614,17 @@ function Editor({
         <button className={btn} onClick={ed.redo} disabled={!ed.canRedo} title="Redo (Ctrl+Shift+Z)">↷ Redo</button>
         <button className={btn} onClick={addText}>＋ Text</button>
         <button className={btn} onClick={() => setPanel('images')}>＋ Image</button>
+        <select className={`${btn} w-32`} value="" aria-label="Add a chart or diagram"
+          onChange={(e) => { const k = e.target.value as (typeof VISUAL_KINDS)[number][0]; if (k) addElement(visualTemplate(k)); }}>
+          <option value="">＋ Visual…</option>
+          {VISUAL_KINDS.map(([k, name]) => <option key={k} value={k}>{name}</option>)}
+        </select>
+        <select className={`${btn} ${handsOnBusy ? 'w-64' : 'w-36'}`} value="" aria-label="Add a hands-on box" disabled={!!handsOnBusy}
+          onChange={(e) => { const k = e.target.value; if (k === 'ai') aiHandsOn(); else if (k) addElement(activityTemplate(k as (typeof ACTIVITY_KINDS)[number][0])); }}>
+          <option value="">{handsOnBusy ? '✨ Making a hands-on slide…' : '🖐 Hands-on…'}</option>
+          <option value="ai">✨ Hands-on slide from this slide (AI)</option>
+          {ACTIVITY_KINDS.map(([k, name]) => <option key={k} value={k}>＋ {name} (example to edit)</option>)}
+        </select>
         <button className={btn} onClick={openVersions}>Start from AI…</button>
         <button
           className={`${btn} ${heat ? 'bg-cyan-50 border-cyan-500' : ''}`}
@@ -567,7 +639,8 @@ function Editor({
           {live === undefined ? '' : live ? <>Live: published {when(live.at)}{live.by ? ` by ${live.by}` : ''} · <button className="underline" onClick={unpublish}>take down</button></> : 'Not published: learners get the AI lesson'}
         </span>
         <button className={btn} onClick={() => save()} disabled={saving} title="Ctrl+S">Save</button>
-        <button className={btn} onClick={preview}>Preview ↗</button>
+        <button className={btn} onClick={() => preview()}>Preview ↗</button>
+        <button className={btn} onClick={() => preview(true)} title={`Preview the lesson starting at slide ${slideIdx + 1}`}>▶ From this slide</button>
         <button className={primary} onClick={publish}>Publish</button>
       </div>
 
@@ -596,7 +669,41 @@ function Editor({
 
         {/* canvas */}
         <main className="flex-1 min-w-0 flex flex-col items-center justify-center p-4 gap-2" onPointerDown={() => ed.setSelected(null)}>
-          <div className="text-xs text-slate-500">Slide {slideIdx + 1} of {deck.slides.length}{slide.topic ? ` · ${slide.topic}` : ''}</div>
+          <div className="flex flex-wrap items-center justify-center gap-3 text-xs text-slate-500" onPointerDown={(e) => e.stopPropagation()}>
+            <span>Slide {slideIdx + 1} of {deck.slides.length}{main?.topic ? ` · ${main.topic}` : ''}</span>
+            <div className="inline-flex rounded-md border border-slate-300 overflow-hidden" role="tablist" aria-label="Which version">
+              <button role="tab" aria-selected={ed.layer === 'main'} onClick={() => switchLayer('main')}
+                className={`px-3 py-1 ${ed.layer === 'main' ? 'bg-cyan-600 text-white' : 'bg-white hover:bg-slate-50 text-slate-700'}`}>Main slide</button>
+              <button role="tab" aria-selected={ed.layer === 'helper'} onClick={() => switchLayer('helper')}
+                className={`px-3 py-1 border-l border-slate-300 ${ed.layer === 'helper' ? 'bg-violet-600 text-white' : 'bg-white hover:bg-slate-50 text-slate-700'}`}
+                title="What this slide morphs into when a learner says they're lost">
+                Helper (when lost){helperState === 'ai' ? ' ✨' : helperState === 'none' ? ' (none yet)' : helperState === 'off' ? ' ✕' : ''}
+              </button>
+            </div>
+            {ed.layer === 'helper' && helperState !== 'none' && helperState !== 'off' && (
+              <>
+                <button className="underline" onClick={() => setMorphPreview(true)}>▶ Preview the morph</button>
+                <button className="underline" onClick={aiHelper} title="Throw this helper away; the AI drafts a new one when you save">Redo with AI</button>
+                <button className="underline text-red-600" onClick={noHelper}>No helper</button>
+              </>
+            )}
+          </div>
+          {ed.layer === 'helper' && (helperState === 'none' || helperState === 'off') ? (
+            <div className="w-full max-w-2xl aspect-video rounded-xl border-2 border-dashed border-violet-300 bg-violet-50/60 flex flex-col items-center justify-center gap-3 p-6 text-center text-sm text-slate-700" onPointerDown={(e) => e.stopPropagation()}>
+              <p className="max-w-md">
+                {helperState === 'off'
+                  ? 'This slide has no helper: when a learner is lost, the professor zooms in on the part being explained and says it in plain words.'
+                  : 'No helper yet. When you save, the AI drafts one: the slide explained another way, which the slide morphs into when a learner is lost.'}
+              </p>
+              <div className="flex flex-wrap gap-2 justify-center">
+                <button className={primary} onClick={copyIntoHelper}>Start from a copy of this slide</button>
+                {helperState === 'off'
+                  ? <button className={btn} onClick={aiHelper}>Let the AI draft one</button>
+                  : <button className={btn} onClick={noHelper}>No helper for this slide</button>}
+              </div>
+              <p className="text-xs text-slate-500 max-w-md">Copied boxes morph from the box they were copied from: move them, resize them, change their words or pictures. New boxes fade in.</p>
+            </div>
+          ) : (
           <div className="w-full flex justify-center" onPointerDown={(e) => e.stopPropagation()}>
             <EditCanvas
               slide={slide}
@@ -606,9 +713,32 @@ function Editor({
               onDropImage={(img, x, y) => addImage(img, x, y)}
               onEditText={() => { setPanel('props'); setTimeout(() => document.getElementById('inspector-text')?.focus(), 0); }}
               warnIds={warnIds}
+              placing={placingMark !== null && element ? { elId: element.id, index: placingMark } : null}
+              onPlace={(x, y) => {
+                if (!element || placingMark === null) return;
+                if (element.type === 'activity') {
+                  // an explore spot (the hands-on box's own "Place")
+                  const items = [...(element.items ?? [])];
+                  if (items[placingMark]) items[placingMark] = { ...items[placingMark], x, y };
+                  ed.updateElement(element.id, { items } as Partial<SlideElement>);
+                  setPlacingMark(null);
+                  return;
+                }
+                const marks = [...(element.pointers ?? [])];
+                if (marks[placingMark]) marks[placingMark] = { ...marks[placingMark], x, y };
+                ed.updateElement(element.id, { pointers: marks, pointersByAI: undefined });
+                setPlacingMark(null);
+              }}
             />
           </div>
-          {heat && <SlideStatsPanel stats={heat[slide.id]} days={HEAT_DAYS} onClose={() => setHeat(null)} />}
+          )}
+          {heat && <SlideStatsPanel stats={heat[main.id]} days={HEAT_DAYS} onClose={() => setHeat(null)} />}
+          {morphPreview !== null && main && (
+            <div className="fixed inset-0 z-50 bg-slate-950/70 flex flex-col items-center justify-center gap-3 p-6" onPointerDown={(e) => { e.stopPropagation(); setMorphPreview(null); }} role="dialog" aria-label="Morph preview">
+              <SlideCanvas slide={morphPreview ? helperView(main) : main} morph width="min(80vw, calc(75vh * 16 / 9))" />
+              <p className="text-sm text-white/80">{morphPreview ? 'Helper (when lost)' : 'Main slide'} · loops until you click</p>
+            </div>
+          )}
           <div className="text-[11px] text-slate-400">
             Drag to move · corners to resize · arrows nudge (Shift = more) · Del removes · Ctrl+Z undo · Ctrl+S save ·{' '}
             <span className="text-violet-600">dashed purple ✨ AI = words written by the AI</span>
@@ -632,6 +762,8 @@ function Editor({
                   onDuplicate={duplicateElement}
                   onLayer={layer}
                   warnings={slideWarns.filter((w) => w.elementId === element.id)}
+                  placing={placingMark}
+                  onPlacePointer={setPlacingMark}
                 />
               ) : (
                 <SlideInspector

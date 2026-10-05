@@ -22,6 +22,39 @@ export function inReadingOrder<T extends SlideElement>(els: T[]): T[] {
   return rows.flatMap((r) => r.items.sort((a, b) => a.x - b.x));
 }
 
+/** Does a hands-on box have what it needs to be done? (A half-made one is shown as it is, and the lesson doesn't wait on it.) */
+export function activityReady(el: SlideElement): boolean {
+  if (el.type !== 'activity') return false;
+  const items = el.items ?? [];
+  switch (el.kind) {
+    case 'sort': return (el.groups?.length ?? 0) >= 2 && items.length >= 2;
+    case 'slider': return !!el.slider && el.slider.stops.length >= 2 && el.slider.max > el.slider.min;
+    case 'hotspots': return !!el.src && items.length >= 1;
+    default: return items.length >= 2;
+  }
+}
+
+/**
+ * What an element shows, in words: a text box's text, a picture's
+ * description, a chart's or diagram's contents, a hands-on box's task. For
+ * search, the tutor's "on screen", and the AI writing its spoken words.
+ */
+export function shownWords(el: SlideElement): string {
+  switch (el.type) {
+    case 'text': return el.text;
+    case 'image': return el.alt ?? '';
+    case 'chart': return el.alt ?? `${el.kind === 'line' ? 'line chart' : el.kind === 'pie' ? 'pie chart' : 'bar chart'}: ${el.bars.map((b) => `${b.label} ${b.value}${el.unit ? ` ${el.unit}` : ''}`).join(', ')}`;
+    case 'diagram': return el.alt ?? `${el.kind}: ${el.columns ? `${el.columns.join(' vs ')}: ` : ''}${el.items.map((i) => [i.label, i.detail, i.value !== undefined ? `${i.value}${el.unit ? ` ${el.unit}` : ''}` : ''].filter(Boolean).join(' – ')).join('; ')}`;
+    case 'activity': {
+      const what = el.kind === 'sort' ? `sort into ${(el.groups ?? []).join(' / ')}: ${(el.items ?? []).map((i) => `${i.text} → ${el.groups?.[i.group ?? 0] ?? ''}`).join(', ')}`
+        : el.kind === 'order' ? `put in order: ${(el.items ?? []).map((i) => i.text).join(' → ')}`
+          : el.kind === 'slider' ? `slider "${el.slider?.label ?? ''}" from ${el.slider?.min} to ${el.slider?.max}: ${(el.slider?.stops ?? []).map((s) => `${s.at}: ${s.text}`).join('; ')}`
+            : `${el.kind === 'cards' ? 'flip cards' : 'tap spots on a picture'}: ${(el.items ?? []).map((i) => [i.text, i.back].filter(Boolean).join(' = ')).join('; ')}`;
+      return `hands-on activity${el.prompt ? ` (${el.prompt})` : ''}, ${what}`;
+    }
+  }
+}
+
 /** What an element says: its spoken words, or (until those are written) its shown text. */
 export function spokenText(el: SlideElement): string {
   if (el.say?.trim()) return el.say.trim();

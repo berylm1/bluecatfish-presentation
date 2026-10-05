@@ -12,6 +12,11 @@
  *   high     fingertips in the upper 60% of the picture
  *   near     big enough to be the learner, not someone walking behind them
  *
+ * With the learner's face known (lib/learnerBaseline.ts), "high" and "near"
+ * are measured against it instead of the picture: fingertips above the middle
+ * of their face, and a hand in proportion to their face (so it fits how close
+ * they sit, and a hand on the chin or someone behind them doesn't count).
+ *
  * `palm` (palm or back of the hand to the camera) is still worked out and
  * shown in ?camDebug=1, but no longer required: it depends on MediaPipe
  * telling left hands from right, and on real webcams that made every raise
@@ -20,6 +25,8 @@
  * Point numbers: 0 wrist, 5/9/13/17 knuckles (index → pinky),
  * 6/10/14/18 middle joints, 8/12/16/20 fingertips.
  */
+
+import type { FaceBox } from './learnerBaseline';
 
 export type Point = { x: number; y: number; z?: number };
 
@@ -36,6 +43,9 @@ const MAX_TILT_DEG = 40;
 const MAX_TIP_Y = 0.6;      // a fingertip must be above this (0 top, 1 bottom)
 const MIN_HAND_SIZE = 0.06; // wrist → middle knuckle, as a share of the picture
 
+const FACE_HIGH = 0.5;       // fingertips above this far down the face (its middle)
+const FACE_NEAR = 0.25;      // wrist → middle knuckle at least a quarter of the face's width
+
 const dist = (a: Point, b: Point) => Math.hypot(a.x - b.x, a.y - b.y);
 
 /**
@@ -44,7 +54,7 @@ const dist = (a: Point, b: Point) => Math.hypot(a.x - b.x, a.y - b.y);
  * hand is labelled 'Left'. mirrored: set if the frames given to MediaPipe were
  * flipped first. handednessScore: MediaPipe's confidence in that label.
  */
-export function checkHand(lm: Point[], handedness?: string, mirrored = false, handednessScore = 1): HandCheck {
+export function checkHand(lm: Point[], handedness?: string, mirrored = false, handednessScore = 1, face?: FaceBox | null): HandCheck {
   const wrist = lm[0];
   const size = dist(wrist, lm[9]);
 
@@ -69,8 +79,10 @@ export function checkHand(lm: Point[], handedness?: string, mirrored = false, ha
     palm = learnersRight ? cross > 0 : cross < 0;
   }
 
-  const high = Math.min(lm[8].y, lm[12].y) < MAX_TIP_Y;
-  const near = size > MIN_HAND_SIZE;
+  const tipY = Math.min(lm[8].y, lm[12].y);
+  // was (still used until the face is seen): the upper 60% of the picture, and 6% of it in size
+  const high = face ? tipY < face.y + face.h * FACE_HIGH : tipY < MAX_TIP_Y;
+  const near = face ? size > face.w * FACE_NEAR : size > MIN_HAND_SIZE;
   // was: open && upright && palm !== false && high && near (palm made every real raise fail)
   return { raised: open && upright && high && near, open, upright, palm, high, near };
 }

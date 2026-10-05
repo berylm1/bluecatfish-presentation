@@ -1,4 +1,5 @@
 import type { Slide, SlideElement } from './types';
+import { activityReady } from './queue';
 
 // Editor warnings that can be worked out from the slide alone. "Text doesn't
 // fit" needs the rendered page, so the editor adds that one itself.
@@ -19,7 +20,8 @@ function overlapShare(a: SlideElement, b: SlideElement): number {
 }
 
 const label = (el: SlideElement) =>
-  el.type === 'text' ? `“${(el.text || 'empty text').slice(0, 24)}${el.text.length > 24 ? '…' : ''}”` : 'an image';
+  el.type === 'text' ? `“${(el.text || 'empty text').slice(0, 24)}${el.text.length > 24 ? '…' : ''}”`
+    : el.type === 'chart' ? 'a chart' : el.type === 'diagram' ? 'a diagram' : el.type === 'activity' ? 'the hands-on box' : 'an image';
 
 export function slideWarnings(slide: Slide): Warning[] {
   const out: Warning[] = [];
@@ -31,6 +33,9 @@ export function slideWarnings(slide: Slide): Warning[] {
     }
     if (el.type === 'image' && !el.silent && !el.alt?.trim()) {
       out.push({ elementId: el.id, level: 'warn', message: 'An image has no description (the professor’s words about it are written from the description)' });
+    }
+    if (el.type === 'activity' && !activityReady(el)) {
+      out.push({ elementId: el.id, level: 'warn', message: 'The hands-on box isn’t finished, so learners won’t see it (it needs its groups, items, picture or stops)' });
     }
     if (el.type === 'text' && !el.text.trim()) {
       out.push({ elementId: el.id, level: 'warn', message: 'A text box is empty' });

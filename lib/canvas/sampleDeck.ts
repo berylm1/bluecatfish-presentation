@@ -16,7 +16,9 @@ export const SAMPLE_DECK: Deck = {
         { id: 's1-title', type: 'text', x: 20, y: 4, w: 60, h: 13, text: 'Meet the Blue Catfish', style: 'title', align: 'center', color: '#0b3b5c', silent: true },
         { id: 's1-fish', type: 'image', x: 30, y: 30, w: 40, h: 40, src: '/canvas-sample/catfish.svg', alt: 'A blue catfish with long whiskers', fit: 'contain',
           say: "Say hello to the blue catfish. Those long whiskers are called barbels, and they're covered in taste buds, so this fish can basically taste the water around it. Not the most glamorous superpower, but it works.",
-          plain: 'This is a blue catfish. The long whiskers help it taste and find food.' },
+          plain: 'This is a blue catfish. The long whiskers help it taste and find food.',
+          // laser-pointer marks: % of the picture itself
+          pointers: [{ word: 'long whiskers', x: 6, y: 64 }, { word: 'taste buds', x: 9, y: 76 }] },
         { id: 's1-weight', type: 'text', x: 3, y: 30, w: 25, h: 20, text: 'Can weigh over 100 pounds', style: 'body', bold: true, color: '#0b3b5c',
           say: "First, the size. A big blue catfish can weigh more than a hundred pounds. That's heavier than most of the kids in your class. Imagine trying to reel that in.",
           plain: 'Blue catfish can get really heavy, more than 100 pounds.' },
@@ -28,6 +30,20 @@ export const SAMPLE_DECK: Deck = {
           plain: 'Blue catfish eat almost any food they can find.' },
         { id: 's1-waves', type: 'image', x: 0, y: 86, w: 100, h: 14, src: '/canvas-sample/waves.svg', fit: 'cover', silent: true, z: 0 },
       ],
+      // What the slide morphs into when a learner is lost: same ids morph from
+      // the slide's elements (title, fish, weight, waves); h-ids fade in
+      helper: {
+        elements: [
+          { id: 's1-title', type: 'text', x: 5, y: 4, w: 90, h: 13, text: 'A fish as heavy as a grown-up', style: 'title', align: 'center', color: '#0b3b5c', silent: true },
+          { id: 's1-fish', type: 'image', x: 4, y: 22, w: 52, h: 56, src: '/canvas-sample/catfish.svg', alt: 'A blue catfish with long whiskers', fit: 'contain',
+            say: "Here's a way to picture it. The biggest blue catfish weigh about as much as a grown-up person. So if you ever see one in the bay, that's not a fish you carry home in a bucket.",
+            pointers: [{ word: 'biggest blue catfish', x: 50, y: 55 }] },
+          { id: 's1-weight', type: 'text', x: 60, y: 26, w: 36, h: 18, text: '100+ pounds', style: 'bigNumber', align: 'center', color: '#0b3b5c', silent: true },
+          { id: 's1-h1', type: 'text', x: 60, y: 48, w: 36, h: 26, text: '≈ a grown-up\n≈ 20 bowling balls', style: 'body', bold: true, align: 'center', color: '#0b3b5c',
+            say: "Or think bowling balls: a really big blue catfish weighs about as much as twenty of them. Twenty! Good luck reeling that in." },
+          { id: 's1-waves', type: 'image', x: 0, y: 86, w: 100, h: 14, src: '/canvas-sample/waves.svg', fit: 'cover', silent: true, z: 0 },
+        ],
+      },
     },
     {
       id: 's2',
@@ -48,6 +64,24 @@ export const SAMPLE_DECK: Deck = {
       ],
     },
     {
+      // A hands-on slide: the slider (from what s2 teaches: hand-sized → as long as you are tall)
+      id: 's2b',
+      topic: 'Meet the Blue Catfish',
+      background: { color: '#ecfeff' },
+      elements: [
+        { id: 's2b-title', type: 'text', x: 5, y: 4, w: 90, h: 13, text: 'Watch one grow', style: 'title', align: 'center', color: '#0b3b5c', silent: true },
+        { id: 's2b-grow', type: 'activity', kind: 'slider', x: 6, y: 20, w: 88, h: 76, prompt: 'Drag the slider to make it older',
+          src: '/canvas-sample/catfish.svg', alt: 'A blue catfish',
+          slider: { label: 'Age', unit: 'years', min: 0, max: 20, step: 1, stops: [
+            { at: 0, text: 'Just hatched: about the size of your hand', scale: 0.3 },
+            { at: 4, text: 'A few years of eating everything: a lot bigger', scale: 0.7 },
+            { at: 12, text: 'Almost nothing in the Bay can eat it now', scale: 1 },
+            { at: 20, text: 'As long as you are tall!', scale: 1.25 },
+          ] },
+          say: 'Your turn! Grab the slider and make this blue catfish older, year by year, and watch what happens to its size.' },
+      ],
+    },
+    {
       id: 's3',
       topic: "Why They're a Problem",
       background: { color: '#0b3b5c' },
@@ -63,6 +97,22 @@ export const SAMPLE_DECK: Deck = {
       ],
     },
     {
+      // A hands-on slide: guess-and-flip cards (from what s3 teaches)
+      id: 's3b',
+      topic: "Why They're a Problem",
+      background: { color: '#fffbeb' },
+      elements: [
+        { id: 's3b-title', type: 'text', x: 5, y: 4, w: 90, h: 13, text: 'Guess, then flip', style: 'title', align: 'center', color: '#92400e', silent: true },
+        { id: 's3b-cards', type: 'activity', kind: 'cards', x: 6, y: 20, w: 88, h: 76, prompt: 'Make a guess, then tap to check',
+          items: [
+            { text: 'Where are blue catfish from?', back: 'The Mississippi River' },
+            { text: 'When did people bring them to Virginia?', back: 'The 1970s' },
+            { text: 'Why did people bring them?', back: 'So anglers had a big fish to catch' },
+          ],
+          say: 'Your turn! For each card, make a guess in your head first, then tap it to flip it over and see if you were right.' },
+      ],
+    },
+    {
       id: 's4',
       topic: "Why They're a Problem",
       background: { color: '#fff7ed' },
@@ -74,6 +124,19 @@ export const SAMPLE_DECK: Deck = {
         { id: 's4-crab', type: 'image', x: 62, y: 25, w: 33, h: 45, src: '/canvas-sample/crab.svg', alt: 'A blue crab', fit: 'contain',
           say: "Meet the blue crab. Maryland loves it, restaurants love it, and unfortunately, so do blue catfish.",
           plain: 'This is a blue crab. Blue catfish like to eat them.' },
+      ],
+    },
+    {
+      // A hands-on slide: sort (from what s3 and s4 teach)
+      id: 's4b',
+      topic: "Why They're a Problem",
+      background: { color: '#f0fdf4' },
+      elements: [
+        { id: 's4b-title', type: 'text', x: 5, y: 4, w: 90, h: 13, text: 'Who belongs in the Bay?', style: 'title', align: 'center', color: '#14532d', silent: true },
+        { id: 's4b-sort', type: 'activity', kind: 'sort', x: 6, y: 20, w: 88, h: 76, prompt: 'Drag each one: native, or invader?',
+          groups: ['Native to the Bay', 'Invader'],
+          items: [{ text: 'Blue crab', group: 0 }, { text: 'Blue catfish', group: 1 }, { text: 'Striped bass', group: 0 }, { text: 'Flathead catfish', group: 1 }],
+          say: 'Your turn! Some of these animals have always lived in the Chesapeake Bay, and some came from somewhere else. Drag each one into the group where it belongs.' },
       ],
     },
   ],

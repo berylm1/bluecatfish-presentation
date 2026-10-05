@@ -6,12 +6,15 @@
  * picture. Now the first user opens it, the rest share it, and the last one
  * to let go turns the camera off.
  */
+import { learner } from './learnerBaseline';
+
 let stream: Promise<MediaStream> | null = null;
 let users = 0;
 
 export function acquireCamera(): Promise<MediaStream> {
   users++;
   if (!stream) {
+    learner.reset();   // camera turned on: learn this learner's normal face again
     stream = navigator.mediaDevices.getUserMedia({ video: { width: { ideal: 640 }, height: { ideal: 480 } } });
     stream.catch(() => { stream = null; });   // a later try can ask again
   }

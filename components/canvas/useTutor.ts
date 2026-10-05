@@ -9,7 +9,8 @@ import { learnerHeaders } from '@/lib/learnerSession';
 // answer streams back and is spoken sentence by sentence as it arrives.
 
 export type TutorDecision = 'repeat' | 'simplify' | 'advance' | null;
-export type Exchange = { question: string; answer: string; done: boolean };
+/** asker: who asked (a classmate's name); not set = the learner */
+export type Exchange = { question: string; answer: string; done: boolean; asker?: string };
 
 const HISTORY_TURNS = 6;   // earlier questions the tutor still remembers
 
@@ -31,10 +32,17 @@ export function useTutor() {
    * Asks and speaks the answer. Resolves when the answer has been spoken (or
    * was cut off), with the tutor's deck decision if it made one.
    */
-  const ask = useCallback(async (question: string, slideContext: string): Promise<{ decision: TutorDecision; superseded: boolean }> => {
+  const ask = useCallback(async (question: string, slideContext: string, opts: {
+    /** Don't start speaking before this settles (the lesson finishing its sentence); the answer is written meanwhile */
+    holdUntil?: Promise<void>;
+    /** Asked by a classmate (their name), not the learner */
+    asker?: string;
+    /** How the turn is remembered in the conversation (default: the question, or a classmate's line as theirs) */
+    remember?: string;
+  } = {}): Promise<{ decision: TutorDecision; superseded: boolean }> => {
     const seq = ++askSeq.current;
     speech.stopSpeaking();
-    setExchange({ question, answer: '', done: false });
+    setExchange({ question, asker: opts.asker, answer: '', done: false });
     setThinking(true);
     let decision: TutorDecision = null;
     try {
@@ -50,6 +58,9 @@ export function useTutor() {
           conversation: historyRef.current.slice(-HISTORY_TURNS * 2),
         }),
       });
+      // The answer is on its way; the professor speaks once the lesson's sentence is over
+      if (opts.holdUntil) await opts.holdUntil.catch(() => {});
+      if (seq !== askSeq.current) { res.body?.cancel().catch(() => {}); return { decision: null, superseded: true }; }   // talked over: drop the answer
       if (res.status === 429 || res.status === 413) {
         // Rate-limited or too long (lib/rateLimit.ts): say so kindly, then carry on
         const line = res.status === 413
@@ -58,7 +69,7 @@ export function useTutor() {
         speech.beginStream();
         speech.enqueue(line);
         speech.endStream();
-        setExchange({ question, answer: line, done: true });
+        setExchange({ question, asker: opts.asker, answer: line, done: true });
         setThinking(false);
         await new Promise((r) => setTimeout(r, 2500));
         return { decision: null, superseded: seq !== askSeq.current };
@@ -79,7 +90,7 @@ export function useTutor() {
         full += chunk;
         pending += chunk;
         setThinking(false);
-        setExchange({ question, answer: full, done: false });
+        setExchange({ question, asker: opts.asker, answer: full, done: false });
         // Speak each finished sentence right away
         let m;
         while ((m = pending.match(/^([\s\S]*?[.!?])(\s+)([\s\S]*)$/))) {
@@ -89,12 +100,13 @@ export function useTutor() {
       }
       if (seq === askSeq.current && pending.trim()) speech.enqueue(pending);
       speech.endStream();
-      historyRef.current.push({ role: 'user', content: question }, { role: 'assistant', content: full });
-      setExchange({ question, answer: full, done: true });
-      setHistory((h) => [...h.slice(-19), { question, answer: full, done: true }]);
+      // A classmate's line is remembered as theirs, not as something the learner said
+      historyRef.current.push({ role: 'user', content: opts.remember ?? (opts.asker ? `(${opts.asker}, a classmate, said: ${question})` : question) }, { role: 'assistant', content: full });
+      setExchange({ question, asker: opts.asker, answer: full, done: true });
+      setHistory((h) => [...h.slice(-19), { question, asker: opts.asker, answer: full, done: true }]);
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
-      setExchange({ question, answer: msg, done: true });
+      setExchange({ question, asker: opts.asker, answer: msg, done: true });
       decision = null;
     } finally {
       if (seq === askSeq.current) setThinking(false);

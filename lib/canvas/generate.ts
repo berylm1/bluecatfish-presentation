@@ -1,10 +1,13 @@
 import { lazySupabaseAdmin } from '@/lib/supabase/admin';
+import { ACTIVITY_GUIDE, VISUALS_GUIDE } from './visualGuide';
+import { activityReady } from './queue';
 import type { Deck, Slide, SlideElement, TextElement } from './types';
 import type { LessonInfo } from './lessons';
 import { sanitizeDeck } from './sanitize';
 import { fitStatus, neededHeight, textMetrics } from './fitEstimate';
 import { fingerprint, sayBasis, slideBasis } from './aiFields';
-import { chat, knowledge, STYLE, writeRecap } from './prepare';
+import { chat, knowledge, STYLE } from './ai';
+import { writeRecap } from './prepare';
 
 // Step 5: the AI makes a whole deck in the canvas format.
 //   1. plan the lesson's topics from the knowledge base
@@ -16,10 +19,10 @@ import { chat, knowledge, STYLE, writeRecap } from './prepare';
 
 const supabase = lazySupabaseAdmin();
 
-type LibImage = { id: string; url: string; description: string };
+export type LibImage = { id: string; url: string; description: string };
 type TopicPlan = { title: string; query: string; covers: string[] };
 
-async function imagesFor(query: string, count: number): Promise<LibImage[]> {
+export async function imagesFor(query: string, count: number): Promise<LibImage[]> {
   try {
     const emb = await fetch('https://api.openai.com/v1/embeddings', {
       method: 'POST',
@@ -39,7 +42,8 @@ async function imagesFor(query: string, count: number): Promise<LibImage[]> {
 
 // The canvas format, explained to the model. Numbers come from fitEstimate.ts
 // so the model's sense of "fits" matches the checker's.
-function formatGuide(): string {
+/** visuals: charts and diagrams too; activities: hands-on boxes too (lib/canvas/visualGuide.ts) */
+export function formatGuide(opts: { visuals?: boolean; activities?: boolean } = {}): string {
   const m = (style: 'title' | 'body' | 'caption' | 'bigNumber', w: number) => {
     const { charsPerLine, lineHeight } = textMetrics(style, w);
     return `${style}: in a box ${w} wide, about ${charsPerLine} characters per line, each line ${lineHeight.toFixed(1)} tall`;
@@ -64,7 +68,8 @@ Text sizing (font scales with the slide; text that doesn't fit is a failure):
 - ${m('bigNumber', 45)}
 Make every text box tall enough: lines × line height + 2. Shown text is SHORT: bullet fragments under 8 words ("• Can top 100 pounds", one per line), a title under 6 words, a big number like "100+ lbs".
 
-Design: every slide looks different. Mix layouts, e.g. an image in the middle with short text around it; two or three images side by side each with a spoken explanation; a big number with a label; text on one side and an image on the other; a full-width title over bullets. 2-4 speaking elements per slide. Backgrounds are soft light colors ("#eaf6fb", "#fff7ed", "#f0fdf4", "#f5f3ff") or a deep blue "#0b3b5c" with light text. Text colors must contrast with the background.`;
+Design: every slide looks different. Mix layouts, e.g. an image in the middle with short text around it; two or three images side by side each with a spoken explanation; a big number with a label; text on one side and an image on the other; a full-width title over bullets. 2-4 speaking elements per slide. Backgrounds are soft light colors ("#eaf6fb", "#fff7ed", "#f0fdf4", "#f5f3ff") or a deep blue "#0b3b5c" with light text. Text colors must contrast with the background.` +
+    (opts.visuals ? `\n\n${VISUALS_GUIDE}` : '') + (opts.activities ? `\n\n${ACTIVITY_GUIDE}` : '');
 }
 
 async function planTopics(lesson: LessonInfo): Promise<TopicPlan[]> {
@@ -92,8 +97,11 @@ async function writeTopicSlides(
     ? images.map((i) => `${i.id}: ${i.description}`).join('\n')
     : '(none: use text only)';
   const out = await chat(
-    `${STYLE}\nYou design the slides for ONE topic of the lesson, as JSON.\n\n${formatGuide()}\n\n` +
+    `${STYLE}\nYou design the slides for ONE topic of the lesson, as JSON.\n\n${formatGuide({ visuals: true, activities: true })}\n\n` +
       'Write 3 to 5 slides for this topic. The first slide of the topic introduces it with a title. ' +
+      'Where numbers, change over time, steps or a comparison come up, show them with a chart or diagram instead of bullets. ' +
+      'End the topic with ONE hands-on slide (a short silent title and one hands-on box) when the topic has something to sort, order, guess, ' +
+      'explore or adjust; it must use facts taught in this topic. ' +
       'Every fact must come from the SOURCE CONTENT. Do not teach what the OTHER TOPICS cover. ' +
       'Use an image only if its description fits the slide, and describe only what the description says is in it. ' +
       'Reply as JSON: {"slides":[{"background":"#hex","elements":[...]}]}',
@@ -120,20 +128,25 @@ function toSlide(raw: any, topic: string, images: LibImage[], id: string): Slide
       if (!img) return [];   // invented or missing image: drop it
       return [{ ...e, id: `${id}-e${j}`, src: img.url, alt: img.description }];
     }
+    if (e?.type === 'activity' && e.image) {
+      // a hands-on box's picture (hotspots, slider): from the library, or none
+      const img = byId.get(String(e.image));
+      return [{ ...e, id: `${id}-e${j}`, src: img?.url, alt: e.alt ?? img?.description }];
+    }
     return [{ ...e, id: `${id}-e${j}` }];
   });
   return { id, topic, background: raw?.background ? { color: raw.background } : undefined, elements };
 }
 
 /** What's wrong with a slide, in words the model can act on (empty = fine). */
-function problems(raw: any, slide: Slide, images: LibImage[]): string[] {
+export function problems(raw: any, slide: Slide, images: LibImage[]): string[] {
   const out: string[] = [];
   const known = new Set(images.map((i) => i.id));
   for (const e of Array.isArray(raw?.elements) ? raw.elements : []) {
     if (typeof e?.x === 'number' && (e.x < 0 || e.y < 0 || e.x + e.w > 100.5 || e.y + e.h > 100.5)) {
       out.push(`an element at x=${e.x}, y=${e.y}, w=${e.w}, h=${e.h} goes off the slide`);
     }
-    if (e?.type === 'image' && !known.has(String(e.image))) out.push(`image "${e.image}" is not in the AVAILABLE IMAGES list`);
+    if ((e?.type === 'image' || (e?.type === 'activity' && e.image)) && !known.has(String(e.image))) out.push(`image "${e.image}" is not in the AVAILABLE IMAGES list`);
   }
   const texts = slide.elements.filter((e): e is TextElement => e.type === 'text');
   for (const t of texts) {
@@ -153,7 +166,7 @@ function problems(raw: any, slide: Slide, images: LibImage[]): string[] {
 }
 
 /** Last resort for what the retry didn't fix: grow boxes that overflow, as far as the slide allows. */
-function autoFix(slide: Slide): void {
+export function autoFix(slide: Slide): void {
   for (const e of slide.elements) {
     if (e.type !== 'text' || fitStatus(e) !== 'overflows') continue;
     const want = Math.ceil(neededHeight(e, 0.8));
@@ -205,6 +218,12 @@ export async function generateAiDeck(lesson: LessonInfo): Promise<{ deck: Deck; 
 
   // Clean like any saved deck (clamps boxes onto the slide, drops bad fields)
   const deck = sanitizeDeck({ title: lesson.title, slides: perTopic.flat() }, lesson.id, 'ai');
+  // A hands-on box the model left half made (no groups, one card) is dropped, and so is a slide left with only its title
+  deck.slides = deck.slides.filter((s) => {
+    const before = s.elements.length;
+    s.elements = s.elements.filter((e) => e.type !== 'activity' || activityReady(e));
+    return s.elements.length === before || s.elements.some((e) => !e.silent);
+  });
   deck.slides.forEach(markAi);
   try {
     deck.recap = await writeRecap(deck);

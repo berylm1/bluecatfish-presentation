@@ -31,12 +31,31 @@ export function blankDeck(lessonId: string, title: string): Deck {
 export function cloneSlide(slide: Slide): Slide {
   const copy: Slide = structuredClone(slide);
   copy.id = newId('s');
-  copy.elements = copy.elements.map((e) => ({ ...e, id: newId('el') }));
+  const ids = new Map<string, string>();
+  copy.elements = copy.elements.map((e) => { const id = newId('el'); ids.set(e.id, id); return { ...e, id }; });
+  // The helper's links (same id = morphs from that element) follow the new ids
+  if (copy.helper) copy.helper.elements = copy.helper.elements.map((e) => ({ ...e, id: ids.get(e.id) ?? newId('el') }));
   return copy;
 }
 
+/** Which version of the slide is being edited: the slide, or its helper (what it morphs into when a learner is lost). */
+export type Layer = 'main' | 'helper';
+
+/** The elements a layer edits; editing the helper by hand makes it a person's (the AI won't redraft it). */
+export function elementsOf(s: Slide, layer: Layer): SlideElement[] {
+  if (layer === 'main') return s.elements;
+  s.helper ??= { elements: [] };
+  s.helper.byAI = undefined;
+  s.helper.off = undefined;
+  return s.helper.elements;
+}
+
+/** The helper as a slide (for the canvas): same background, its own elements. */
+export const helperView = (s: Slide): Slide => ({ id: `${s.id}~helper`, topic: s.topic, background: s.background, elements: s.helper?.elements ?? [] });
+
 export function useEditorDeck(initial: Deck) {
   const [deck, setDeck] = useState<Deck>(initial);
+  const [layer, setLayer] = useState<Layer>('main');
   const [slideIdx, setSlideIdx] = useState(0);
   const [selected, setSelected] = useState<string | null>(null);
   const [dirty, setDirty] = useState(false);
@@ -121,17 +140,19 @@ export function useEditorDeck(initial: Deck) {
     setDeck(next);
   }, []);
 
-  const slide = deck.slides[Math.min(slideIdx, deck.slides.length - 1)];
+  const mainSlide = deck.slides[Math.min(slideIdx, deck.slides.length - 1)];
+  // On the helper layer the canvas, inspector and tools all work on the helper
+  const slide = layer === 'helper' && mainSlide ? helperView(mainSlide) : mainSlide;
   const element: SlideElement | null = slide?.elements.find((e) => e.id === selected) ?? null;
 
   /** Change the selected element (or any element on the current slide by id). */
   const updateElement = useCallback((id: string, patch: Partial<SlideElement>, group?: string) => {
     change((d) => {
       const s = d.slides[Math.min(slideIdx, d.slides.length - 1)];
-      const el = s.elements.find((e) => e.id === id);
+      const el = elementsOf(s, layer).find((e) => e.id === id);
       if (el) Object.assign(el, patch);
-    }, group ?? `el:${id}:${Object.keys(patch).join(',')}`);
-  }, [change, slideIdx]);
+    }, group ?? `el:${layer}:${id}:${Object.keys(patch).join(',')}`);
+  }, [change, slideIdx, layer]);
 
   const updateSlide = useCallback((patch: Partial<Slide>, group?: string) => {
     change((d) => {
@@ -140,7 +161,7 @@ export function useEditorDeck(initial: Deck) {
   }, [change, slideIdx]);
 
   return {
-    deck, slide, slideIdx, setSlideIdx, element, selected, setSelected,
+    deck, slide, mainSlide, slideIdx, setSlideIdx, element, selected, setSelected, layer, setLayer,
     dirty, setDirty, change, undo, redo, reset, updateElement, updateSlide, applyRemote, mergeRemote,
     canUndo: past.current.length > 0, canRedo: future.current.length > 0,
   };

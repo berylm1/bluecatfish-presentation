@@ -45,6 +45,18 @@ export function sentenceEnd(text: string, t: number, duration: number): number {
   return Math.min(duration, t + MAX_FINISH_S);
 }
 
+/** When the sentence being spoken at `t` started, in seconds (to replay it after an interruption). */
+export function sentenceStart(text: string, t: number, duration: number): number {
+  if (!Number.isFinite(duration) || duration <= 0) return 0;
+  let start = 0;
+  for (const share of sentenceStops(text)) {
+    const end = share * duration;
+    if (end > t + 0.05) break;   // this sentence runs past t: it's the one being spoken
+    start = end;
+  }
+  return Math.min(start, Math.max(0, duration - 0.1));
+}
+
 type Pos = {
   slide: number;
   clip: number;               // index into the slide's speaking order
@@ -82,11 +94,20 @@ export function useDeckPlayer(
      */
     holdBefore?: (from: number, to: number) => boolean;
     onHold?: (from: number, to: number) => void;
+    /**
+     * Asked when an element's clip is over: true → stop there, paused, and
+     * call onWait (a hands-on box: the learner's turn). The page carries on
+     * with nextClip() when they're done.
+     */
+    waitAfter?: (el: SlideElement) => boolean;
+    onWait?: (el: SlideElement) => void;
+    /** The slide to start on (a preview from the editor's current slide) */
+    startAt?: number;
   } = {},
 ) {
   const optsRef = useRef(opts);
   optsRef.current = opts;
-  const [pos, setPos] = useState<Pos>({ slide: 0, clip: 0, mode: 'normal', token: 0 });
+  const [pos, setPos] = useState<Pos>(() => ({ slide: Math.max(0, Math.min(opts.startAt ?? 0, deck.slides.length - 1)), clip: 0, mode: 'normal', token: 0 }));
   const [status, setStatus] = useState<PlayerStatus>('loading');
   const statusRef = useRef(status);
   statusRef.current = status;
@@ -97,6 +118,11 @@ export function useDeckPlayer(
   const holdRef = useRef<(() => void) | null>(null);   // set while finishing a sentence: runs once stopped
   const finishTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const pausedRef = useRef(false);   // pause asked for; a clip that finishes loading waits
+  // Interrupted mid-sentence: where that sentence began. The learner talked
+  // over it (it was ducked), so resume plays it again from there.
+  const replayRef = useRef<number | null>(null);
+  // Waiting for the learner (waitAfter): resume doesn't skip past it, only nextClip / a move does
+  const waitingRef = useRef(false);
 
   const orders = useMemo(() => deck.slides.map(speakingOrder), [deck]);
   const topics = useMemo(() => topicIndexes(deck.slides), [deck]);
@@ -136,6 +162,8 @@ export function useDeckPlayer(
     }
     let cancelled = false;
     pausedRef.current = false;   // a new position always plays
+    replayRef.current = null;    // (and has nothing to replay)
+    waitingRef.current = false;
     const clear = () => {
       if (timerRef.current) clearTimeout(timerRef.current);
       timerRef.current = null;
@@ -170,6 +198,14 @@ export function useDeckPlayer(
         if (cancelled) return;
         // Interrupted and the clip ran out while finishing its sentence: stop here
         if (holdRef.current) { stopFinishing(); return; }
+        // The learner's turn (a hands-on box): wait here until the page says go on
+        if (optsRef.current.waitAfter?.(el)) {
+          waitingRef.current = true;
+          pausedRef.current = true;
+          setStatus('paused');
+          optsRef.current.onWait?.(el);
+          return;
+        }
         // After a plain version, carry on with the slide's next clip
         setPos((p) => ({ ...p, clip: p.clip + 1, mode: 'normal' }));
       };
@@ -229,6 +265,7 @@ export function useDeckPlayer(
     repeat: () => setPos((p) => ({ ...p, clip: clampedClip, mode: 'normal', token: p.token + 1 })),
     simplify: () => setPos((p) => ({ ...p, clip: clampedClip, mode: 'plain', token: p.token + 1 })),
     pause: () => {
+      replayRef.current = null;   // a plain pause picks up exactly where it stopped
       if (timerRef.current) clearTimeout(timerRef.current);
       if (finishTimerRef.current) clearInterval(finishTimerRef.current);
       holdRef.current = null;
@@ -238,9 +275,18 @@ export function useDeckPlayer(
     },
     resume: () => {
       if (statusRef.current !== 'paused' && !pausedRef.current) return;
+      // Still the learner's turn (after a question, or ▶): stay, it's the hands-on box that moves the lesson on
+      if (waitingRef.current) return;
       pausedRef.current = false;
       const audio = audioRef.current;
-      if (audio && audio.ended) {
+      const replayAt = replayRef.current;
+      replayRef.current = null;
+      if (audio && replayAt !== null) {
+        // back after an interruption: say the sentence that was talked over again
+        audio.currentTime = replayAt;
+        audio.volume = 1;
+        audio.play().then(() => setStatus('playing')).catch(() => {});
+      } else if (audio && audio.ended) {
         // stopped right at the end of a clip: carry on with the next one
         setPos((p) => ({ ...p, clip: p.clip + 1, mode: 'normal', token: p.token + 1 }));
       } else if (audio && audio.paused) {
@@ -267,6 +313,7 @@ export function useDeckPlayer(
         return;
       }
       holdRef.current = onStopped ?? (() => {});
+      replayRef.current = sentenceStart(textRef.current, audio.currentTime, audio.duration);
       audio.volume = DUCK_VOLUME;
       setStatus('finishing');
       const stopAt = sentenceEnd(textRef.current, audio.currentTime, audio.duration);

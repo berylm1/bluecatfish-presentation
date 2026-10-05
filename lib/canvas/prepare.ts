@@ -1,9 +1,10 @@
 import { lazySupabaseAdmin } from '@/lib/supabase/admin';
 import { TTS_VOICE, VOICE_INSTRUCTIONS, SIMPLE_VOICE_INSTRUCTIONS } from '@/lib/voice';
-import type { Deck, Slide, SlideElement } from './types';
+import type { Deck, Pointer, Slide, SlideElement } from './types';
 import { spokenText } from './queue';
 import {
-  applyPatches, audioKey, fingerprint, needsAudio, needsPlain, needsPlainAudio, needsSay, needsTopic,
+  applyPatches, audioKey, fingerprint, helperElements, needsAudio, needsHelper, needsPlain, needsPlainAudio, needsPointers, needsSay, needsTopic,
+  pointersBasis,
   plainText, sayBasis, slideBasis, type Patch,
 } from './aiFields';
 
@@ -13,53 +14,14 @@ import {
 // budget; the editor calls again until nothing is left.
 
 const supabase = lazySupabaseAdmin();
-const MODEL = 'gpt-6-luna';
 const CONCURRENCY = 6;
 const AUDIO_BUCKET = 'slide-audio';
 const AUDIO_FOLDER = 'canvas';
 
-export const STYLE =
-  'You are Professor Marine, a fun science teacher talking to 10 to 14 year olds about the blue catfish invasion ' +
-  'of the Chesapeake Bay. Upbeat and conversational, like telling a story. A little goofy, with light, dry, ' +
-  'playful sarcasm aimed at the fish, never at the learner. Facts must be exactly right.';
-
-/* ------------------------------------------------------------ OpenAI */
-
-export async function chat(system: string, user: string, json = false, maxTokens = 2000): Promise<string> {
-  const res = await fetch('https://api.openai.com/v1/chat/completions', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${process.env.OPENAI_API_KEY}` },
-    body: JSON.stringify({
-      model: MODEL,
-      reasoning_effort: 'low',
-      ...(json ? { response_format: { type: 'json_object' } } : {}),
-      messages: [{ role: 'system', content: system }, { role: 'user', content: user }],
-      max_completion_tokens: maxTokens,
-    }),
-  });
-  const raw = await res.text();
-  let data: any = null;
-  try { data = JSON.parse(raw); } catch { /* not JSON: a proxy or outage page */ }
-  const text = data?.choices?.[0]?.message?.content?.trim();
-  if (!res.ok || !text) throw new Error(data?.error?.message || `OpenAI request failed (${res.status}): ${raw.slice(0, 120)}`);
-  return text;
-}
-
-export async function knowledge(query: string, count = 6): Promise<string> {
-  try {
-    const emb = await fetch('https://api.openai.com/v1/embeddings', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${process.env.OPENAI_API_KEY}` },
-      body: JSON.stringify({ model: 'text-embedding-3-small', input: query.slice(0, 2000) }),
-    }).then((r) => r.json());
-    const { data, error } = await supabase.rpc('match_documents3', { query_embedding: emb.data[0].embedding, match_count: count });
-    if (error) throw new Error(error.message);
-    return (data ?? []).map((r: any) => String(r.content ?? '')).filter(Boolean).join('\n\n');
-  } catch (e) {
-    console.warn('Knowledge base lookup failed:', e);
-    return '';
-  }
-}
+// Shared AI helpers live in ai.ts (re-exported here: generate.ts imports them from this file)
+export { STYLE, chat, knowledge } from './ai';
+import { STYLE, chat, chatVision, knowledge } from './ai';
+import { draftHelper } from './helperDraft';
 
 const otherText = (slide: Slide, el: SlideElement) =>
   slide.elements.filter((e) => e.id !== el.id).map(sayBasis).filter(Boolean).join(' | ');
@@ -69,14 +31,45 @@ async function writeSay(el: SlideElement, slide: Slide, deck: Deck): Promise<str
   const facts = await knowledge(`${slide.topic ?? ''} ${basis}`);
   const what = el.type === 'image'
     ? `An IMAGE on the slide. Its description: "${basis}". Point the learner to it naturally ("Take a look at…"), say what it shows, and why it matters here. Only describe what the description says is in it.`
-    : `A TEXT BOX on the slide that reads: "${basis}". Explain and expand on it in fresh words; never read it out word for word.`;
+    : el.type === 'chart' || el.type === 'diagram'
+      ? `A ${el.type === 'chart' ? 'CHART' : 'DIAGRAM'} on the slide: ${basis}. Walk the learner through it ("Look at…"): what it shows and what the big takeaway is.`
+      : el.type === 'activity'
+        // a hands-on box: the words invite the learner to do it (the lesson waits for them)
+        ? `A HANDS-ON ACTIVITY the learner does next: ${basis}. In 20 to 40 words, start with "Your turn" (or similar), say in one line why it's worth doing, and say exactly what to do (drag, tap, slide). NEVER give away the answers.`
+        : `A TEXT BOX on the slide that reads: "${basis}". Explain and expand on it in fresh words; never read it out word for word.`;
+  // A hands-on box's words are short instructions that open with "Your turn" (was: the 40-80 word explanation rules, which contradicted them)
+  const handsOn = el.type === 'activity';
   return chat(
-    `${STYLE}\nWrite what the professor SAYS while this part of the slide is highlighted. 40 to 80 words (about 15-30 seconds), ` +
+    `${STYLE}\nWrite what the professor SAYS while this part of the slide is highlighted. ${handsOn ? '20 to 40 words' : '40 to 80 words (about 15-30 seconds)'}, ` +
       'plain spoken sentences, no lists, no stage directions, no quotation marks around the whole thing. At most one joke. ' +
       'Every fact must come from the knowledge base excerpts or the slide itself; if they don\'t cover something, leave it out. ' +
-      'Name the subject in the first sentence (never open with "It", "This" or "They"), because learners can jump straight here.',
+      (handsOn ? '' : 'Name the subject in the first sentence (never open with "It", "This" or "They"), because learners can jump straight here.'),
     `Lesson: ${deck.title}\nTopic: ${slide.topic ?? '(not set)'}\n${what}\nOther things on this slide: ${otherText(slide, el) || '(nothing)'}\n\nKnowledge base excerpts:\n${facts || '(none found)'}`,
   );
+}
+
+/** Up to 3 laser marks on a picture: what to point at while saying which phrase. */
+async function placePointers(el: SlideElement): Promise<Pointer[]> {
+  if (el.type !== 'image') return [];
+  const spoken = spokenText(el);
+  const out = JSON.parse(await chatVision(
+    'You place a teacher\'s laser pointer on a picture shown in a lesson. Given the picture and what the teacher says about it, ' +
+      'pick up to 3 moments where pointing at one specific, clearly visible part of the picture helps (the words name or describe it). ' +
+      'For each: "word" = the short phrase (1-4 words) copied EXACTLY from the spoken words, at the moment to point; ' +
+      '"x", "y" = that spot in the picture, in percent of its width and height (0-100, from the top-left). ' +
+      'Only point at things you can clearly see. None is fine. Reply as JSON: {"points": [{"word": "...", "x": 0, "y": 0}]}',
+    `What the teacher says: "${spoken}"\nPicture description: ${el.alt ?? '(none)'}`,
+    el.src,
+  ));
+  const lower = spoken.toLowerCase();
+  return (Array.isArray(out.points) ? out.points : [])
+    .filter((p: any) => typeof p?.word === 'string' && p.word.trim() && lower.includes(p.word.toLowerCase().trim()))
+    .slice(0, 3)
+    .map((p: any) => ({
+      word: p.word.trim().slice(0, 60),
+      x: Math.min(100, Math.max(0, Math.round(Number(p.x) * 10) / 10 || 50)),
+      y: Math.min(100, Math.max(0, Math.round(Number(p.y) * 10) / 10 || 50)),
+    }));
 }
 
 async function writePlain(spoken: string): Promise<string> {
@@ -152,9 +145,17 @@ async function pool<T>(items: T[], deadline: number, work: (item: T) => Promise<
   await Promise.all(Array.from({ length: Math.min(CONCURRENCY, items.length) }, worker));
 }
 
-type Job = { slide: Slide; el: SlideElement };
-const jobs = (deck: Deck, need: (el: SlideElement) => boolean): Job[] =>
-  deck.slides.flatMap((slide) => slide.elements.filter(need).map((el) => ({ slide, el })));
+type Job = { slide: Slide; el: SlideElement; helper?: boolean };
+/** Elements that need something; withHelpers also looks at the helpers' elements (as their own slide, for context). */
+const jobs = (deck: Deck, need: (el: SlideElement) => boolean, withHelpers = false): Job[] =>
+  deck.slides.flatMap((slide) => [
+    ...slide.elements.filter(need).map((el) => ({ slide, el })),
+    ...(withHelpers ? helperElements(slide).filter(need).map((el) => ({
+      slide: { id: `${slide.id}~helper`, topic: slide.topic, elements: helperElements(slide) } as Slide, el, helper: true,
+    })) : []),
+  ]);
+// Patches address the real slide, not the helper view
+const baseId = (id: string) => id.split('~')[0];
 
 /**
  * Does as much as fits before `deadline`, on a working copy of the deck.
@@ -185,11 +186,17 @@ export async function prepareDeck(source: Deck, deadline: number): Promise<{ pat
     : Promise.resolve();
   await Promise.all([
     topicTask,
-    pool(jobs(deck, needsSay), deadline, async ({ slide, el }) => {
+    pool(jobs(deck, needsSay, true), deadline, async ({ slide, el, helper }) => {
       try {
         const say = await writeSay(el, slide, deck);
-        keep({ slideId: slide.id, elId: el.id, kind: 'say', say, sayFrom: fingerprint(sayBasis(el)) });
+        keep({ slideId: baseId(slide.id), elId: el.id, helper, kind: 'say', say, sayFrom: fingerprint(sayBasis(el)) });
       } catch (e) { fail('Writing spoken words', e); }
+    }),
+    // Helpers ("explain it another way" versions the slide morphs into) for slides without one
+    pool(deck.slides.filter(needsHelper), deadline, async (slide) => {
+      try {
+        keep({ slideId: slide.id, kind: 'helper', helper: await draftHelper(slide, deck) });
+      } catch (e) { fail('Drafting a helper', e); }
     }),
   ]);
 
@@ -201,18 +208,25 @@ export async function prepareDeck(source: Deck, deadline: number): Promise<{ pat
     } catch (e) { fail('Writing a plain version', e); }
   });
 
+  // 2b. Laser marks on pictures (from the spoken words, including ones just written)
+  await pool(jobs(deck, needsPointers, true), deadline, async ({ slide, el, helper }) => {
+    try {
+      keep({ slideId: baseId(slide.id), elId: el.id, helper, kind: 'pointers', pointers: await placePointers(el), pointersFrom: fingerprint(pointersBasis(el)) });
+    } catch (e) { fail('Placing laser marks', e); }
+  });
+
   // 3. Audio for the spoken words and the plain versions
   const clips = [
-    ...jobs(deck, needsAudio).map((j) => ({ ...j, simple: false })),
+    ...jobs(deck, needsAudio, true).map((j) => ({ ...j, simple: false })),
     ...jobs(deck, needsPlainAudio).map((j) => ({ ...j, simple: true })),
   ];
-  await pool(clips, deadline, async ({ slide, el, simple }) => {
+  await pool(clips, deadline, async ({ slide, el, simple, helper }) => {
     try {
       const text = simple ? plainText(el) : spokenText(el);
       const { url, key } = await recordClip(text, simple);
       keep(simple
-        ? { slideId: slide.id, elId: el.id, kind: 'plainAudio', plainAudioUrl: url, plainAudioFor: key }
-        : { slideId: slide.id, elId: el.id, kind: 'audio', audioUrl: url, audioFor: key });
+        ? { slideId: baseId(slide.id), elId: el.id, helper, kind: 'plainAudio', plainAudioUrl: url, plainAudioFor: key }
+        : { slideId: baseId(slide.id), elId: el.id, helper, kind: 'audio', audioUrl: url, audioFor: key });
     } catch (e) { fail('Making audio', e); }
   });
 
