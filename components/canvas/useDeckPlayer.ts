@@ -101,11 +101,13 @@ export function useDeckPlayer(
      */
     waitAfter?: (el: SlideElement) => boolean;
     onWait?: (el: SlideElement) => void;
+    /** The slide to start on (a preview from the editor's current slide) */
+    startAt?: number;
   } = {},
 ) {
   const optsRef = useRef(opts);
   optsRef.current = opts;
-  const [pos, setPos] = useState<Pos>({ slide: 0, clip: 0, mode: 'normal', token: 0 });
+  const [pos, setPos] = useState<Pos>(() => ({ slide: Math.max(0, Math.min(opts.startAt ?? 0, deck.slides.length - 1)), clip: 0, mode: 'normal', token: 0 }));
   const [status, setStatus] = useState<PlayerStatus>('loading');
   const statusRef = useRef(status);
   statusRef.current = status;

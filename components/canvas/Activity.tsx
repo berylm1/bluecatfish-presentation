@@ -19,14 +19,22 @@ import { activityReady } from '@/lib/canvas/queue';
 const IDLE_HINT_MS = 9000;   // stopped this long before finishing: the hand shows again
 const INK = '#0f172a';
 
-export default function ActivityView({ el, interactive, onDone, hintNonce = 0 }: {
+export default function ActivityView({ el, interactive, onDone, hintNonce = 0, solved = false, quiet = false }: {
   el: ActivityElement; interactive: boolean; onDone?: () => void;
+  /** Done or skipped: no hand or glow (it can still be played with) */
+  quiet?: boolean;
+  /**
+   * Already done this lesson: drawn finished (sorted, flipped, slid), no hand.
+   * (The box is drawn again after the slide turns into a board or a helper and back.)
+   */
+  solved?: boolean;
   /** Changes when the learner seems stuck ("I'm lost", a puzzled face): the hand shows again */
   hintNonce?: number;
 }) {
   const [touched, setTouched] = useState(false);
-  const [done, setDone] = useState(false);
-  const doneRef = useRef(false);
+  const [done, setDone] = useState(solved);
+  const [justDone, setJustDone] = useState(false);   // the "✓ Nice!" badge: only when finished now, not when drawn finished
+  const doneRef = useRef(solved);
   const alive = useRef(true);   // a delayed finish (the last card, the last spot) after the box is gone doesn't count
   const idle = useRef<ReturnType<typeof setTimeout> | null>(null);
   // state, not a ref: the hand measures it in its own layout effect, which runs before a parent's ref is set
@@ -50,12 +58,13 @@ export default function ActivityView({ el, interactive, onDone, hintNonce = 0 }:
     doneRef.current = true;
     if (idle.current) clearTimeout(idle.current);
     setDone(true);
+    setJustDone(true);
     onDoneRef.current?.();
   }, []);
 
   const ready = activityReady(el);
-  const hint = interactive && ready && !touched && !done;
-  const kit: Kit = { interactive: interactive && ready && !done, hint, touch, finish };
+  const hint = interactive && ready && !touched && !done && !quiet;
+  const kit: Kit = { interactive: interactive && ready && !done, hint, touch, finish, solved };
   // A half-made box: the editor shows what's missing; learners see nothing (it isn't waited on either)
   if (!ready && interactive) return null;
   return (
@@ -78,7 +87,7 @@ export default function ActivityView({ el, interactive, onDone, hintNonce = 0 }:
                 : <Slider el={el} kit={kit} />}
         {hint && area && <HintHand area={area} mode={el.kind === 'sort' || el.kind === 'slider' ? 'drag' : 'tap'} />}
       </div>
-      {done && (
+      {justDone && (
         <div role="status" style={{ position: 'absolute', left: '50%', top: '50%', zIndex: 6, padding: '1.2cqh 2.6cqh', borderRadius: '99cqh', background: '#16a34a',
           color: '#fff', fontSize: '4cqh', fontWeight: 900, boxShadow: '0 1cqh 3cqh rgba(22,163,74,0.45)', animation: 'done-pop 600ms ease both, fade-in 400ms ease 2400ms reverse forwards',
           pointerEvents: 'none' }}>✓ Nice!</div>
@@ -87,7 +96,7 @@ export default function ActivityView({ el, interactive, onDone, hintNonce = 0 }:
   );
 }
 
-type Kit = { interactive: boolean; hint: boolean; touch: () => void; finish: () => void };
+type Kit = { interactive: boolean; hint: boolean; touch: () => void; finish: () => void; solved: boolean };
 
 /* ---------------------------------------------------------------- hint */
 
@@ -139,7 +148,7 @@ const chip = (color: string, extra: CSSProperties = {}): CSSProperties => ({
 function Sort({ el, kit }: { el: ActivityElement; kit: Kit }) {
   const items = el.items ?? [];
   const groups = el.groups ?? [];
-  const [placed, setPlaced] = useState<Record<number, number>>({});
+  const [placed, setPlaced] = useState<Record<number, number>>(() => (kit.solved ? Object.fromEntries(items.map((it, i) => [i, it.group ?? 0])) : {}));
   const [selected, setSelected] = useState<number | null>(null);
   const [wrong, setWrong] = useState<{ item: number; bin: number } | null>(null);
   const [drag, setDrag] = useState<{ i: number; x0: number; y0: number; dx: number; dy: number; moved: boolean } | null>(null);
@@ -239,7 +248,7 @@ function shuffled(n: number, seed: string): number[] {
 function Order({ el, kit }: { el: ActivityElement; kit: Kit }) {
   const items = el.items ?? [];
   const order = useMemo(() => shuffled(items.length, el.id + items.map((i) => i.text).join('|')), [el.id, items]);
-  const [next, setNext] = useState(0);
+  const [next, setNext] = useState(kit.solved ? items.length : 0);
   const [wrong, setWrong] = useState<number | null>(null);
   const tap = (k: number) => {
     if (!kit.interactive || k < next) return;
@@ -278,7 +287,7 @@ function Order({ el, kit }: { el: ActivityElement; kit: Kit }) {
 
 function Cards({ el, kit }: { el: ActivityElement; kit: Kit }) {
   const items = el.items ?? [];
-  const [flipped, setFlipped] = useState<Set<number>>(new Set());
+  const [flipped, setFlipped] = useState<Set<number>>(() => new Set(kit.solved ? items.map((_, i) => i) : []));
   const first = items.findIndex((_, i) => !flipped.has(i));
   const flip = (i: number) => {
     if (!kit.interactive || flipped.has(i)) return;
@@ -320,7 +329,7 @@ function Hotspots({ el, kit }: { el: ActivityElement; kit: Kit }) {
   const items = el.items ?? [];
   const imgRef = useRef<HTMLImageElement>(null);
   const [rect, setRect] = useState({ x: 0, y: 0, w: 100, h: 100 });
-  const [opened, setOpened] = useState<Set<number>>(new Set());
+  const [opened, setOpened] = useState<Set<number>>(() => new Set(kit.solved ? items.map((_, i) => i) : []));
   const [active, setActive] = useState<number | null>(null);
   const first = items.findIndex((_, i) => !opened.has(i));
   useLayoutEffect(() => {
@@ -374,7 +383,7 @@ function Hotspots({ el, kit }: { el: ActivityElement; kit: Kit }) {
 
 function Slider({ el, kit }: { el: ActivityElement; kit: Kit }) {
   const s = el.slider!;
-  const [value, setValue] = useState(s.min);
+  const [value, setValue] = useState(kit.solved ? s.stops[s.stops.length - 1].at : s.min);
   const stops = s.stops;
   const stop = [...stops].reverse().find((st) => value >= st.at) ?? stops[0];
   // The picture's size follows the stops' scales, smoothly between them

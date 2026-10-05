@@ -286,9 +286,10 @@ function Editor({
     return run;
   }, [lessonId, ed]);
 
-  const preview = async () => {
+  /** fromHere: the preview starts at the slide being edited (no clicking through the whole lesson to test one slide) */
+  const preview = async (fromHere = false) => {
     if (ed.dirty && !(await save())) return;
-    window.open(`/presentation?lesson=${encodeURIComponent(lessonId)}&preview=1`, '_blank');
+    window.open(`/presentation?lesson=${encodeURIComponent(lessonId)}&preview=1${fromHere ? `&slide=${slideIdx + 1}` : ''}`, '_blank');
   };
 
   const publish = async () => {
@@ -638,7 +639,8 @@ function Editor({
           {live === undefined ? '' : live ? <>Live: published {when(live.at)}{live.by ? ` by ${live.by}` : ''} · <button className="underline" onClick={unpublish}>take down</button></> : 'Not published: learners get the AI lesson'}
         </span>
         <button className={btn} onClick={() => save()} disabled={saving} title="Ctrl+S">Save</button>
-        <button className={btn} onClick={preview}>Preview ↗</button>
+        <button className={btn} onClick={() => preview()}>Preview ↗</button>
+        <button className={btn} onClick={() => preview(true)} title={`Preview the lesson starting at slide ${slideIdx + 1}`}>▶ From this slide</button>
         <button className={primary} onClick={publish}>Publish</button>
       </div>
 

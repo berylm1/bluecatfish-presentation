@@ -1,6 +1,6 @@
 'use client';
 
-import { memo, useLayoutEffect, useRef, useState, type CSSProperties } from 'react';
+import { createContext, memo, useContext, useLayoutEffect, useRef, useState, type CSSProperties } from 'react';
 import type { Slide, SlideElement, TextElement, TextStyle } from '@/lib/canvas/types';
 import { ChartView, DiagramView } from './Visuals';
 import ActivityView from './Activity';
@@ -97,8 +97,9 @@ function LaserDot({ el, p, imgRef }: { el: SlideElement; p: Pointer; imgRef: Rea
   );
 }
 
-function ElementView({ el, active, laser, dim = 1, interactive = false, onActivityDone, activityHint }: {
+function ElementView({ el, active, laser, dim = 1, interactive = false, onActivityDone, activityHint, solvedActivities, settledActivities }: {
   el: SlideElement; active: boolean; laser?: Pointer | null; dim?: number; interactive?: boolean; onActivityDone?: (id: string) => void; activityHint?: number;
+  solvedActivities?: ReadonlySet<string>; settledActivities?: ReadonlySet<string>;
 }) {
   const imgRef = useRef<HTMLImageElement>(null);
   const decorative = el.type === 'image' && el.silent && !el.alt;
@@ -131,7 +132,8 @@ function ElementView({ el, active, laser, dim = 1, interactive = false, onActivi
         <DiagramView el={el} />
       ) : el.type === 'activity' ? (
         // a fresh start whenever the box itself changes (the editor)
-        <ActivityView key={JSON.stringify([el.kind, el.items, el.groups, el.slider, el.src])} el={el} interactive={interactive} onDone={() => onActivityDone?.(el.id)} hintNonce={activityHint} />
+        <ActivityView key={JSON.stringify([el.kind, el.items, el.groups, el.slider, el.src])} el={el} interactive={interactive} onDone={() => onActivityDone?.(el.id)} hintNonce={activityHint}
+          solved={solvedActivities?.has(el.id)} quiet={settledActivities?.has(el.id)} />
       ) : (
         // eslint-disable-next-line @next/next/no-img-element
         <img
@@ -155,14 +157,18 @@ const EASE = 'cubic-bezier(0.65, 0, 0.35, 1)';
 
 const box = (e: SlideElement): CSSProperties => ({ left: `${e.x}%`, top: `${e.y}%`, width: `${e.w}%`, height: `${e.h}%` });
 
+/** Hands-on boxes already done, for the morph's copies of them (so a finished box doesn't flash back unfinished) */
+const Solved = createContext<ReadonlySet<string> | undefined>(undefined);
+
 /** An element's content, without its box (the morph moves the box). */
 function Content({ el }: { el: SlideElement }) {
+  const solved = useContext(Solved);
   if (el.type === 'text') {
     return <div style={{ position: 'absolute', inset: 0, padding: '0.8cqh 1cqw' }}><FitText el={el} /></div>;
   }
   if (el.type === 'chart') return <ChartView el={el} />;
   if (el.type === 'diagram') return <DiagramView el={el} />;
-  if (el.type === 'activity') return <ActivityView el={el} interactive={false} />;
+  if (el.type === 'activity') return <ActivityView el={el} interactive={false} solved={solved?.has(el.id)} />;
   return (
     // eslint-disable-next-line @next/next/no-img-element
     <img src={el.src} alt="" draggable={false}
@@ -304,6 +310,9 @@ function SlideCanvas({
   interactive = false,
   onActivityDone,
   activityHint,
+  solvedActivities,
+  settledActivities,
+  settledTick: _settledTick,
   children,
 }: {
   slide: Slide;
@@ -323,6 +332,12 @@ function SlideCanvas({
   onActivityDone?: (elementId: string) => void;
   /** Bump to show hands-on boxes' example hand again (the learner seems stuck) */
   activityHint?: number;
+  /** Hands-on boxes already done (read when a box is drawn: one drawn again comes back finished) */
+  solvedActivities?: ReadonlySet<string>;
+  /** Hands-on boxes done or skipped: no example hand */
+  settledActivities?: ReadonlySet<string>;
+  /** Bump when the sets above change (they're the same objects, so the memo wouldn't see it) */
+  settledTick?: number;
   /** Drawn on top of the slide (the editor's selection boxes) */
   children?: React.ReactNode;
 }) {
@@ -348,10 +363,10 @@ function SlideCanvas({
         backgroundPosition: 'center',
       }}
     >
-      {morphing ? <MorphLayer plan={morphing.plan} on={morphing.on} /> : slide.elements.map((el) => (
+      {morphing ? <Solved.Provider value={solvedActivities}><MorphLayer plan={morphing.plan} on={morphing.on} /></Solved.Provider> : slide.elements.map((el) => (
         <ElementView key={el.id} el={el} active={el.id === activeId} laser={laser?.elementId === el.id ? laser.pointer : null}
           dim={activeId && slide.elements.some((e) => e.id === activeId) ? spotlight : 1}
-          interactive={interactive} onActivityDone={onActivityDone} activityHint={activityHint} />
+          interactive={interactive} onActivityDone={onActivityDone} activityHint={activityHint} solvedActivities={solvedActivities} settledActivities={settledActivities} />
       ))}
       {children}
     </div>
