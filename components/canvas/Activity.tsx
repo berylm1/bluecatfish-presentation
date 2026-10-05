@@ -20,10 +20,16 @@ import { playSound, type HandsOnSound } from '@/lib/canvas/sounds';
 const IDLE_HINT_MS = 9000;   // stopped this long before finishing: the hand shows again
 const INK = '#0f172a';
 
-export default function ActivityView({ el, interactive, onDone, hintNonce = 0, solved = false, quiet = false, sounds = false, onMistake }: {
+export default function ActivityView({ el, interactive, onDone, hintNonce = 0, solved = false, quiet = false, sounds = false, onMistake, finnMove, onFinn, guide }: {
   el: ActivityElement; interactive: boolean; onDone?: () => void;
-  /** A wrong move, with what it was about ("Blue catfish → Native"), for the editor's learner stats */
-  onMistake?: (what: string) => void;
+  /** A wrong move: what it was about ("Blue catfish → Native"), for the learner stats and for stepping in when it repeats */
+  onMistake?: (m: ActivityMistake) => void;
+  /** Finn takes a turn (a new nonce = a new move): a sort item in the wrong group, or a wrong guess on a card */
+  finnMove?: FinnMove | null;
+  /** What happened with Finn's move (to say something about it) */
+  onFinn?: (e: FinnEvent) => void;
+  /** The item the professor just explained: the hand shows that one */
+  guide?: string;
   /** Pops, bonks and a chime (lib/canvas/sounds.ts) */
   sounds?: boolean;
   /** Done or skipped: no hand or glow (it can still be played with) */
@@ -49,7 +55,10 @@ export default function ActivityView({ el, interactive, onDone, hintNonce = 0, s
   const sound = useCallback((k: HandsOnSound) => { if (soundsRef.current) playSound(k); }, []);
   const onMistakeRef = useRef(onMistake);
   onMistakeRef.current = onMistake;
-  const mistake = useCallback((what: string) => { onMistakeRef.current?.(what); }, []);
+  const mistake = useCallback((m: ActivityMistake) => { onMistakeRef.current?.(m); }, []);
+  const onFinnRef = useRef(onFinn);
+  onFinnRef.current = onFinn;
+  const finnEvent = useCallback((e: FinnEvent) => { onFinnRef.current?.(e); }, []);
   const onDoneRef = useRef(onDone);
   onDoneRef.current = onDone;
 
@@ -76,7 +85,7 @@ export default function ActivityView({ el, interactive, onDone, hintNonce = 0, s
 
   const ready = activityReady(el);
   const hint = interactive && ready && !touched && !done && !quiet;
-  const kit: Kit = { interactive: interactive && ready && !done, hint, touch, finish, solved, sound, mistake };
+  const kit: Kit = { interactive: interactive && ready && !done, hint, touch, finish, solved, sound, mistake, finnMove: interactive ? finnMove : null, finnEvent, guide };
   // A half-made box: the editor shows what's missing; learners see nothing (it isn't waited on either)
   if (!ready && interactive) return null;
   return (
@@ -110,8 +119,19 @@ export default function ActivityView({ el, interactive, onDone, hintNonce = 0, s
 
 type Kit = {
   interactive: boolean; hint: boolean; touch: () => void; finish: () => void; solved: boolean;
-  sound: (k: HandsOnSound) => void; mistake: (what: string) => void;
+  sound: (k: HandsOnSound) => void; mistake: (m: ActivityMistake) => void;
+  finnMove?: FinnMove | null; finnEvent: (e: FinnEvent) => void; guide?: string;
 };
+
+/** A wrong move: the item, where it went (or what was tapped instead), and where it belongs (or what comes next) */
+export type ActivityMistake = { label: string; item: string; chosen: string; correct: string };
+/** Finn's turn in a hands-on box. item/group: a sort item and the (wrong) group; guess: his guess on card `item`. */
+export type FinnMove = { nonce: number; item: number; group?: number; guess?: string };
+export type FinnEvent =
+  | { type: 'applied'; item: string; group?: string; correct?: string; guess?: string }   // his move is on the board
+  | { type: 'fixed'; item: string; group: string }                                       // the learner moved his item to the right group
+  | { type: 'revealed'; item: string; guess: string }                                    // the learner flipped the card he guessed on
+  | { type: 'stuck'; item: string };                                                     // everything placed but his mistake is still there
 
 /* ---------------------------------------------------------------- hint */
 
@@ -163,28 +183,59 @@ const chip = (color: string, extra: CSSProperties = {}): CSSProperties => ({
 function Sort({ el, kit }: { el: ActivityElement; kit: Kit }) {
   const items = el.items ?? [];
   const groups = el.groups ?? [];
+  const correct = (i: number) => items[i]?.group ?? 0;
   const [placed, setPlaced] = useState<Record<number, number>>(() => (kit.solved ? Object.fromEntries(items.map((it, i) => [i, it.group ?? 0])) : {}));
+  // Finn's move: the item he dropped in the wrong group (the learner has to move it to the right one)
+  const [finn, setFinn] = useState<{ item: number; group: number } | null>(null);
   const [selected, setSelected] = useState<number | null>(null);
   const [wrong, setWrong] = useState<{ item: number; bin: number } | null>(null);
   const [drag, setDrag] = useState<{ i: number; x0: number; y0: number; dx: number; dy: number; moved: boolean } | null>(null);
   const left = items.map((_, i) => i).filter((i) => placed[i] === undefined);
-  const firstLeft = left[0];
+  // The hand shows the item the professor just explained, else the next one in the tray, else Finn's mistake
+  const guided = kit.guide !== undefined ? items.findIndex((it, i) => it.text === kit.guide && placed[i] !== correct(i)) : -1;
+  const hintItem = guided >= 0 ? guided : left.length ? left[0] : finn ? finn.item : undefined;
+
+  // Finn's turn: he puts one item (still in the tray) in a wrong group
+  const finnNonce = kit.finnMove?.nonce;
+  useEffect(() => {
+    const m = kit.finnMove;
+    if (!m || kit.solved || groups.length < 2) return;
+    const free = items.map((_, i) => i).filter((i) => placed[i] === undefined);
+    if (!free.length) return;
+    const item = free.includes(m.item) ? m.item : free[0];
+    const group = m.group !== undefined && m.group !== correct(item) && m.group < groups.length ? m.group : (correct(item) + 1) % groups.length;
+    setPlaced((p) => ({ ...p, [item]: group }));
+    setFinn({ item, group });
+    kit.finnEvent({ type: 'applied', item: items[item].text, group: groups[group], correct: groups[correct(item)] });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [finnNonce]);
 
   const attempt = (i: number, bin: number) => {
     kit.touch();
     setSelected(null);
-    if ((items[i].group ?? 0) === bin) {
+    if (correct(i) === bin) {
       const next = { ...placed, [i]: bin };
       setPlaced(next);
-      if (Object.keys(next).length === items.length) kit.finish();
+      const fixedFinn = finn?.item === i;
+      if (fixedFinn) { setFinn(null); kit.finnEvent({ type: 'fixed', item: items[i].text, group: groups[bin] }); }
+      // done = every item in its right group (Finn's mistake included)
+      if (items.every((_, j) => next[j] === correct(j))) kit.finish();
       else kit.sound('good');
+    } else if (placed[i] === bin) {
+      // dropped back where it already was: nothing happens
     } else {
       kit.sound('bad');
-      kit.mistake(`${items[i].text} → ${groups[bin] ?? ''}`);
+      kit.mistake({ label: `${items[i].text} → ${groups[bin] ?? ''}`, item: items[i].text, chosen: groups[bin] ?? '', correct: groups[correct(i)] ?? '' });
       setWrong({ item: i, bin });
       setTimeout(() => setWrong((w) => (w?.item === i ? null : w)), 600);
     }
   };
+  // Everything placed but Finn's mistake is still there: the learner gets a nudge (once)
+  const stuckSaid = useRef(false);
+  useEffect(() => {
+    if (finn && !left.length && !stuckSaid.current) { stuckSaid.current = true; kit.finnEvent({ type: 'stuck', item: items[finn.item].text }); }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [finn, left.length]);
 
   const down = (e: React.PointerEvent, i: number) => {
     if (!kit.interactive) return;
@@ -200,35 +251,44 @@ function Sort({ el, kit }: { el: ActivityElement; kit: Kit }) {
     setDrag(null);
     if (!d) return;
     if (!d.moved) { setSelected((s) => (s === d.i ? null : d.i)); return; }   // a tap: pick it, then tap a group
-    const bin = document.elementsFromPoint(e.clientX, e.clientY).map((n) => (n as HTMLElement).dataset?.bin).find((b) => b !== undefined);
+    // the group under the pointer (not the dragged chip itself: Finn's chip carries its group's mark)
+    const bin = document.elementsFromPoint(e.clientX, e.clientY)
+      .filter((n) => !(n as HTMLElement).closest?.('[data-dragging]'))
+      .map((n) => (n as HTMLElement).dataset?.bin).find((b) => b !== undefined);
     if (bin !== undefined) attempt(d.i, Number(bin));
+  };
+  /** A chip the learner can move: one in the tray, or Finn's in a group */
+  const movable = (i: number, color: string, extra: CSSProperties = {}) => {
+    const dragging = drag?.i === i && drag.moved;
+    return {
+      'data-dragging': dragging ? '' : undefined,
+      onPointerDown: (e: React.PointerEvent) => down(e, i),
+      onPointerMove: drag?.i === i ? move : undefined,
+      onPointerUp: drag?.i === i ? up : undefined,
+      onPointerCancel: () => setDrag(null),
+      style: chip(selected === i ? '#facc15' : color, {
+        cursor: kit.interactive ? 'grab' : 'default', position: 'relative', zIndex: dragging ? 8 : 1,
+        transform: dragging ? `translate(${drag!.dx}px, ${drag!.dy}px) scale(1.06)` : undefined,
+        boxShadow: dragging ? '0 1.2cqh 2.4cqh rgba(15,23,42,0.3)' : undefined,
+        animation: wrong?.item === i ? 'shake 450ms ease' : kit.hint && i === hintItem ? 'hint-pulse 1.4s ease-in-out infinite' : undefined,
+        ...extra,
+      }),
+    };
   };
 
   return (
     <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', gap: '1.5cqh' }}>
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '1cqh', justifyContent: 'center', alignContent: 'center', minHeight: '26%' }}>
-        {left.map((i) => {
-          const dragging = drag?.i === i && drag.moved;
-          return (
-            <button key={i} type="button" disabled={!kit.interactive}
-              data-hint-from={i === firstLeft ? '' : undefined}
-              onPointerDown={(e) => down(e, i)} onPointerMove={drag?.i === i ? move : undefined} onPointerUp={drag?.i === i ? up : undefined}
-              onPointerCancel={() => setDrag(null)}
-              style={chip(selected === i ? '#facc15' : '#64748b', {
-                cursor: kit.interactive ? 'grab' : 'default', position: 'relative', zIndex: dragging ? 8 : 1,
-                transform: dragging ? `translate(${drag!.dx}px, ${drag!.dy}px) scale(1.06)` : undefined,
-                boxShadow: dragging ? '0 1.2cqh 2.4cqh rgba(15,23,42,0.3)' : undefined,
-                animation: wrong?.item === i ? 'shake 450ms ease' : kit.hint ? 'hint-pulse 1.4s ease-in-out infinite' : undefined,
-              })}>
-              {items[i].text}
-            </button>
-          );
-        })}
+        {left.map((i) => (
+          <button key={i} type="button" disabled={!kit.interactive} data-hint-from={i === hintItem ? '' : undefined} {...movable(i, '#64748b')}>
+            {items[i].text}
+          </button>
+        ))}
       </div>
       <div style={{ flex: 1, display: 'flex', gap: '2%', minHeight: 0 }}>
         {groups.map((g, b) => (
           <div key={b} data-bin={b} role="button" tabIndex={kit.interactive ? 0 : -1}
-            data-hint-to={firstLeft !== undefined && (items[firstLeft].group ?? 0) === b ? '' : undefined}
+            data-hint-to={hintItem !== undefined && correct(hintItem) === b ? '' : undefined}
             onClick={() => { if (kit.interactive && selected !== null) attempt(selected, b); }}
             onKeyDown={(e) => { if (e.key === 'Enter' && kit.interactive && selected !== null) attempt(selected, b); }}
             style={{
@@ -237,7 +297,14 @@ function Sort({ el, kit }: { el: ActivityElement; kit: Kit }) {
               gap: '0.8cqh', alignItems: 'center', cursor: kit.interactive && selected !== null ? 'pointer' : 'default', transition: 'background 200ms',
             }}>
             <div data-bin={b} style={{ fontSize: '3.8cqh', fontWeight: 900, color: PALETTE[b % PALETTE.length] }}>{g}</div>
-            {items.map((it, i) => placed[i] === b && (
+            {items.map((it, i) => placed[i] !== b ? null : finn?.item === i ? (
+              // Finn's pick: his badge, and the learner can drag it out to where it really goes
+              <button key={i} type="button" disabled={!kit.interactive} data-bin={b} data-finn-pick=""
+                data-hint-from={i === hintItem ? '' : undefined} title={`Finn put this here. Is he right?`}
+                {...movable(i, '#f59e0b', { borderStyle: 'dashed', background: '#fffbeb', fontSize: '3.2cqh', animation: wrong?.item === i ? 'shake 450ms ease' : 'pop-in 450ms ease both' })}>
+                🙋 {it.text}
+              </button>
+            ) : (
               <div key={i} data-bin={b} style={chip(PALETTE[b % PALETTE.length], { animation: 'pop-in 350ms ease both', fontSize: '3.2cqh' })}>✓ {it.text}</div>
             ))}
           </div>
@@ -277,7 +344,7 @@ function Order({ el, kit }: { el: ActivityElement; kit: Kit }) {
       else kit.sound('good');
     } else {
       kit.sound('bad');
-      kit.mistake(`${items[k].text} (too early)`);
+      kit.mistake({ label: `${items[k].text} (too early)`, item: items[k].text, chosen: items[k].text, correct: items[next].text });
       setWrong(k);
       setTimeout(() => setWrong((w) => (w === k ? null : w)), 500);
     }
@@ -309,6 +376,18 @@ function Order({ el, kit }: { el: ActivityElement; kit: Kit }) {
 function Cards({ el, kit }: { el: ActivityElement; kit: Kit }) {
   const items = el.items ?? [];
   const [flipped, setFlipped] = useState<Set<number>>(() => new Set(kit.solved ? items.map((_, i) => i) : []));
+  // Finn's guess, stuck on a card the learner hasn't flipped yet
+  const [finn, setFinn] = useState<{ item: number; guess: string } | null>(null);
+  const finnNonce = kit.finnMove?.nonce;
+  useEffect(() => {
+    const m = kit.finnMove;
+    if (!m?.guess || kit.solved) return;
+    const item = !flipped.has(m.item) && items[m.item] ? m.item : items.findIndex((_, i) => !flipped.has(i));
+    if (item < 0) return;
+    setFinn({ item, guess: m.guess });
+    kit.finnEvent({ type: 'applied', item: items[item].text, guess: m.guess });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [finnNonce]);
   const first = items.findIndex((_, i) => !flipped.has(i));
   const flip = (i: number) => {
     if (!kit.interactive || flipped.has(i)) return;
@@ -316,6 +395,7 @@ function Cards({ el, kit }: { el: ActivityElement; kit: Kit }) {
     const next = new Set(flipped).add(i);
     setFlipped(next);
     kit.sound('good');
+    if (finn?.item === i) kit.finnEvent({ type: 'revealed', item: items[i].text, guess: finn.guess });
     if (next.size === items.length) setTimeout(kit.finish, 900);   // a moment to read the last one
   };
   const cols = items.length <= 3 ? items.length : items.length === 4 ? 2 : 3;
@@ -333,9 +413,18 @@ function Cards({ el, kit }: { el: ActivityElement; kit: Kit }) {
             <div style={{ position: 'absolute', inset: 0, transformStyle: 'preserve-3d', transition: 'transform 600ms cubic-bezier(0.4, 0.2, 0.2, 1)', transform: open ? 'rotateY(180deg)' : 'none' }}>
               <div style={{ ...face, background: PALETTE[i % PALETTE.length], color: '#fff', fontSize: '4cqh', fontWeight: 800, boxShadow: '0 0.8cqh 2cqh rgba(15,23,42,0.18)' }}>
                 {it.text}<span aria-hidden style={{ position: 'absolute', right: '1.2cqh', bottom: '0.8cqh', fontSize: '2.2cqh', opacity: 0.8 }}>↻</span>
+                {finn?.item === i && (
+                  // Finn's sticky note: his (wrong) guess, before the learner checks
+                  <span data-finn-pick="" style={{ position: 'absolute', left: '6%', right: '6%', top: '5%', padding: '0.6cqh 1cqh', background: '#fef08a', color: INK,
+                    fontSize: '2.6cqh', fontWeight: 700, borderRadius: '0.6cqh', transform: 'rotate(-3deg)', boxShadow: '0 0.4cqh 1cqh rgba(0,0,0,0.25)',
+                    animation: 'pop-in 450ms ease both' }}>🙋 Finn: “{finn.guess}”</span>
+                )}
               </div>
               <div style={{ ...face, background: '#fff', color: INK, fontSize: '3.6cqh', fontWeight: 700, transform: 'rotateY(180deg)', border: `0.45cqh solid ${PALETTE[i % PALETTE.length]}` }}>
-                {it.back ?? it.text}
+                <span>
+                  {it.back ?? it.text}
+                  {finn?.item === i && <span style={{ display: 'block', marginTop: '0.8cqh', fontSize: '2.4cqh', fontWeight: 600, color: '#b45309' }}>🙋 Finn guessed “{finn.guess}”</span>}
+                </span>
               </div>
             </div>
           </button>

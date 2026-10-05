@@ -37,6 +37,8 @@ export function useTutor() {
     holdUntil?: Promise<void>;
     /** Asked by a classmate (their name), not the learner */
     asker?: string;
+    /** How the turn is remembered in the conversation (default: the question, or a classmate's line as theirs) */
+    remember?: string;
   } = {}): Promise<{ decision: TutorDecision; superseded: boolean }> => {
     const seq = ++askSeq.current;
     speech.stopSpeaking();
@@ -99,7 +101,7 @@ export function useTutor() {
       if (seq === askSeq.current && pending.trim()) speech.enqueue(pending);
       speech.endStream();
       // A classmate's line is remembered as theirs, not as something the learner said
-      historyRef.current.push({ role: 'user', content: opts.asker ? `(${opts.asker}, a classmate, said: ${question})` : question }, { role: 'assistant', content: full });
+      historyRef.current.push({ role: 'user', content: opts.remember ?? (opts.asker ? `(${opts.asker}, a classmate, said: ${question})` : question) }, { role: 'assistant', content: full });
       setExchange({ question, asker: opts.asker, answer: full, done: true });
       setHistory((h) => [...h.slice(-19), { question, asker: opts.asker, answer: full, done: true }]);
     } catch (e) {

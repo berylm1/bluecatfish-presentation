@@ -31,6 +31,8 @@ function HandsOnRow({ h }: { h: NonNullable<SlideStats['handsOn']> }) {
       {h.skipped > 0 && <span className="whitespace-nowrap" title="Learners who pressed Skip">skipped <b>{h.skipped}</b></span>}
       {h.avgSeconds !== null && <span className="whitespace-nowrap">⏱ avg <b>{h.avgSeconds}</b>s to finish</span>}
       {h.wrong > 0 && <span className="whitespace-nowrap" title="Drops in the wrong group, steps tapped out of order">✗ wrong moves <b>{h.wrong}</b></span>}
+      {h.steppedIn > 0 && <span className="whitespace-nowrap" title="The same item wrong twice: the professor explained it">🧑‍🏫 professor stepped in <b>{h.steppedIn}</b></span>}
+      {h.finn > 0 && <span className="whitespace-nowrap" title="Finn put an item in the wrong group (or guessed wrong) for the learner to catch">🙋 caught Finn&apos;s mistake <b>{h.finnCaught}</b> of <b>{h.finn}</b></span>}
       {h.hints > 0 && <span className="whitespace-nowrap" title="“I’m lost” or a puzzled face while doing it: the hand showed again">👆 needed the hint <b>{h.hints}</b></span>}
       {h.hardest.length > 0 && (
         <span className="whitespace-nowrap" title="What went wrong most often">

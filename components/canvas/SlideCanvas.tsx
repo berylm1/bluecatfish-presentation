@@ -3,7 +3,7 @@
 import { createContext, memo, useContext, useLayoutEffect, useRef, useState, type CSSProperties } from 'react';
 import type { Slide, SlideElement, TextElement, TextStyle } from '@/lib/canvas/types';
 import { ChartView, DiagramView } from './Visuals';
-import ActivityView from './Activity';
+import ActivityView, { type ActivityMistake, type FinnEvent, type FinnMove } from './Activity';
 import { planMorph, sameBase, type MorphPlan } from '@/lib/canvas/morph';
 import { contentRect } from '@/lib/canvas/laser';
 import type { Pointer } from '@/lib/canvas/types';
@@ -97,10 +97,11 @@ function LaserDot({ el, p, imgRef }: { el: SlideElement; p: Pointer; imgRef: Rea
   );
 }
 
-function ElementView({ el, active, laser, dim = 1, interactive = false, onActivityDone, activityHint, solvedActivities, settledActivities, activitySounds, onActivityMistake }: {
+function ElementView({ el, active, laser, dim = 1, interactive = false, onActivityDone, activityHint, solvedActivities, settledActivities, activitySounds, onActivityMistake, finnMoves, onFinn, activityGuides }: {
   el: SlideElement; active: boolean; laser?: Pointer | null; dim?: number; interactive?: boolean; onActivityDone?: (id: string) => void; activityHint?: number;
   solvedActivities?: ReadonlySet<string>; settledActivities?: ReadonlySet<string>; activitySounds?: boolean;
-  onActivityMistake?: (elementId: string, what: string) => void;
+  onActivityMistake?: (elementId: string, m: ActivityMistake) => void;
+  finnMoves?: Record<string, FinnMove>; onFinn?: (elementId: string, e: FinnEvent) => void; activityGuides?: Record<string, string>;
 }) {
   const imgRef = useRef<HTMLImageElement>(null);
   const decorative = el.type === 'image' && el.silent && !el.alt;
@@ -135,7 +136,8 @@ function ElementView({ el, active, laser, dim = 1, interactive = false, onActivi
         // a fresh start whenever the box itself changes (the editor)
         <ActivityView key={JSON.stringify([el.kind, el.items, el.groups, el.slider, el.src])} el={el} interactive={interactive} onDone={() => onActivityDone?.(el.id)} hintNonce={activityHint}
           solved={solvedActivities?.has(el.id)} quiet={settledActivities?.has(el.id)} sounds={activitySounds}
-          onMistake={(what) => onActivityMistake?.(el.id, what)} />
+          onMistake={(m) => onActivityMistake?.(el.id, m)}
+          finnMove={finnMoves?.[el.id] ?? null} onFinn={(e) => onFinn?.(el.id, e)} guide={activityGuides?.[el.id]} />
       ) : (
         // eslint-disable-next-line @next/next/no-img-element
         <img
@@ -317,6 +319,9 @@ function SlideCanvas({
   settledTick: _settledTick,
   activitySounds = false,
   onActivityMistake,
+  finnMoves,
+  onFinn,
+  activityGuides,
   children,
 }: {
   slide: Slide;
@@ -344,8 +349,13 @@ function SlideCanvas({
   settledTick?: number;
   /** Hands-on boxes make little sounds */
   activitySounds?: boolean;
-  /** A wrong move in a hands-on box (for the learner stats) */
-  onActivityMistake?: (elementId: string, what: string) => void;
+  /** A wrong move in a hands-on box (for the learner stats, and stepping in when it repeats) */
+  onActivityMistake?: (elementId: string, m: ActivityMistake) => void;
+  /** Finn's turn per hands-on box (by element id), and what came of it */
+  finnMoves?: Record<string, FinnMove>;
+  onFinn?: (elementId: string, e: FinnEvent) => void;
+  /** Per hands-on box: the item the professor just explained (the hand shows it) */
+  activityGuides?: Record<string, string>;
   /** Drawn on top of the slide (the editor's selection boxes) */
   children?: React.ReactNode;
 }) {
@@ -374,7 +384,8 @@ function SlideCanvas({
       {morphing ? <Solved.Provider value={solvedActivities}><MorphLayer plan={morphing.plan} on={morphing.on} /></Solved.Provider> : slide.elements.map((el) => (
         <ElementView key={el.id} el={el} active={el.id === activeId} laser={laser?.elementId === el.id ? laser.pointer : null}
           dim={activeId && slide.elements.some((e) => e.id === activeId) ? spotlight : 1}
-          interactive={interactive} onActivityDone={onActivityDone} activityHint={activityHint} solvedActivities={solvedActivities} settledActivities={settledActivities} activitySounds={activitySounds} onActivityMistake={onActivityMistake} />
+          interactive={interactive} onActivityDone={onActivityDone} activityHint={activityHint} solvedActivities={solvedActivities} settledActivities={settledActivities} activitySounds={activitySounds} onActivityMistake={onActivityMistake}
+          finnMoves={finnMoves} onFinn={onFinn} activityGuides={activityGuides} />
       ))}
       {children}
     </div>

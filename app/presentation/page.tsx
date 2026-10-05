@@ -24,11 +24,12 @@ import { DEFAULT_LESSON } from '@/lib/canvas/lessons';
 import type { Deck } from '@/lib/canvas/types';
 import { learnerHeaders } from '@/lib/learnerSession';
 import { CLASSMATE_NAME } from '@/lib/voice';
+import type { ActivityMistake, FinnEvent, FinnMove } from '@/components/canvas/Activity';
 import { focusSlide, helperSlide, ownHelper } from '@/lib/canvas/morph';
 import { activityReady, shownWords, speakingOrder, spokenText } from '@/lib/canvas/queue';
 import { currentAudio } from '@/lib/canvas/aiFields';
 import { activePointer } from '@/lib/canvas/laser';
-import type { Pointer, Slide } from '@/lib/canvas/types';
+import type { ActivityElement, Pointer, Slide } from '@/lib/canvas/types';
 
 /*
  * The canvas presentation (see docs/customization-plan.md).
@@ -92,7 +93,10 @@ const HAND_RING_MS = 2500;   // how long the camera bubble stays yellow after a 
 const SPOTLIGHT = 0.7;
 // How often Finn gets something wrong on purpose for the learner to catch (never his first turn; 0 = never)
 const FINN_MISTAKE_CHANCE = 0.5;
-const MIN_VISUAL_MS = 3000;   // a board (or slide) shown with an answer stays up at least this long
+const MIN_VISUAL_MS = 3000;
+const FINN_HANDS_ON_DELAY_MS = 900;   // Finn's go in a hands-on box, this long after the learner's turn begins
+const STEP_IN_AFTER = 2;              // the same item wrong this many times: the professor explains it
+const STEP_IN_MAX = 2;                // at most this many explanations per hands-on box   // a board (or slide) shown with an answer stays up at least this long
 
 /** The topic the learner found hardest (by self-checks, "I'm lost"s, simpler/repeat requests), or null if none was hard. */
 function hardestTopic(deck: Deck, topicOf: number[], stateOf: (topic: number) => SectionState): string | null {
@@ -109,6 +113,14 @@ function hardestTopic(deck: Deck, topicOf: number[], stateOf: (topic: number) =>
 
 /** What Finn says at a topic's end: a question, or (truth set) a mistake for the learner to catch. */
 type FinnLine = { question: string; truth?: string };
+
+/** What Finn says when he has a go in a hands-on box */
+function finnHandsOnLine(e: { item: string; group?: string; guess?: string }): string {
+  return e.guess ? `Ooh, I know this one! I bet it's ${e.guess}!` : `Ooh, let me help! ${e.item} goes in ${e.group}!`;
+}
+const goodCatch = (item: string, group: string, name: string) => `Good catch${name ? `, ${name}` : ''}! ${item} goes in ${group}.`;
+const NICE_TRY = `Nice try, ${CLASSMATE_NAME}! Not quite.`;
+const TAKE_ANOTHER_LOOK = `Hmm, almost! Take another look at where ${CLASSMATE_NAME} put his.`;
 
 /** The hello with the learner's name: one clip, so there's no gap around the name. */
 const greeting = (name: string) => `Hey ${name}! I'm Professor Marine. Let's dive in.`;
@@ -149,7 +161,10 @@ function Player({ deck, preview, startAt = 0 }: { deck: Deck; preview: boolean; 
   const yourTurnRef = useRef(yourTurn);
   yourTurnRef.current = yourTurn;
   const [activityHint, setActivityHint] = useState(0);
-  const [settledTick, setSettledTick] = useState(0);   // bumped when a box is done or skipped (redraws it without its hand)   // bumped: the hands-on box shows its example hand again
+  const [settledTick, setSettledTick] = useState(0);
+  // Finn's turn in hands-on boxes (by element id), and the item the professor explained after repeated mistakes
+  const [finnMoves, setFinnMoves] = useState<Record<string, FinnMove>>({});
+  const [activityGuides, setActivityGuides] = useState<Record<string, string>>({});   // bumped when a box is done or skipped (redraws it without its hand)   // bumped: the hands-on box shows its example hand again
   const [variant, setVariant] = useState<Variant | null>(null);
   const [mood, setMood] = useState<LearnerEmotion | null>(null);
   const [introDone, setIntroDone] = useState(false);
@@ -169,6 +184,11 @@ function Player({ deck, preview, startAt = 0 }: { deck: Deck; preview: boolean; 
     onWait: (el) => {
       setYourTurn(el.id);
       turnStarted.current.set(el.id, Date.now());
+      // Finn has a go first (planned when the slide started), a moment after the learner's turn begins
+      const plan = finnPlans.current.get(el.id);
+      if (plan && classmateOnRef.current) {
+        setTimeout(() => { if (yourTurnRef.current === el.id) setFinnMoves((m) => ({ ...m, [el.id]: { ...plan, nonce: Date.now() } })); }, FINN_HANDS_ON_DELAY_MS);
+      }
       tracking.track('tutor_decision', { action: 'activity_start', kind: el.type === 'activity' ? el.kind : '' });
     },
     startAt,
@@ -808,6 +828,115 @@ function Player({ deck, preview, startAt = 0 }: { deck: Deck; preview: boolean; 
   const praise = learnerName.trim() ? `Nice work, ${learnerName.trim()}!` : 'Nice work!';
   useEffect(() => { if (yourTurn) preloadCue(praise); }, [yourTurn, praise, preloadCue]);   // ready the moment they finish
   const { track } = tracking;   // stable (the tracking object itself is new every render)
+  /** Resolves once nobody is talking (the professor's answer, or a line) — so lines don't overlap. At most 15 s. */
+  const whenQuiet = useCallback(() => new Promise<void>((resolve) => {
+    const t0 = Date.now();
+    const check = () => { if ((!tutorBusyRef.current && !cuesRef.current.saying) || Date.now() - t0 > 15000) resolve(); else setTimeout(check, 150); };
+    check();
+  }), []);
+  // The hands-on lines (Finn's go, the professor's replies, the praise) in turn, never over each other
+  // (was: "Good catch!" and "Nice work!" both started when fixing Finn's item finished the box)
+  const lineChain = useRef<Promise<unknown>>(Promise.resolve());
+  const queueLine = useCallback((run: () => Promise<unknown> | void) => {
+    const next = lineChain.current.then(whenQuiet).then(run).catch(() => {});
+    lineChain.current = next;
+    return next;
+  }, [whenQuiet]);
+  const onBox = (id: string) => playerRef.current.activeId === id;   // still on that hands-on box
+
+  // Mistakes steer the box: the same item wrong twice → the professor explains why it goes where it does,
+  // the hand shows that item, and it counts as a struggle for the topic (recap, tutor, editor stats)
+  const mistakeCounts = useRef(new Map<string, number>());   // `${box}|${item}` → wrong moves
+  const steppedIn = useRef(new Map<string, Set<string>>());  // box → items already explained
+  const onActivityMistake = useCallback((id: string, m: ActivityMistake) => {
+    track('tutor_decision', { action: 'activity_wrong', item: m.label.slice(0, 80) });
+    const key = `${id}|${m.item}`;
+    const n = (mistakeCounts.current.get(key) ?? 0) + 1;
+    mistakeCounts.current.set(key, n);
+    const done = steppedIn.current.get(id) ?? new Set<string>();
+    if (n < STEP_IN_AFTER || done.has(m.item) || done.size >= STEP_IN_MAX || yourTurnRef.current !== id || tutorBusyRef.current) return;
+    done.add(m.item);
+    steppedIn.current.set(id, done);
+    const box = deck.slides[playerRef.current.slideIndex]?.elements.find((e) => e.id === id);
+    const order = box?.type === 'activity' && box.kind === 'order';
+    track('tutor_decision', { action: 'activity_help', item: m.item.slice(0, 80) }, { confusion_marks: 1 });
+    setActivityGuides((g) => ({ ...g, [id]: order ? m.correct : m.item }));
+    setActivityHint((h) => h + 1);
+    cuesRef.current.stop();   // (a line still going, like Finn's)
+    tutor.ask(order ? `${m.item} first? (${n} tries)` : `${m.item} → ${m.chosen}? (${n} tries)`,
+      slideContext() + (order
+        ? `\nThe learner is doing the hands-on activity and has tapped "${m.item}" too early ${n} times; what comes next is "${m.correct}". They're stuck, so this time it's fine to say it: in 1-2 short, kind sentences, explain why "${m.correct}" has to happen before "${m.item}". No question at the end.`
+        : `\nThe learner is doing the hands-on activity and has put "${m.item}" in "${m.chosen}" ${n} times; it belongs in "${m.correct}". They're stuck, so this time it's fine to say where it goes: in 1-2 short, kind sentences, explain WHY "${m.item}" belongs in "${m.correct}" (the reason, from the lesson). No question at the end.`),
+      { asker: '🖐 Hands-on', remember: `(The learner kept getting "${m.item}" wrong in the hands-on activity; the professor explained it.)` });
+  }, [track, deck, tutor, slideContext]);
+
+  // Finn's go in a hands-on box: he says what he did; the professor reacts when the learner sorts it out
+  const finnMovesRef = useRef(finnMoves);
+  finnMovesRef.current = finnMoves;
+  const finnSpoken = useRef(new Set<number>());   // moves already spoken (a box drawn again re-applies its move silently)
+  const onFinn = useCallback((id: string, e: FinnEvent) => {
+    const name = learnerName.trim();
+    if (e.type === 'applied') {
+      const nonce = finnMovesRef.current[id]?.nonce;
+      if (nonce === undefined || finnSpoken.current.has(nonce)) return;
+      finnSpoken.current.add(nonce);
+      track('tutor_decision', { action: 'activity_finn', item: e.item.slice(0, 80) });
+      // the professor's replies, ready for when the learner gets to it
+      if (e.correct) cuesRef.current.preload(goodCatch(e.item, e.correct, name));
+      cuesRef.current.preload(e.guess ? NICE_TRY : TAKE_ANOTHER_LOOK);
+      queueLine(async () => {
+        if (!onBox(id)) return;
+        setClassmateSaying(true);
+        await cuesRef.current.play({ text: finnHandsOnLine(e), who: 'classmate' });
+        setClassmateSaying(false);
+      });
+    } else if (e.type === 'fixed') {
+      track('tutor_decision', { action: 'activity_finn_caught', item: e.item.slice(0, 80) });
+      queueLine(() => (onBox(id) ? cuesRef.current.play({ text: goodCatch(e.item, e.group, name) }) : undefined));
+    } else if (e.type === 'revealed') {
+      queueLine(() => (onBox(id) ? cuesRef.current.play({ text: NICE_TRY }) : undefined));
+    } else if (e.type === 'stuck') {
+      setActivityHint((h) => h + 1);
+      queueLine(() => (onBox(id) ? cuesRef.current.play({ text: TAKE_ANOTHER_LOOK }) : undefined));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [learnerName, track, queueLine]);
+
+  // Finn's plan for each hands-on box on a slide, made when the slide starts (so his line is ready to say)
+  const finnPlans = useRef(new Map<string, Omit<FinnMove, 'nonce'>>());
+  useEffect(() => {
+    const s = deck.slides[player.slideIndex];
+    const boxes = (s?.elements ?? []).filter((e): e is ActivityElement => e.type === 'activity' && activityReady(e));
+    if (!boxes.length) return;
+    // a fresh visit: no move from last time, no guide, mistakes counted again
+    setFinnMoves((m) => { const n = { ...m }; for (const b of boxes) delete n[b.id]; return n; });
+    setActivityGuides((g) => { const n = { ...g }; for (const b of boxes) delete n[b.id]; return n; });
+    for (const b of boxes) {
+      finnPlans.current.delete(b.id);
+      steppedIn.current.delete(b.id);
+      for (const k of [...mistakeCounts.current.keys()]) if (k.startsWith(`${b.id}|`)) mistakeCounts.current.delete(k);
+      if (!classmateOnRef.current) continue;
+      const items = b.items ?? [];
+      const pick = Math.floor(Math.random() * items.length);
+      if (b.kind === 'sort' && items.length >= 3 && (b.groups?.length ?? 0) >= 2) {
+        const groups = b.groups!;
+        const right = items[pick].group ?? 0;
+        const group = (right + 1 + Math.floor(Math.random() * (groups.length - 1))) % groups.length;
+        finnPlans.current.set(b.id, { item: pick, group });
+        cuesRef.current.preload(finnHandsOnLine({ item: items[pick].text, group: groups[group] }), 'classmate');
+      } else if (b.kind === 'cards' && items.length >= 2 && items[pick].back) {
+        fetch('/api/classmate', {
+          method: 'POST', headers: learnerHeaders({ 'Content-Type': 'application/json' }),
+          body: JSON.stringify({ guess: { front: items[pick].text, back: items[pick].back } }), signal: AbortSignal.timeout(8000),
+        }).then((r) => (r.ok ? r.json() : null)).then((d) => {
+          if (!d?.guess) return;
+          finnPlans.current.set(b.id, { item: pick, guess: d.guess });
+          cuesRef.current.preload(finnHandsOnLine({ item: items[pick].text, guess: d.guess }), 'classmate');
+        }).catch(() => {});
+      }
+    }
+  }, [player.slideIndex, deck]);
+
   const onActivityDone = useCallback((id: string) => {
     activitiesDone.current.add(id);
     activitiesSolved.current.add(id);
@@ -817,12 +946,9 @@ function Player({ deck, preview, startAt = 0 }: { deck: Deck; preview: boolean; 
     track('tutor_decision', { action: 'activity_done', ...(began ? { seconds: Math.round((Date.now() - began) / 1000) } : {}) });
     if (yourTurnRef.current !== id) return;   // done while the professor was still explaining: the lesson just carries on
     setYourTurn(null);
-    playCue({ text: praise }).then(() => { if (playerRef.current.activeId === id) playerRef.current.nextClip(); });
-  }, [track, playCue, praise]);
-  // A wrong move (for the editor's learner stats: which items trip learners up)
-  const onActivityMistake = useCallback((_id: string, what: string) => {
-    track('tutor_decision', { action: 'activity_wrong', item: what.slice(0, 80) });
-  }, [track]);
+    // after the professor (an explanation, a reply to Finn) has finished, not over them
+    queueLine(() => playCue({ text: praise })).then(() => { if (playerRef.current.activeId === id) playerRef.current.nextClip(); });
+  }, [track, playCue, praise, queueLine]);
   const skipActivity = () => {
     const id = yourTurnRef.current;
     if (!id) return;
@@ -830,6 +956,7 @@ function Player({ deck, preview, startAt = 0 }: { deck: Deck; preview: boolean; 
     activitiesDone.current.add(id);
     setSettledTick((n) => n + 1);
     setYourTurn(null);
+    cuesRef.current.stop();   // Finn (or a reply) mid-line: not over what comes next
     playerRef.current.nextClip();
   };
   // Back on a hands-on slide (going back, or starting over): the lesson waits for it again
@@ -839,7 +966,9 @@ function Player({ deck, preview, startAt = 0 }: { deck: Deck; preview: boolean; 
     }
   }, [player.slideIndex, deck]);
   // Moved on some other way (a command, a jump): no longer their turn
-  useEffect(() => { if (yourTurn && player.activeId !== yourTurn) setYourTurn(null); }, [yourTurn, player.activeId, player.slideIndex]);
+  useEffect(() => {
+    if (yourTurn && player.activeId !== yourTurn) { setYourTurn(null); cuesRef.current.stop(); }   // (and Finn's hands-on line, if still going)
+  }, [yourTurn, player.activeId, player.slideIndex]);
 
   // The camera bubble: yellow for a raised hand (for a few seconds), then what the face shows
   const [, tick] = useState(0);
@@ -956,13 +1085,15 @@ function Player({ deck, preview, startAt = 0 }: { deck: Deck; preview: boolean; 
             <button onClick={() => {
               // a fresh lesson: Finn asks again, hands-on boxes wait again
               checked.current.clear(); activitiesDone.current.clear(); activitiesSolved.current.clear(); classmateTopics.current.clear(); classmateAsked.current = []; finnReady.current.clear();
+              finnSpoken.current.clear(); mistakeCounts.current.clear(); steppedIn.current.clear();
               setSelfCheck(null); setYourTurn(null); cues.stop(); player.restart();
             }} className="px-6 py-3 rounded-xl bg-cyan-500 hover:bg-cyan-400 font-semibold">Start over</button>
           </div>
         ) : (
           <SlideCanvas slide={shownSlide} activeId={variant ? helperActive : player.activeId} morph={MORPH_HELPERS} laser={laser} spotlight={SPOTLIGHT}
             interactive onActivityDone={onActivityDone} activityHint={activityHint}
-            solvedActivities={activitiesSolved.current} settledActivities={activitiesDone.current} settledTick={settledTick} activitySounds={soundsOn} onActivityMistake={onActivityMistake} />
+            solvedActivities={activitiesSolved.current} settledActivities={activitiesDone.current} settledTick={settledTick} activitySounds={soundsOn} onActivityMistake={onActivityMistake}
+            finnMoves={finnMoves} onFinn={onFinn} activityGuides={activityGuides} />
         )}
         {variant && !MORPH_HELPERS && <VariantOverlay variant={variant} onDone={closeVariant} />}
         {variant && MORPH_HELPERS && (

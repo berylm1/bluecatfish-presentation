@@ -97,6 +97,22 @@ export const SAMPLE_DECK: Deck = {
       ],
     },
     {
+      // A hands-on slide: guess-and-flip cards (from what s3 teaches)
+      id: 's3b',
+      topic: "Why They're a Problem",
+      background: { color: '#fffbeb' },
+      elements: [
+        { id: 's3b-title', type: 'text', x: 5, y: 4, w: 90, h: 13, text: 'Guess, then flip', style: 'title', align: 'center', color: '#92400e', silent: true },
+        { id: 's3b-cards', type: 'activity', kind: 'cards', x: 6, y: 20, w: 88, h: 76, prompt: 'Make a guess, then tap to check',
+          items: [
+            { text: 'Where are blue catfish from?', back: 'The Mississippi River' },
+            { text: 'When did people bring them to Virginia?', back: 'The 1970s' },
+            { text: 'Why did people bring them?', back: 'So anglers had a big fish to catch' },
+          ],
+          say: 'Your turn! For each card, make a guess in your head first, then tap it to flip it over and see if you were right.' },
+      ],
+    },
+    {
       id: 's4',
       topic: "Why They're a Problem",
       background: { color: '#fff7ed' },

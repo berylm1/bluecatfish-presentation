@@ -40,6 +40,9 @@ export type HandsOnStats = {
   skipped: number;
   hints: number;             // "I'm lost" / a puzzled face while doing it: the hand showed again
   wrong: number;             // wrong moves (a drop in the wrong group, a step out of order)
+  steppedIn: number;         // the same item wrong twice: the professor explained it
+  finn: number;              // Finn had a go (a wrong item, a wrong guess)
+  finnCaught: number;        //   … and the learner put his item right
   avgSeconds: number | null; // from the learner's turn to done
   /** What went wrong most: [item, times], most first (at most 5) */
   hardest: [string, number][];
@@ -50,7 +53,7 @@ const empty = (): SlideStats => ({
   repeats: 0, questions: 0, selfCheck: { got: 0, kind: 0, lost: 0 }, helpOffered: 0, helpAccepted: 0,
   avgSeconds: null, away: 0, handsOn: null,
 });
-const emptyHandsOn = (): HandsOnStats => ({ started: 0, done: 0, skipped: 0, hints: 0, wrong: 0, avgSeconds: null, hardest: [] });
+const emptyHandsOn = (): HandsOnStats => ({ started: 0, done: 0, skipped: 0, hints: 0, wrong: 0, steppedIn: 0, finn: 0, finnCaught: 0, avgSeconds: null, hardest: [] });
 
 /** Stats per slide id. */
 export function slideStats(rows: EventRow[]): Record<string, SlideStats> {
@@ -95,6 +98,9 @@ export function slideStats(rows: EventRow[]): Record<string, SlideStats> {
             if (typeof v.seconds === 'number' && v.seconds > 0 && v.seconds < 900) (handsOnTimes[slide] ??= []).push(v.seconds);
           } else if (v.action === 'activity_skip') h.skipped++;
           else if (v.action === 'activity_hint') h.hints++;
+          else if (v.action === 'activity_help') h.steppedIn++;
+          else if (v.action === 'activity_finn') h.finn++;
+          else if (v.action === 'activity_finn_caught') h.finnCaught++;
           else if (v.action === 'activity_wrong') {
             h.wrong++;
             if (typeof v.item === 'string' && v.item) {
