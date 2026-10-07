@@ -50,7 +50,8 @@ export function useTutor() {
         method: 'POST',
         headers: learnerHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify({
-          userText: question,
+          // A classmate's question says who asked it (was: answered as the learner's, "Good question, Kai")
+          userText: opts.asker ? `${opts.asker} (a classmate) asks: ${question}` : question,
           topic: 'Blue Catfish invasion in the Chesapeake Bay',
           stream: true,
           useKnowledgeBase: true,
