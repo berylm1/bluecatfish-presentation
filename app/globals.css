@@ -464,3 +464,6 @@ body {
   [data-visual] *, [data-activity] * { animation-duration: 1ms !important; animation-delay: 0ms !important; }
   [data-hint-hand] { animation: none !important; }
 }
+
+/* Right after a morph back, the slide's boxes are drawn again: show them as they were, no entrance replay */
+[data-no-intro] [data-visual] *, [data-no-intro] [data-activity] * { animation-duration: 0s !important; animation-delay: 0s !important; }

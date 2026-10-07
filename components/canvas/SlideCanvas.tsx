@@ -274,6 +274,14 @@ function MorphLayer({ plan, on }: { plan: MorphPlan; on: boolean }) {
 function useMorph(slide: Slide, enabled: boolean) {
   const shown = useRef(slide);   // the slide last drawn (its latest content)
   const [morph, setMorph] = useState<{ plan: MorphPlan; on: boolean } | null>(null);
+  // Just after a morph the slide's boxes are drawn again: no entrance animations then
+  // (was: charts grew and boxes popped in again, as if the slide restarted)
+  const [settling, setSettling] = useState(false);
+  useLayoutEffect(() => {
+    if (!settling) return;
+    const t = setTimeout(() => setSettling(false), 800);
+    return () => clearTimeout(t);
+  }, [settling]);
   // Only a change of slide (id) starts a morph: the page re-renders all the
   // time, and restarting on every render would freeze the animation halfway
   useLayoutEffect(() => {
@@ -283,13 +291,13 @@ function useMorph(slide: Slide, enabled: boolean) {
     setMorph({ plan: planMorph(from, slide), on: false });
     let raf2 = 0;
     const raf1 = requestAnimationFrame(() => { raf2 = requestAnimationFrame(() => setMorph((m) => m && { ...m, on: true })); });
-    const done = setTimeout(() => setMorph(null), MORPH_MS + 150);
+    const done = setTimeout(() => { setMorph(null); setSettling(true); }, MORPH_MS + 150);
     return () => { cancelAnimationFrame(raf1); cancelAnimationFrame(raf2); clearTimeout(done); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [slide.id, enabled]);
   // After the effect above, so it still sees the previous slide when the id changes
   useLayoutEffect(() => { shown.current = slide; });
-  return morph;
+  return { morph, settling };
 }
 
 /**
@@ -360,10 +368,11 @@ function SlideCanvas({
   children?: React.ReactNode;
 }) {
   const bg = slide.background ?? {};
-  const morphing = useMorph(slide, morph);
+  const { morph: morphing, settling } = useMorph(slide, morph);
   return (
     <div
       data-slide-id={slide.id}
+      data-no-intro={settling || undefined}
       style={{
         position: 'relative',
         width,

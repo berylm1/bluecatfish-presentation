@@ -359,7 +359,9 @@ function Player({ deck, preview, startAt = 0 }: { deck: Deck; preview: boolean; 
     if (left > 0) await new Promise((r) => setTimeout(r, left));
     if (variantMode.current === 'answer') setVariant(null);
     if (superseded) return;   // talked over the answer: the next turn decides what happens
-    if (opts.resume === false) return;
+    // The caller goes on to something else (Finn's turn → "How did that section go?"): let the
+    // board morph back first (was: the self-check popped up mid-morph over a redrawing slide)
+    if (opts.resume === false) { if (shownAt) await new Promise((r) => setTimeout(r, MORPH_BACK_MS + 250)); return; }
     if (decision) tracking.track('tutor_decision', { action: decision });
     const now = playerRef.current;
     if (decision === 'simplify') now.simplify();
