@@ -21,7 +21,7 @@ const AUDIO_FOLDER = 'canvas';
 
 // Shared AI helpers live in ai.ts (re-exported here: generate.ts imports them from this file)
 export { STYLE, chat, knowledge } from './ai';
-import { STYLE, chat, chatVision, knowledge } from './ai';
+import { STYLE, chat, chatVision, imageForVision, knowledge } from './ai';
 import { draftHelper } from './helperDraft';
 
 const otherText = (slide: Slide, el: SlideElement) =>
@@ -81,6 +81,9 @@ async function writeCaption(el: SlideElement): Promise<string> {
 async function placePointers(el: SlideElement): Promise<Pointer[]> {
   if (el.type !== 'image') return [];
   const spoken = spokenText(el);
+  // A picture the model can't read (gone, an SVG, too big): no marks, and no error (kept as "none", so it isn't retried every save)
+  const picture = await imageForVision(el.src);
+  if (!picture) return [];
   const out = JSON.parse(await chatVision(
     'You place a teacher\'s laser pointer on a picture shown in a lesson. Given the picture and what the teacher says about it, ' +
       'pick up to 3 moments where pointing at one specific, clearly visible part of the picture helps (the words name or describe it). ' +
@@ -88,7 +91,7 @@ async function placePointers(el: SlideElement): Promise<Pointer[]> {
       '"x", "y" = that spot in the picture, in percent of its width and height (0-100, from the top-left). ' +
       'Only point at things you can clearly see. None is fine. Reply as JSON: {"points": [{"word": "...", "x": 0, "y": 0}]}',
     `What the teacher says: "${spoken}"\nPicture description: ${el.alt ?? '(none)'}`,
-    el.src,
+    picture,
   ));
   const lower = spoken.toLowerCase();
   return (Array.isArray(out.points) ? out.points : [])

@@ -32,6 +32,29 @@ export async function chat(system: string, user: string, json = false, maxTokens
 }
 
 /** chat, looking at a picture too (for the laser marks). */
+const VISION_TYPES = ['image/png', 'image/jpeg', 'image/webp', 'image/gif'];
+const MAX_IMAGE_BYTES = 8_000_000;
+
+/**
+ * The picture as a data URL the model can read, or null if it can't be (not
+ * found, too big, or a kind the model doesn't take, like SVG). Fetched here,
+ * not by OpenAI: its downloader failed on some storage links ("Error while
+ * downloading file. Upstream status code: 400").
+ */
+export async function imageForVision(url: string): Promise<string | null> {
+  try {
+    const res = await fetch(url, { signal: AbortSignal.timeout(15000) });
+    if (!res.ok) return null;
+    const type = (res.headers.get('content-type') ?? '').split(';')[0].trim().toLowerCase();
+    if (!VISION_TYPES.includes(type)) return null;
+    const buf = Buffer.from(await res.arrayBuffer());
+    if (!buf.length || buf.length > MAX_IMAGE_BYTES) return null;
+    return `data:${type};base64,${buf.toString('base64')}`;
+  } catch {
+    return null;
+  }
+}
+
 export async function chatVision(system: string, user: string, imageUrl: string): Promise<string> {
   const res = await fetch('https://api.openai.com/v1/chat/completions', {
     method: 'POST',
