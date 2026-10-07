@@ -12,6 +12,7 @@ export default function Transcript({
   text,
   getAudio,
   dialogue = [],
+  question,
 }: {
   speaker: string;
   text: string;
@@ -19,6 +20,8 @@ export default function Transcript({
   dialogue?: { question: string; answer: string; asker?: string }[];
   /** The playing audio, to follow along sentence by sentence (omit for streamed answers) */
   getAudio?: () => HTMLAudioElement | null;
+  /** The question being answered right now, shown above the answer */
+  question?: { text: string; asker?: string };
 }) {
   const [current, setCurrent] = useState(0);
   const sentences = splitSentences(text);
@@ -70,6 +73,7 @@ export default function Transcript({
           ))}
         </div>
       )}
+      {question && <p className={`mb-1 ${question.asker ? 'text-amber-200' : 'text-cyan-200/90'}`}><b>{question.asker ?? 'You'}:</b> {question.text}</p>}
       {text && <div className="text-[10px] uppercase tracking-wider text-cyan-300/80 mb-1">{speaker}</div>}
       <p>
         {sentences.map((s, i) => (
