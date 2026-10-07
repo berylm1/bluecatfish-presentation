@@ -334,7 +334,9 @@ function Player({ deck, preview, startAt = 0 }: { deck: Deck; preview: boolean; 
       const wantBoard = question.trim().split(/\s+/).length >= 3;
       Promise.all([
         wantBoard ? fetchBoard(question, base.topic ?? '', slideText(playerRef.current.slideIndex)) : Promise.resolve(null),
-        findVariant('confused', question, question),
+        // Not for Finn's questions: the authored slide is the "I'm lost" help slide, and the
+        // learner isn't lost when a classmate asks (was: Finn spoke, the help slide came up)
+        opts.asker ? Promise.resolve(null) : findVariant('confused', question, question),
       ]).then(([board, slide]) => {
         if (!answering) return;
         variantMode.current = 'answer';
