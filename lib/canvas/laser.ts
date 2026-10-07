@@ -7,7 +7,7 @@ import type { Pointer, SlideElement } from './types';
  * even-paced, as for finishing sentences).
  */
 
-export const LASER_MS = 3000;
+export const LASER_MS = 5000;
 
 /** Where a picture is drawn inside its box, in % of the box ("contain" letterboxes, "cover" crops). */
 export function contentRect(boxW: number, boxH: number, natW: number, natH: number, fit: 'contain' | 'cover' = 'contain') {
