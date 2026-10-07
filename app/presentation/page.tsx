@@ -97,6 +97,9 @@ const MIN_VISUAL_MS = 3000;
 // The slide as big as fits with the header and the controls under it (was 80% of the screen height,
 // so on a 1366×768 laptop the controls pushed the top of the slide off the screen)
 const SLIDE_WIDTH = 'min(88vw, calc((100vh - 190px) * 16 / 9))';
+// The question + answer box under the slide: off, the transcript (top right) shows them instead
+// (was: it made the page taller than the screen, so it scrolled). Still shown with the transcript off.
+const ANSWER_BOX_UNDER_SLIDE = false;
 const EXCHANGE_HIDE_MS = 12000;   // the question + answer box under the slide goes away this long after the answer
 const FINN_HANDS_ON_DELAY_MS = 900;   // Finn's go in a hands-on box, this long after the learner's turn begins
 const STEP_IN_AFTER = 2;              // the same item wrong this many times: the professor explains it
@@ -1100,7 +1103,8 @@ function Player({ deck, preview, startAt = 0 }: { deck: Deck; preview: boolean; 
       {showTranscript && (cues.saying
         ? <Transcript speaker={classmateSaying ? `${CLASSMATE_NAME} · classmate` : 'Professor Marine'} text={cues.saying} dialogue={tutor.history} />
         : tutor.speaking || tutor.thinking
-          ? <Transcript speaker="Professor Marine · answering" text={tutor.exchange?.answer ?? ''} dialogue={earlierDialogue} />
+          ? <Transcript speaker="Professor Marine · answering" text={tutor.exchange?.answer || (tutor.thinking ? 'thinking…' : '')} dialogue={earlierDialogue}
+              question={tutor.exchange ? { text: tutor.exchange.question, asker: tutor.exchange.asker } : undefined} />
           : !selfCheck && <Transcript speaker={player.mode === 'plain' ? 'Professor Marine · plain version' : 'Professor Marine'} text={player.captionText} getAudio={player.getAudio} dialogue={tutor.history} />)}
       <div className="text-xs uppercase tracking-widest text-cyan-200/70">
         {preview && <span className="mr-2 text-amber-300">Preview ·</span>}
@@ -1217,7 +1221,7 @@ function Player({ deck, preview, startAt = 0 }: { deck: Deck; preview: boolean; 
       </div>
 
       {/* The question and the professor's answer, while it's being answered */}
-      {tutor.exchange && (
+      {tutor.exchange && (ANSWER_BOX_UNDER_SLIDE || !showTranscript) && (
         <div className="w-full max-w-3xl rounded-xl bg-white/10 border border-white/15 px-4 py-3 text-sm relative" role="status" data-bubble-avoid>
           <button className="absolute top-2 right-3 text-white/50 hover:text-white" onClick={tutor.clearExchange} aria-label="Close">✕</button>
           <p className={tutor.exchange.asker ? 'text-amber-200' : 'text-cyan-200/90'}><b>{tutor.exchange.asker ?? 'You'}:</b> {tutor.exchange.question}</p>
