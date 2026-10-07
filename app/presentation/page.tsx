@@ -352,7 +352,8 @@ function Player({ deck, preview, startAt = 0 }: { deck: Deck; preview: boolean; 
       });
     }
     const context = slideContext() + (opts.asker
-      ? `\nThis question is from ${opts.asker}, a classmate (not the learner). Answer ${opts.asker} by name, as a teacher answers a student in class.`
+      ? `\nThis question is from ${opts.asker}, a classmate (not the learner). Answer ${opts.asker} by name, as a teacher answers a student in class.` +
+        (learnerName.trim() ? ` Don't call ${opts.asker} ${learnerName.trim()}: ${learnerName.trim()} is the learner, not who asked.` : '')
       : '');
     const { decision, superseded } = await tutor.ask(question, context, { holdUntil: quiet, asker: opts.asker });
     answering = false;
@@ -370,7 +371,7 @@ function Player({ deck, preview, startAt = 0 }: { deck: Deck; preview: boolean; 
     else if (decision === 'advance') now.nextSlide();
     else if (decision === 'repeat') now.repeat();
     else now.resume();
-  }, [tutor, slideContext, tracking, findVariant, finishThenPause, deck, slideText]);
+  }, [tutor, slideContext, tracking, findVariant, finishThenPause, deck, slideText, learnerName]);
 
   /**
    * The learner is lost: show a reviewed variant slide for this topic if there
