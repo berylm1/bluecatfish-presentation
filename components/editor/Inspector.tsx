@@ -146,6 +146,21 @@ export function ElementInspector({
             <textarea rows={3} className={input} value={el.alt ?? ''} placeholder="What the image shows" onChange={(e) => update({ alt: e.target.value })} />
           </div>
           <div>
+            <label className={label}>Caption <AiBadge show={el.captionByAI && !el.captionOff} /></label>
+            <input
+              className={input}
+              value={el.caption ?? ''}
+              disabled={el.captionOff}
+              maxLength={120}
+              placeholder={el.captionOff ? 'No caption' : 'Blank: the AI writes one from the description when you save'}
+              onChange={(e) => update({ caption: e.target.value || undefined, captionByAI: undefined })}
+            />
+            <label className="flex items-center gap-2 text-xs text-slate-600 mt-1">
+              <input type="checkbox" checked={!!el.captionOff} onChange={(e) => update({ captionOff: e.target.checked || undefined })} />
+              No caption on this picture
+            </label>
+          </div>
+          <div>
             <label className={label}>Fit</label>
             <select className={input} value={el.fit ?? 'contain'} onChange={(e) => update({ fit: e.target.value as 'cover' | 'contain' })}>
               <option value="contain">Show the whole image</option>
@@ -239,8 +254,11 @@ export function SlideInspector({
   recap,
   recapByAI,
   onRecap,
+  topicStart,
 }: {
   slide: Slide;
+  /** The first slide of its topic: it has the topic's introduction */
+  topicStart?: boolean;
   update: (patch: Partial<Slide>) => void;
   warnings: Warning[];
   onPickBackground: () => void;
@@ -262,6 +280,24 @@ export function SlideInspector({
         />
         <p className="text-xs text-slate-500 mt-1">Only you see this. Slides in a row with the same topic are one topic (“next topic”, “go to”).</p>
       </div>
+      {topicStart && (
+        <div>
+          <label className={label}>Topic introduction <AiBadge show={slide.intro?.sayByAI && !slide.intro?.off} /></label>
+          <textarea
+            rows={3}
+            className={input}
+            value={slide.intro?.say ?? ''}
+            disabled={slide.intro?.off}
+            placeholder={slide.intro?.off ? 'No introduction' : 'Blank: the AI writes one when you save'}
+            onChange={(e) => update({ intro: { ...slide.intro, say: e.target.value || undefined, sayByAI: undefined } })}
+          />
+          <label className="flex items-center gap-2 text-xs text-slate-600 mt-1">
+            <input type="checkbox" checked={!!slide.intro?.off} onChange={(e) => update({ intro: { ...slide.intro, off: e.target.checked || undefined } })} />
+            No introduction for this topic
+          </label>
+          <p className="text-xs text-slate-500 mt-1">Said before this slide, with the topic&apos;s name on a small title card.</p>
+        </div>
+      )}
       <div>
         <label className={label}>Background</label>
         <div className="flex items-center gap-2">

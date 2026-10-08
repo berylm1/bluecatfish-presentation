@@ -26,6 +26,7 @@ import { learnerHeaders } from '@/lib/learnerSession';
 import { CLASSMATE_NAME } from '@/lib/voice';
 import type { ActivityMistake, FinnEvent, FinnMove } from '@/components/canvas/Activity';
 import { focusSlide, helperSlide, ownHelper } from '@/lib/canvas/morph';
+import { isIntroId } from '@/lib/canvas/intro';
 import { activityReady, shownWords, speakingOrder, spokenText } from '@/lib/canvas/queue';
 import { currentAudio } from '@/lib/canvas/aiFields';
 import { activePointer } from '@/lib/canvas/laser';
@@ -80,6 +81,20 @@ export default function CanvasPresentation() {
 
 // "You lost me" and friends: the learner is confused, not just asking for simpler words
 const CONFUSED = /\blost me\b|\bi'?m lost\b|\b(?:don'?t|do not|didn'?t) (?:understand|get it|get that|get this|follow)\b|\bconfus|\bwhat does (?:that|this|it) (?:even )?mean\b|^huh\b/i;
+/**
+ * The learner's call on Finn's deliberate mistake: caught it, agreed with it
+ * (fooled), not sure, or something else (said in their own words: the
+ * professor decides). The buttons say "Not quite, Finn is wrong.",
+ * "Yes, Finn is right." and "I'm not sure.".
+ */
+function finnVerdictKind(verdict: string): 'caught' | 'fooled' | 'unsure' | 'other' {
+  const t = verdict.toLowerCase().trim();
+  if (!t || /\b(?:not sure|unsure|don'?t know|no idea|dunno|maybe|i guess|not certain)\b/.test(t)) return 'unsure';
+  if (/\b(?:wrong|not (?:quite|right|true|correct)|isn'?t (?:right|true|correct)|incorrect|false|mistake|nope|nah)\b|^no\b/.test(t)) return 'caught';
+  if (/\b(?:right|yes|yeah|yep|true|correct|agree)\b/.test(t)) return 'fooled';
+  return 'other';
+}
+
 const YES = /^(?:yes|yeah|yep|yup|sure|ok(?:ay)?|please|uh[- ]huh|definitely|go ahead|do it|mhm)\b/i;
 const NO = /^(?:no|nope|nah|not really|i'?m (?:good|fine|ok(?:ay)?)|all good|keep going|carry on)\b/i;
 const SPEAKING: string[] = ['playing', 'loading', 'finishing', 'waiting'];
@@ -572,13 +587,37 @@ function Player({ deck, preview, startAt = 0 }: { deck: Deck; preview: boolean; 
               if (interruptOn) { resumeAfterTurn.current = false; micRef.current.talk(); }   // listen for it too
             });
             if (verdict === null) return;   // moved on: no answer, and no "How did that section go?" on another slide
-            tracking.track('tutor_decision', { action: 'classmate_mistake_answer', answer: verdict.slice(0, 200) });
+            const kind = finnVerdictKind(verdict);
+            tracking.track('tutor_decision', { action: 'classmate_mistake_answer', answer: verdict.slice(0, 200), kind });
+            // Fooled or unsure: after the explanation, the topic's helper ("another way to see it")
+            const helper = kind === 'fooled' || kind === 'unsure' ? (MORPH_HELPERS ? helperFor(from) : null) : null;
+            const you = name ? `, ${name}` : '';
+            const how = kind === 'caught'
+              ? `The learner CAUGHT the mistake. Start with "Good catch${you}!" and say ${CLASSMATE_NAME} wasn't right, and why, in a sentence, using what's actually right. ` +
+                `Then a kind word to ${CLASSMATE_NAME} (it's an easy mix-up). 2 to 4 short sentences.`
+              : kind === 'fooled'
+                ? `The learner AGREED with ${CLASSMATE_NAME}, so they believe the mistake too. Start with "Actually${you}, that isn't true." Kindly explain what's right and why, ` +
+                  `and say it's an easy mix-up, kindly to ${CLASSMATE_NAME} too. 3 or 4 short sentences.`
+                : kind === 'unsure'
+                  ? `The learner WASN'T SURE. Start with "That's a tricky one${you}." Say ${CLASSMATE_NAME} wasn't right, then explain what's right and why. 3 or 4 short sentences.`
+                  : `Decide from the answer whether the learner caught the mistake. If they did, start with "Good catch${you}!" and say why in a sentence. ` +
+                    `If not, start with "Actually${you}, that isn't true." and kindly explain what's right. Kindly to ${CLASSMATE_NAME} too. 2 to 4 short sentences.`;
             await tutor.ask(q, slideContext() +
               `\n${CLASSMATE_NAME}, a classmate, just said this, and it is WRONG on purpose, to see if the learner catches it. What's actually right: ${line.truth}` +
               `\nYou asked the learner if ${CLASSMATE_NAME} was right. The learner answered: "${verdict || '(nothing)'}".` +
-              `\nIf the learner caught the mistake, cheer them on${name ? ` by name (${name})` : ''} and say why in a sentence. If they agreed with ${CLASSMATE_NAME} or weren't sure, ` +
-              `kindly say it's an easy mix-up and explain what's right. Talk to both of them, kindly to ${CLASSMATE_NAME} too. 2 to 4 short sentences, no question at the end.`,
+              `\n${how}${helper ? ' End with one short sentence saying you\'ll show it another way.' : ''} No question at the end.`,
               { asker: CLASSMATE_NAME });
+            if (helper && !over() && playerRef.current.slideIndex === from) {
+              // Then the topic's helper; "How did that section go?" after it (if the learner is still here)
+              finnBusy.current = false;
+              tracking.track('tutor_decision', { action: 'helper', why: 'classmate_mistake', kind });
+              presentVariant({ title: '', body: '', narration: '', slide: helper, variant: 'helper' }, () => {
+                if (over() || playerRef.current.slideIndex !== from) return;
+                setSelfCheck({ from, to });
+                cuesRef.current?.play('cue_selfCheck');
+              });
+              return;
+            }
           }
         }
       }
@@ -1147,6 +1186,16 @@ function Player({ deck, preview, startAt = 0 }: { deck: Deck; preview: boolean; 
             interactive onActivityDone={onActivityDone} activityHint={activityHint}
             solvedActivities={activitiesSolved.current} settledActivities={activitiesDone.current} settledTick={settledTick} activitySounds={soundsOn} onActivityMistake={onActivityMistake}
             finnMoves={finnMoves} onFinn={onFinn} activityGuides={activityGuides} />
+        )}
+        {/* A topic's introduction is being said: a small title card for the part that's starting */}
+        {isIntroId(player.activeId) && !variant && deck.slides[player.slideIndex]?.topic && (
+          // the slide waits behind, softly dimmed, until the introduction is over
+          <div key={player.slideIndex} className="absolute inset-0 z-10 flex items-center justify-center rounded-xl bg-slate-950/45 backdrop-blur-[2px] animate-[intro-fade_500ms_ease-out]" role="status">
+            <div className="px-8 py-5 rounded-2xl bg-slate-900/90 text-white shadow-2xl text-center animate-[intro-card_600ms_ease-out]">
+              <div className="text-xs uppercase tracking-widest text-cyan-300/90">Part {player.topicIndex + 1} of {player.topicCount}</div>
+              <div className="text-2xl font-bold mt-1">{deck.slides[player.slideIndex].topic}</div>
+            </div>
+          </div>
         )}
         {variant && !MORPH_HELPERS && <VariantOverlay variant={variant} onDone={closeVariant} />}
         {variant && MORPH_HELPERS && (

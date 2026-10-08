@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { Deck, SlideElement } from '@/lib/canvas/types';
 import { speakingOrder, spokenText, topicIndexes } from '@/lib/canvas/queue';
 import { currentAudio } from '@/lib/canvas/aiFields';
+import { introClip } from '@/lib/canvas/intro';
 import { learnerHeaders } from '@/lib/learnerSession';
 
 const AFTER_SLIDE_MS = 1500;    // pause after a slide's last clip before moving on
@@ -124,7 +125,11 @@ export function useDeckPlayer(
   // Waiting for the learner (waitAfter): resume doesn't skip past it, only nextClip / a move does
   const waitingRef = useRef(false);
 
-  const orders = useMemo(() => deck.slides.map(speakingOrder), [deck]);
+  // A topic's first slide opens with its introduction (lib/canvas/intro.ts), played like the slide's first clip
+  const orders = useMemo(() => deck.slides.map((s, i) => {
+    const intro = introClip(deck.slides, i);
+    return intro ? [intro, ...speakingOrder(s)] : speakingOrder(s);
+  }), [deck]);
   const topics = useMemo(() => topicIndexes(deck.slides), [deck]);
   const order = orders[pos.slide] ?? [];
   const current: SlideElement | null = order[Math.min(pos.clip, order.length - 1)] ?? null;

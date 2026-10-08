@@ -13,6 +13,7 @@ import { slideWarnings, type Warning } from '@/lib/canvas/checks';
 import { speakingOrder } from '@/lib/canvas/queue';
 import { deckFromAnyVersion } from '@/lib/canvas/fromLegacy';
 import { countTodo, todoTotal } from '@/lib/canvas/aiFields';
+import { startsTopic } from '@/lib/canvas/intro';
 import { DEFAULT_LESSON, type LessonInfo } from '@/lib/canvas/lessons';
 import type { Deck, Slide, SlideElement } from '@/lib/canvas/types';
 import { ACTIVITY_KINDS, VISUAL_KINDS, activityTemplate, visualTemplate } from '@/components/editor/templates';
@@ -172,6 +173,19 @@ function Editor({
     }
   };
 
+  // "⬇ PDF": the lesson as it is in the editor (unsaved changes too), one slide per page
+  const [pdfProgress, setPdfProgress] = useState<string | null>(null);
+  const downloadPdf = async () => {
+    setPdfProgress('0%');
+    try {
+      const { exportDeckPdf } = await import('@/components/editor/exportPdf');
+      await exportDeckPdf(deck, (done, total) => setPdfProgress(`${Math.round((done / Math.max(1, total)) * 100)}%`));
+    } catch (e) {
+      flash(`The PDF couldn't be made: ${e instanceof Error ? e.message : String(e)}`, 'error');
+    } finally {
+      setPdfProgress(null);
+    }
+  };
   const flash = useCallback((text: string, tone: 'ok' | 'warn' | 'error' = 'ok') => {
     setNotice({ text, tone });
     if (tone === 'ok') setTimeout(() => setNotice((n) => (n?.text === text ? null : n)), 3000);
@@ -626,6 +640,9 @@ function Editor({
           {ACTIVITY_KINDS.map(([k, name]) => <option key={k} value={k}>＋ {name} (example to edit)</option>)}
         </select>
         <button className={btn} onClick={openVersions}>Start from AI…</button>
+        <button className={btn} onClick={downloadPdf} disabled={pdfProgress !== null} title="The whole lesson as a PDF: one slide per page, with each part's script">
+          {pdfProgress ? `PDF ${pdfProgress}…` : '⬇ PDF'}
+        </button>
         <button
           className={`${btn} ${heat ? 'bg-cyan-50 border-cyan-500' : ''}`}
           onClick={toggleHeat}
@@ -773,6 +790,7 @@ function Editor({
                   onPickBackground={() => setPanel('background')}
                   recap={deck.recap}
                   recapByAI={deck.recapByAI}
+                  topicStart={ed.layer !== 'helper' && startsTopic(deck.slides, slideIdx)}
                   onRecap={(text) => ed.change((d) => { d.recap = text || undefined; d.recapByAI = undefined; }, 'deck:recap')}
                 />
               )

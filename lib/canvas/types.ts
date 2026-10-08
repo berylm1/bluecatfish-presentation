@@ -59,6 +59,12 @@ export interface ImageElement extends ElementBase {
   /** Description: shown to screen readers and used to write the spoken words. */
   alt?: string;
   fit?: 'cover' | 'contain';
+  /** A short caption under the picture ("A blue catfish caught in the James River") */
+  caption?: string;
+  captionByAI?: boolean;
+  captionFrom?: string;   // fingerprint of the description it was written from
+  /** "No caption": the AI won't write one */
+  captionOff?: boolean;
 }
 
 /**
@@ -132,6 +138,20 @@ export interface SlideHelper {
   off?: boolean;
 }
 
+/**
+ * A topic's introduction: what the professor says before the first slide of a
+ * topic ("Next, let's look at…"), with a small title card on screen.
+ */
+export interface SlideIntro {
+  say?: string;
+  sayByAI?: boolean;
+  sayFrom?: string;    // fingerprint of the topic it was written for
+  audioUrl?: string;
+  audioFor?: string;
+  /** "No introduction for this topic": the AI won't write one */
+  off?: boolean;
+}
+
 export interface Slide {
   id: string;
   /** Editor-only. Consecutive slides with the same topic form one topic. */
@@ -141,6 +161,8 @@ export interface Slide {
   background?: { color?: string; image?: string };
   elements: SlideElement[];
   helper?: SlideHelper;
+  /** Only on the first slide of a topic (lib/canvas/intro.ts) */
+  intro?: SlideIntro;
 }
 
 export interface Deck {

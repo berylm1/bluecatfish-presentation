@@ -2,8 +2,9 @@ import { lazySupabaseAdmin } from '@/lib/supabase/admin';
 import { TTS_VOICE, VOICE_INSTRUCTIONS, SIMPLE_VOICE_INSTRUCTIONS } from '@/lib/voice';
 import type { Deck, Pointer, Slide, SlideElement } from './types';
 import { spokenText } from './queue';
+import { introBasis, introText } from './intro';
 import {
-  applyPatches, audioKey, fingerprint, helperElements, needsAudio, needsHelper, needsPlain, needsPlainAudio, needsPointers, needsSay, needsTopic,
+  applyPatches, audioKey, fingerprint, helperElements, needsAudio, needsCaption, needsHelper, needsIntro, needsIntroAudio, needsPlain, needsPlainAudio, needsPointers, needsSay, needsTopic,
   pointersBasis,
   plainText, sayBasis, slideBasis, type Patch,
 } from './aiFields';
@@ -46,6 +47,34 @@ async function writeSay(el: SlideElement, slide: Slide, deck: Deck): Promise<str
       (handsOn ? '' : 'Name the subject in the first sentence (never open with "It", "This" or "They"), because learners can jump straight here.'),
     `Lesson: ${deck.title}\nTopic: ${slide.topic ?? '(not set)'}\n${what}\nOther things on this slide: ${otherText(slide, el) || '(nothing)'}\n\nKnowledge base excerpts:\n${facts || '(none found)'}`,
   );
+}
+
+/** A topic's introduction: what the professor says before its first slide. */
+async function writeIntro(deck: Deck, i: number): Promise<string> {
+  const slide = deck.slides[i];
+  const topic = introBasis(slide);
+  // What the topic's slides show, so the opener promises what's actually coming
+  const coming: string[] = [];
+  for (let j = i; j < deck.slides.length && (j === i || deck.slides[j].topic?.trim() === slide.topic?.trim()); j++) coming.push(slideBasis(deck.slides[j]));
+  const before = deck.slides.slice(0, i).map((s) => s.topic?.trim()).filter(Boolean);
+  const previous = before[before.length - 1];
+  return chat(
+    `${STYLE}\nWrite the professor's short introduction to the next part of the lesson, said just before its first slide. ` +
+      '1 or 2 spoken sentences, 15 to 35 words: name what this part is about and why it\'s worth knowing, so the learner knows what\'s coming. ' +
+      (previous ? 'Link it to the part before in a few words ("Now that we know…", "Next, let\'s…"). ' : 'This is the first part of the lesson: open it ("Let\'s start with…"). ') +
+      'Don\'t teach the facts yet, no question at the end, no quotation marks.',
+    `Lesson: ${deck.title}\n${previous ? `Part before: ${previous}\n` : ''}This part: ${topic}\nWhat its slides show: ${coming.join(' || ').slice(0, 3000)}`,
+  );
+}
+
+/** A short caption for a picture, from its description. */
+async function writeCaption(el: SlideElement): Promise<string> {
+  const out = await chat(
+    'Write a short caption shown under a picture in a lesson for 10-14 year olds: 3 to 10 words saying what the picture shows ' +
+      '("A blue catfish caught in the James River"). Only what the description says. No "Image of", no quotation marks, no full stop at the end.',
+    `Picture description: ${el.type === 'image' ? el.alt ?? '' : ''}`,
+  );
+  return out.trim().replace(/^["']|["'.]$/g, '').slice(0, 120);
 }
 
 /** Up to 3 laser marks on a picture: what to point at while saying which phrase. */
@@ -192,6 +221,19 @@ export async function prepareDeck(source: Deck, deadline: number): Promise<{ pat
         keep({ slideId: baseId(slide.id), elId: el.id, helper, kind: 'say', say, sayFrom: fingerprint(sayBasis(el)) });
       } catch (e) { fail('Writing spoken words', e); }
     }),
+    // Topic introductions (after the topics are named: an intro is written for its topic's name)
+    topicTask.then(() => pool(deck.slides.map((_, i) => i).filter((i) => needsIntro(deck.slides, i)), deadline, async (i) => {
+      const slide = deck.slides[i];
+      try {
+        keep({ slideId: slide.id, kind: 'intro', say: await writeIntro(deck, i), sayFrom: fingerprint(introBasis(slide)) });
+      } catch (e) { fail('Writing a topic introduction', e); }
+    })),
+    // Picture captions, from their descriptions
+    pool(jobs(deck, needsCaption), deadline, async ({ slide, el }) => {
+      try {
+        keep({ slideId: slide.id, elId: el.id, kind: 'caption', caption: await writeCaption(el), captionFrom: fingerprint(el.type === 'image' ? el.alt?.trim() ?? '' : '') });
+      } catch (e) { fail('Writing a caption', e); }
+    }),
     // Helpers ("explain it another way" versions the slide morphs into) for slides without one
     pool(deck.slides.filter(needsHelper), deadline, async (slide) => {
       try {
@@ -227,6 +269,15 @@ export async function prepareDeck(source: Deck, deadline: number): Promise<{ pat
       keep(simple
         ? { slideId: baseId(slide.id), elId: el.id, helper, kind: 'plainAudio', plainAudioUrl: url, plainAudioFor: key }
         : { slideId: baseId(slide.id), elId: el.id, helper, kind: 'audio', audioUrl: url, audioFor: key });
+    } catch (e) { fail('Making audio', e); }
+  });
+
+  // ...and for the topic introductions
+  await pool(deck.slides.map((_, i) => i).filter((i) => needsIntroAudio(deck.slides, i)), deadline, async (i) => {
+    const slide = deck.slides[i];
+    try {
+      const { url, key } = await recordClip(introText(slide), false);
+      keep({ slideId: slide.id, kind: 'introAudio', audioUrl: url, audioFor: key });
     } catch (e) { fail('Making audio', e); }
   });
 

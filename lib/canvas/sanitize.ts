@@ -127,6 +127,10 @@ function element(raw: any, fallbackId: string): SlideElement | null {
       src,
       alt: str(raw.alt, 2000),
       fit: raw.fit === 'cover' ? 'cover' : 'contain',
+      caption: str(raw.caption, 120),
+      captionByAI: bool(raw.captionByAI),
+      captionFrom: tag(raw.captionFrom),
+      captionOff: bool(raw.captionOff),
     };
     return el;
   }
@@ -168,6 +172,10 @@ function slide(raw: any, i: number): Slide {
     background: background.color || background.image ? background : undefined,
     elements,
     helper,
+    intro: raw?.intro && typeof raw.intro === 'object' && (str(raw.intro.say, 1000) || raw.intro.off === true) ? {
+      say: str(raw.intro.say, 1000), sayByAI: bool(raw.intro.sayByAI), sayFrom: tag(raw.intro.sayFrom),
+      audioUrl: safeUrl(raw.intro.audioUrl), audioFor: tag(raw.intro.audioFor), off: bool(raw.intro.off),
+    } : undefined,
   };
 }
 

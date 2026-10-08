@@ -467,3 +467,7 @@ body {
 
 /* Right after a morph back, the slide's boxes are drawn again: show them as they were, no entrance replay */
 [data-no-intro] [data-visual] *, [data-no-intro] [data-activity] * { animation-duration: 0s !important; animation-delay: 0s !important; }
+
+/* A topic's title card (its introduction is being said) */
+@keyframes intro-card { from { opacity: 0; transform: translateY(0.6rem) scale(0.97); } to { opacity: 1; transform: none; } }
+@keyframes intro-fade { from { opacity: 0; } to { opacity: 1; } }

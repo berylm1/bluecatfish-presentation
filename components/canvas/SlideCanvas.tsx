@@ -149,8 +149,21 @@ function ElementView({ el, active, laser, dim = 1, interactive = false, onActivi
           style={{ width: '100%', height: '100%', objectFit: el.fit ?? 'contain', borderRadius: 'inherit', pointerEvents: 'none' }}
         />
       )}
+      {el.type === 'image' && el.caption?.trim() && !el.captionOff && <Caption text={el.caption.trim()} />}
       {laser && <LaserDot el={el} p={laser} imgRef={imgRef} />}
     </div>
+  );
+}
+
+/** A picture's caption: a small dark strip along the bottom of its box, readable on any picture or background. */
+export function Caption({ text }: { text: string }) {
+  return (
+    <span data-caption style={{
+      position: 'absolute', left: '3%', right: '3%', bottom: '1cqh', margin: '0 auto', width: 'fit-content', zIndex: 4,
+      padding: '0.5cqh 1.4cqh', borderRadius: '0.9cqh', background: 'rgba(8, 20, 35, 0.72)', color: '#fff',
+      fontSize: '2.3cqh', lineHeight: 1.25, textAlign: 'center', pointerEvents: 'none',
+      overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical',
+    }}>{text}</span>
   );
 }
 
