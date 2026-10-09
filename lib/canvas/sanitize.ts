@@ -1,4 +1,4 @@
-import type { ActivityElement, ChartElement, Deck, DiagramElement, ImageElement, Slide, SlideElement, TextElement, TextStyle } from './types';
+import type { ActivityElement, ChartElement, CheckedClaim, Deck, DeckChecks, DiagramElement, ImageElement, Slide, SlideElement, TextElement, TextStyle } from './types';
 
 // Cleans a deck that came from the editor (or an AI) before it's stored:
 // known fields only, numbers kept on the slide, strings capped, and only
@@ -179,6 +179,37 @@ function slide(raw: any, i: number): Slide {
   };
 }
 
+/** The editor's remembered checks (DeckChecks): known fields only, capped. */
+function checks(raw: any): DeckChecks | undefined {
+  if (!raw || typeof raw !== 'object') return undefined;
+  const tags = (v: unknown, max: number) => (Array.isArray(v) ? [...new Set(v.filter((t): t is string => tag(t) !== undefined))].slice(-max) : undefined);
+  let facts: DeckChecks['facts'];
+  if (raw.facts && typeof raw.facts === 'object') {
+    facts = {};
+    for (const [slideId, f] of Object.entries(raw.facts).slice(0, MAX_SLIDES) as [string, any][]) {
+      if (!/^[\w-]{1,64}$/.test(slideId) || !f || typeof f !== 'object' || !tag(f.from)) continue;
+      const claims: CheckedClaim[] = (Array.isArray(f.claims) ? f.claims : []).slice(0, 20).flatMap((c: any) => {
+        const claim = str(c?.claim, 200);
+        if (!claim) return [];
+        const verdict = c.verdict === 'supported' || c.verdict === 'contradicted' ? c.verdict : 'unsupported';
+        const rw = c.rewrite && typeof c.rewrite === 'object' && typeof c.rewrite.beforeSay === 'string' ? {
+          say: str(c.rewrite.say, 4000), text: str(c.rewrite.text, 2000), beforeSay: c.rewrite.beforeSay.slice(0, 4000), beforeText: str(c.rewrite.beforeText, 2000),
+        } : undefined;
+        return [{
+          claim, verdict, elId: str(c.elId, 64),
+          sources: (Array.isArray(c.sources) ? c.sources : []).slice(0, 5).map((x: any) => ({ source: str(x?.source, 200) ?? 'knowledge base', quote: str(x?.quote, 200) ?? '' })),
+          fix: str(c.fix, 300), rewrite: rw && (rw.say || rw.text) ? rw : undefined,
+        }];
+      });
+      facts[slideId] = { from: f.from, at: str(f.at, 40) ?? '', excerpts: num(f.excerpts, 0, 100, 0), claims };
+    }
+  }
+  const repeats = raw.repeats && typeof raw.repeats === 'object' && tag(raw.repeats.from)
+    ? { from: raw.repeats.from, at: str(raw.repeats.at, 40) ?? '', found: num(raw.repeats.found, 0, 1000, 0) } : undefined;
+  const out: DeckChecks = { facts, factsOk: tags(raw.factsOk, 500), repeats, repeatSkips: tags(raw.repeatSkips, 500) };
+  return out.facts || out.factsOk?.length || out.repeats || out.repeatSkips?.length ? out : undefined;
+}
+
 export function sanitizeDeck(raw: any, lessonId: string, source: Deck['source']): Deck {
   if (!raw || typeof raw !== 'object' || !Array.isArray(raw.slides)) throw new Error('Not a deck: missing slides');
   if (raw.slides.length > MAX_SLIDES) throw new Error(`Too many slides (max ${MAX_SLIDES})`);
@@ -194,6 +225,7 @@ export function sanitizeDeck(raw: any, lessonId: string, source: Deck['source'])
     slides,
     recap: str(raw.recap, 4000),
     recapByAI: bool(raw.recapByAI),
+    checks: checks(raw.checks),
     editRev: typeof raw.editRev === 'string' && /^[a-z0-9]{1,24}$/.test(raw.editRev) ? raw.editRev : undefined,
     basedOn: typeof raw.basedOn === 'string' && /^(bluecatfish_|canvas_ai:)[\w:.-]{1,120}$/.test(raw.basedOn) ? raw.basedOn : undefined,
     source,

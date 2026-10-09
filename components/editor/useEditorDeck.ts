@@ -131,6 +131,19 @@ export function useEditorDeck(initial: Deck) {
     }
   }, []);
 
+  /**
+   * Notes about the lesson that aren't edits (what a check found, a "fine as
+   * it is"): kept through undo/redo (no undo step), but unsaved until saved.
+   */
+  const annotate = useCallback((fn: (d: Deck) => void) => {
+    for (const snap of [...past.current, ...future.current]) fn(snap);
+    const next = structuredClone(deckRef.current);
+    fn(next);
+    deckRef.current = next;
+    setDeck(next);
+    setDirty(true);
+  }, []);
+
   /** A change the server already saved (e.g. the recap written on publish): no undo step, not "unsaved". */
   const mergeRemote = useCallback((fn: (d: Deck) => void) => {
     for (const snap of [...past.current, ...future.current]) fn(snap);
@@ -162,7 +175,7 @@ export function useEditorDeck(initial: Deck) {
 
   return {
     deck, slide, mainSlide, slideIdx, setSlideIdx, element, selected, setSelected, layer, setLayer,
-    dirty, setDirty, change, undo, redo, reset, updateElement, updateSlide, applyRemote, mergeRemote,
+    dirty, setDirty, change, undo, redo, reset, updateElement, updateSlide, applyRemote, mergeRemote, annotate,
     canUndo: past.current.length > 0, canRedo: future.current.length > 0,
   };
 }

@@ -33,7 +33,9 @@ export async function POST(req: Request) {
       recapError = `The recap couldn't be written: ${e instanceof Error ? e.message : String(e)}`;
     }
   }
-  const warning = (await writeDeck(lesson, 'live', draft, by)) ?? recapError;
+  // The editor's check results stay with the draft: learners get the lesson without them
+  const { checks: _editorOnly, ...live } = draft;
+  const warning = (await writeDeck(lesson, 'live', live, by)) ?? recapError;
   return NextResponse.json({ ok: true, publishedAt: new Date().toISOString(), by, warning, recap: draft.recap ?? null, recapByAI: !!draft.recapByAI });
 }
 

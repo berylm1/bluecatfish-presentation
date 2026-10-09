@@ -20,7 +20,10 @@ export default function SlideList({
   onAdd,
   onDuplicate,
   onDelete,
+  onSplitTopic,
 }: {
+  /** "Split this topic" for a long one (its first slide's index) */
+  onSplitTopic?: (start: number) => void;
   slides: Slide[];
   current: number;
   warnCounts: number[];
@@ -63,7 +66,10 @@ export default function SlideList({
                   if (!t) return null;
                   const how = `About ${formatLength(t.talk)} of talking${t.handsOn ? ` + ${formatLength(t.handsOn)} hands-on` : ''}`;
                   return t.long
-                    ? <span className="shrink-0 text-[10px] font-semibold text-amber-700" title={`${how}. Topics over ${TOPIC_LONG_SEC / 60} minutes can lose learners: split it into two topics, or trim the words.`}>⏱ {formatLength(t.total)} · long</span>
+                    ? (t.slides > 1 && onSplitTopic
+                      ? <button className="shrink-0 text-[10px] font-semibold text-amber-700 hover:underline" onClick={(e) => { e.stopPropagation(); onSplitTopic(t.start); }}
+                          title={`${how}. Topics over ${TOPIC_LONG_SEC / 60} minutes can lose learners. Click: the AI suggests where to split it in two.`}>⏱ {formatLength(t.total)} · split?</button>
+                      : <span className="shrink-0 text-[10px] font-semibold text-amber-700" title={`${how}. Topics over ${TOPIC_LONG_SEC / 60} minutes can lose learners: trim the words.`}>⏱ {formatLength(t.total)} · long</span>)
                     : <span className="shrink-0 text-[10px] text-slate-400" title={how}>{formatLength(t.total)}</span>;
                 })()}
               </div>

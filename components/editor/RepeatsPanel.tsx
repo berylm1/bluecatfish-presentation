@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Deck } from '@/lib/canvas/types';
 import { deckSections, factSlide, findCrossSectionRepeats } from '@/lib/lessonOverlap';
 import type { RepeatSuggestion } from '@/lib/canvas/repeats';
+import { lessonBasis, repeatKey } from '@/lib/canvas/checks';
 
 /*
  * "Check for repeats" in the editor's side panel:
@@ -15,10 +16,16 @@ import type { RepeatSuggestion } from '@/lib/canvas/repeats';
  * Works on the lesson as it is in the editor, unsaved changes too.
  */
 
+const when = (iso: string) => { const t = Date.parse(iso); return Number.isFinite(t) ? new Date(t).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : 'before'; };
+
 const btn = 'px-2.5 py-1 rounded-md border border-slate-300 bg-white hover:bg-slate-50 text-xs disabled:opacity-40';
 
-export default function RepeatsPanel({ deck, active, runSignal = 0, onAccept, onGoTo }: {
+export default function RepeatsPanel({ deck, active, runSignal = 0, onAccept, onGoTo, onChecked, onSkip }: {
   deck: Deck;
+  /** The AI check ran on the lesson as it was (kept with the lesson: deck.checks.repeats) */
+  onChecked?: (from: string, found: number) => void;
+  /** A suggestion was skipped: it isn't suggested again while that part stays the same */
+  onSkip?: (key: string) => void;
   /** Changes when something else (Publish) asks for the AI check */
   runSignal?: number;
   /** The panel is showing (it stays mounted to keep its results; the free check only runs while it shows) */
@@ -27,21 +34,30 @@ export default function RepeatsPanel({ deck, active, runSignal = 0, onAccept, on
   onAccept: (s: RepeatSuggestion) => boolean;
   onGoTo: (slideIndex: number, elId?: string) => void;
 }) {
-  const [state, setState] = useState<{ busy: boolean; error?: string; list?: RepeatSuggestion[]; at?: number; partial?: number }>({ busy: false });
+  const [state, setState] = useState<{ busy: boolean; error?: string; list?: RepeatSuggestion[]; at?: number; partial?: number; hidden?: number }>({ busy: false });
   const [done, setDone] = useState<Record<number, 'accepted' | 'skipped' | 'changed'>>({});
 
   // The free word match: updates as you edit, while the panel shows (it compares every pair of lines:
   // not on every keystroke while you're working in another tab)
   const quick = useMemo(() => (active ? findCrossSectionRepeats(deckSections(deck)) : []), [deck, active]);
 
+  const skipped = useMemo(() => new Set(deck.checks?.repeatSkips ?? []), [deck.checks?.repeatSkips]);
+  const last = deck.checks?.repeats;
+  const unchanged = !!last && active && last.from === lessonBasis(deck);
+
   const check = async () => {
     setState({ busy: true });
     setDone({});
+    const from = lessonBasis(deck);
     try {
       const res = await fetch('/api/editor/repeats', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ deck }) });
       const d = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(d.error || `The check failed (${res.status})`);
-      setState({ busy: false, list: d.suggestions ?? [], at: Date.now(), partial: d.partial });
+      // ones skipped before (and still about the same words) aren't suggested again
+      const all: RepeatSuggestion[] = d.suggestions ?? [];
+      const list = all.filter((x) => !skipped.has(repeatKey(x.slideId, x.elId, x.beforeSay)));
+      setState({ busy: false, list, at: Date.now(), partial: d.partial, hidden: all.length - list.length });
+      onChecked?.(from, list.length);
     } catch (e) {
       setState({ busy: false, error: e instanceof Error ? e.message : String(e) });
     }
@@ -92,6 +108,14 @@ export default function RepeatsPanel({ deck, active, runSignal = 0, onAccept, on
             {state.list.length === 0 ? '✓ No repeats found.' : `${state.list.length} repeat${state.list.length === 1 ? '' : 's'} found${open < state.list.length ? `, ${open} left` : ''}.`}
           </p>
         )}
+        {!state.list && !state.busy && last && (
+          <p className="mt-2 text-xs" role="status">
+            {unchanged
+              ? <span className="text-emerald-700">✓ Checked {when(last.at)}{last.found ? `: ${last.found} found then` : ', none found'}. Nothing has changed since.</span>
+              : <span className="text-amber-800">Last checked {when(last.at)}; the lesson has changed since.</span>}
+          </p>
+        )}
+        {state.hidden ? <p className="mt-1 text-xs text-slate-500">{state.hidden} you skipped before {state.hidden === 1 ? 'isn’t' : 'aren’t'} shown again.</p> : null}
         {state.partial && <p className="mt-1 text-xs text-amber-800">The lesson is long: only slides 1–{state.partial} were read this time.</p>}
         <ul className="flex flex-col gap-2 mt-2">
           {state.list?.map((s, i) => (
@@ -117,7 +141,7 @@ export default function RepeatsPanel({ deck, active, runSignal = 0, onAccept, on
                     const ok = onAccept(s);
                     setDone((d) => ({ ...d, [i]: ok ? 'accepted' : 'changed' }));
                   }}>Accept</button>
-                  <button className={btn} onClick={() => setDone((d) => ({ ...d, [i]: 'skipped' }))}>Skip</button>
+                  <button className={btn} onClick={() => { onSkip?.(repeatKey(s.slideId, s.elId, s.beforeSay)); setDone((d) => ({ ...d, [i]: 'skipped' })); }}>Skip</button>
                 </div>
               )}
             </li>

@@ -1,4 +1,4 @@
-import type { Slide, SlideElement } from './types';
+import type { CheckedClaim, Slide, SlideElement } from './types';
 import { shownWords, spokenText } from './queue';
 import { chat, knowledgeExcerpts, type Excerpt } from './ai';
 
@@ -6,31 +6,22 @@ import { chat, knowledgeExcerpts, type Excerpt } from './ai';
 // the professor says) checked against the knowledge base, each with where it
 // came from. Nothing is changed; the person decides what to do.
 
-export type ClaimVerdict = 'supported' | 'unsupported' | 'contradicted';
-
-export interface CheckedClaim {
-  /** The fact, in a few words */
-  claim: string;
-  verdict: ClaimVerdict;
-  /** The element it's in (to jump to it), when known */
-  elId?: string;
-  /** Where it's backed up (or contradicted): file names from the knowledge base, with a short quote */
-  sources: { source: string; quote: string }[];
-  /** For a contradicted fact: what the sources say instead */
-  fix?: string;
-}
+export type ClaimVerdict = CheckedClaim['verdict'];
+export type { CheckedClaim };
 
 const MAX_ELEMENTS = 8;      // searched one by one (each its own excerpts)
 const PER_ELEMENT = 4;
 const MAX_EXCERPTS = 16;
 
 /** The words on a slide worth checking: each element's shown and spoken words (hands-on boxes too: their answers are facts). */
-function slideWords(slide: Slide): { el: SlideElement; words: string }[] {
+function slideWords(slide: Slide): { el: SlideElement; words: string; labelled: string }[] {
   return slide.elements.flatMap((el) => {
     const shown = shownWords(el).trim();
     const said = spokenText(el);
     const words = [shown, said && said !== shown ? said : ''].filter(Boolean).join(' / ');
-    return words.length >= 8 ? [{ el, words }] : [];
+    // labelled for the AI, so a fix can be written back into the right one
+    const labelled = [shown && `SHOWN: ${shown}`, said && said !== shown ? `SAID: ${said}` : ''].filter(Boolean).join(' | ');
+    return words.length >= 8 ? [{ el, words, labelled }] : [];
   }).slice(0, MAX_ELEMENTS);
 }
 
@@ -54,8 +45,10 @@ export async function checkSlide(slide: Slide, lessonTitle: string): Promise<{ c
       '"contradicted" if an excerpt says something different; "unsupported" if no excerpt covers it. ' +
       'Give the excerpt numbers it rests on and a short exact quote (under 20 words) from one of them. For a contradicted fact, "fix" = what the excerpts say instead, in one plain sentence. ' +
       'Judge only from the excerpts, never from what you know. ' +
-      'Reply as JSON: {"claims":[{"claim":"short fact","element":"E1","verdict":"supported|unsupported|contradicted","excerpts":[2],"quote":"...","fix":"..."}]}',
-    `Lesson: ${lessonTitle}\nTopic: ${slide.topic ?? ''}\n\nTHE SLIDE (E = element):\n${parts.map((p, i) => `E${i + 1}: ${p.words}`).join('\n')}\n\n` +
+      'For a contradicted fact also write the corrected element: "say" = that element\'s SAID words (or its SHOWN words if it has no SAID) with ONLY the wrong fact corrected ' +
+      'from the excerpts, same length and style; "text" = its SHOWN words corrected, only if the SHOWN words themselves state the wrong fact, kept as short. ' +
+      'Reply as JSON: {"claims":[{"claim":"short fact","element":"E1","verdict":"supported|unsupported|contradicted","excerpts":[2],"quote":"...","fix":"...","say":"...","text":"..."}]}',
+    `Lesson: ${lessonTitle}\nTopic: ${slide.topic ?? ''}\n\nTHE SLIDE (E = element):\n${parts.map((p, i) => `E${i + 1}: ${p.labelled}`).join('\n')}\n\n` +
       `KNOWLEDGE BASE EXCERPTS:\n${excerpts.map((e, i) => `[${i + 1}] ${e.content}`).join('\n') || '(none found)'}`,
     true,
     4000,
@@ -69,7 +62,18 @@ export async function checkSlide(slide: Slide, lessonTitle: string): Promise<{ c
     const quote = typeof c.quote === 'string' ? c.quote.trim().slice(0, 200) : '';
     // one entry per file the fact rests on (the quote goes with the first)
     const files = [...new Set(nums.map((n: number) => excerpts[n - 1].source))] as string[];
+    // "Use this": the element's words with the fix in (checked like the repeat rewrites)
+    const el = slide.elements.find((e) => e.id === ids.get(String(c.element)));
+    let rewrite: CheckedClaim['rewrite'];
+    if (verdict === 'contradicted' && el) {
+      const beforeSay = spokenText(el);
+      const say = typeof c.say === 'string' && c.say.trim() && c.say.trim() !== beforeSay ? c.say.trim().slice(0, 4000) : undefined;
+      const text = el.type === 'text' && typeof c.text === 'string' && c.text.trim() && c.text.trim() !== el.text.trim()
+        && c.text.trim().length <= el.text.length * 1.2 + 10 ? c.text.trim().slice(0, 2000) : undefined;
+      if (say || text) rewrite = { say, text, beforeSay, beforeText: el.type === 'text' ? el.text : undefined };
+    }
     return [{
+      rewrite,
       claim, verdict, elId: ids.get(String(c.element)),
       sources: verdict === 'unsupported' ? [] : files.map((source, i) => ({ source, quote: i === 0 ? quote : '' })),
       fix: verdict === 'contradicted' && typeof c.fix === 'string' ? c.fix.trim().slice(0, 300) : undefined,

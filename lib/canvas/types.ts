@@ -165,6 +165,37 @@ export interface Slide {
   intro?: SlideIntro;
 }
 
+/** A fact the slide check looked at (lib/canvas/checkSlide.ts) */
+export interface CheckedClaim {
+  /** The fact, in a few words */
+  claim: string;
+  verdict: 'supported' | 'unsupported' | 'contradicted';
+  /** The element it's in (to jump to it), when known */
+  elId?: string;
+  /** Where it's backed up (or contradicted): files from the knowledge base, with a short quote */
+  sources: { source: string; quote: string }[];
+  /** For a contradicted fact: what the sources say instead */
+  fix?: string;
+  /** For a contradicted fact: the element's words with the fix in ("Use this"), and what they were */
+  rewrite?: { say?: string; text?: string; beforeSay: string; beforeText?: string };
+}
+
+/**
+ * What the editor's checks found, kept with the lesson so they survive a
+ * reload, both editors see them, and Publish only re-checks what changed.
+ * Fingerprints say what was checked (lib/canvas/checks.ts factBasis / lessonBasis).
+ */
+export interface DeckChecks {
+  /** Fact checks by slide id */
+  facts?: Record<string, { from: string; at: string; excerpts: number; claims: CheckedClaim[] }>;
+  /** Facts a person marked "It's fine" (claimKey) */
+  factsOk?: string[];
+  /** The last AI repeat check: what the lesson was then, and how many it found */
+  repeats?: { from: string; at: string; found: number };
+  /** Repeat suggestions a person skipped (repeatKey) */
+  repeatSkips?: string[];
+}
+
 export interface Deck {
   lessonId: string;
   title: string;
@@ -177,6 +208,8 @@ export interface Deck {
   /** Changes with every save from the editor (not with AI fill-ins), to spot two people editing at once. */
   editRev?: string;
   recapByAI?: boolean;
+  /** The editor's fact and repeat checks (editor-only) */
+  checks?: DeckChecks;
   updatedAt?: string;
   updatedBy?: string;
 }

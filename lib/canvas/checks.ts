@@ -1,4 +1,6 @@
-import type { Slide, SlideElement } from './types';
+import type { Deck, Slide, SlideElement } from './types';
+import { shownWords, spokenText } from './queue';
+import { fingerprint } from './aiFields';
 import { activityReady } from './queue';
 
 // Editor warnings that can be worked out from the slide alone. "Text doesn't
@@ -69,3 +71,23 @@ export function slideWarnings(slide: Slide): Warning[] {
   }
   return out;
 }
+
+/* ------------------------------------------------- remembered checks */
+
+/** What a slide's fact check looked at: everything it shows and says. Changes when either does. */
+export const factBasis = (slide: Slide) =>
+  fingerprint(slide.elements.map((e) => `${shownWords(e)}|${spokenText(e)}`).join('||'));
+
+/** What the AI repeat check looked at: the whole lesson's shown and spoken words. */
+export const lessonBasis = (deck: Deck) => fingerprint(deck.slides.map(factBasis).join('|'));
+
+/** A fact a person marked "It's fine": per slide and claim. */
+export const claimKey = (slideId: string, claim: string) => fingerprint(`${slideId}|${claim.trim().toLowerCase()}`);
+
+/** A repeat suggestion a person skipped: per element and the words it was about. */
+export const repeatKey = (slideId: string, elId: string, beforeSay: string) => fingerprint(`${slideId}|${elId}|${beforeSay}`);
+
+/** Slides whose fact check is missing or out of date (they changed since). */
+export const slidesToFactCheck = (deck: Deck) =>
+  deck.slides.map((s, i) => ({ s, i })).filter(({ s }) =>
+    s.elements.some((e) => !e.silent || e.type === 'text') && deck.checks?.facts?.[s.id]?.from !== factBasis(s));
