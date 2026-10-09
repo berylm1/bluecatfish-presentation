@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { deriveMood, EMPTY_COUNTERS, type SectionCounters } from '@/lib/learnerState';
+import { rateLimit } from '@/lib/rateLimit';
 
 // Learner-state rollup write — service role (server-only).
 // The browser owns its session's counters and sends the whole row with an
@@ -29,6 +30,9 @@ function readCounters(body: Record<string, unknown>): SectionCounters {
 }
 
 export async function POST(request: NextRequest) {
+  // was: no limit, so a bot could fill learner_state (sessions are made up by the browser)
+  const limited = await rateLimit(request, 'learnerState');
+  if (limited) return limited;
   try {
     const body = (await request.json()) as Record<string, unknown>;
     const sessionId = body.session_id;
