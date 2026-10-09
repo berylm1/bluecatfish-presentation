@@ -31,6 +31,8 @@ export const LIMITS = {
   // Making the whole /presentationv2 lesson (only when it isn't cached yet): many paid calls
   lesson: { perSession: 2, perAddress: 4, windowSec: 3600, perDay: 20, label: 'lesson builds' },
   cues: { perSession: 10, perAddress: 60, windowSec: 60, label: 'requests' },
+  // Editor password tries: slows down guessing (no daily cap, so a guesser can't lock everyone out)
+  unlock: { perSession: 10, perAddress: 10, windowSec: 600, label: 'password tries' },
 } satisfies Record<string, Rule>;
 
 /** Longest inputs accepted (characters / bytes). */

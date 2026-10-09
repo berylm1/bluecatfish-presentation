@@ -16,6 +16,7 @@ import { introText, startsTopic } from '@/lib/canvas/intro';
 // jsPDF and html-to-image are loaded only when someone downloads.
 
 const RENDER_PX = 1280;   // the slide is drawn this wide for its picture
+const BLANK = 'data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==';   // 1×1 transparent
 
 type Item = { label: string; shown?: string; script?: string };
 
@@ -42,12 +43,13 @@ export function pdfItems(deck: Deck, i: number): Item[] {
 
 /** Helvetica in a PDF only has Western characters: swap the common others, drop the rest (emoji). */
 const pdfSafe = (t: string) => t
-  .replace(/[‘’]/g, "'").replace(/[“”]/g, '"').replace(/→/g, '->').replace(/…/g, '...')
+  .replace(/[‘’]/g, "'").replace(/[“”]/g, '"').replace(/…/g, '...')
+  .replace(/→/g, '->').replace(/←/g, '<-').replace(/≈/g, '~').replace(/≤/g, '<=').replace(/≥/g, '>=').replace(/−/g, '-')
   .replace(/[^\x09\x0A\x0D\x20-\x7E -ÿ–—•]/g, '');
 
-/** A picture of one slide (PNG data URL), or null if it couldn't be drawn. */
+/** A picture of one slide (JPEG data URL), or null if it couldn't be drawn. */
 async function slidePicture(slide: Slide): Promise<string | null> {
-  const { toPng } = await import('html-to-image');
+  const { toJpeg } = await import('html-to-image');
   const host = document.createElement('div');
   // Off screen, but laid out (so text fitting and pictures work); no entrance animations (data-no-intro)
   host.style.cssText = `position:fixed;left:-${RENDER_PX * 2}px;top:0;width:${RENDER_PX}px;pointer-events:none;`;
@@ -61,7 +63,9 @@ async function slidePicture(slide: Slide): Promise<string | null> {
     await new Promise((r) => setTimeout(r, 400));
     const node = host.firstElementChild as HTMLElement | null;
     if (!node) return null;
-    return await toPng(node, { pixelRatio: 1, cacheBust: true, backgroundColor: slide.background?.color ?? '#ffffff' });
+    // JPEG: a tenth the size of PNG for photos (a 200-slide lesson stays a sensible download);
+    // a picture that can't be fetched (another site that doesn't allow it) is left blank, not the whole slide
+    return await toJpeg(node, { pixelRatio: 1, quality: 0.85, cacheBust: true, backgroundColor: slide.background?.color ?? '#ffffff', imagePlaceholder: BLANK });
   } catch (e) {
     console.warn('Slide picture failed:', e);
     return null;
@@ -77,7 +81,14 @@ export async function exportDeckPdf(deck: Deck, onProgress?: (done: number, tota
   const W = pdf.internal.pageSize.getWidth(), H = pdf.internal.pageSize.getHeight();
   const M = 40, textW = W - 2 * M;
   let y = M;
-  const room = (need: number) => { if (y + need > H - M) { pdf.addPage(); y = M; } };
+  let heading = '';   // the page's heading, repeated on a page its scripts run onto
+  const room = (need: number) => {
+    if (y + need <= H - M) return;
+    pdf.addPage();
+    y = M;
+    pdf.setFont('helvetica', 'normal').setFontSize(9).setTextColor(100, 116, 139).text(pdfSafe(`${heading} (continued)`), M, y + 9);
+    y += 9 * 1.3 + 6;
+  };
   const lines = (text: string, size: number, style: 'normal' | 'bold' | 'italic', color: [number, number, number], indent = 0) => {
     pdf.setFont('helvetica', style).setFontSize(size).setTextColor(...color);
     for (const line of pdf.splitTextToSize(pdfSafe(text), textW - indent) as string[]) {
@@ -87,25 +98,25 @@ export async function exportDeckPdf(deck: Deck, onProgress?: (done: number, tota
     }
   };
 
-  for (let i = 0; i < deck.slides.length; i++) {
-    onProgress?.(i, deck.slides.length);
-    const slide = deck.slides[i];
-    if (i > 0) pdf.addPage();
+  /** One page (or more, when the scripts run long): the slide's picture, then its parts. */
+  const page = async (slide: Slide, title: string, items: Item[], first: boolean) => {
+    if (!first) pdf.addPage();
     y = M;
-    lines(`Slide ${i + 1} of ${deck.slides.length}${slide.topic ? `  ·  ${slide.topic}` : ''}`, 9, 'normal', [100, 116, 139]);
-    if (i === 0) lines(deck.title, 18, 'bold', [15, 23, 42]);
+    heading = title;
+    lines(title, 9, 'normal', [100, 116, 139]);
+    if (first) lines(deck.title, 18, 'bold', [15, 23, 42]);
     y += 6;
     const pic = await slidePicture(slide);
     const picH = textW * 9 / 16;
     if (pic) {
-      pdf.addImage(pic, 'PNG', M, y, textW, picH);
+      pdf.addImage(pic, 'JPEG', M, y, textW, picH);
       pdf.setDrawColor(203, 213, 225).rect(M, y, textW, picH);
     } else {
       pdf.setDrawColor(203, 213, 225).rect(M, y, textW, picH);
       pdf.setFont('helvetica', 'italic').setFontSize(10).setTextColor(148, 163, 184).text('(the slide picture could not be drawn)', M + 12, y + 20);
     }
     y += picH + 18;
-    for (const item of pdfItems(deck, i)) {
+    for (const item of items) {
       room(40);
       lines(item.label, 11, 'bold', [8, 145, 178]);
       if (item.shown?.trim()) lines(item.shown.trim(), 10, 'normal', [30, 41, 59], 12);
@@ -115,6 +126,16 @@ export async function exportDeckPdf(deck: Deck, onProgress?: (done: number, tota
       }
       y += 8;
     }
+  };
+
+  const total = deck.slides.length;
+  for (let i = 0; i < total; i++) {
+    onProgress?.(i, total);
+    const slide = deck.slides[i];
+    await page(slide, `Slide ${i + 1} of ${total}${slide.topic ? `  ·  ${slide.topic}` : ''}`, pdfItems(deck, i), i === 0);
+    // Its helper (what a learner who is lost sees instead), right after it
+    const helper = slide.helper && !slide.helper.off && slide.helper.elements.length ? { id: `${slide.id}~helper`, background: slide.background, elements: slide.helper.elements } : null;
+    if (helper) await page(helper, `Slide ${i + 1}  ·  helper: shown when a learner is lost`, pdfItems({ ...deck, slides: [helper] }, 0), false);
   }
   // the deck's end-of-lesson recap, on its own page
   if (deck.recap?.trim()) {

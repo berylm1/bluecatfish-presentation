@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { Deck, SlideElement } from '@/lib/canvas/types';
 import { speakingOrder, spokenText, topicIndexes } from '@/lib/canvas/queue';
 import { currentAudio } from '@/lib/canvas/aiFields';
-import { introClip } from '@/lib/canvas/intro';
+import { introClip, isIntroId } from '@/lib/canvas/intro';
 import { learnerHeaders } from '@/lib/learnerSession';
 
 const AFTER_SLIDE_MS = 1500;    // pause after a slide's last clip before moving on
@@ -124,6 +124,8 @@ export function useDeckPlayer(
   const replayRef = useRef<number | null>(null);
   // Waiting for the learner (waitAfter): resume doesn't skip past it, only nextClip / a move does
   const waitingRef = useRef(false);
+  // Slides whose topic introduction has played (this run of the lesson)
+  const introsHeard = useRef(new Set<string>());
 
   // A topic's first slide opens with its introduction (lib/canvas/intro.ts), played like the slide's first clip
   const orders = useMemo(() => deck.slides.map((s, i) => {
@@ -153,10 +155,14 @@ export function useDeckPlayer(
 
   const goToSlide = useCallback((slide: number) => {
     if (slide < 0) return;
+    // A topic's introduction plays the first time the learner gets there, not
+    // again when they come back to it (⏮, "go back"): start after it then
+    const s = deck.slides[slide];
+    const heard = !!s && introsHeard.current.has(s.id) && isIntroId(orders[slide]?.[0]?.id);
     // Past the last slide = the end; the position moves there too, so a clip
     // still finishing can't carry the deck on
-    setPos((p) => ({ slide: Math.min(slide, deck.slides.length), clip: 0, mode: 'normal', token: p.token + 1 }));
-  }, [deck.slides.length]);
+    setPos((p) => ({ slide: Math.min(slide, deck.slides.length), clip: heard ? 1 : 0, mode: 'normal', token: p.token + 1 }));
+  }, [deck.slides, orders]);
 
   // Play whatever is at the current position
   useEffect(() => {
@@ -195,6 +201,7 @@ export function useDeckPlayer(
     }
 
     const el = order[pos.clip];
+    if (isIntroId(el.id)) introsHeard.current.add(deck.slides[pos.slide].id);
     setStatus('loading');
     textRef.current = pos.mode === 'plain' ? el.plain?.trim() || spokenText(el) : spokenText(el);
     clipUrl(el, pos.mode).then((url) => {
@@ -268,7 +275,8 @@ export function useDeckPlayer(
       goToSlide(i === -1 ? deck.slides.length : i);
     },
     repeat: () => setPos((p) => ({ ...p, clip: clampedClip, mode: 'normal', token: p.token + 1 })),
-    simplify: () => setPos((p) => ({ ...p, clip: clampedClip, mode: 'plain', token: p.token + 1 })),
+    // (an introduction has no plain version: it's said again as it is)
+    simplify: () => setPos((p) => ({ ...p, clip: clampedClip, mode: isIntroId(order[clampedClip]?.id) ? 'normal' : 'plain', token: p.token + 1 })),
     pause: () => {
       replayRef.current = null;   // a plain pause picks up exactly where it stopped
       if (timerRef.current) clearTimeout(timerRef.current);
@@ -328,10 +336,11 @@ export function useDeckPlayer(
     },
     restart: () => {
       setStatus('loading');
+      introsHeard.current.clear();
       setPos((p) => ({ slide: 0, clip: 0, mode: 'normal', token: p.token + 1 }));
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }), [goToSlide, pos.slide, topics, deck.slides.length, clampedClip]);
+  }), [goToSlide, pos.slide, topics, deck.slides.length, clampedClip, order]);
 
   return {
     slideIndex: Math.min(pos.slide, deck.slides.length - 1),

@@ -602,12 +602,13 @@ function Player({ deck, preview, startAt = 0 }: { deck: Deck; preview: boolean; 
                   ? `The learner WASN'T SURE. Start with "That's a tricky one${you}." Say ${CLASSMATE_NAME} wasn't right, then explain what's right and why. 3 or 4 short sentences.`
                   : `Decide from the answer whether the learner caught the mistake. If they did, start with "Good catch${you}!" and say why in a sentence. ` +
                     `If not, start with "Actually${you}, that isn't true." and kindly explain what's right. Kindly to ${CLASSMATE_NAME} too. 2 to 4 short sentences.`;
-            await tutor.ask(q, slideContext() +
+            const { superseded } = await tutor.ask(q, slideContext() +
               `\n${CLASSMATE_NAME}, a classmate, just said this, and it is WRONG on purpose, to see if the learner catches it. What's actually right: ${line.truth}` +
               `\nYou asked the learner if ${CLASSMATE_NAME} was right. The learner answered: "${verdict || '(nothing)'}".` +
               `\n${how}${helper ? ' End with one short sentence saying you\'ll show it another way.' : ''} No question at the end.`,
               { asker: CLASSMATE_NAME });
-            if (helper && !over() && playerRef.current.slideIndex === from) {
+            // (not when the learner talked over the answer: what they said decides what's next)
+            if (helper && !superseded && !over() && playerRef.current.slideIndex === from) {
               // Then the topic's helper; "How did that section go?" after it (if the learner is still here)
               finnBusy.current = false;
               tracking.track('tutor_decision', { action: 'helper', why: 'classmate_mistake', kind });
@@ -1091,7 +1092,8 @@ function Player({ deck, preview, startAt = 0 }: { deck: Deck; preview: boolean; 
     if (!MORPH_HELPERS || !baseSlide) return baseSlide;
     if (variant?.slide) return variant.slide;   // the slide's own helper
     if (variant) return helperSlide(baseSlide, variant);
-    if (player.mode === 'plain') return focusSlide(baseSlide, focusId) ?? baseSlide;
+    // (never for a topic introduction: it isn't on the slide, so there's nothing to focus)
+    if (player.mode === 'plain') return isIntroId(focusId) ? baseSlide : focusSlide(baseSlide, focusId) ?? baseSlide;
     return baseSlide;
   }, [baseSlide, variant, player.mode, focusId]);
 

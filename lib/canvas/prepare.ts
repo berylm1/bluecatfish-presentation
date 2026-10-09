@@ -64,7 +64,7 @@ async function writeIntro(deck: Deck, i: number): Promise<string> {
       (previous ? 'Link it to the part before in a few words ("Now that we know…", "Next, let\'s…"). ' : 'This is the first part of the lesson: open it ("Let\'s start with…"). ') +
       'Don\'t teach the facts yet, no question at the end, no quotation marks.',
     `Lesson: ${deck.title}\n${previous ? `Part before: ${previous}\n` : ''}This part: ${topic}\nWhat its slides show: ${coming.join(' || ').slice(0, 3000)}`,
-  );
+  ).then((t) => t.trim().slice(0, 1000));   // (the stored limit; live read-aloud takes up to 1500)
 }
 
 /** A short caption for a picture, from its description. */
@@ -176,12 +176,13 @@ async function pool<T>(items: T[], deadline: number, work: (item: T) => Promise<
 
 type Job = { slide: Slide; el: SlideElement; helper?: boolean };
 /** Elements that need something; withHelpers also looks at the helpers' elements (as their own slide, for context). */
-const jobs = (deck: Deck, need: (el: SlideElement) => boolean, withHelpers = false): Job[] =>
+const jobs = (deck: Deck, need: (el: SlideElement, slide: Slide) => boolean, withHelpers = false): Job[] =>
   deck.slides.flatMap((slide) => [
-    ...slide.elements.filter(need).map((el) => ({ slide, el })),
-    ...(withHelpers ? helperElements(slide).filter(need).map((el) => ({
-      slide: { id: `${slide.id}~helper`, topic: slide.topic, elements: helperElements(slide) } as Slide, el, helper: true,
-    })) : []),
+    ...slide.elements.filter((el) => need(el, slide)).map((el) => ({ slide, el })),
+    ...(withHelpers ? (() => {
+      const view = { id: `${slide.id}~helper`, topic: slide.topic, elements: helperElements(slide) } as Slide;
+      return view.elements.filter((el) => need(el, view)).map((el) => ({ slide: view, el, helper: true }));
+    })() : []),
   ]);
 // Patches address the real slide, not the helper view
 const baseId = (id: string) => id.split('~')[0];

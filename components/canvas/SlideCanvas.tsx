@@ -187,9 +187,13 @@ function Content({ el }: { el: SlideElement }) {
   if (el.type === 'diagram') return <DiagramView el={el} />;
   if (el.type === 'activity') return <ActivityView el={el} interactive={false} solved={solved?.has(el.id)} />;
   return (
-    // eslint-disable-next-line @next/next/no-img-element
-    <img src={el.src} alt="" draggable={false}
-      style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: el.fit ?? 'contain', borderRadius: 'inherit', pointerEvents: 'none' }} />
+    <>
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img src={el.src} alt="" draggable={false}
+        style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: el.fit ?? 'contain', borderRadius: 'inherit', pointerEvents: 'none' }} />
+      {/* the caption goes along with its picture (was: gone during the morph, then back) */}
+      {el.caption?.trim() && !el.captionOff && <Caption text={el.caption.trim()} />}
+    </>
   );
 }
 

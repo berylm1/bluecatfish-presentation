@@ -194,6 +194,8 @@ type RepeatFix = { id: string; say?: string; text?: string; why?: string };
 
 async function findRepeats(deck: Deck): Promise<RepeatFix[]> {
   const lines = deck.slides.flatMap((s, si) => s.elements.flatMap((e) => {
+    // A hands-on box's words are instructions ("Your turn: drag…"), alike on purpose: never a repeat
+    if (e.type === 'activity') return [];
     const shown = e.type === 'text' ? e.text : '';
     if (!e.say && !shown) return [];
     return [`[${e.id}] (slide ${si + 1}, ${s.topic ?? ''})${shown ? ` SHOWN: ${shown}` : ''}${e.say ? ` SAID: ${e.say}` : ''}`];
@@ -230,7 +232,7 @@ export async function removeRepeats(deck: Deck, notes: string[], deadline = Infi
     let changed = 0;
     for (const f of fixes) {
       const el = byId.get(f.id);
-      if (!el) continue;
+      if (!el || el.type === 'activity') continue;
       if (typeof f.say === 'string' && f.say.trim() && el.say && f.say.trim() !== el.say) { el.say = f.say.trim().slice(0, 4000); el.plain = undefined; changed++; }
       if (el.type === 'text' && typeof f.text === 'string' && f.text.trim() && f.text.trim() !== el.text) {
         // shown text stays about as long, so it still fits its box

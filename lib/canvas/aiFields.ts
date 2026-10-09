@@ -110,9 +110,24 @@ export function needsPointers(el: SlideElement): boolean {
   return !!el.pointersByAI && el.pointersFrom !== fingerprint(pointersBasis(el));
 }
 
+/**
+ * Is there room for the AI to caption this picture? Not a background picture
+ * (behind everything: AI decks give those a description too), not a small one
+ * (the caption would cover it), and not where text sits over its bottom edge,
+ * where the caption goes. A person can still type one anywhere.
+ */
+export function captionFits(el: SlideElement, slide?: Slide): boolean {
+  if (el.type !== 'image' || (el.z ?? 1) <= 0 || el.w < 18 || el.h < 22) return false;
+  const strip = { x: el.x + el.w * 0.03, y: el.y + el.h * 0.82, w: el.w * 0.94, h: el.h * 0.18 };
+  return !(slide?.elements ?? []).some((o) => o.id !== el.id && o.type === 'text'
+    && Math.min(o.x + o.w, strip.x + strip.w) - Math.max(o.x, strip.x) > 0.5
+    && Math.min(o.y + o.h, strip.y + strip.h) - Math.max(o.y, strip.y) > 0.5);
+}
+
 /** A picture's caption: written from its description, never over a person's (or when turned off). */
-export function needsCaption(el: SlideElement): boolean {
+export function needsCaption(el: SlideElement, slide?: Slide): boolean {
   if (el.type !== 'image' || el.captionOff) return false;
+  if (!el.caption?.trim() && !captionFits(el, slide)) return false;
   const basis = el.alt?.trim();
   if (!basis) return false;
   if (!el.caption?.trim()) return true;
@@ -164,7 +179,7 @@ export function countTodo(deck: Deck): Todo {
       if (needsAudio(e)) t.audio++;
       if (needsPlainAudio(e)) t.audio++;
       if (needsPointers(e)) t.pointers++;
-      if (needsCaption(e)) t.captions++;
+      if (needsCaption(e, s)) t.captions++;
     }
     // Helper elements speak too (no plain version: the helper IS the simpler way)
     for (const e of helperElements(s)) {
