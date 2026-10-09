@@ -833,7 +833,7 @@ function Editor({
             </div>
             {/* kept mounted too: each slide's results stay */}
             <div className={panel === 'check' ? '' : 'hidden'}>
-              <CheckPanel slide={slide} slideNumber={slideIdx + 1} lessonTitle={deck.title} onGoTo={(id) => ed.setSelected(id)} />
+              <CheckPanel slide={slide} slideNumber={slideIdx + 1} slides={deck.slides} lessonTitle={deck.title} onGoTo={(id) => ed.setSelected(id)} onGoToSlide={(i) => goToRepeat(i)} />
             </div>
             {panel === 'repeats' || panel === 'check' ? null : panel === 'props' ? (
               element ? (
@@ -847,6 +847,7 @@ function Editor({
                   warnings={slideWarns.filter((w) => w.elementId === element.id)}
                   placing={placingMark}
                   onPlacePointer={setPlacingMark}
+                  about={{ lessonTitle: deck.title, topic: slide.topic }}
                 />
               ) : (
                 <SlideInspector

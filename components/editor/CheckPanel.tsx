@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import type { Slide } from '@/lib/canvas/types';
 import type { CheckedClaim } from '@/lib/canvas/checkSlide';
 import { fingerprint, slideBasis } from '@/lib/canvas/aiFields';
@@ -19,16 +19,34 @@ const VERDICT: Record<CheckedClaim['verdict'], { icon: string; label: string; bo
 
 type Result = { claims: CheckedClaim[]; excerpts: number; basis: string };
 
-export default function CheckPanel({ slide, slideNumber, lessonTitle, onGoTo }: {
+/** One slide checked by the server (throws with the server's message). */
+async function checkOne(slide: Slide, lessonTitle: string): Promise<Result> {
+  const res = await fetch('/api/editor/check-slide', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ slide, lessonTitle }) });
+  const d = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(d.error || `The check failed (${res.status})`);
+  return { claims: d.claims ?? [], excerpts: d.excerpts ?? 0, basis: fingerprint(slideBasis(slide)) };
+}
+
+const EVERY_AT_ONCE = 2;   // "Check every slide": slides checked side by side
+
+export default function CheckPanel({ slide, slideNumber, slides, lessonTitle, onGoTo, onGoToSlide }: {
   slide: Slide;
   slideNumber: number;
+  /** The whole lesson, for "Check every slide" */
+  slides: Slide[];
   lessonTitle: string;
   /** Select an element on this slide */
   onGoTo: (elId: string) => void;
+  onGoToSlide: (index: number) => void;
 }) {
   const [results, setResults] = useState<Record<string, Result>>({});
   const [busy, setBusy] = useState<string | null>(null);   // the slide being checked
   const [error, setError] = useState<{ slideId: string; message: string } | null>(null);
+  // "Check every slide": how far it got (null = not running), and a way to stop it
+  const [every, setEvery] = useState<{ done: number; total: number; failed: number } | null>(null);
+  const stopEvery = useRef(false);
+  const [summary, setSummary] = useState(false);
+  const [failed, setFailed] = useState<Record<string, string>>({});   // slide id → why its check failed (in "Check every slide")
   const result = results[slide.id];
   const basis = fingerprint(slideBasis(slide));
 
@@ -37,16 +55,49 @@ export default function CheckPanel({ slide, slideNumber, lessonTitle, onGoTo }: 
     setBusy(id);
     setError(null);
     try {
-      const res = await fetch('/api/editor/check-slide', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ slide, lessonTitle }) });
-      const d = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(d.error || `The check failed (${res.status})`);
-      setResults((r) => ({ ...r, [id]: { claims: d.claims ?? [], excerpts: d.excerpts ?? 0, basis } }));
+      const r = await checkOne(slide, lessonTitle);
+      setResults((all) => ({ ...all, [id]: r }));
+      setFailed((f) => { const { [id]: _gone, ...rest } = f; return rest; });
     } catch (e) {
       setError({ slideId: id, message: e instanceof Error ? e.message : String(e) });
     } finally {
       setBusy(null);
     }
   };
+
+  /** Every slide with something to check, two at a time; stoppable; each result kept as it comes. */
+  const checkEvery = async () => {
+    const todo = slides.filter((s) => s.elements.some((e) => !e.silent || e.type === 'text'));
+    stopEvery.current = false;
+    setSummary(true);
+    setEvery({ done: 0, total: todo.length, failed: 0 });
+    let next = 0;
+    const worker = async () => {
+      while (next < todo.length && !stopEvery.current) {
+        const s = todo[next++];
+        try {
+          const r = await checkOne(s, lessonTitle);
+          setResults((all) => ({ ...all, [s.id]: r }));
+          setFailed((f) => { const { [s.id]: _gone, ...rest } = f; return rest; });
+          setEvery((p) => p && { ...p, done: p.done + 1 });
+        } catch (e) {
+          setFailed((f) => ({ ...f, [s.id]: e instanceof Error ? e.message : String(e) }));
+          setEvery((p) => p && { ...p, done: p.done + 1, failed: p.failed + 1 });
+        }
+      }
+    };
+    await Promise.all(Array.from({ length: EVERY_AT_ONCE }, worker));
+    setEvery(null);
+  };
+
+  // The lesson-wide summary: slides with problems first
+  const rows = slides.map((s, i) => {
+    const r = results[s.id];
+    const n = (v: CheckedClaim['verdict']) => r?.claims.filter((c) => c.verdict === v).length ?? 0;
+    return { i, s, r, error: r ? undefined : failed[s.id], bad: n('contradicted'), missing: n('unsupported'), ok: n('supported'), stale: !!r && r.basis !== fingerprint(slideBasis(s)) };
+  }).filter((x) => x.r || x.error);
+  // problems first, then the ones that couldn't be checked, then the rest in order
+  rows.sort((a, b) => b.bad - a.bad || b.missing - a.missing || Number(!!b.error) - Number(!!a.error) || a.i - b.i);
 
   const counts = result ? (['contradicted', 'unsupported', 'supported'] as const).map((v) => [v, result.claims.filter((c) => c.verdict === v).length] as const) : [];
 
@@ -61,6 +112,39 @@ export default function CheckPanel({ slide, slideNumber, lessonTitle, onGoTo }: 
       </button>
       {error?.slideId === slide.id && <p className="text-xs text-red-700 bg-red-50 border border-red-200 rounded-md px-2 py-1.5">{error.message}</p>}
       {result && result.basis !== basis && <p className="text-xs text-amber-800">This slide has changed since it was checked.</p>}
+      {/* the whole lesson */}
+      <div className="flex gap-2 items-center">
+        {every ? (
+          <>
+            <span className="text-xs text-slate-600 flex-1" role="status">Checking every slide… {every.done} of {every.total}{every.failed ? ` (${every.failed} failed)` : ''}</span>
+            <button className="text-xs underline" onClick={() => { stopEvery.current = true; }}>Stop</button>
+          </>
+        ) : (
+          <button className="text-xs text-cyan-700 underline disabled:opacity-50" onClick={checkEvery} disabled={busy !== null}>
+            🔎 Check every slide ({slides.length})
+          </button>
+        )}
+        {rows.length > 0 && !every && <button className="text-xs underline ml-auto" onClick={() => setSummary((v) => !v)}>{summary ? 'Hide summary' : 'Summary'}</button>}
+      </div>
+      {summary && rows.length > 0 && (
+        <div className="rounded-md border border-slate-200 p-2">
+          <h4 className="text-xs font-semibold uppercase tracking-wider text-slate-500 mb-1">Whole lesson</h4>
+          <ul className="flex flex-col gap-0.5">
+            {rows.map((x) => (
+              <li key={x.s.id}>
+                <button className={`w-full text-left text-xs px-1.5 py-1 rounded hover:bg-slate-100 ${x.i === slideNumber - 1 ? 'bg-cyan-50' : ''}`} onClick={() => onGoToSlide(x.i)}>
+                  <b>Slide {x.i + 1}</b>{x.s.topic ? <span className="text-slate-500"> · {x.s.topic}</span> : null}{' '}
+                  <span className="float-right">
+                    {x.error ? <span className="text-red-700" title={x.error}>couldn&apos;t check</span>
+                      : <>{x.bad ? `❌ ${x.bad} ` : ''}{x.missing ? `⚠️ ${x.missing} ` : ''}{!x.bad && !x.missing ? (x.ok ? '✅' : '—') : ''}{x.stale ? ' · changed' : ''}</>}
+                  </span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
       {result && (
         <p className="text-xs text-slate-600" role="status">
           {result.claims.length === 0

@@ -1,9 +1,10 @@
 'use client';
 
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import SlideCanvas from '@/components/canvas/SlideCanvas';
 import type { Slide } from '@/lib/canvas/types';
 import { topicIndexes } from '@/lib/canvas/queue';
+import { formatLength, lessonLength, TOPIC_LONG_SEC } from '@/lib/canvas/lessonLength';
 import type { SlideStats } from '@/lib/canvas/slideStats';
 import { heatTitle, heatTone } from './LearnerStats';
 
@@ -34,6 +35,8 @@ export default function SlideList({
   const [dragFrom, setDragFrom] = useState<number | null>(null);
   const [dropAt, setDropAt] = useState<number | null>(null);
   const topics = topicIndexes(slides);
+  // How long each topic takes (talk + hands-on), and the whole lesson
+  const length = useMemo(() => lessonLength(slides), [slides]);
   const btn = 'flex-1 px-1 py-1 rounded-md bg-white border border-slate-300 hover:bg-slate-50 text-xs text-slate-700';
 
   return (
@@ -43,13 +46,26 @@ export default function SlideList({
         <button className={btn} onClick={onDuplicate}>Duplicate</button>
         <button className={`${btn} text-red-600`} onClick={onDelete} disabled={slides.length <= 1}>Delete</button>
       </div>
+      <div className="text-[11px] text-slate-500 px-0.5" title="The professor's words at the reading pace, plus about 45 seconds for each hands-on box">
+        Lesson ≈ <b className="text-slate-700">{formatLength(length.total)}</b>
+      </div>
       <div className="flex flex-col gap-1 overflow-y-auto pr-1 pb-8">
         {slides.map((s, i) => (
           <div key={s.id}>
             {(i === 0 || topics[i] !== topics[i - 1]) && (
-              <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500 mt-2 mb-1 truncate" title={s.topic}>
-                {s.topicByAI && <span className="text-violet-600" title="Topic named by the AI">✨ </span>}
-                {s.topic || 'No topic yet'}
+              <div className="flex items-baseline gap-1 mt-2 mb-1">
+                <div className="flex-1 min-w-0 text-[10px] font-semibold uppercase tracking-wide text-slate-500 truncate" title={s.topic}>
+                  {s.topicByAI && <span className="text-violet-600" title="Topic named by the AI">✨ </span>}
+                  {s.topic || 'No topic yet'}
+                </div>
+                {(() => {
+                  const t = length.topics[topics[i]];
+                  if (!t) return null;
+                  const how = `About ${formatLength(t.talk)} of talking${t.handsOn ? ` + ${formatLength(t.handsOn)} hands-on` : ''}`;
+                  return t.long
+                    ? <span className="shrink-0 text-[10px] font-semibold text-amber-700" title={`${how}. Topics over ${TOPIC_LONG_SEC / 60} minutes can lose learners: split it into two topics, or trim the words.`}>⏱ {formatLength(t.total)} · long</span>
+                    : <span className="shrink-0 text-[10px] text-slate-400" title={how}>{formatLength(t.total)}</span>;
+                })()}
               </div>
             )}
             <div
