@@ -31,6 +31,24 @@ export async function chat(system: string, user: string, json = false, maxTokens
   return text;
 }
 
+/** An https address on a public host (not localhost or a private/link-local IP written out). */
+export function isPublicHttps(raw: string): boolean {
+  let u: URL;
+  try { u = new URL(raw); } catch { return false; }
+  if (u.protocol !== 'https:' || u.username || u.password) return false;
+  const h = u.hostname.toLowerCase().replace(/^\[|\]$/g, '');
+  if (h === 'localhost' || h.endsWith('.localhost') || h.endsWith('.local') || h.endsWith('.internal') || !h.includes('.') && !h.includes(':')) return false;
+  const v4 = h.match(/^(\d+)\.(\d+)\.(\d+)\.(\d+)$/);
+  if (v4) {
+    const [a, b] = [Number(v4[1]), Number(v4[2])];
+    if (a === 10 || a === 127 || a === 0 || (a === 169 && b === 254) || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) || (a === 100 && b >= 64 && b <= 127) || a >= 224) return false;
+  }
+  if (h.includes(':')) {   // IPv6
+    if (h === '::1' || h === '::' || /^f[cd]/.test(h) || /^fe[89ab]/.test(h) || h.startsWith('::ffff:')) return false;
+  }
+  return true;
+}
+
 /** chat, looking at a picture too (for the laser marks). */
 const VISION_TYPES = ['image/png', 'image/jpeg', 'image/webp', 'image/gif'];
 const MAX_IMAGE_BYTES = 8_000_000;
@@ -43,7 +61,10 @@ const MAX_IMAGE_BYTES = 8_000_000;
  */
 export async function imageForVision(url: string): Promise<string | null> {
   try {
-    const res = await fetch(url, { signal: AbortSignal.timeout(15000) });
+    // Our server fetches it, so only a public web picture: https, not an address inside a
+    // network (localhost, 10.x, 192.168.x, the cloud's 169.254.x…), and no redirects to one
+    if (!isPublicHttps(url)) return null;
+    const res = await fetch(url, { signal: AbortSignal.timeout(15000), redirect: 'error' });
     if (!res.ok) return null;
     const type = (res.headers.get('content-type') ?? '').split(';')[0].trim().toLowerCase();
     if (!VISION_TYPES.includes(type)) return null;
