@@ -30,6 +30,8 @@ export const LIMITS = {
   // ~5-15 a minute; a class on one school address ~300-450. Generous, and no daily cap, so
   // tracking never switches off for everyone; past it an update is just skipped.
   learnerState: { perSession: 60, perAddress: 1000, windowSec: 60, label: 'updates' },
+  // Learner events (/api/signals/events), in batches of ~5: a lesson sends a few batches a minute
+  events: { perSession: 60, perAddress: 1000, windowSec: 60, label: 'updates' },
   classmate: { perSession: 6, perAddress: 60, windowSec: 60, perDay: 3000, label: 'classmate questions' },
   board: { perSession: 10, perAddress: 60, windowSec: 60, perDay: 3000, label: 'drawings' },
   slides: { perSession: 15, perAddress: 120, windowSec: 60, perDay: 5000, label: 'slide lookups' },

@@ -14,19 +14,13 @@ import {
  * Fire-and-forget: tracking failures never break the lesson.
  */
 
-const SUPA_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-const SUPA_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
-const EVENTS_URL = `${SUPA_URL}/rest/v1/events`;
+// Events go to our server (app/api/signals/events), which checks them and
+// writes them with the service key. (was: straight to Supabase with the
+// public key, so anyone could add rows to the events log, past any limit)
+const EVENTS_URL = '/api/signals/events';
 
-export type EventType =
-  | 'section_start' | 'step_start' | 'step_complete'
-  | 'confusion_click' | 'repeat_request' | 'simplify_request' | 'advance_request'
-  | 'quiz_submitted' | 'quiz_wrong' | 'quiz_passed'
-  | 'tutor_question' | 'tutor_decision' | 'barge_in' | 'hand_raise'
-  | 'presence_away' | 'presence_back'
-  | 'dwell' | 'lesson_complete' | 'self_check'
-  | 'emotion_state'
-  | 'deck_command';   // must match the SQL list (migrations 003 + 004)
+export type { EventType } from '@/lib/eventTypes';
+import type { EventType } from '@/lib/eventTypes';
 
 type CountKey = Exclude<keyof SectionCounters, 'quiz_passed' | 'self_check'>;
 export type StatePatch = Partial<Record<CountKey, number>> & {
@@ -77,7 +71,7 @@ class SignalTracker {
     event_type: EventType,
     opts: { section?: number; step?: number; value?: Record<string, unknown>; dwell_ms?: number } = {}
   ): void {
-    if (typeof window === 'undefined' || !SUPA_URL) return;
+    if (typeof window === 'undefined') return;
     this.queue.push({
       session_id: this.sessionId,
       section: opts.section,
@@ -168,18 +162,11 @@ class SignalTracker {
       dwell_ms: e.dwell_ms ?? null,
       created_at: e.created_at,
     }));
-    const headers: Record<string, string> = {
-      'Content-Type': 'application/json',
-      'apikey': SUPA_KEY,
-      'Prefer': 'return=minimal',
-    };
-    // Legacy anon keys are JWTs and can go in Authorization too; the new
-    // sb_publishable_ keys are not JWTs and are refused there
-    if (SUPA_KEY?.startsWith('eyJ')) headers.Authorization = `Bearer ${SUPA_KEY}`;
     fetch(EVENTS_URL, {
       method: 'POST',
-      headers,
-      body: JSON.stringify(batch),
+      // the learner's session header: the per-learner rate limit (lib/rateLimit.ts)
+      headers: learnerHeaders({ 'Content-Type': 'application/json' }),
+      body: JSON.stringify({ events: batch }),
       keepalive: true,
     })
       .then(async (r) => {
