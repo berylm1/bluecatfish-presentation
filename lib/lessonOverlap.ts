@@ -1,3 +1,6 @@
+import type { Deck } from './canvas/types';
+import { topicIndexes } from './canvas/queue';
+
 // Finds facts that show up in more than one section of a generated lesson
 // (the "same point taught 2-3 times" problem). Used after generation for
 // logging and on /lessonReview so a person can see exactly what repeats.
@@ -80,4 +83,27 @@ export function findCrossSectionRepeats(sections: { steps?: any[] }[]): Repeat[]
     }
   }
   return repeats;
+}
+
+/**
+ * A canvas deck as old-style sections (topic = section, slide = step, its
+ * non-title text boxes = bullets), so findCrossSectionRepeats can read it.
+ */
+export function deckSections(deck: Deck): { title: string; steps: { type: string; bullets: string[] }[] }[] {
+  const topics = topicIndexes(deck.slides);
+  const out: { title: string; steps: { type: string; bullets: string[] }[] }[] = [];
+  deck.slides.forEach((s, i) => {
+    const t = topics[i];
+    out[t] ??= { title: s.topic ?? '', steps: [] };
+    out[t].steps.push({
+      type: 'canvas',
+      bullets: s.elements.filter((e) => e.type === 'text' && e.style !== 'title').flatMap((e) => (e as { text: string }).text.split('\n')).map((l) => l.replace(/^[•\-*]\s*/, '').trim()).filter(Boolean),
+    });
+  });
+  return out;
+}
+
+/** The deck's slide index for a fact found in deckSections(deck). */
+export function factSlide(deck: Deck, f: LessonFact): number {
+  return topicIndexes(deck.slides).indexOf(f.section) + f.step;
 }

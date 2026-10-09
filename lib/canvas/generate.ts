@@ -8,6 +8,9 @@ import { fitStatus, neededHeight, textMetrics } from './fitEstimate';
 import { fingerprint, sayBasis, slideBasis } from './aiFields';
 import { chat, knowledge, STYLE } from './ai';
 import { writeRecap } from './prepare';
+import { removeRepeats } from './repeats';
+
+const GENERATE_BUDGET_MS = 270_000;   // the ai-deck route's maxDuration is 300 s
 
 // Step 5: the AI makes a whole deck in the canvas format.
 //   1. plan the lesson's topics from the knowledge base
@@ -176,71 +179,6 @@ export function autoFix(slide: Slide): void {
       e.y = Math.max(4, 100 - Math.max(e.h, want));
       e.h = Math.min(100 - e.y, Math.max(e.h, want));
     }
-  }
-}
-
-/* ------------------------------------------------------ repeats */
-
-// Each topic is written from its own knowledge-base search, so neighbouring
-// topics find the same facts and say them again. A final read of the whole
-// deck (before any audio is made, so no clip is paid for and then cut) finds
-// sentences that repeat an earlier one and rewrites them; it reads again, up
-// to REPEAT_PASSES times, until a read finds nothing.
-const REPEAT_PASSES = 3;
-const REPEAT_PASS_MS = 60_000;   // about how long one read can take
-const GENERATE_BUDGET_MS = 270_000;   // the ai-deck route's maxDuration is 300 s
-
-type RepeatFix = { id: string; say?: string; text?: string; why?: string };
-
-async function findRepeats(deck: Deck): Promise<RepeatFix[]> {
-  const lines = deck.slides.flatMap((s, si) => s.elements.flatMap((e) => {
-    // A hands-on box's words are instructions ("Your turn: drag…"), alike on purpose: never a repeat
-    if (e.type === 'activity') return [];
-    const shown = e.type === 'text' ? e.text : '';
-    if (!e.say && !shown) return [];
-    return [`[${e.id}] (slide ${si + 1}, ${s.topic ?? ''})${shown ? ` SHOWN: ${shown}` : ''}${e.say ? ` SAID: ${e.say}` : ''}`];
-  }));
-  const out = await chat(
-    'You edit a lesson for 10-14 year olds to remove REPEATED content. Below is every element of the lesson in order: what it SHOWS and what the professor SAYS. ' +
-      'Find places that repeat a fact, example or explanation already given EARLIER in the lesson (same idea in other words counts; a short reminder that links back, ' +
-      'like "Remember how big they get?", is fine). The FIRST time something is said stays. For each later repeat, rewrite that element: ' +
-      '"say" = the spoken words with the repeated part removed or replaced by something new from the same element, still 2+ sentences that read naturally ' +
-      '(or a one-sentence link back if nothing else is left); "text" = the shown text, only if the SHOWN text itself repeats an earlier slide, kept as short as it was. ' +
-      'Don\'t change anything that isn\'t a repeat, and don\'t add facts that aren\'t already in the lesson. ' +
-      'Reply as JSON: {"fixes":[{"id":"...","say":"...","text":"...","why":"repeats slide 3: ..."}]} (an empty list when there are no repeats).',
-    `Lesson: ${deck.title}\n\n${lines.join('\n')}`.slice(0, 60000),
-    true,
-    8000,
-  );
-  const fixes = JSON.parse(out).fixes;
-  return Array.isArray(fixes) ? fixes.filter((f: any) => typeof f?.id === 'string') : [];
-}
-
-/** Removes repeated content across the deck (in place); notes say what changed. */
-export async function removeRepeats(deck: Deck, notes: string[], deadline = Infinity): Promise<void> {
-  const byId = new Map(deck.slides.flatMap((s) => s.elements.map((e) => [e.id, e] as const)));
-  for (let pass = 1; pass <= REPEAT_PASSES; pass++) {
-    // Another read wouldn't finish in time (the route has 5 minutes): what's fixed so far stays
-    if (Date.now() + REPEAT_PASS_MS > deadline) { notes.push(`Repeat check stopped after ${pass - 1} pass(es): out of time`); return; }
-    let fixes: RepeatFix[];
-    try {
-      fixes = await findRepeats(deck);
-    } catch (e) {
-      notes.push(`Checking for repeats failed: ${e instanceof Error ? e.message : String(e)}`);
-      return;
-    }
-    let changed = 0;
-    for (const f of fixes) {
-      const el = byId.get(f.id);
-      if (!el || el.type === 'activity') continue;
-      if (typeof f.say === 'string' && f.say.trim() && el.say && f.say.trim() !== el.say) { el.say = f.say.trim().slice(0, 4000); el.plain = undefined; changed++; }
-      if (el.type === 'text' && typeof f.text === 'string' && f.text.trim() && f.text.trim() !== el.text) {
-        // shown text stays about as long, so it still fits its box
-        if (f.text.trim().length <= el.text.length * 1.2 + 10) { el.text = f.text.trim(); changed++; }
-      }
-    }
-    if (changed) notes.push(`Repeat check ${pass}: rewrote ${changed} repeated part(s)`);
-    if (!changed) return;   // nothing repeated any more
   }
 }
 

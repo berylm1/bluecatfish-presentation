@@ -36,6 +36,22 @@ export async function GET() {
       .gte('created_at', since)
       .limit(2000);
 
+    // Finn's deliberate mistakes (last 24h): how often learners caught them.
+    // From the events log, so no new table; a failure here doesn't break the page.
+    const finn = { caught: 0, fooled: 0, unsure: 0, other: 0 };
+    const { data: finnRaw } = await supabase
+      .from('events')
+      .select('value')
+      .eq('event_type', 'tutor_decision')
+      .filter('value->>action', 'eq', 'classmate_mistake_answer')
+      .gte('created_at', since)
+      .limit(2000);
+    for (const row of (finnRaw ?? []) as { value?: { kind?: string } }[]) {
+      const k = row.value?.kind;
+      if (k === 'caught' || k === 'fooled' || k === 'unsure') finn[k]++;
+      else finn.other++;
+    }
+
     if (statesErr || eventsErr) {
       return NextResponse.json(
         { error: statesErr?.message || eventsErr?.message || 'query failed' },
@@ -58,7 +74,7 @@ export async function GET() {
     }
 
     return NextResponse.json(
-      { states, histogram, moods, sessions: new Set(states.map((s) => s.session_id)).size },
+      { states, histogram, moods, finn, sessions: new Set(states.map((s) => s.session_id)).size },
       { headers: { 'Cache-Control': 'no-store' } }
     );
   } catch (err) {

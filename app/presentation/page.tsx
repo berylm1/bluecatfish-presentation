@@ -120,13 +120,18 @@ const FINN_HANDS_ON_DELAY_MS = 900;   // Finn's go in a hands-on box, this long 
 const STEP_IN_AFTER = 2;              // the same item wrong this many times: the professor explains it
 const STEP_IN_MAX = 2;                // at most this many explanations per hands-on box   // a board (or slide) shown with an answer stays up at least this long
 
-/** The topic the learner found hardest (by self-checks, "I'm lost"s, simpler/repeat requests), or null if none was hard. */
-function hardestTopic(deck: Deck, topicOf: number[], stateOf: (topic: number) => SectionState): string | null {
+/** How the learner did on Finn's deliberate mistake in a topic (for the ending). */
+type FinnResult = { kind: 'caught' | 'fooled' | 'unsure' | 'other'; truth: string };
+
+/** The topic the learner found hardest (by self-checks, "I'm lost"s, simpler/repeat requests, Finn's mistakes believed), or null if none was hard. */
+function hardestTopic(deck: Deck, topicOf: number[], stateOf: (topic: number) => SectionState, finn?: ReadonlyMap<number, FinnResult>): string | null {
   let best: { name: string; score: number } | null = null;
   for (const topic of new Set(topicOf)) {
     const st = stateOf(topic);
+    const fk = finn?.get(topic)?.kind;
     const score = (st.self_check === 'lost' ? 3 : st.self_check === 'kind' ? 1.5 : 0)
-      + st.confusion_marks + 0.5 * (st.simplify_requests + st.repeats);
+      + st.confusion_marks + 0.5 * (st.simplify_requests + st.repeats)
+      + (fk === 'fooled' ? 1.5 : fk === 'unsure' ? 1 : 0);
     const name = deck.slides[topicOf.indexOf(topic)]?.topic?.trim();
     if (name && score >= 1 && (!best || score > best.score)) best = { name, score };
   }
@@ -147,12 +152,33 @@ const TAKE_ANOTHER_LOOK = `Hmm, almost! Take another look at where ${CLASSMATE_N
 /** The hello with the learner's name: one clip, so there's no gap around the name. */
 const greeting = (name: string) => `Hey ${name}! I'm Professor Marine. Let's dive in.`;
 
-/** A sentence for the end of the recap: the learner's name and what to look at again. */
-function personalRecap(name: string, hardest: string | null): string {
-  if (name && hardest) return `Nice work today, ${name}! ${hardest} was the trickiest part for you, so that's a great one to look at again.`;
-  if (name) return `Nice work today, ${name}! You stuck with it the whole way.`;
-  if (hardest) return `${hardest} was the trickiest part, so that's a great one to look at again.`;
-  return '';
+/** How the learner did on Finn's mistakes, in a few words for the end screen ("You caught 2 of Finn's 3 mix-ups"), or ''. */
+function finnScore(finn: ReadonlyMap<number, FinnResult>): string {
+  const all = [...finn.values()].filter((r) => r.kind !== 'other');   // (in their own words: the professor judged it, the page didn't)
+  const caught = all.filter((r) => r.kind === 'caught').length;
+  if (!all.length) return '';
+  if (caught === all.length) return all.length === 1 ? `You caught ${CLASSMATE_NAME}'s mix-up.` : `You caught ${all.length === 2 ? 'both' : `all ${all.length}`} of ${CLASSMATE_NAME}'s mix-ups.`;
+  return caught ? `You caught ${caught} of ${CLASSMATE_NAME}'s ${all.length} mix-ups.` : '';
+}
+
+/**
+ * The end of the recap: the learner's name, how they did on Finn's mistakes,
+ * what to look at again, and the right fact for a mistake they believed.
+ */
+function personalRecap(name: string, hardest: string | null, finn: ReadonlyMap<number, FinnResult> = new Map()): string {
+  const results = [...finn.values()].filter((r) => r.kind !== 'other');
+  const missed = results.filter((r) => r.kind === 'fooled' || r.kind === 'unsure');
+  const caught = results.length - missed.length;
+  const bits: string[] = [];
+  bits.push(name ? `Nice work today, ${name}!` : '');
+  if (results.length && !missed.length) bits.push(results.length === 1 ? `You caught ${CLASSMATE_NAME}'s mix-up, too. Sharp eyes!` : `And you caught every one of ${CLASSMATE_NAME}'s mix-ups. Sharp eyes!`);
+  else if (caught) bits.push(`You caught ${caught} of ${CLASSMATE_NAME}'s ${results.length} mix-ups.`);
+  if (hardest) bits.push(`${hardest} was the trickiest part${name ? ' for you' : ''}, so that's a great one to look at again.`);
+  // One reminder (the first mistake they believed), in the professor's words: "Remember: <what's right>"
+  const fact = missed[0]?.truth.trim().replace(/\s+/g, ' ');
+  if (fact) bits.push(`And remember: ${/[.!?]$/.test(fact) ? fact : `${fact}.`}`);
+  if (name && bits.length === 1) bits.push('You stuck with it the whole way.');
+  return bits.filter(Boolean).join(' ');
 }
 
 function Player({ deck, preview, startAt = 0 }: { deck: Deck; preview: boolean; startAt?: number }) {
@@ -506,6 +532,7 @@ function Player({ deck, preview, startAt = 0 }: { deck: Deck; preview: boolean; 
   /* --------------------------------------------- Finn, the AI classmate */
   const classmateTopics = useRef(new Set<number>());   // topics Finn already asked about
   const classmateAsked = useRef<string[]>([]);
+  const finnResults = useRef(new Map<number, FinnResult>());   // topic → how the learner did on Finn's mistake there
   const classmateOnRef = useRef(classmateOn);
   classmateOnRef.current = classmateOn;
   // Finn's line for a topic, fetched (and voiced) while its last slide plays, so he speaks at once
@@ -589,6 +616,7 @@ function Player({ deck, preview, startAt = 0 }: { deck: Deck; preview: boolean; 
             if (verdict === null) return;   // moved on: no answer, and no "How did that section go?" on another slide
             const kind = finnVerdictKind(verdict);
             tracking.track('tutor_decision', { action: 'classmate_mistake_answer', answer: verdict.slice(0, 200), kind });
+            finnResults.current.set(topic, { kind, truth: line.truth });   // for the ending
             // Fooled or unsure: after the explanation, the topic's helper ("another way to see it")
             const helper = kind === 'fooled' || kind === 'unsure' ? (MORPH_HELPERS ? helperFor(from) : null) : null;
             const you = name ? `, ${name}` : '';
@@ -775,7 +803,7 @@ function Player({ deck, preview, startAt = 0 }: { deck: Deck; preview: boolean; 
     let cancelled = false;
     // The recap and the personal line are ONE clip (no gap around the name),
     // made while "Let's look back…" is playing
-    const recap = [deck.recap?.trim(), personalRecap(learnerName.trim(), hardestTopic(deck, topicOf, stateOf))].filter(Boolean).join(' ');
+    const recap = [deck.recap?.trim(), personalRecap(learnerName.trim(), hardestTopic(deck, topicOf, stateOf, finnResults.current), finnResults.current)].filter(Boolean).join(' ');
     if (recap) preloadCue(recap);
     (async () => {
       if (!(await playCue('cue_conclusionIntro')) || cancelled) return;
@@ -1135,7 +1163,8 @@ function Player({ deck, preview, startAt = 0 }: { deck: Deck; preview: boolean; 
 
   const slide = deck.slides[player.slideIndex];
   // the end screen: the hardest topic, to go over again
-  const hardestName = player.status === 'finished' ? hardestTopic(deck, topicOf, stateOf) : null;
+  const hardestName = player.status === 'finished' ? hardestTopic(deck, topicOf, stateOf, finnResults.current) : null;
+  const finnSummary = player.status === 'finished' ? finnScore(finnResults.current) : '';
   const finishedHardest = hardestName ? { name: hardestName, index: deck.slides.findIndex((s) => s.topic?.trim() === hardestName) } : null;
   const btn = 'px-3 py-2 rounded-lg bg-white/10 hover:bg-white/20 text-sm font-medium transition-colors disabled:opacity-40';
 
@@ -1169,6 +1198,7 @@ function Player({ deck, preview, startAt = 0 }: { deck: Deck; preview: boolean; 
           >
             <h2 className="text-3xl font-bold">That&apos;s the lesson{learnerName.trim() ? `, ${learnerName.trim()}` : ''}!</h2>
             {deck.recap && <p className="text-lg max-w-2xl">{deck.recap}</p>}
+            {finnSummary && <p className="text-base text-amber-700 font-semibold">🙋 {finnSummary}</p>}
             {finishedHardest && (
               <p className="text-base text-slate-600 max-w-xl">
                 <b>{finishedHardest.name}</b> was the trickiest part.{' '}
@@ -1178,7 +1208,7 @@ function Player({ deck, preview, startAt = 0 }: { deck: Deck; preview: boolean; 
             )}
             <button onClick={() => {
               // a fresh lesson: Finn asks again, hands-on boxes wait again
-              checked.current.clear(); activitiesDone.current.clear(); activitiesSolved.current.clear(); classmateTopics.current.clear(); classmateAsked.current = []; finnReady.current.clear();
+              checked.current.clear(); activitiesDone.current.clear(); activitiesSolved.current.clear(); classmateTopics.current.clear(); classmateAsked.current = []; finnReady.current.clear(); finnResults.current.clear();
               finnSpoken.current.clear(); mistakeCounts.current.clear(); steppedIn.current.clear();
               setSelfCheck(null); setYourTurn(null); cues.stop(); player.restart();
             }} className="px-6 py-3 rounded-xl bg-cyan-500 hover:bg-cyan-400 font-semibold">Start over</button>

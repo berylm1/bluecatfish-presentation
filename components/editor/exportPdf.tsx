@@ -6,8 +6,14 @@ import SlideCanvas from '@/components/canvas/SlideCanvas';
 import type { Deck, Slide, SlideElement } from '@/lib/canvas/types';
 import { shownWords, speakingOrder, spokenText } from '@/lib/canvas/queue';
 import { introText, startsTopic } from '@/lib/canvas/intro';
+import { SOURCES } from '@/lib/sources';
 
-// "Download PDF" in the slide editor: the whole lesson, one slide per page.
+// "Download PDF" in the slide editor, in two kinds:
+//   - teacher script: the whole lesson, one slide per page (helpers after their slide, optional)
+//   - handout: just the slide pictures, two to a page, for learners (no scripts, no answers)
+// Either can end with the lesson's sources (the "View sources" list).
+//
+// The teacher script, one slide per page:
 // Each page has a picture of the slide, then everything on it in the order
 // the professor goes through it, each with its script (what's said):
 //   Introduction → script
@@ -75,7 +81,16 @@ async function slidePicture(slide: Slide): Promise<string | null> {
   }
 }
 
-export async function exportDeckPdf(deck: Deck, onProgress?: (done: number, total: number) => void): Promise<void> {
+export type PdfOptions = {
+  kind: 'script' | 'handout';
+  /** Teacher script: each slide's helper on a page after it */
+  helpers: boolean;
+  /** A last page with the lesson's sources */
+  sources: boolean;
+};
+export const DEFAULT_PDF: PdfOptions = { kind: 'script', helpers: true, sources: true };
+
+export async function exportDeckPdf(deck: Deck, opts: PdfOptions = DEFAULT_PDF, onProgress?: (done: number, total: number) => void): Promise<void> {
   const { jsPDF } = await import('jspdf');
   const pdf = new jsPDF({ unit: 'pt', format: 'letter', orientation: 'portrait' });
   const W = pdf.internal.pageSize.getWidth(), H = pdf.internal.pageSize.getHeight();
@@ -129,16 +144,40 @@ export async function exportDeckPdf(deck: Deck, onProgress?: (done: number, tota
   };
 
   const total = deck.slides.length;
-  for (let i = 0; i < total; i++) {
-    onProgress?.(i, total);
-    const slide = deck.slides[i];
-    await page(slide, `Slide ${i + 1} of ${total}${slide.topic ? `  ·  ${slide.topic}` : ''}`, pdfItems(deck, i), i === 0);
-    // Its helper (what a learner who is lost sees instead), right after it
-    const helper = slide.helper && !slide.helper.off && slide.helper.elements.length ? { id: `${slide.id}~helper`, background: slide.background, elements: slide.helper.elements } : null;
-    if (helper) await page(helper, `Slide ${i + 1}  ·  helper: shown when a learner is lost`, pdfItems({ ...deck, slides: [helper] }, 0), false);
+  const slideTitle = (i: number) => `Slide ${i + 1} of ${total}${deck.slides[i].topic ? `  ·  ${deck.slides[i].topic}` : ''}`;
+  if (opts.kind === 'handout') {
+    // Two slides to a page, each with its number and topic above it
+    const picH = textW * 9 / 16;
+    for (let i = 0; i < total; i++) {
+      onProgress?.(i, total);
+      if (i % 2 === 0) {
+        if (i > 0) pdf.addPage();
+        y = M;
+        if (i === 0) { lines(deck.title, 18, 'bold', [15, 23, 42]); y += 4; }
+      } else {
+        y += 22;
+      }
+      heading = slideTitle(i);
+      lines(heading, 9, 'normal', [100, 116, 139]);
+      y += 3;
+      const pic = await slidePicture(deck.slides[i]);
+      if (pic) pdf.addImage(pic, 'JPEG', M, y, textW, picH);
+      pdf.setDrawColor(203, 213, 225).rect(M, y, textW, picH);
+      y += picH;
+    }
+  } else {
+    for (let i = 0; i < total; i++) {
+      onProgress?.(i, total);
+      const slide = deck.slides[i];
+      await page(slide, slideTitle(i), pdfItems(deck, i), i === 0);
+      // Its helper (what a learner who is lost sees instead), right after it
+      const helper = opts.helpers && slide.helper && !slide.helper.off && slide.helper.elements.length
+        ? { id: `${slide.id}~helper`, background: slide.background, elements: slide.helper.elements } : null;
+      if (helper) await page(helper, `Slide ${i + 1}  ·  helper: shown when a learner is lost`, pdfItems({ ...deck, slides: [helper] }, 0), false);
+    }
   }
-  // the deck's end-of-lesson recap, on its own page
-  if (deck.recap?.trim()) {
+  // the deck's end-of-lesson recap, on its own page (a script: not in the handout)
+  if (opts.kind === 'script' && deck.recap?.trim()) {
     pdf.addPage();
     y = M;
     lines('End-of-lesson recap', 14, 'bold', [15, 23, 42]);
@@ -146,7 +185,30 @@ export async function exportDeckPdf(deck: Deck, onProgress?: (done: number, tota
     lines('Script:', 9, 'bold', [100, 116, 139]);
     lines(deck.recap.trim(), 10, 'italic', [51, 65, 85]);
   }
+  // Where the facts come from, each with its web address (clickable)
+  if (opts.sources && SOURCES.length) {
+    pdf.addPage();
+    y = M;
+    heading = 'Sources';
+    lines('Sources', 14, 'bold', [15, 23, 42]);
+    // (true of any lesson: AI lessons are written from this knowledge base, a hand-made one may use other material too)
+    lines('Where the facts in the lesson knowledge base come from.', 10, 'normal', [100, 116, 139]);
+    y += 8;
+    for (const src of SOURCES) {
+      room(48);
+      lines(src.title, 11, 'bold', [15, 23, 42]);
+      lines(src.org, 10, 'normal', [51, 65, 85]);
+      pdf.setFont('helvetica', 'normal').setFontSize(9).setTextColor(8, 145, 178);
+      for (const line of pdf.splitTextToSize(pdfSafe(src.url), textW) as string[]) {
+        room(9 * 1.3);
+        pdf.text(line, M, y + 9);
+        pdf.link(M, y, pdf.getTextWidth(line), 9 * 1.3, { url: src.url });
+        y += 9 * 1.3;
+      }
+      y += 10;
+    }
+  }
   onProgress?.(deck.slides.length, deck.slides.length);
-  const file = `${(deck.title || 'lesson').replace(/[^\w\s-]/g, '').trim().replace(/\s+/g, '-').slice(0, 60) || 'lesson'}.pdf`;
+  const file = `${(deck.title || 'lesson').replace(/[^\w\s-]/g, '').trim().replace(/\s+/g, '-').slice(0, 60) || 'lesson'}${opts.kind === 'handout' ? '-handout' : ''}.pdf`;
   pdf.save(file);
 }

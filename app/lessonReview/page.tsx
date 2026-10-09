@@ -2,13 +2,14 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { findCrossSectionRepeats, type Repeat } from '@/lib/lessonOverlap';
+import { deckSections, findCrossSectionRepeats, type Repeat } from '@/lib/lessonOverlap';
 import { CACHE_VERSION } from '@/src/cacheVersion';
 import SlideCanvas from '@/components/canvas/SlideCanvas';
 import { loadDeck } from '@/lib/canvas/loadDeck';
 import { DEFAULT_LESSON } from '@/lib/canvas/lessons';
 import { speakingOrder, spokenText as spokenWords, topicIndexes } from '@/lib/canvas/queue';
 import type { Deck, SlideElement } from '@/lib/canvas/types';
+import { introText, startsTopic } from '@/lib/canvas/intro';
 
 /*
  * /lessonReview (?lesson=<id>, &preview=1 or &preview=ai for editors): the
@@ -210,21 +211,8 @@ function ClassicReview() {
  * ========================================================================== */
 
 const shownText = (el: SlideElement) => (el.type === 'text' ? el.text : el.alt ? `[image] ${el.alt}` : '[image]');
-
-/** The deck as old-style sections, so the cross-topic repeat check can read it. */
-function asSections(deck: Deck) {
-  const topics = topicIndexes(deck.slides);
-  const out: { title: string; steps: { type: string; bullets: string[] }[] }[] = [];
-  deck.slides.forEach((s, i) => {
-    const t = topics[i];
-    out[t] ??= { title: s.topic ?? '', steps: [] };
-    out[t].steps.push({
-      type: 'canvas',
-      bullets: s.elements.filter((e) => e.type === 'text' && e.style !== 'title').flatMap((e) => (e as { text: string }).text.split('\n')).map((l) => l.replace(/^[•\-*]\s*/, '').trim()).filter(Boolean),
-    });
-  });
-  return out;
-}
+/** A picture's caption as the lesson shows it, or null (none, or turned off). */
+const captionOf = (el: SlideElement) => (el.type === 'image' && !el.captionOff && el.caption?.trim()) || null;
 
 function CanvasReview() {
   const [deck, setDeck] = useState<Deck | null>(null);
@@ -246,8 +234,10 @@ function CanvasReview() {
   const topics = topicIndexes(deck.slides);
   const words = (t: string) => (t.trim() ? t.trim().split(/\s+/).length : 0);
   const slideWords = deck.slides.map((s) => speakingOrder(s).reduce((n, e) => n + words(spokenWords(e)), 0));
-  const totalWords = slideWords.reduce((a, b) => a + b, 0) + words(deck.recap ?? '');
-  const repeats: Repeat[] = findCrossSectionRepeats(asSections(deck));
+  // Topic introductions are said too (before each topic's first slide)
+  const introWords = deck.slides.reduce((n, s, i) => n + (startsTopic(deck.slides, i) && !s.intro?.off ? words(introText(s)) : 0), 0);
+  const totalWords = slideWords.reduce((a, b) => a + b, 0) + introWords + words(deck.recap ?? '');
+  const repeats: Repeat[] = findCrossSectionRepeats(deckSections(deck));
   const where = (r: Repeat['a']) => `Topic ${r.section + 1} · slide ${r.step + 1}`;
   const source = deck.source === 'hand' ? 'hand-made' : 'AI-made';
 
@@ -272,7 +262,8 @@ function CanvasReview() {
         <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 mb-8 text-sm text-slate-700">
           <b>How to read this:</b> each slide lists its elements in the order the professor speaks them.{' '}
           <span className="text-blue-800">On screen</span> is what the learner sees, <span className="text-emerald-800">Spoken</span> what the professor says,{' '}
-          <span className="text-amber-800">Plain</span> what plays for &quot;simpler please&quot;. <span className="text-violet-700">✨ AI</span> marks words the AI wrote.
+          <span className="text-amber-800">Plain</span> what plays for &quot;simpler please&quot;.{' '}
+          <span className="text-sky-800">Introduction</span> is said before each topic&apos;s first slide; a <span className="text-blue-800">Caption</span> shows under its picture. <span className="text-violet-700">✨ AI</span> marks words the AI wrote.
           Minutes are estimated at {WORDS_PER_MINUTE} spoken words per minute.
           <span className="no-print"> Other versions: <a className="underline" href={`?lesson=${deck.lessonId}&preview=1`}>saved draft</a> · <a className="underline" href={`?lesson=${deck.lessonId}&preview=ai`}>AI deck</a> (editors) · <a className="underline" href="?classic=1">old-format lesson</a>.</span>
         </div>
@@ -303,6 +294,16 @@ function CanvasReview() {
                   Topic {topics[i] + 1}: {s.topic || '(no topic yet)'} {s.topicByAI && <span className="text-sm text-violet-700">✨ AI-named</span>}
                 </h2>
               )}
+              {/* the topic's introduction: said before its first slide, with the title card */}
+              {newTopic && (
+                <p className="text-sm mb-3 rounded-lg bg-sky-50 border border-sky-100 px-3 py-2">
+                  <span className="text-sky-800 font-semibold">Introduction</span>{' '}
+                  {s.intro?.off ? <span className="text-slate-500">(turned off for this topic)</span>
+                    : introText(s) ? <>
+                      <span className="text-slate-500">({words(introText(s))} words{s.intro?.sayByAI && <span className="text-violet-700"> ✨ AI</span>}):</span> {introText(s)}
+                    </> : <span className="text-slate-500">(not written yet: the AI writes one when the lesson is saved)</span>}
+                </p>
+              )}
               <div className="flex gap-4 items-start rounded-xl border border-slate-200 p-4">
                 <div className="w-64 shrink-0">
                   <div className="text-xs font-semibold uppercase tracking-wider text-slate-500 mb-1">Slide {i + 1} · ~{minutes(slideWords[i])}</div>
@@ -313,13 +314,14 @@ function CanvasReview() {
                     <li key={e.id}>
                       <div className="text-xs font-semibold text-slate-500">#{k + 1}{e.queue ? ` (queue ${e.queue})` : ''}</div>
                       <p><span className="text-blue-800 font-semibold">On screen:</span> <span className="whitespace-pre-line">{shownText(e)}</span></p>
+                      {captionOf(e) && <p><span className="text-blue-800 font-semibold">Caption{e.type === 'image' && e.captionByAI && <span className="text-violet-700"> ✨ AI</span>}:</span> {captionOf(e)}</p>}
                       <p><span className="text-emerald-800 font-semibold">Spoken</span> <span className="text-slate-500">({words(spokenWords(e))} words){e.sayByAI && <span className="text-violet-700"> ✨ AI</span>}{!e.say && ' · reads the shown text (not written yet)'}:</span> {spokenWords(e)}</p>
                       {e.plain && <p><span className="text-amber-800 font-semibold">Plain{e.plainByAI && <span className="text-violet-700"> ✨ AI</span>}:</span> {e.plain}</p>}
                     </li>
                   ))}
                   {!order.length && <li className="text-slate-500">Nothing on this slide speaks (it stays up 5 seconds).</li>}
                   {silent.length > 0 && (
-                    <li className="text-slate-500"><b>Silent:</b> {silent.map(shownText).join(' · ')}</li>
+                    <li className="text-slate-500"><b>Silent:</b> {silent.map((e) => shownText(e) + (captionOf(e) ? ` (caption: ${captionOf(e)})` : '')).join(' · ')}</li>
                   )}
                 </ol>
               </div>

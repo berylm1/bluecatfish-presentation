@@ -26,13 +26,21 @@ export default function Home() {
           </Link>
         </div>
       </div>
-      {/* For the editors (Kai, Beryl, Dr. Cao): the editor asks for the password (lib/editorAuth.ts) */}
-      <Link
-        href="/slideEditor"
-        className="fixed bottom-6 right-6 px-5 py-3 bg-white/80 hover:bg-white text-slate-800 font-semibold rounded-full shadow-lg border border-slate-300 transition-colors"
-      >
-        ✏️ Slide Editor
-      </Link>
+      {/* For the editors (Kai, Beryl, Dr. Cao): both ask for the password (lib/editorAuth.ts) */}
+      <div className="fixed bottom-6 right-6 flex flex-wrap justify-end gap-3">
+        <Link
+          href="/lessonReview"
+          className="px-5 py-3 bg-white/80 hover:bg-white text-slate-800 font-semibold rounded-full shadow-lg border border-slate-300 transition-colors"
+        >
+          📖 Lesson Review
+        </Link>
+        <Link
+          href="/slideEditor"
+          className="px-5 py-3 bg-white/80 hover:bg-white text-slate-800 font-semibold rounded-full shadow-lg border border-slate-300 transition-colors"
+        >
+          ✏️ Slide Editor
+        </Link>
+      </div>
     </div>
   );
 }

@@ -21,6 +21,7 @@ export default function EditorBar() {
     <div className="flex items-center justify-between gap-4 px-4 py-2 bg-slate-900 text-slate-200 text-sm">
       <nav className="flex gap-4">
         <Link href="/slideEditor" className="hover:text-white">Slide editor</Link>
+        <Link href="/lessonReview" className="hover:text-white">Lesson review</Link>
         <Link href="/imageIngest" className="hover:text-white">Image upload</Link>
         <Link href="/textIngest" className="hover:text-white">Text upload</Link>
       </nav>

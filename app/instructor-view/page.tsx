@@ -30,6 +30,8 @@ type Overview = {
   states: StateRow[];
   histogram: Record<string, number>;
   moods: Record<string, number>;
+  /** Finn's deliberate mistakes, last 24h: caught / believed / not sure / judged by the professor (said in their own words) */
+  finn?: { caught: number; fooled: number; unsure: number; other: number };
   sessions: number;
   error?: string;
 };
@@ -98,7 +100,7 @@ export default function InstructorView() {
         )}
 
         {/* Top cards */}
-        <div className="grid grid-cols-3 gap-4 mb-8">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
           <div className="rounded-xl bg-white shadow p-5">
             <div className="text-3xl font-bold text-blue-900">{data?.sessions ?? '—'}</div>
             <div className="text-xs text-slate-500 uppercase tracking-wide">Recent sessions</div>
@@ -114,6 +116,19 @@ export default function InstructorView() {
                 : '—'}
             </div>
             <div className="text-xs text-slate-500 uppercase tracking-wide">Mood distribution</div>
+          </div>
+          <div className="rounded-xl bg-white shadow p-5" title="Finn says something wrong on purpose; did the learner catch it? (last 24h)">
+            {(() => {
+              const f = data?.finn;
+              const judged = f ? f.caught + f.fooled + f.unsure : 0;
+              return (
+                <>
+                  <div className="text-3xl font-bold text-blue-900">{f ? (judged ? `${f.caught}/${judged}` : '—') : '—'}</div>
+                  <div className="text-xs text-slate-500 uppercase tracking-wide">Finn&apos;s mix-ups caught · 24h</div>
+                  {f && judged > 0 && <div className="text-xs text-slate-500 mt-1">believed {f.fooled} · not sure {f.unsure}{f.other ? ` · own words ${f.other}` : ''}</div>}
+                </>
+              );
+            })()}
           </div>
         </div>
 

@@ -14,6 +14,9 @@ import { speakingOrder } from '@/lib/canvas/queue';
 import { deckFromAnyVersion } from '@/lib/canvas/fromLegacy';
 import { countTodo, todoTotal } from '@/lib/canvas/aiFields';
 import { startsTopic } from '@/lib/canvas/intro';
+import { applyRepeatFix, type RepeatSuggestion } from '@/lib/canvas/repeats';
+import RepeatsPanel from '@/components/editor/RepeatsPanel';
+import { DEFAULT_PDF, type PdfOptions } from '@/components/editor/exportPdf';
 import { DEFAULT_LESSON, type LessonInfo } from '@/lib/canvas/lessons';
 import type { Deck, Slide, SlideElement } from '@/lib/canvas/types';
 import { ACTIVITY_KINDS, VISUAL_KINDS, activityTemplate, visualTemplate } from '@/components/editor/templates';
@@ -142,7 +145,7 @@ function Editor({
   const baseRev = useRef<string | undefined>(initial.editRev);
   const [conflict, setConflict] = useState<{ by: string; at: string | null; then: 'save' | 'publish' } | null>(null);
   const { deck, slide, slideIdx, element } = ed;
-  const [panel, setPanel] = useState<'props' | 'images' | 'background'>('props');
+  const [panel, setPanel] = useState<'props' | 'images' | 'background' | 'repeats'>('props');
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState<{ at?: string; by?: string }>({ at: initialSavedAt, by: initialSavedBy });
   const [notice, setNotice] = useState<{ text: string; tone: 'ok' | 'warn' | 'error' } | null>(null);
@@ -173,13 +176,16 @@ function Editor({
     }
   };
 
-  // "⬇ PDF": the lesson as it is in the editor (unsaved changes too), one slide per page
+  // "⬇ PDF": the lesson as it is in the editor (unsaved changes too), as a teacher script or a handout
   const [pdfProgress, setPdfProgress] = useState<string | null>(null);
+  const [pdfMenu, setPdfMenu] = useState(false);
+  const [pdfOpts, setPdfOpts] = useState<PdfOptions>(DEFAULT_PDF);
   const downloadPdf = async () => {
+    setPdfMenu(false);
     setPdfProgress('0%');
     try {
       const { exportDeckPdf } = await import('@/components/editor/exportPdf');
-      await exportDeckPdf(deck, (done, total) => setPdfProgress(`${Math.round((done / Math.max(1, total)) * 100)}%`));
+      await exportDeckPdf(deck, pdfOpts, (done, total) => setPdfProgress(`${Math.round((done / Math.max(1, total)) * 100)}%`));
     } catch (e) {
       flash(`The PDF couldn't be made: ${e instanceof Error ? e.message : String(e)}`, 'error');
     } finally {
@@ -519,6 +525,17 @@ function Editor({
   const main = ed.mainSlide;
   const helperState = !main?.helper?.elements.length ? (main?.helper?.off ? 'off' : 'none') : main.helper.byAI ? 'ai' : 'yours';
   const switchLayer = (l: 'main' | 'helper') => { ed.setLayer(l); ed.setSelected(null); };
+  // "Check for repeats": accept a rewrite (an undoable edit), or jump to the slide it's on
+  const acceptRepeat = (s: RepeatSuggestion) => {
+    if (!applyRepeatFix(structuredClone(deck), s, 'person')) return false;   // that part changed since the check
+    ed.change((d) => { applyRepeatFix(d, s, 'person'); }, `repeat:${s.slideId}:${s.elId}`);
+    return true;
+  };
+  const goToRepeat = (i: number, elId?: string) => {
+    if (ed.layer !== 'main') ed.setLayer('main');
+    ed.setSlideIdx(Math.max(0, Math.min(i, deck.slides.length - 1)));
+    ed.setSelected(elId ?? null);
+  };
   const copyIntoHelper = () => ed.change((d) => {
     const s = d.slides[slideIdx];
     const h = elementsOf(s, 'helper');
@@ -640,9 +657,38 @@ function Editor({
           {ACTIVITY_KINDS.map(([k, name]) => <option key={k} value={k}>＋ {name} (example to edit)</option>)}
         </select>
         <button className={btn} onClick={openVersions}>Start from AI…</button>
-        <button className={btn} onClick={downloadPdf} disabled={pdfProgress !== null} title="The whole lesson as a PDF: one slide per page, with each part's script">
-          {pdfProgress ? `PDF ${pdfProgress}…` : '⬇ PDF'}
-        </button>
+        <button className={`${btn} ${panel === 'repeats' ? 'bg-cyan-50 border-cyan-500' : ''}`} onClick={() => setPanel(panel === 'repeats' ? 'props' : 'repeats')} title="Find where the lesson says or shows the same thing twice">🔁 Repeats</button>
+        <div className="relative">
+          <button className={btn} onClick={() => setPdfMenu((v) => !v)} disabled={pdfProgress !== null} aria-expanded={pdfMenu} title="Download the lesson as a PDF">
+            {pdfProgress ? `PDF ${pdfProgress}…` : '⬇ PDF'}
+          </button>
+          {pdfMenu && (
+            <div className="absolute right-0 top-full mt-1 z-50 w-72 max-w-[90vw] rounded-lg border border-slate-200 bg-white shadow-xl p-3 flex flex-col gap-2 text-sm" role="dialog" aria-label="PDF options">
+              <label className="flex items-start gap-2">
+                <input type="radio" name="pdf-kind" className="mt-1" checked={pdfOpts.kind === 'script'} onChange={() => setPdfOpts((o) => ({ ...o, kind: 'script' }))} />
+                <span><b>Teacher script</b><br /><span className="text-xs text-slate-500">One slide per page, each part with what the professor says</span></span>
+              </label>
+              <label className="flex items-start gap-2">
+                <input type="radio" name="pdf-kind" className="mt-1" checked={pdfOpts.kind === 'handout'} onChange={() => setPdfOpts((o) => ({ ...o, kind: 'handout' }))} />
+                <span><b>Handout</b><br /><span className="text-xs text-slate-500">Just the slides, two per page, for learners</span></span>
+              </label>
+              <div className="border-t border-slate-200 pt-2 flex flex-col gap-1.5">
+                <label className={`flex items-center gap-2 text-xs ${pdfOpts.kind === 'handout' ? 'opacity-40' : ''}`}>
+                  <input type="checkbox" disabled={pdfOpts.kind === 'handout'} checked={pdfOpts.helpers && pdfOpts.kind === 'script'} onChange={(e) => setPdfOpts((o) => ({ ...o, helpers: e.target.checked }))} />
+                  Helper slides (after each slide)
+                </label>
+                <label className="flex items-center gap-2 text-xs">
+                  <input type="checkbox" checked={pdfOpts.sources} onChange={(e) => setPdfOpts((o) => ({ ...o, sources: e.target.checked }))} />
+                  Sources page at the end
+                </label>
+              </div>
+              <div className="flex gap-2 justify-end">
+                <button className={btn} onClick={() => setPdfMenu(false)}>Cancel</button>
+                <button className={primary} onClick={downloadPdf}>Download</button>
+              </div>
+            </div>
+          )}
+        </div>
         <button
           className={`${btn} ${heat ? 'bg-cyan-50 border-cyan-500' : ''}`}
           onClick={toggleHeat}
@@ -766,10 +812,15 @@ function Editor({
         <aside className="w-80 shrink-0 border-l border-slate-200 bg-white flex flex-col min-h-0">
           <div className="flex border-b border-slate-200 text-sm">
             <button className={`flex-1 py-2 ${panel === 'props' ? 'font-semibold border-b-2 border-cyan-600' : 'text-slate-500'}`} onClick={() => setPanel('props')}>Properties</button>
-            <button className={`flex-1 py-2 ${panel !== 'props' ? 'font-semibold border-b-2 border-cyan-600' : 'text-slate-500'}`} onClick={() => setPanel('images')}>Images</button>
+            <button className={`flex-1 py-2 ${panel === 'images' || panel === 'background' ? 'font-semibold border-b-2 border-cyan-600' : 'text-slate-500'}`} onClick={() => setPanel('images')}>Images</button>
+            <button className={`flex-1 py-2 ${panel === 'repeats' ? 'font-semibold border-b-2 border-cyan-600' : 'text-slate-500'}`} onClick={() => setPanel('repeats')}>Repeats</button>
           </div>
           <div className="flex-1 min-h-0 overflow-y-auto p-3">
-            {panel === 'props' ? (
+            {/* kept mounted, so its results stay while you edit (and switch tabs) */}
+            <div className={panel === 'repeats' ? '' : 'hidden'}>
+              <RepeatsPanel deck={deck} active={panel === 'repeats'} onAccept={acceptRepeat} onGoTo={goToRepeat} />
+            </div>
+            {panel === 'repeats' ? null : panel === 'props' ? (
               element ? (
                 <ElementInspector
                   el={element}
