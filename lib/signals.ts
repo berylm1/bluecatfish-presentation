@@ -1,6 +1,7 @@
 'use client';
 
 import { CACHE_VERSION } from '@/src/cacheVersion';
+import { learnerHeaders } from '@/lib/learnerSession';
 import {
   deriveMood, EMPTY_COUNTERS,
   type SectionCounters, type SectionState, type SelfCheckRating,
@@ -137,7 +138,8 @@ class SignalTracker {
     const { last_state: _derivedOnServer, ...counters } = state;
     fetch('/api/signals/state', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      // the learner's session header: the per-learner rate limit (lib/rateLimit.ts)
+      headers: learnerHeaders({ 'Content-Type': 'application/json' }),
       body: JSON.stringify({ session_id: this.sessionId, section, seq: ++this.seq, ...counters }),
       keepalive: true,
     }).catch(() => { /* tracking never blocks the lesson */ });

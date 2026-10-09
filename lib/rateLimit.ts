@@ -4,7 +4,8 @@ import { AUTH_COOKIE, verifyToken } from '@/lib/editorAuth';
 
 /*
  * Limits on the public endpoints that cost OpenAI money, so one visitor (or a
- * bot) can't run up the bill. Counted in Redis, so every server instance sees
+ * bot) can't run up the bill (and on the free ones that write to the database,
+ * so a bot can't fill it). Counted in Redis, so every server instance sees
  * the same numbers.
  *
  * - per session: the browser's lesson session (X-Learner-Session header), so
@@ -25,6 +26,10 @@ export const LIMITS = {
   tts: { perSession: 30, perAddress: 200, windowSec: 60, perDay: 20000, label: 'read-aloud requests' },
   transcribe: { perSession: 20, perAddress: 120, windowSec: 60, perDay: 6000, label: 'recordings' },
   search: { perSession: 20, perAddress: 120, windowSec: 60, perDay: 5000, label: 'searches' },
+  // Learner-data updates (/api/signals/state): free, but each one writes a row. A lesson sends
+  // ~5-15 a minute; a class on one school address ~300-450. Generous, and no daily cap, so
+  // tracking never switches off for everyone; past it an update is just skipped.
+  learnerState: { perSession: 60, perAddress: 1000, windowSec: 60, label: 'updates' },
   classmate: { perSession: 6, perAddress: 60, windowSec: 60, perDay: 3000, label: 'classmate questions' },
   board: { perSession: 10, perAddress: 60, windowSec: 60, perDay: 3000, label: 'drawings' },
   slides: { perSession: 15, perAddress: 120, windowSec: 60, perDay: 5000, label: 'slide lookups' },
