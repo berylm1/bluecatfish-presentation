@@ -4,7 +4,7 @@ import { createRoot } from 'react-dom/client';
 import { flushSync } from 'react-dom';
 import SlideCanvas from '@/components/canvas/SlideCanvas';
 import type { Deck, Slide, SlideElement } from '@/lib/canvas/types';
-import { shownWords, speakingOrder, spokenText } from '@/lib/canvas/queue';
+import { shownWords, speakingOrder, spokenText, topicIndexes } from '@/lib/canvas/queue';
 import { introText, startsTopic } from '@/lib/canvas/intro';
 import { SOURCES } from '@/lib/sources';
 
@@ -82,8 +82,8 @@ async function slidePicture(slide: Slide): Promise<string | null> {
 }
 
 export type PdfOptions = {
-  kind: 'script' | 'handout';
-  /** Teacher script: each slide's helper on a page after it */
+  kind: 'script' | 'handout' | 'narration';
+  /** Teacher script / narration: each slide's helper after it */
   helpers: boolean;
   /** A last page with the lesson's sources */
   sources: boolean;
@@ -165,6 +165,53 @@ export async function exportDeckPdf(deck: Deck, opts: PdfOptions = DEFAULT_PDF, 
       pdf.setDrawColor(203, 213, 225).rect(M, y, textW, picH);
       y += picH;
     }
+  } else if (opts.kind === 'narration') {
+    // Only what the professor says, in order: no pictures, no shown text. Topic headings,
+    // a small "Slide n" before each slide's words, a label per part (to find it in the editor)
+    lines(deck.title, 18, 'bold', [15, 23, 42]);
+    lines('What the professor says, in order', 10, 'normal', [100, 116, 139]);
+    y += 6;
+    const topics = topicIndexes(deck.slides);
+    // only the spoken parts, numbered among themselves ("Text 1" is the first box that speaks, not the title)
+    const said = (items: Item[]) => {
+      const count: Record<string, number> = {};
+      return items.filter((it) => it.script?.trim()).map((it) => {
+        const kind = it.label.replace(/ \d+( \(not spoken\))?$/, '');
+        if (kind === it.label) return it;   // "Topic introduction"
+        count[kind] = (count[kind] ?? 0) + 1;
+        return { ...it, label: `${kind} ${count[kind]}` };
+      });
+    };
+    const part = (it: Item) => {
+      room(36);
+      lines(it.label, 8, 'bold', [8, 145, 178]);
+      lines(it.script!.trim(), 11, 'normal', [30, 41, 59]);
+      y += 6;
+    };
+    for (let i = 0; i < total; i++) {
+      onProgress?.(i, total);
+      const slide = deck.slides[i];
+      if (i === 0 || topics[i] !== topics[i - 1]) {
+        room(60);
+        y += 8;
+        heading = slide.topic?.trim() || `Topic ${topics[i] + 1}`;
+        lines(heading, 14, 'bold', [15, 23, 42]);
+        y += 2;
+      }
+      const items = said(pdfItems(deck, i));
+      const helper = opts.helpers && slide.helper && !slide.helper.off && slide.helper.elements.length
+        ? said(pdfItems({ ...deck, slides: [{ id: `${slide.id}~helper`, elements: slide.helper.elements }] }, 0)) : [];
+      if (!items.length && !helper.length) continue;
+      room(40);
+      lines(`Slide ${i + 1}`, 9, 'normal', [100, 116, 139]);
+      items.forEach(part);
+      if (helper.length) {
+        room(40);
+        lines(`Slide ${i + 1} · helper (when a learner is lost)`, 9, 'italic', [100, 116, 139]);
+        helper.forEach(part);
+      }
+      y += 4;
+    }
   } else {
     for (let i = 0; i < total; i++) {
       onProgress?.(i, total);
@@ -184,6 +231,14 @@ export async function exportDeckPdf(deck: Deck, opts: PdfOptions = DEFAULT_PDF, 
     y += 4;
     lines('Script:', 9, 'bold', [100, 116, 139]);
     lines(deck.recap.trim(), 10, 'italic', [51, 65, 85]);
+  }
+  // narration: the recap is said too, last (straight after the lesson, not on a page of its own)
+  if (opts.kind === 'narration' && deck.recap?.trim()) {
+    room(60);
+    y += 8;
+    heading = 'End-of-lesson recap';
+    lines(heading, 14, 'bold', [15, 23, 42]);
+    lines(deck.recap.trim(), 11, 'normal', [30, 41, 59]);
   }
   // Where the facts come from, each with its web address (clickable)
   if (opts.sources && SOURCES.length) {
@@ -209,6 +264,6 @@ export async function exportDeckPdf(deck: Deck, opts: PdfOptions = DEFAULT_PDF, 
     }
   }
   onProgress?.(deck.slides.length, deck.slides.length);
-  const file = `${(deck.title || 'lesson').replace(/[^\w\s-]/g, '').trim().replace(/\s+/g, '-').slice(0, 60) || 'lesson'}${opts.kind === 'handout' ? '-handout' : ''}.pdf`;
+  const file = `${(deck.title || 'lesson').replace(/[^\w\s-]/g, '').trim().replace(/\s+/g, '-').slice(0, 60) || 'lesson'}${opts.kind === 'handout' ? '-handout' : opts.kind === 'narration' ? '-narration' : ''}.pdf`;
   pdf.save(file);
 }

@@ -790,9 +790,13 @@ function Editor({
                 <input type="radio" name="pdf-kind" className="mt-1" checked={pdfOpts.kind === 'handout'} onChange={() => setPdfOpts((o) => ({ ...o, kind: 'handout' }))} />
                 <span><b>Handout</b><br /><span className="text-xs text-slate-500">Just the slides, two per page, for learners</span></span>
               </label>
+              <label className="flex items-start gap-2">
+                <input type="radio" name="pdf-kind" className="mt-1" checked={pdfOpts.kind === 'narration'} onChange={() => setPdfOpts((o) => ({ ...o, kind: 'narration' }))} />
+                <span><b>Narration only</b><br /><span className="text-xs text-slate-500">Just what the professor says, in order: no pictures</span></span>
+              </label>
               <div className="border-t border-slate-200 pt-2 flex flex-col gap-1.5">
                 <label className={`flex items-center gap-2 text-xs ${pdfOpts.kind === 'handout' ? 'opacity-40' : ''}`}>
-                  <input type="checkbox" disabled={pdfOpts.kind === 'handout'} checked={pdfOpts.helpers && pdfOpts.kind === 'script'} onChange={(e) => setPdfOpts((o) => ({ ...o, helpers: e.target.checked }))} />
+                  <input type="checkbox" disabled={pdfOpts.kind === 'handout'} checked={pdfOpts.helpers && pdfOpts.kind !== 'handout'} onChange={(e) => setPdfOpts((o) => ({ ...o, helpers: e.target.checked }))} />
                   Helper slides (after each slide)
                 </label>
                 <label className="flex items-center gap-2 text-xs">
