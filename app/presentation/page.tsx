@@ -196,7 +196,13 @@ function readProgress(deck: Deck): (Progress & { index: number }) | null {
     if (!p || typeof p.slideId !== 'string' || Date.now() - p.at > PROGRESS_DAYS * 86_400_000) return null;
     // by id: if the lesson was edited since, the same slide wherever it is now (gone: start fresh)
     const index = deck.slides.findIndex((s) => s.id === p.slideId);
-    return index > 0 ? { ...p, finn: Array.isArray(p.finn) ? p.finn : [], asked: Array.isArray(p.asked) ? p.asked : [], index } : null;
+    // (what comes back from storage is checked: a broken or edited entry can't break the lesson)
+    const KINDS = ['caught', 'fooled', 'unsure', 'other'];
+    const finn = (Array.isArray(p.finn) ? p.finn : []).filter((e): e is [number, FinnResult] =>
+      Array.isArray(e) && Number.isInteger(e[0]) && KINDS.includes(e[1]?.kind) && typeof e[1]?.truth === 'string')
+      .map(([t, r]) => [t, { kind: r.kind, truth: r.truth.slice(0, 300) }] as [number, FinnResult]);
+    const asked = (Array.isArray(p.asked) ? p.asked : []).filter((t) => Number.isInteger(t));
+    return index > 0 ? { slideId: p.slideId, at: p.at, finn, asked, index } : null;
   } catch {
     return null;
   }
@@ -1170,7 +1176,8 @@ function Player({ deck, preview, startAt = 0 }: { deck: Deck; preview: boolean; 
     if (variant) { variantAfter.current = null; variantMode.current = 'answer'; setVariant(null); helperSeq.current++; setHelperActive(null); }
     checked.current.clear(); activitiesDone.current.clear(); activitiesSolved.current.clear(); classmateTopics.current.clear(); classmateAsked.current = []; finnReady.current.clear(); finnResults.current.clear();
     finnSpoken.current.clear(); mistakeCounts.current.clear(); steppedIn.current.clear();
-    setSelfCheck(null); setYourTurn(null); cues.stop(); forgetProgress(); player.restart();
+    // (a preview never touches the learner's saved place in this browser)
+    setSelfCheck(null); setYourTurn(null); cues.stop(); if (!preview) forgetProgress(); player.restart();
   }
 
   function startLesson(from?: Progress & { index: number }) {

@@ -50,7 +50,9 @@ export default function RepeatsPanel({ deck, active, runSignal = 0, onAccept, on
   // Publish's "check with the AI first"
   const checkRef = useRef(check);
   checkRef.current = check;
-  useEffect(() => { if (runSignal > 0) checkRef.current(); }, [runSignal]);
+  const busyRef = useRef(false);
+  busyRef.current = state.busy;
+  useEffect(() => { if (runSignal > 0 && !busyRef.current) checkRef.current(); }, [runSignal]);   // (not twice at once)
 
   const open = state.list?.filter((_, i) => !done[i]).length ?? 0;
 
