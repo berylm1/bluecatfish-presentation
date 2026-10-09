@@ -31,8 +31,18 @@ export function slideWarnings(slide: Slide): Warning[] {
     if (el.x < 0 || el.y < 0 || el.x + el.w > 100.01 || el.y + el.h > 100.01) {
       out.push({ elementId: el.id, level: 'warn', message: `${label(el)} goes off the edge of the slide` });
     }
-    if (el.type === 'image' && !el.silent && !el.alt?.trim()) {
-      out.push({ elementId: el.id, level: 'warn', message: 'An image has no description (the professor’s words about it are written from the description)' });
+    // A picture's description is what the AI writes its spoken words, caption and laser marks from,
+    // and what screen readers say for it
+    if (el.type === 'image' && !el.alt?.trim()) {
+      if (!el.silent) {
+        out.push({ elementId: el.id, level: 'warn', message: 'A picture has no description: the AI can’t write what the professor says about it, its caption or its laser marks, and screen readers skip it' });
+      } else if ((el.z ?? 1) > 0 && el.w * el.h >= 100) {
+        // a quiet picture that isn't background: fine for decoration, but worth a word
+        out.push({ elementId: el.id, level: 'info', message: 'A quiet picture has no description: screen readers skip it and it gets no caption (fine if it’s only decoration)' });
+      }
+    }
+    if (el.type === 'activity' && el.src && !el.alt?.trim() && (el.kind === 'hotspots' || el.kind === 'slider')) {
+      out.push({ elementId: el.id, level: 'info', message: 'The hands-on box’s picture has no description, so screen readers can’t say what it shows' });
     }
     if (el.type === 'activity' && !activityReady(el)) {
       out.push({ elementId: el.id, level: 'warn', message: 'The hands-on box isn’t finished, so learners won’t see it (it needs its groups, items, picture or stops)' });

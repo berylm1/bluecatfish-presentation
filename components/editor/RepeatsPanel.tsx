@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Deck } from '@/lib/canvas/types';
 import { deckSections, factSlide, findCrossSectionRepeats } from '@/lib/lessonOverlap';
 import type { RepeatSuggestion } from '@/lib/canvas/repeats';
@@ -17,8 +17,10 @@ import type { RepeatSuggestion } from '@/lib/canvas/repeats';
 
 const btn = 'px-2.5 py-1 rounded-md border border-slate-300 bg-white hover:bg-slate-50 text-xs disabled:opacity-40';
 
-export default function RepeatsPanel({ deck, active, onAccept, onGoTo }: {
+export default function RepeatsPanel({ deck, active, runSignal = 0, onAccept, onGoTo }: {
   deck: Deck;
+  /** Changes when something else (Publish) asks for the AI check */
+  runSignal?: number;
   /** The panel is showing (it stays mounted to keep its results; the free check only runs while it shows) */
   active: boolean;
   /** Apply a suggestion; false when that part has changed since the check */
@@ -44,6 +46,11 @@ export default function RepeatsPanel({ deck, active, onAccept, onGoTo }: {
       setState({ busy: false, error: e instanceof Error ? e.message : String(e) });
     }
   };
+
+  // Publish's "check with the AI first"
+  const checkRef = useRef(check);
+  checkRef.current = check;
+  useEffect(() => { if (runSignal > 0) checkRef.current(); }, [runSignal]);
 
   const open = state.list?.filter((_, i) => !done[i]).length ?? 0;
 

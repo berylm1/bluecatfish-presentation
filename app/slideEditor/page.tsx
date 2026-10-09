@@ -16,6 +16,8 @@ import { countTodo, todoTotal } from '@/lib/canvas/aiFields';
 import { startsTopic } from '@/lib/canvas/intro';
 import { applyRepeatFix, type RepeatSuggestion } from '@/lib/canvas/repeats';
 import RepeatsPanel from '@/components/editor/RepeatsPanel';
+import CheckPanel from '@/components/editor/CheckPanel';
+import { deckSections, findCrossSectionRepeats } from '@/lib/lessonOverlap';
 import { DEFAULT_PDF, type PdfOptions } from '@/components/editor/exportPdf';
 import { DEFAULT_LESSON, type LessonInfo } from '@/lib/canvas/lessons';
 import type { Deck, Slide, SlideElement } from '@/lib/canvas/types';
@@ -145,7 +147,7 @@ function Editor({
   const baseRev = useRef<string | undefined>(initial.editRev);
   const [conflict, setConflict] = useState<{ by: string; at: string | null; then: 'save' | 'publish' } | null>(null);
   const { deck, slide, slideIdx, element } = ed;
-  const [panel, setPanel] = useState<'props' | 'images' | 'background' | 'repeats'>('props');
+  const [panel, setPanel] = useState<'props' | 'images' | 'background' | 'repeats' | 'check'>('props');
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState<{ at?: string; by?: string }>({ at: initialSavedAt, by: initialSavedBy });
   const [notice, setNotice] = useState<{ text: string; tone: 'ok' | 'warn' | 'error' } | null>(null);
@@ -179,6 +181,7 @@ function Editor({
   // "⬇ PDF": the lesson as it is in the editor (unsaved changes too), as a teacher script or a handout
   const [pdfProgress, setPdfProgress] = useState<string | null>(null);
   const [pdfMenu, setPdfMenu] = useState(false);
+  const [pdfMenuRight, setPdfMenuRight] = useState(false);
   const [pdfOpts, setPdfOpts] = useState<PdfOptions>(DEFAULT_PDF);
   const downloadPdf = async () => {
     setPdfMenu(false);
@@ -312,13 +315,14 @@ function Editor({
     window.open(`/presentation?lesson=${encodeURIComponent(lessonId)}&preview=1${fromHere ? `&slide=${slideIdx + 1}` : ''}`, '_blank');
   };
 
+  // Publish asks first: warnings, and repeats the free check finds (with a way to have the AI check first)
+  const [publishAsk, setPublishAsk] = useState<{ warnings: number; repeats: number } | null>(null);
+  const [repeatRun, setRepeatRun] = useState(0);   // bumped: the Repeats panel runs the AI check
   const publish = async () => {
-    const count = allWarnings.flat().filter((w) => w.level === 'warn').length;
-    const ask = count
-      ? `There ${count === 1 ? 'is 1 warning' : `are ${count} warnings`} (slides marked ⚠). Publish anyway? Learners will see this deck.`
-      : 'Publish? Learners will see this deck instead of the AI lesson.';
-    if (!window.confirm(ask)) return;
-    await publishNow();
+    setPublishAsk({
+      warnings: allWarnings.flat().filter((w) => w.level === 'warn').length,
+      repeats: findCrossSectionRepeats(deckSections(deck)).length,
+    });
   };
 
   /** Publish without asking (after the confirm, or after "Keep mine" in a conflict). */
@@ -658,12 +662,18 @@ function Editor({
         </select>
         <button className={btn} onClick={openVersions}>Start from AI…</button>
         <button className={`${btn} ${panel === 'repeats' ? 'bg-cyan-50 border-cyan-500' : ''}`} onClick={() => setPanel(panel === 'repeats' ? 'props' : 'repeats')} title="Find where the lesson says or shows the same thing twice">🔁 Repeats</button>
+        <button className={`${btn} ${panel === 'check' ? 'bg-cyan-50 border-cyan-500' : ''}`} onClick={() => setPanel(panel === 'check' ? 'props' : 'check')} title="Check this slide's facts against the knowledge base, with where each came from">🔎 Check slide</button>
         <div className="relative">
-          <button className={btn} onClick={() => setPdfMenu((v) => !v)} disabled={pdfProgress !== null} aria-expanded={pdfMenu} title="Download the lesson as a PDF">
+          <button className={btn} onClick={(e) => {
+            // opens toward whichever side has room (the toolbar wraps: the button can be at either edge)
+            const r = e.currentTarget.getBoundingClientRect();
+            setPdfMenuRight(r.left + 300 > window.innerWidth);
+            setPdfMenu((v) => !v);
+          }} disabled={pdfProgress !== null} aria-expanded={pdfMenu} title="Download the lesson as a PDF">
             {pdfProgress ? `PDF ${pdfProgress}…` : '⬇ PDF'}
           </button>
           {pdfMenu && (
-            <div className="absolute right-0 top-full mt-1 z-50 w-72 max-w-[90vw] rounded-lg border border-slate-200 bg-white shadow-xl p-3 flex flex-col gap-2 text-sm" role="dialog" aria-label="PDF options">
+            <div className={`absolute ${pdfMenuRight ? 'right-0' : 'left-0'} top-full mt-1 z-50 w-72 max-w-[90vw] rounded-lg border border-slate-200 bg-white shadow-xl p-3 flex flex-col gap-2 text-sm`} role="dialog" aria-label="PDF options">
               <label className="flex items-start gap-2">
                 <input type="radio" name="pdf-kind" className="mt-1" checked={pdfOpts.kind === 'script'} onChange={() => setPdfOpts((o) => ({ ...o, kind: 'script' }))} />
                 <span><b>Teacher script</b><br /><span className="text-xs text-slate-500">One slide per page, each part with what the professor says</span></span>
@@ -814,13 +824,18 @@ function Editor({
             <button className={`flex-1 py-2 ${panel === 'props' ? 'font-semibold border-b-2 border-cyan-600' : 'text-slate-500'}`} onClick={() => setPanel('props')}>Properties</button>
             <button className={`flex-1 py-2 ${panel === 'images' || panel === 'background' ? 'font-semibold border-b-2 border-cyan-600' : 'text-slate-500'}`} onClick={() => setPanel('images')}>Images</button>
             <button className={`flex-1 py-2 ${panel === 'repeats' ? 'font-semibold border-b-2 border-cyan-600' : 'text-slate-500'}`} onClick={() => setPanel('repeats')}>Repeats</button>
+            <button className={`flex-1 py-2 ${panel === 'check' ? 'font-semibold border-b-2 border-cyan-600' : 'text-slate-500'}`} onClick={() => setPanel('check')}>Check</button>
           </div>
           <div className="flex-1 min-h-0 overflow-y-auto p-3">
             {/* kept mounted, so its results stay while you edit (and switch tabs) */}
             <div className={panel === 'repeats' ? '' : 'hidden'}>
-              <RepeatsPanel deck={deck} active={panel === 'repeats'} onAccept={acceptRepeat} onGoTo={goToRepeat} />
+              <RepeatsPanel deck={deck} active={panel === 'repeats'} runSignal={repeatRun} onAccept={acceptRepeat} onGoTo={goToRepeat} />
             </div>
-            {panel === 'repeats' ? null : panel === 'props' ? (
+            {/* kept mounted too: each slide's results stay */}
+            <div className={panel === 'check' ? '' : 'hidden'}>
+              <CheckPanel slide={slide} slideNumber={slideIdx + 1} lessonTitle={deck.title} onGoTo={(id) => ed.setSelected(id)} />
+            </div>
+            {panel === 'repeats' || panel === 'check' ? null : panel === 'props' ? (
               element ? (
                 <ElementInspector
                   el={element}
@@ -861,6 +876,34 @@ function Editor({
           </div>
         </aside>
       </div>
+
+      {/* Publish? (with what to look at first) */}
+      {publishAsk && (
+        <div className="fixed inset-0 z-[1000] bg-black/40 flex items-center justify-center p-6" onClick={() => setPublishAsk(null)}>
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-md p-6 flex flex-col gap-4" role="alertdialog" aria-labelledby="publish-title" onClick={(e) => e.stopPropagation()}>
+            <h2 id="publish-title" className="font-bold text-lg">Publish this lesson?</h2>
+            <p className="text-sm text-slate-600">Learners will see this deck instead of the AI lesson.</p>
+            {(publishAsk.warnings > 0 || publishAsk.repeats > 0) && (
+              <ul className="text-sm flex flex-col gap-2">
+                {publishAsk.warnings > 0 && <li className="rounded-md bg-amber-50 border border-amber-200 px-3 py-2">⚠ {publishAsk.warnings === 1 ? '1 warning' : `${publishAsk.warnings} warnings`} (slides marked ⚠)</li>}
+                {publishAsk.repeats > 0 && (
+                  <li className="rounded-md bg-red-50 border border-red-200 px-3 py-2">
+                    🔁 {publishAsk.repeats === 1 ? '1 possible repeat' : `${publishAsk.repeats} possible repeats`}: the same words on screen in two topics.{' '}
+                    <button className="underline" onClick={() => { setPublishAsk(null); setPanel('repeats'); }}>Review</button>
+                  </li>
+                )}
+              </ul>
+            )}
+            <button className="text-sm text-left text-cyan-700 underline" onClick={() => { setPublishAsk(null); setPanel('repeats'); setRepeatRun((n) => n + 1); }}>
+              ✨ Check the whole lesson for repeats with the AI first (about a minute)
+            </button>
+            <div className="flex gap-2 justify-end">
+              <button className={btn} onClick={() => setPublishAsk(null)}>Cancel</button>
+              <button className={primary} onClick={() => { setPublishAsk(null); publishNow(); }}>{publishAsk.warnings || publishAsk.repeats ? 'Publish anyway' : 'Publish'}</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Someone else saved this lesson since it was opened here */}
       {conflict && (

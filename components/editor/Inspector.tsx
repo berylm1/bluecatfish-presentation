@@ -143,7 +143,14 @@ export function ElementInspector({
           <img src={el.src} alt="" className="w-full max-h-36 object-contain rounded-md bg-slate-100" />
           <div>
             <label className={label}>Description</label>
-            <textarea rows={3} className={input} value={el.alt ?? ''} placeholder="What the image shows" onChange={(e) => update({ alt: e.target.value })} />
+            <textarea rows={3} className={`${input} ${!el.alt?.trim() && !el.silent ? 'border-amber-400 bg-amber-50' : ''}`} value={el.alt ?? ''} placeholder="What the image shows" onChange={(e) => update({ alt: e.target.value })} />
+            {!el.alt?.trim() && (
+              <p className="text-xs text-amber-800 mt-1">
+                {el.silent
+                  ? 'Optional for decoration. With one, screen readers can say what it shows and it can have a caption.'
+                  : 'Needed: the AI writes what the professor says about this picture, its caption and its laser marks from it, and screen readers read it out.'}
+              </p>
+            )}
           </div>
           <div>
             <label className={label}>Caption <AiBadge show={el.captionByAI && !el.captionOff} /></label>

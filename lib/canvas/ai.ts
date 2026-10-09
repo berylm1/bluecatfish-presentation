@@ -68,3 +68,33 @@ export async function knowledge(query: string, count = 6): Promise<string> {
     return '';
   }
 }
+
+/** A knowledge-base excerpt and the file it came from (the upload's name). */
+export type Excerpt = { content: string; source: string };
+
+/**
+ * Like knowledge(), but each excerpt with where it came from (for "Check this
+ * slide"). The source is on the search result if the database function
+ * returns it, otherwise looked up by id in documents3. Throws when the
+ * search fails, so a failed search isn't mistaken for "not in the sources".
+ */
+export async function knowledgeExcerpts(query: string, count = 4): Promise<Excerpt[]> {
+  const emb = await fetch('https://api.openai.com/v1/embeddings', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${process.env.OPENAI_API_KEY}` },
+    body: JSON.stringify({ model: 'text-embedding-3-small', input: query.slice(0, 2000) }),
+  }).then((r) => r.json());
+  if (!emb?.data?.[0]?.embedding) throw new Error(emb?.error?.message || 'The search could not be made');
+  const { data, error } = await supabase.rpc('match_documents3', { query_embedding: emb.data[0].embedding, match_count: count });
+  if (error) throw new Error(error.message);
+  const rows = (data ?? []) as { id?: number | string; content?: string; source?: string; metadata?: { source?: string } }[];
+  const byId = new Map<string, string>();
+  const missing = rows.filter((r) => !r.source && !r.metadata?.source && r.id != null).map((r) => r.id!);
+  if (missing.length) {
+    const { data: found } = await supabase.from('documents3').select('id, source').in('id', missing);
+    for (const d of (found ?? []) as { id: number | string; source?: string }[]) if (d.source) byId.set(String(d.id), d.source);
+  }
+  return rows
+    .map((r) => ({ content: String(r.content ?? '').trim(), source: String(r.source || r.metadata?.source || (r.id != null && byId.get(String(r.id))) || 'knowledge base').slice(0, 200) }))
+    .filter((e) => e.content);
+}

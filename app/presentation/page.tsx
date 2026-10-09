@@ -181,6 +181,28 @@ function personalRecap(name: string, hardest: string | null, finn: ReadonlyMap<n
   return bits.filter(Boolean).join(' ');
 }
 
+/*
+ * Continue where you left off: the slide a learner got to, kept in this
+ * browser (per lesson) so closing the tab doesn't mean starting over. Also
+ * how they did on Finn's mistakes (for the ending) and the topics Finn
+ * already asked about. Never for editor previews; cleared at the end.
+ */
+const PROGRESS_DAYS = 14;   // older than this: start fresh
+type Progress = { slideId: string; at: number; finn: [number, FinnResult][]; asked: number[] };
+const progressKey = (lessonId: string) => `lessonProgress:${lessonId}`;
+function readProgress(deck: Deck): (Progress & { index: number }) | null {
+  try {
+    const p = JSON.parse(localStorage.getItem(progressKey(deck.lessonId)) ?? 'null') as Progress | null;
+    if (!p || typeof p.slideId !== 'string' || Date.now() - p.at > PROGRESS_DAYS * 86_400_000) return null;
+    // by id: if the lesson was edited since, the same slide wherever it is now (gone: start fresh)
+    const index = deck.slides.findIndex((s) => s.id === p.slideId);
+    return index > 0 ? { ...p, finn: Array.isArray(p.finn) ? p.finn : [], asked: Array.isArray(p.asked) ? p.asked : [], index } : null;
+  } catch {
+    return null;
+  }
+}
+const welcomeBack = (name: string) => `Welcome back${name ? `, ${name}` : ''}! Let's pick up where we left off.`;
+
 function Player({ deck, preview, startAt = 0 }: { deck: Deck; preview: boolean; startAt?: number }) {
   const [started, setStarted] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
@@ -210,6 +232,13 @@ function Player({ deck, preview, startAt = 0 }: { deck: Deck; preview: boolean; 
   // What to call the learner (optional, asked on the start screen; remembered on this browser)
   const [learnerName, setLearnerName] = useState('');
   useEffect(() => { try { setLearnerName(localStorage.getItem('learnerName') ?? ''); } catch { /* private mode */ } }, []);
+  // Where they left off last time (not for previews, or a link to a given slide)
+  const [resume, setResume] = useState<(Progress & { index: number }) | null>(null);
+  useEffect(() => { if (!preview && !startAt) setResume(readProgress(deck)); }, [deck, preview, startAt]);
+  const forgetProgress = useCallback(() => {
+    try { localStorage.removeItem(progressKey(deck.lessonId)); } catch { /* private mode */ }
+    setResume(null);
+  }, [deck.lessonId]);
   const topicEndRef = useRef<(from: number, to: number) => void>(() => {});
   // Hands-on boxes: the ones finished this lesson, and the one it's waiting on now
   const activitiesDone = useRef(new Set<string>());
@@ -271,6 +300,14 @@ function Player({ deck, preview, startAt = 0 }: { deck: Deck; preview: boolean; 
   // The conversation for the transcript, minus the answer being spoken right now
   const lastTalk = tutor.history[tutor.history.length - 1];
   const earlierDialogue = lastTalk && tutor.exchange?.done && lastTalk.question === tutor.exchange.question ? tutor.history.slice(0, -1) : tutor.history;
+  // Keep where they are, for "Continue where you left off" (cleared when the lesson ends)
+  const lessonOver = player.status === 'finished';
+  useEffect(() => {
+    if (!started || !introDone || preview) return;
+    if (lessonOver) { forgetProgress(); return; }
+    const progress: Progress = { slideId: deck.slides[player.slideIndex]?.id ?? '', at: Date.now(), finn: [...finnResults.current], asked: [...classmateTopics.current] };
+    try { localStorage.setItem(progressKey(deck.lessonId), JSON.stringify(progress)); } catch { /* private mode: nothing kept */ }
+  }, [started, introDone, preview, lessonOver, player.slideIndex, deck, forgetProgress]);
   const tutorBusyRef = useRef(tutorBusy);
   tutorBusyRef.current = tutorBusy;
   // The question + answer box under the slide goes away a while after the answer (the transcript keeps it)
@@ -1125,12 +1162,29 @@ function Player({ deck, preview, startAt = 0 }: { deck: Deck; preview: boolean; 
     return baseSlide;
   }, [baseSlide, variant, player.mode, focusId]);
 
-  function startLesson() {
+  /** A fresh lesson from the first slide: Finn asks again, hands-on boxes wait again (the end screen, and ↺ at the top left). */
+  function startOver() {
+    // whatever is going on now stops: an answer, Finn's turn, a helper
+    if (finnBusy.current) { finnVerdict(null, 'button'); takeOverFromFinn(); }
+    if (tutorBusyRef.current) cancelAnswer();
+    if (variant) { variantAfter.current = null; variantMode.current = 'answer'; setVariant(null); helperSeq.current++; setHelperActive(null); }
+    checked.current.clear(); activitiesDone.current.clear(); activitiesSolved.current.clear(); classmateTopics.current.clear(); classmateAsked.current = []; finnReady.current.clear(); finnResults.current.clear();
+    finnSpoken.current.clear(); mistakeCounts.current.clear(); steppedIn.current.clear();
+    setSelfCheck(null); setYourTurn(null); cues.stop(); forgetProgress(); player.restart();
+  }
+
+  function startLesson(from?: Progress & { index: number }) {
+    if (from) {
+      // back where they were, with Finn's turns as they were
+      finnResults.current = new Map(from.finn);
+      classmateTopics.current = new Set(from.asked);
+      player.goToSlide(from.index);
+    }
     setStarted(true);
     const name = learnerName.trim();
     try { localStorage.setItem('learnerName', name); } catch { /* private mode */ }
-    // A name: a personal hello (spoken live); otherwise the recorded intro
-    (name ? cues.play({ text: greeting(name) }) : cues.play('cue_intro')).finally(() => setIntroDone(true));
+    // A name: a personal hello (spoken live); otherwise the recorded intro. Coming back: "Welcome back"
+    (from ? cues.play({ text: welcomeBack(name) }) : name ? cues.play({ text: greeting(name) }) : cues.play('cue_intro')).finally(() => setIntroDone(true));
   }
 
   if (!started) {
@@ -1144,19 +1198,32 @@ function Player({ deck, preview, startAt = 0 }: { deck: Deck; preview: boolean; 
           <input
             value={learnerName}
             onChange={(e) => setLearnerName(e.target.value.replace(/[^\p{L}\p{N} '.-]/gu, '').slice(0, 24))}
-            onKeyDown={(e) => { if (e.key === 'Enter') startLesson(); }}
+            onKeyDown={(e) => { if (e.key === 'Enter') startLesson(resume ?? undefined); }}
             autoFocus
             placeholder="Your first name"
             maxLength={24}
             className="px-3 py-2 rounded-lg bg-white/10 text-white text-center placeholder:text-white/40 outline-none focus:bg-white/15 w-56"
           />
         </label>
-        <button
-          onClick={startLesson}
-          className="px-8 py-4 rounded-2xl bg-cyan-400 hover:bg-cyan-300 text-slate-900 text-xl font-semibold"
-        >
-          Start Lesson
-        </button>
+        {resume ? (
+          <div className="flex flex-col items-center gap-3">
+            <button
+              onClick={() => startLesson(resume)}
+              className="px-8 py-4 rounded-2xl bg-cyan-400 hover:bg-cyan-300 text-slate-900 text-xl font-semibold"
+            >
+              Continue where you left off
+            </button>
+            <span className="text-sm text-slate-300">Slide {resume.index + 1} of {deck.slides.length}{deck.slides[resume.index].topic ? ` · ${deck.slides[resume.index].topic}` : ''}</span>
+            <button onClick={() => { forgetProgress(); startLesson(); }} className="text-sm text-slate-300 underline hover:text-white">Start from the beginning</button>
+          </div>
+        ) : (
+          <button
+            onClick={() => startLesson()}
+            className="px-8 py-4 rounded-2xl bg-cyan-400 hover:bg-cyan-300 text-slate-900 text-xl font-semibold"
+          >
+            Start Lesson
+          </button>
+        )}
       </main>
     );
   }
@@ -1188,6 +1255,17 @@ function Player({ deck, preview, startAt = 0 }: { deck: Deck; preview: boolean; 
         </div>
       </div>
 
+      {/* Start over from the first slide: small and out of the way (the lesson may have picked up where they left off) */}
+      {player.status !== 'finished' && (
+        <button
+          onClick={() => { if (window.confirm('Start the lesson over from the first slide?')) startOver(); }}
+          className="fixed top-3 left-3 z-30 px-2.5 py-1 rounded-md text-xs text-white/45 hover:text-white hover:bg-white/10 transition-colors"
+          title="Start the lesson over from the first slide"
+        >
+          ↺ Start over
+        </button>
+      )}
+
       {cameraOn && <CameraBubble sees={cameraSees} progress={handProgress} />}
 
       <div className="relative" data-bubble-avoid data-bubble-slide>
@@ -1206,12 +1284,7 @@ function Player({ deck, preview, startAt = 0 }: { deck: Deck; preview: boolean; 
                   onClick={() => { cues.stop(); player.goToSlide(finishedHardest.index); }}>Go over it again →</button>
               </p>
             )}
-            <button onClick={() => {
-              // a fresh lesson: Finn asks again, hands-on boxes wait again
-              checked.current.clear(); activitiesDone.current.clear(); activitiesSolved.current.clear(); classmateTopics.current.clear(); classmateAsked.current = []; finnReady.current.clear(); finnResults.current.clear();
-              finnSpoken.current.clear(); mistakeCounts.current.clear(); steppedIn.current.clear();
-              setSelfCheck(null); setYourTurn(null); cues.stop(); player.restart();
-            }} className="px-6 py-3 rounded-xl bg-cyan-500 hover:bg-cyan-400 font-semibold">Start over</button>
+            <button onClick={startOver} className="px-6 py-3 rounded-xl bg-cyan-500 hover:bg-cyan-400 font-semibold">Start over</button>
           </div>
         ) : (
           <SlideCanvas slide={shownSlide} width={SLIDE_WIDTH} activeId={variant ? helperActive : player.activeId} morph={MORPH_HELPERS} laser={laser} spotlight={SPOTLIGHT}
