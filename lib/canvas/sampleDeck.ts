@@ -11,10 +11,11 @@ export const SAMPLE_DECK: Deck = {
     {
       id: 's1',
       topic: 'Meet the Blue Catfish',
+      intro: { say: "Let's start by meeting the fish this whole lesson is about: the blue catfish, a giant that's changing the Chesapeake Bay." },
       background: { color: '#eaf6fb' },
       elements: [
         { id: 's1-title', type: 'text', x: 20, y: 4, w: 60, h: 13, text: 'Meet the Blue Catfish', style: 'title', align: 'center', color: '#0b3b5c', silent: true },
-        { id: 's1-fish', type: 'image', x: 30, y: 30, w: 40, h: 40, src: '/canvas-sample/catfish.svg', alt: 'A blue catfish with long whiskers', fit: 'contain',
+        { id: 's1-fish', type: 'image', x: 30, y: 30, w: 40, h: 40, src: '/canvas-sample/catfish.svg', alt: 'A blue catfish with long whiskers', caption: 'A blue catfish and its long whiskers', fit: 'contain',
           say: "Say hello to the blue catfish. Those long whiskers are called barbels, and they're covered in taste buds, so this fish can basically taste the water around it. Not the most glamorous superpower, but it works.",
           plain: 'This is a blue catfish. The long whiskers help it taste and find food.',
           // laser-pointer marks: % of the picture itself
@@ -84,6 +85,7 @@ export const SAMPLE_DECK: Deck = {
     {
       id: 's3',
       topic: "Why They're a Problem",
+      intro: { say: "Now that we know how big they get, let's find out why blue catfish are a problem for the Bay." },
       background: { color: '#0b3b5c' },
       elements: [
         { id: 's3-num', type: 'text', x: 5, y: 20, w: 45, h: 30, text: '1970s', style: 'bigNumber', color: '#7dd3fc', queue: 2,
@@ -121,7 +123,7 @@ export const SAMPLE_DECK: Deck = {
         { id: 's4-text', type: 'text', x: 5, y: 26, w: 50, h: 50, text: 'Blue catfish eat blue crabs and other animals the Bay depends on, and adults have almost no predators.', style: 'body', color: '#431407',
           say: "So what's the problem? Blue catfish eat a lot of the animals the Bay depends on, including the famous blue crab. And once they're big, pretty much nothing eats them back. That's what makes a species invasive: it takes and takes, and nothing keeps it in check.",
           plain: 'Blue catfish eat crabs and other animals, and nothing eats the big catfish. That is bad for the Bay.' },
-        { id: 's4-crab', type: 'image', x: 62, y: 25, w: 33, h: 45, src: '/canvas-sample/crab.svg', alt: 'A blue crab', fit: 'contain',
+        { id: 's4-crab', type: 'image', x: 62, y: 25, w: 33, h: 45, src: '/canvas-sample/crab.svg', alt: 'A blue crab', caption: 'A Chesapeake Bay blue crab', fit: 'contain',
           say: "Meet the blue crab. Maryland loves it, restaurants love it, and unfortunately, so do blue catfish.",
           plain: 'This is a blue crab. Blue catfish like to eat them.' },
       ],

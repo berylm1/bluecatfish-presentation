@@ -1,5 +1,6 @@
 import type { Deck, Pointer, Slide, SlideElement, SlideHelper } from './types';
 import { shownWords, spokenText } from './queue';
+import { introBasis, introText, startsTopic } from './intro';
 import { TTS_VOICE, VOICE_INSTRUCTIONS, SIMPLE_VOICE_INSTRUCTIONS } from '@/lib/voice';
 
 // Save-time AI (step 4): what still needs writing or recording, and how the
@@ -109,6 +110,44 @@ export function needsPointers(el: SlideElement): boolean {
   return !!el.pointersByAI && el.pointersFrom !== fingerprint(pointersBasis(el));
 }
 
+/**
+ * Is there room for the AI to caption this picture? Not a background picture
+ * (behind everything: AI decks give those a description too), not a small one
+ * (the caption would cover it), and not where text sits over its bottom edge,
+ * where the caption goes. A person can still type one anywhere.
+ */
+export function captionFits(el: SlideElement, slide?: Slide): boolean {
+  if (el.type !== 'image' || (el.z ?? 1) <= 0 || el.w < 18 || el.h < 22) return false;
+  const strip = { x: el.x + el.w * 0.03, y: el.y + el.h * 0.82, w: el.w * 0.94, h: el.h * 0.18 };
+  return !(slide?.elements ?? []).some((o) => o.id !== el.id && o.type === 'text'
+    && Math.min(o.x + o.w, strip.x + strip.w) - Math.max(o.x, strip.x) > 0.5
+    && Math.min(o.y + o.h, strip.y + strip.h) - Math.max(o.y, strip.y) > 0.5);
+}
+
+/** A picture's caption: written from its description, never over a person's (or when turned off). */
+export function needsCaption(el: SlideElement, slide?: Slide): boolean {
+  if (el.type !== 'image' || el.captionOff) return false;
+  if (!el.caption?.trim() && !captionFits(el, slide)) return false;
+  const basis = el.alt?.trim();
+  if (!basis) return false;
+  if (!el.caption?.trim()) return true;
+  return !!el.captionByAI && el.captionFrom !== fingerprint(basis);
+}
+
+/** Does the first slide of a topic need its intro written (or rewritten, when the AI wrote it for another topic name)? */
+export function needsIntro(slides: Slide[], i: number): boolean {
+  const s = slides[i];
+  if (!s || s.intro?.off || !startsTopic(slides, i) || !introBasis(s)) return false;
+  if (!introText(s)) return true;
+  return !!s.intro?.sayByAI && s.intro.sayFrom !== fingerprint(introBasis(s));
+}
+
+export function needsIntroAudio(slides: Slide[], i: number): boolean {
+  const s = slides[i];
+  const text = s ? introText(s) : '';
+  return !!text && !s.intro?.off && startsTopic(slides, i) && s.intro?.audioFor !== audioKey(text, false);
+}
+
 export function needsTopic(slide: Slide): boolean {
   if (!slide.topic?.trim()) return true;
   return !!slide.topicByAI && slide.topicFrom !== fingerprint(slideBasis(slide));
@@ -117,6 +156,8 @@ export function needsTopic(slide: Slide): boolean {
 export interface Todo {
   helpers: number;
   pointers: number;
+  intros: number;
+  captions: number;
   topics: number;
   say: number;
   plain: number;
@@ -124,7 +165,11 @@ export interface Todo {
 }
 
 export function countTodo(deck: Deck): Todo {
-  const t: Todo = { helpers: 0, pointers: 0, topics: 0, say: 0, plain: 0, audio: 0 };
+  const t: Todo = { helpers: 0, pointers: 0, intros: 0, captions: 0, topics: 0, say: 0, plain: 0, audio: 0 };
+  deck.slides.forEach((_, i) => {
+    if (needsIntro(deck.slides, i)) t.intros++;
+    if (needsIntroAudio(deck.slides, i)) t.audio++;
+  });
   for (const s of deck.slides) {
     if (needsTopic(s)) t.topics++;
     if (needsHelper(s)) t.helpers++;
@@ -134,6 +179,7 @@ export function countTodo(deck: Deck): Todo {
       if (needsAudio(e)) t.audio++;
       if (needsPlainAudio(e)) t.audio++;
       if (needsPointers(e)) t.pointers++;
+      if (needsCaption(e, s)) t.captions++;
     }
     // Helper elements speak too (no plain version: the helper IS the simpler way)
     for (const e of helperElements(s)) {
@@ -145,7 +191,7 @@ export function countTodo(deck: Deck): Todo {
   return t;
 }
 
-export const todoTotal = (t: Todo) => t.helpers + t.pointers + t.topics + t.say + t.plain + t.audio;
+export const todoTotal = (t: Todo) => t.helpers + t.pointers + t.intros + t.captions + t.topics + t.say + t.plain + t.audio;
 
 /* -------------------------------------------------------- applying */
 
@@ -154,6 +200,9 @@ type At = { slideId: string; elId: string; helper?: boolean };
 export type Patch =
   | { slideId: string; kind: 'topic'; topic: string; topicFrom: string }
   | { slideId: string; kind: 'helper'; helper: SlideHelper }
+  | { slideId: string; kind: 'intro'; say: string; sayFrom: string }
+  | { slideId: string; kind: 'introAudio'; audioUrl: string; audioFor: string }
+  | (At & { kind: 'caption'; caption: string; captionFrom: string })
   | (At & { kind: 'say'; say: string; sayFrom: string })
   | (At & { kind: 'plain'; plain: string; plainFrom: string })
   | (At & { kind: 'audio'; audioUrl: string; audioFor: string })
@@ -186,6 +235,21 @@ export function applyPatches(deck: Deck, patches: Patch[]): number {
       }
       continue;
     }
+    if (p.kind === 'intro') {
+      // Only into a blank or AI-written intro, and only for the topic it was written for
+      if (!slide.intro?.off && (!introText(slide) || slide.intro?.sayByAI) && fingerprint(introBasis(slide)) === p.sayFrom) {
+        slide.intro = { ...slide.intro, say: p.say, sayByAI: true, sayFrom: p.sayFrom };
+        applied++;
+      }
+      continue;
+    }
+    if (p.kind === 'introAudio') {
+      if (slide.intro && audioKey(introText(slide), false) === p.audioFor) {
+        Object.assign(slide.intro, { audioUrl: p.audioUrl, audioFor: p.audioFor });
+        applied++;
+      }
+      continue;
+    }
     const el = (p.helper ? helperElements(slide) : slide.elements).find((e) => e.id === p.elId);
     if (!el) continue;
     switch (p.kind) {
@@ -210,6 +274,12 @@ export function applyPatches(deck: Deck, patches: Patch[]): number {
       case 'pointers':
         if ((el.pointers === undefined || el.pointersByAI) && fingerprint(pointersBasis(el)) === p.pointersFrom) {
           Object.assign(el, { pointers: p.pointers, pointersByAI: true, pointersFrom: p.pointersFrom });
+          applied++;
+        }
+        break;
+      case 'caption':
+        if (el.type === 'image' && !el.captionOff && (!el.caption?.trim() || el.captionByAI) && fingerprint(el.alt?.trim() ?? '') === p.captionFrom) {
+          Object.assign(el, { caption: p.caption, captionByAI: true, captionFrom: p.captionFrom });
           applied++;
         }
         break;

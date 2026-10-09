@@ -26,6 +26,7 @@ import { learnerHeaders } from '@/lib/learnerSession';
 import { CLASSMATE_NAME } from '@/lib/voice';
 import type { ActivityMistake, FinnEvent, FinnMove } from '@/components/canvas/Activity';
 import { focusSlide, helperSlide, ownHelper } from '@/lib/canvas/morph';
+import { isIntroId } from '@/lib/canvas/intro';
 import { activityReady, shownWords, speakingOrder, spokenText } from '@/lib/canvas/queue';
 import { currentAudio } from '@/lib/canvas/aiFields';
 import { activePointer } from '@/lib/canvas/laser';
@@ -80,6 +81,20 @@ export default function CanvasPresentation() {
 
 // "You lost me" and friends: the learner is confused, not just asking for simpler words
 const CONFUSED = /\blost me\b|\bi'?m lost\b|\b(?:don'?t|do not|didn'?t) (?:understand|get it|get that|get this|follow)\b|\bconfus|\bwhat does (?:that|this|it) (?:even )?mean\b|^huh\b/i;
+/**
+ * The learner's call on Finn's deliberate mistake: caught it, agreed with it
+ * (fooled), not sure, or something else (said in their own words: the
+ * professor decides). The buttons say "Not quite, Finn is wrong.",
+ * "Yes, Finn is right." and "I'm not sure.".
+ */
+function finnVerdictKind(verdict: string): 'caught' | 'fooled' | 'unsure' | 'other' {
+  const t = verdict.toLowerCase().trim();
+  if (!t || /\b(?:not sure|unsure|don'?t know|no idea|dunno|maybe|i guess|not certain)\b/.test(t)) return 'unsure';
+  if (/\b(?:wrong|not (?:quite|right|true|correct)|isn'?t (?:right|true|correct)|incorrect|false|mistake|nope|nah)\b|^no\b/.test(t)) return 'caught';
+  if (/\b(?:right|yes|yeah|yep|true|correct|agree)\b/.test(t)) return 'fooled';
+  return 'other';
+}
+
 const YES = /^(?:yes|yeah|yep|yup|sure|ok(?:ay)?|please|uh[- ]huh|definitely|go ahead|do it|mhm)\b/i;
 const NO = /^(?:no|nope|nah|not really|i'?m (?:good|fine|ok(?:ay)?)|all good|keep going|carry on)\b/i;
 const SPEAKING: string[] = ['playing', 'loading', 'finishing', 'waiting'];
@@ -105,13 +120,18 @@ const FINN_HANDS_ON_DELAY_MS = 900;   // Finn's go in a hands-on box, this long 
 const STEP_IN_AFTER = 2;              // the same item wrong this many times: the professor explains it
 const STEP_IN_MAX = 2;                // at most this many explanations per hands-on box   // a board (or slide) shown with an answer stays up at least this long
 
-/** The topic the learner found hardest (by self-checks, "I'm lost"s, simpler/repeat requests), or null if none was hard. */
-function hardestTopic(deck: Deck, topicOf: number[], stateOf: (topic: number) => SectionState): string | null {
+/** How the learner did on Finn's deliberate mistake in a topic (for the ending). */
+type FinnResult = { kind: 'caught' | 'fooled' | 'unsure' | 'other'; truth: string };
+
+/** The topic the learner found hardest (by self-checks, "I'm lost"s, simpler/repeat requests, Finn's mistakes believed), or null if none was hard. */
+function hardestTopic(deck: Deck, topicOf: number[], stateOf: (topic: number) => SectionState, finn?: ReadonlyMap<number, FinnResult>): string | null {
   let best: { name: string; score: number } | null = null;
   for (const topic of new Set(topicOf)) {
     const st = stateOf(topic);
+    const fk = finn?.get(topic)?.kind;
     const score = (st.self_check === 'lost' ? 3 : st.self_check === 'kind' ? 1.5 : 0)
-      + st.confusion_marks + 0.5 * (st.simplify_requests + st.repeats);
+      + st.confusion_marks + 0.5 * (st.simplify_requests + st.repeats)
+      + (fk === 'fooled' ? 1.5 : fk === 'unsure' ? 1 : 0);
     const name = deck.slides[topicOf.indexOf(topic)]?.topic?.trim();
     if (name && score >= 1 && (!best || score > best.score)) best = { name, score };
   }
@@ -132,13 +152,62 @@ const TAKE_ANOTHER_LOOK = `Hmm, almost! Take another look at where ${CLASSMATE_N
 /** The hello with the learner's name: one clip, so there's no gap around the name. */
 const greeting = (name: string) => `Hey ${name}! I'm Professor Marine. Let's dive in.`;
 
-/** A sentence for the end of the recap: the learner's name and what to look at again. */
-function personalRecap(name: string, hardest: string | null): string {
-  if (name && hardest) return `Nice work today, ${name}! ${hardest} was the trickiest part for you, so that's a great one to look at again.`;
-  if (name) return `Nice work today, ${name}! You stuck with it the whole way.`;
-  if (hardest) return `${hardest} was the trickiest part, so that's a great one to look at again.`;
-  return '';
+/** How the learner did on Finn's mistakes, in a few words for the end screen ("You caught 2 of Finn's 3 mix-ups"), or ''. */
+function finnScore(finn: ReadonlyMap<number, FinnResult>): string {
+  const all = [...finn.values()].filter((r) => r.kind !== 'other');   // (in their own words: the professor judged it, the page didn't)
+  const caught = all.filter((r) => r.kind === 'caught').length;
+  if (!all.length) return '';
+  if (caught === all.length) return all.length === 1 ? `You caught ${CLASSMATE_NAME}'s mix-up.` : `You caught ${all.length === 2 ? 'both' : `all ${all.length}`} of ${CLASSMATE_NAME}'s mix-ups.`;
+  return caught ? `You caught ${caught} of ${CLASSMATE_NAME}'s ${all.length} mix-ups.` : '';
 }
+
+/**
+ * The end of the recap: the learner's name, how they did on Finn's mistakes,
+ * what to look at again, and the right fact for a mistake they believed.
+ */
+function personalRecap(name: string, hardest: string | null, finn: ReadonlyMap<number, FinnResult> = new Map()): string {
+  const results = [...finn.values()].filter((r) => r.kind !== 'other');
+  const missed = results.filter((r) => r.kind === 'fooled' || r.kind === 'unsure');
+  const caught = results.length - missed.length;
+  const bits: string[] = [];
+  bits.push(name ? `Nice work today, ${name}!` : '');
+  if (results.length && !missed.length) bits.push(results.length === 1 ? `You caught ${CLASSMATE_NAME}'s mix-up, too. Sharp eyes!` : `And you caught every one of ${CLASSMATE_NAME}'s mix-ups. Sharp eyes!`);
+  else if (caught) bits.push(`You caught ${caught} of ${CLASSMATE_NAME}'s ${results.length} mix-ups.`);
+  if (hardest) bits.push(`${hardest} was the trickiest part${name ? ' for you' : ''}, so that's a great one to look at again.`);
+  // One reminder (the first mistake they believed), in the professor's words: "Remember: <what's right>"
+  const fact = missed[0]?.truth.trim().replace(/\s+/g, ' ');
+  if (fact) bits.push(`And remember: ${/[.!?]$/.test(fact) ? fact : `${fact}.`}`);
+  if (name && bits.length === 1) bits.push('You stuck with it the whole way.');
+  return bits.filter(Boolean).join(' ');
+}
+
+/*
+ * Continue where you left off: the slide a learner got to, kept in this
+ * browser (per lesson) so closing the tab doesn't mean starting over. Also
+ * how they did on Finn's mistakes (for the ending) and the topics Finn
+ * already asked about. Never for editor previews; cleared at the end.
+ */
+const PROGRESS_DAYS = 14;   // older than this: start fresh
+type Progress = { slideId: string; at: number; finn: [number, FinnResult][]; asked: number[] };
+const progressKey = (lessonId: string) => `lessonProgress:${lessonId}`;
+function readProgress(deck: Deck): (Progress & { index: number }) | null {
+  try {
+    const p = JSON.parse(localStorage.getItem(progressKey(deck.lessonId)) ?? 'null') as Progress | null;
+    if (!p || typeof p.slideId !== 'string' || Date.now() - p.at > PROGRESS_DAYS * 86_400_000) return null;
+    // by id: if the lesson was edited since, the same slide wherever it is now (gone: start fresh)
+    const index = deck.slides.findIndex((s) => s.id === p.slideId);
+    // (what comes back from storage is checked: a broken or edited entry can't break the lesson)
+    const KINDS = ['caught', 'fooled', 'unsure', 'other'];
+    const finn = (Array.isArray(p.finn) ? p.finn : []).filter((e): e is [number, FinnResult] =>
+      Array.isArray(e) && Number.isInteger(e[0]) && KINDS.includes(e[1]?.kind) && typeof e[1]?.truth === 'string')
+      .map(([t, r]) => [t, { kind: r.kind, truth: r.truth.slice(0, 300) }] as [number, FinnResult]);
+    const asked = (Array.isArray(p.asked) ? p.asked : []).filter((t) => Number.isInteger(t));
+    return index > 0 ? { slideId: p.slideId, at: p.at, finn, asked, index } : null;
+  } catch {
+    return null;
+  }
+}
+const welcomeBack = (name: string) => `Welcome back${name ? `, ${name}` : ''}! Let's pick up where we left off.`;
 
 function Player({ deck, preview, startAt = 0 }: { deck: Deck; preview: boolean; startAt?: number }) {
   const [started, setStarted] = useState(false);
@@ -169,6 +238,13 @@ function Player({ deck, preview, startAt = 0 }: { deck: Deck; preview: boolean; 
   // What to call the learner (optional, asked on the start screen; remembered on this browser)
   const [learnerName, setLearnerName] = useState('');
   useEffect(() => { try { setLearnerName(localStorage.getItem('learnerName') ?? ''); } catch { /* private mode */ } }, []);
+  // Where they left off last time (not for previews, or a link to a given slide)
+  const [resume, setResume] = useState<(Progress & { index: number }) | null>(null);
+  useEffect(() => { if (!preview && !startAt) setResume(readProgress(deck)); }, [deck, preview, startAt]);
+  const forgetProgress = useCallback(() => {
+    try { localStorage.removeItem(progressKey(deck.lessonId)); } catch { /* private mode */ }
+    setResume(null);
+  }, [deck.lessonId]);
   const topicEndRef = useRef<(from: number, to: number) => void>(() => {});
   // Hands-on boxes: the ones finished this lesson, and the one it's waiting on now
   const activitiesDone = useRef(new Set<string>());
@@ -230,6 +306,14 @@ function Player({ deck, preview, startAt = 0 }: { deck: Deck; preview: boolean; 
   // The conversation for the transcript, minus the answer being spoken right now
   const lastTalk = tutor.history[tutor.history.length - 1];
   const earlierDialogue = lastTalk && tutor.exchange?.done && lastTalk.question === tutor.exchange.question ? tutor.history.slice(0, -1) : tutor.history;
+  // Keep where they are, for "Continue where you left off" (cleared when the lesson ends)
+  const lessonOver = player.status === 'finished';
+  useEffect(() => {
+    if (!started || !introDone || preview) return;
+    if (lessonOver) { forgetProgress(); return; }
+    const progress: Progress = { slideId: deck.slides[player.slideIndex]?.id ?? '', at: Date.now(), finn: [...finnResults.current], asked: [...classmateTopics.current] };
+    try { localStorage.setItem(progressKey(deck.lessonId), JSON.stringify(progress)); } catch { /* private mode: nothing kept */ }
+  }, [started, introDone, preview, lessonOver, player.slideIndex, deck, forgetProgress]);
   const tutorBusyRef = useRef(tutorBusy);
   tutorBusyRef.current = tutorBusy;
   // The question + answer box under the slide goes away a while after the answer (the transcript keeps it)
@@ -491,6 +575,7 @@ function Player({ deck, preview, startAt = 0 }: { deck: Deck; preview: boolean; 
   /* --------------------------------------------- Finn, the AI classmate */
   const classmateTopics = useRef(new Set<number>());   // topics Finn already asked about
   const classmateAsked = useRef<string[]>([]);
+  const finnResults = useRef(new Map<number, FinnResult>());   // topic → how the learner did on Finn's mistake there
   const classmateOnRef = useRef(classmateOn);
   classmateOnRef.current = classmateOn;
   // Finn's line for a topic, fetched (and voiced) while its last slide plays, so he speaks at once
@@ -572,13 +657,39 @@ function Player({ deck, preview, startAt = 0 }: { deck: Deck; preview: boolean; 
               if (interruptOn) { resumeAfterTurn.current = false; micRef.current.talk(); }   // listen for it too
             });
             if (verdict === null) return;   // moved on: no answer, and no "How did that section go?" on another slide
-            tracking.track('tutor_decision', { action: 'classmate_mistake_answer', answer: verdict.slice(0, 200) });
-            await tutor.ask(q, slideContext() +
+            const kind = finnVerdictKind(verdict);
+            tracking.track('tutor_decision', { action: 'classmate_mistake_answer', answer: verdict.slice(0, 200), kind });
+            finnResults.current.set(topic, { kind, truth: line.truth });   // for the ending
+            // Fooled or unsure: after the explanation, the topic's helper ("another way to see it")
+            const helper = kind === 'fooled' || kind === 'unsure' ? (MORPH_HELPERS ? helperFor(from) : null) : null;
+            const you = name ? `, ${name}` : '';
+            const how = kind === 'caught'
+              ? `The learner CAUGHT the mistake. Start with "Good catch${you}!" and say ${CLASSMATE_NAME} wasn't right, and why, in a sentence, using what's actually right. ` +
+                `Then a kind word to ${CLASSMATE_NAME} (it's an easy mix-up). 2 to 4 short sentences.`
+              : kind === 'fooled'
+                ? `The learner AGREED with ${CLASSMATE_NAME}, so they believe the mistake too. Start with "Actually${you}, that isn't true." Kindly explain what's right and why, ` +
+                  `and say it's an easy mix-up, kindly to ${CLASSMATE_NAME} too. 3 or 4 short sentences.`
+                : kind === 'unsure'
+                  ? `The learner WASN'T SURE. Start with "That's a tricky one${you}." Say ${CLASSMATE_NAME} wasn't right, then explain what's right and why. 3 or 4 short sentences.`
+                  : `Decide from the answer whether the learner caught the mistake. If they did, start with "Good catch${you}!" and say why in a sentence. ` +
+                    `If not, start with "Actually${you}, that isn't true." and kindly explain what's right. Kindly to ${CLASSMATE_NAME} too. 2 to 4 short sentences.`;
+            const { superseded } = await tutor.ask(q, slideContext() +
               `\n${CLASSMATE_NAME}, a classmate, just said this, and it is WRONG on purpose, to see if the learner catches it. What's actually right: ${line.truth}` +
               `\nYou asked the learner if ${CLASSMATE_NAME} was right. The learner answered: "${verdict || '(nothing)'}".` +
-              `\nIf the learner caught the mistake, cheer them on${name ? ` by name (${name})` : ''} and say why in a sentence. If they agreed with ${CLASSMATE_NAME} or weren't sure, ` +
-              `kindly say it's an easy mix-up and explain what's right. Talk to both of them, kindly to ${CLASSMATE_NAME} too. 2 to 4 short sentences, no question at the end.`,
+              `\n${how}${helper ? ' End with one short sentence saying you\'ll show it another way.' : ''} No question at the end.`,
               { asker: CLASSMATE_NAME });
+            // (not when the learner talked over the answer: what they said decides what's next)
+            if (helper && !superseded && !over() && playerRef.current.slideIndex === from) {
+              // Then the topic's helper; "How did that section go?" after it (if the learner is still here)
+              finnBusy.current = false;
+              tracking.track('tutor_decision', { action: 'helper', why: 'classmate_mistake', kind });
+              presentVariant({ title: '', body: '', narration: '', slide: helper, variant: 'helper' }, () => {
+                if (over() || playerRef.current.slideIndex !== from) return;
+                setSelfCheck({ from, to });
+                cuesRef.current?.play('cue_selfCheck');
+              });
+              return;
+            }
           }
         }
       }
@@ -735,7 +846,7 @@ function Player({ deck, preview, startAt = 0 }: { deck: Deck; preview: boolean; 
     let cancelled = false;
     // The recap and the personal line are ONE clip (no gap around the name),
     // made while "Let's look back…" is playing
-    const recap = [deck.recap?.trim(), personalRecap(learnerName.trim(), hardestTopic(deck, topicOf, stateOf))].filter(Boolean).join(' ');
+    const recap = [deck.recap?.trim(), personalRecap(learnerName.trim(), hardestTopic(deck, topicOf, stateOf, finnResults.current), finnResults.current)].filter(Boolean).join(' ');
     if (recap) preloadCue(recap);
     (async () => {
       if (!(await playCue('cue_conclusionIntro')) || cancelled) return;
@@ -1052,16 +1163,35 @@ function Player({ deck, preview, startAt = 0 }: { deck: Deck; preview: boolean; 
     if (!MORPH_HELPERS || !baseSlide) return baseSlide;
     if (variant?.slide) return variant.slide;   // the slide's own helper
     if (variant) return helperSlide(baseSlide, variant);
-    if (player.mode === 'plain') return focusSlide(baseSlide, focusId) ?? baseSlide;
+    // (never for a topic introduction: it isn't on the slide, so there's nothing to focus)
+    if (player.mode === 'plain') return isIntroId(focusId) ? baseSlide : focusSlide(baseSlide, focusId) ?? baseSlide;
     return baseSlide;
   }, [baseSlide, variant, player.mode, focusId]);
 
-  function startLesson() {
+  /** A fresh lesson from the first slide: Finn asks again, hands-on boxes wait again (the end screen, and ↺ at the top left). */
+  function startOver() {
+    // whatever is going on now stops: an answer, Finn's turn, a helper
+    if (finnBusy.current) { finnVerdict(null, 'button'); takeOverFromFinn(); }
+    if (tutorBusyRef.current) cancelAnswer();
+    if (variant) { variantAfter.current = null; variantMode.current = 'answer'; setVariant(null); helperSeq.current++; setHelperActive(null); }
+    checked.current.clear(); activitiesDone.current.clear(); activitiesSolved.current.clear(); classmateTopics.current.clear(); classmateAsked.current = []; finnReady.current.clear(); finnResults.current.clear();
+    finnSpoken.current.clear(); mistakeCounts.current.clear(); steppedIn.current.clear();
+    // (a preview never touches the learner's saved place in this browser)
+    setSelfCheck(null); setYourTurn(null); cues.stop(); if (!preview) forgetProgress(); player.restart();
+  }
+
+  function startLesson(from?: Progress & { index: number }) {
+    if (from) {
+      // back where they were, with Finn's turns as they were
+      finnResults.current = new Map(from.finn);
+      classmateTopics.current = new Set(from.asked);
+      player.goToSlide(from.index);
+    }
     setStarted(true);
     const name = learnerName.trim();
     try { localStorage.setItem('learnerName', name); } catch { /* private mode */ }
-    // A name: a personal hello (spoken live); otherwise the recorded intro
-    (name ? cues.play({ text: greeting(name) }) : cues.play('cue_intro')).finally(() => setIntroDone(true));
+    // A name: a personal hello (spoken live); otherwise the recorded intro. Coming back: "Welcome back"
+    (from ? cues.play({ text: welcomeBack(name) }) : name ? cues.play({ text: greeting(name) }) : cues.play('cue_intro')).finally(() => setIntroDone(true));
   }
 
   if (!started) {
@@ -1075,26 +1205,40 @@ function Player({ deck, preview, startAt = 0 }: { deck: Deck; preview: boolean; 
           <input
             value={learnerName}
             onChange={(e) => setLearnerName(e.target.value.replace(/[^\p{L}\p{N} '.-]/gu, '').slice(0, 24))}
-            onKeyDown={(e) => { if (e.key === 'Enter') startLesson(); }}
+            onKeyDown={(e) => { if (e.key === 'Enter') startLesson(resume ?? undefined); }}
             autoFocus
             placeholder="Your first name"
             maxLength={24}
             className="px-3 py-2 rounded-lg bg-white/10 text-white text-center placeholder:text-white/40 outline-none focus:bg-white/15 w-56"
           />
         </label>
-        <button
-          onClick={startLesson}
-          className="px-8 py-4 rounded-2xl bg-cyan-400 hover:bg-cyan-300 text-slate-900 text-xl font-semibold"
-        >
-          Start Lesson
-        </button>
+        {resume ? (
+          <div className="flex flex-col items-center gap-3">
+            <button
+              onClick={() => startLesson(resume)}
+              className="px-8 py-4 rounded-2xl bg-cyan-400 hover:bg-cyan-300 text-slate-900 text-xl font-semibold"
+            >
+              Continue where you left off
+            </button>
+            <span className="text-sm text-slate-300">Slide {resume.index + 1} of {deck.slides.length}{deck.slides[resume.index].topic ? ` · ${deck.slides[resume.index].topic}` : ''}</span>
+            <button onClick={() => { forgetProgress(); startLesson(); }} className="text-sm text-slate-300 underline hover:text-white">Start from the beginning</button>
+          </div>
+        ) : (
+          <button
+            onClick={() => startLesson()}
+            className="px-8 py-4 rounded-2xl bg-cyan-400 hover:bg-cyan-300 text-slate-900 text-xl font-semibold"
+          >
+            Start Lesson
+          </button>
+        )}
       </main>
     );
   }
 
   const slide = deck.slides[player.slideIndex];
   // the end screen: the hardest topic, to go over again
-  const hardestName = player.status === 'finished' ? hardestTopic(deck, topicOf, stateOf) : null;
+  const hardestName = player.status === 'finished' ? hardestTopic(deck, topicOf, stateOf, finnResults.current) : null;
+  const finnSummary = player.status === 'finished' ? finnScore(finnResults.current) : '';
   const finishedHardest = hardestName ? { name: hardestName, index: deck.slides.findIndex((s) => s.topic?.trim() === hardestName) } : null;
   const btn = 'px-3 py-2 rounded-lg bg-white/10 hover:bg-white/20 text-sm font-medium transition-colors disabled:opacity-40';
 
@@ -1118,6 +1262,17 @@ function Player({ deck, preview, startAt = 0 }: { deck: Deck; preview: boolean; 
         </div>
       </div>
 
+      {/* Start over from the first slide: small and out of the way (the lesson may have picked up where they left off) */}
+      {player.status !== 'finished' && (
+        <button
+          onClick={() => { if (window.confirm('Start the lesson over from the first slide?')) startOver(); }}
+          className="fixed top-3 left-3 z-30 px-2.5 py-1 rounded-md text-xs text-white/45 hover:text-white hover:bg-white/10 transition-colors"
+          title="Start the lesson over from the first slide"
+        >
+          ↺ Start over
+        </button>
+      )}
+
       {cameraOn && <CameraBubble sees={cameraSees} progress={handProgress} />}
 
       <div className="relative" data-bubble-avoid data-bubble-slide>
@@ -1128,6 +1283,7 @@ function Player({ deck, preview, startAt = 0 }: { deck: Deck; preview: boolean; 
           >
             <h2 className="text-3xl font-bold">That&apos;s the lesson{learnerName.trim() ? `, ${learnerName.trim()}` : ''}!</h2>
             {deck.recap && <p className="text-lg max-w-2xl">{deck.recap}</p>}
+            {finnSummary && <p className="text-base text-amber-700 font-semibold">🙋 {finnSummary}</p>}
             {finishedHardest && (
               <p className="text-base text-slate-600 max-w-xl">
                 <b>{finishedHardest.name}</b> was the trickiest part.{' '}
@@ -1135,18 +1291,23 @@ function Player({ deck, preview, startAt = 0 }: { deck: Deck; preview: boolean; 
                   onClick={() => { cues.stop(); player.goToSlide(finishedHardest.index); }}>Go over it again →</button>
               </p>
             )}
-            <button onClick={() => {
-              // a fresh lesson: Finn asks again, hands-on boxes wait again
-              checked.current.clear(); activitiesDone.current.clear(); activitiesSolved.current.clear(); classmateTopics.current.clear(); classmateAsked.current = []; finnReady.current.clear();
-              finnSpoken.current.clear(); mistakeCounts.current.clear(); steppedIn.current.clear();
-              setSelfCheck(null); setYourTurn(null); cues.stop(); player.restart();
-            }} className="px-6 py-3 rounded-xl bg-cyan-500 hover:bg-cyan-400 font-semibold">Start over</button>
+            <button onClick={startOver} className="px-6 py-3 rounded-xl bg-cyan-500 hover:bg-cyan-400 font-semibold">Start over</button>
           </div>
         ) : (
           <SlideCanvas slide={shownSlide} width={SLIDE_WIDTH} activeId={variant ? helperActive : player.activeId} morph={MORPH_HELPERS} laser={laser} spotlight={SPOTLIGHT}
             interactive onActivityDone={onActivityDone} activityHint={activityHint}
             solvedActivities={activitiesSolved.current} settledActivities={activitiesDone.current} settledTick={settledTick} activitySounds={soundsOn} onActivityMistake={onActivityMistake}
             finnMoves={finnMoves} onFinn={onFinn} activityGuides={activityGuides} />
+        )}
+        {/* A topic's introduction is being said: a small title card for the part that's starting */}
+        {isIntroId(player.activeId) && !variant && deck.slides[player.slideIndex]?.topic && (
+          // the slide waits behind, softly dimmed, until the introduction is over
+          <div key={player.slideIndex} className="absolute inset-0 z-10 flex items-center justify-center rounded-xl bg-slate-950/45 backdrop-blur-[2px] animate-[intro-fade_500ms_ease-out]" role="status">
+            <div className="px-8 py-5 rounded-2xl bg-slate-900/90 text-white shadow-2xl text-center animate-[intro-card_600ms_ease-out]">
+              <div className="text-xs uppercase tracking-widest text-cyan-300/90">Part {player.topicIndex + 1} of {player.topicCount}</div>
+              <div className="text-2xl font-bold mt-1">{deck.slides[player.slideIndex].topic}</div>
+            </div>
+          </div>
         )}
         {variant && !MORPH_HELPERS && <VariantOverlay variant={variant} onDone={closeVariant} />}
         {variant && MORPH_HELPERS && (

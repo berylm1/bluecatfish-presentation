@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { ActivityElement, ChartElement, DiagramElement, Slide, SlideElement, TextStyle } from '@/lib/canvas/types';
 import type { Warning } from '@/lib/canvas/checks';
 
@@ -39,8 +39,11 @@ export function ElementInspector({
   warnings,
   placing,
   onPlacePointer,
+  about,
 }: {
   el: SlideElement;
+  /** The lesson and the slide's topic (context for "✨ Describe it") */
+  about?: { lessonTitle?: string; topic?: string };
   /** The laser mark being placed (click on the slide to put it), if any */
   placing?: number | null;
   onPlacePointer?: (index: number | null) => void;
@@ -142,8 +145,33 @@ export function ElementInspector({
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src={el.src} alt="" className="w-full max-h-36 object-contain rounded-md bg-slate-100" />
           <div>
-            <label className={label}>Description</label>
-            <textarea rows={3} className={input} value={el.alt ?? ''} placeholder="What the image shows" onChange={(e) => update({ alt: e.target.value })} />
+            <div className="flex flex-wrap items-center justify-between">
+              <label className={label}>Description</label>
+              <DescribeButton src={el.src} hasText={!!el.alt?.trim()} about={about} onDescribed={(alt) => update({ alt })} />
+            </div>
+            <textarea rows={3} className={`${input} ${!el.alt?.trim() && !el.silent ? 'border-amber-400 bg-amber-50' : ''}`} value={el.alt ?? ''} placeholder="What the image shows" onChange={(e) => update({ alt: e.target.value })} />
+            {!el.alt?.trim() && (
+              <p className="text-xs text-amber-800 mt-1">
+                {el.silent
+                  ? 'Optional for decoration. With one, screen readers can say what it shows and it can have a caption.'
+                  : 'Needed: the AI writes what the professor says about this picture, its caption and its laser marks from it, and screen readers read it out.'}
+              </p>
+            )}
+          </div>
+          <div>
+            <label className={label}>Caption <AiBadge show={el.captionByAI && !el.captionOff} /></label>
+            <input
+              className={input}
+              value={el.caption ?? ''}
+              disabled={el.captionOff}
+              maxLength={120}
+              placeholder={el.captionOff ? 'No caption' : 'Blank: the AI writes one from the description when you save'}
+              onChange={(e) => update({ caption: e.target.value || undefined, captionByAI: undefined })}
+            />
+            <label className="flex items-center gap-2 text-xs text-slate-600 mt-1">
+              <input type="checkbox" checked={!!el.captionOff} onChange={(e) => update({ captionOff: e.target.checked || undefined })} />
+              No caption on this picture
+            </label>
           </div>
           <div>
             <label className={label}>Fit</label>
@@ -239,8 +267,11 @@ export function SlideInspector({
   recap,
   recapByAI,
   onRecap,
+  topicStart,
 }: {
   slide: Slide;
+  /** The first slide of its topic: it has the topic's introduction */
+  topicStart?: boolean;
   update: (patch: Partial<Slide>) => void;
   warnings: Warning[];
   onPickBackground: () => void;
@@ -262,6 +293,24 @@ export function SlideInspector({
         />
         <p className="text-xs text-slate-500 mt-1">Only you see this. Slides in a row with the same topic are one topic (“next topic”, “go to”).</p>
       </div>
+      {topicStart && (
+        <div>
+          <label className={label}>Topic introduction <AiBadge show={slide.intro?.sayByAI && !slide.intro?.off} /></label>
+          <textarea
+            rows={3}
+            className={input}
+            value={slide.intro?.say ?? ''}
+            disabled={slide.intro?.off}
+            placeholder={slide.intro?.off ? 'No introduction' : 'Blank: the AI writes one when you save'}
+            onChange={(e) => update({ intro: { ...slide.intro, say: e.target.value || undefined, sayByAI: undefined } })}
+          />
+          <label className="flex items-center gap-2 text-xs text-slate-600 mt-1">
+            <input type="checkbox" checked={!!slide.intro?.off} onChange={(e) => update({ intro: { ...slide.intro, off: e.target.checked || undefined } })} />
+            No introduction for this topic
+          </label>
+          <p className="text-xs text-slate-500 mt-1">Said before this slide, with the topic&apos;s name on a small title card.</p>
+        </div>
+      )}
       <div>
         <label className={label}>Background</label>
         <div className="flex items-center gap-2">
@@ -312,6 +361,45 @@ export function SlideInspector({
  * Laser-pointer marks: when the professor says the phrase, a red dot points
  * at the spot. "Place" then a click on the slide puts the mark there.
  */
+/** "✨ Describe it": the AI looks at the picture and writes its description (an undoable edit, then yours). */
+function DescribeButton({ src, hasText, about, onDescribed }: {
+  src: string;
+  hasText: boolean;
+  about?: { lessonTitle?: string; topic?: string };
+  onDescribed: (text: string) => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  // a new picture: the last one's error doesn't apply
+  useEffect(() => { setError(null); }, [src]);
+  const run = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await fetch('/api/editor/describe-image', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ src, lessonTitle: about?.lessonTitle, topic: about?.topic }),
+      });
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok || !d.description) throw new Error(d.error || `It didn't work (${res.status})`);
+      onDescribed(d.description);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <>
+      <button className="text-xs text-violet-700 hover:underline disabled:opacity-50" onClick={run} disabled={busy}
+        title="The AI looks at the picture and writes what it shows (Ctrl+Z undoes it)">
+        {busy ? '✨ Looking…' : hasText ? '✨ Rewrite with AI' : '✨ Describe it'}
+      </button>
+      {error && <p className="basis-full text-xs text-red-700 mt-1" role="alert">{error}</p>}
+    </>
+  );
+}
+
 function LaserMarks({ el, update, placing, onPlace }: {
   el: SlideElement;
   update: (patch: Partial<SlideElement>) => void;

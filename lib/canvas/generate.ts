@@ -8,6 +8,9 @@ import { fitStatus, neededHeight, textMetrics } from './fitEstimate';
 import { fingerprint, sayBasis, slideBasis } from './aiFields';
 import { chat, knowledge, STYLE } from './ai';
 import { writeRecap } from './prepare';
+import { removeRepeats } from './repeats';
+
+const GENERATE_BUDGET_MS = 270_000;   // the ai-deck route's maxDuration is 300 s
 
 // Step 5: the AI makes a whole deck in the canvas format.
 //   1. plan the lesson's topics from the knowledge base
@@ -15,6 +18,7 @@ import { writeRecap } from './prepare';
 //      words, plain versions — using images from the library by description
 //   3. check every slide (text that won't fit, off the slide, overlapping
 //      text); broken slides go back to the AI once, then get small automatic fixes
+//   4. read the whole deck for repeated content (up to 3 times) and rewrite repeats
 // Audio is made afterwards by the save-time AI (prepare.ts).
 
 const supabase = lazySupabaseAdmin();
@@ -188,6 +192,7 @@ function markAi(slide: Slide): void {
 }
 
 export async function generateAiDeck(lesson: LessonInfo): Promise<{ deck: Deck; notes: string[] }> {
+  const started = Date.now();
   const notes: string[] = [];
   const plan = await planTopics(lesson);
 
@@ -224,6 +229,8 @@ export async function generateAiDeck(lesson: LessonInfo): Promise<{ deck: Deck; 
     s.elements = s.elements.filter((e) => e.type !== 'activity' || activityReady(e));
     return s.elements.length === before || s.elements.some((e) => !e.silent);
   });
+  // Before markAi, so the fingerprints are of the final words (and audio is made for them only)
+  await removeRepeats(deck, notes, started + GENERATE_BUDGET_MS);
   deck.slides.forEach(markAi);
   try {
     deck.recap = await writeRecap(deck);

@@ -9,12 +9,19 @@ import ImageLibrary from '@/components/editor/ImageLibrary';
 import { ElementInspector, SlideInspector } from '@/components/editor/Inspector';
 import { useEditorDeck, blankDeck, blankSlide, cloneSlide, newId, elementsOf, helperView } from '@/components/editor/useEditorDeck';
 import SlideCanvas from '@/components/canvas/SlideCanvas';
-import { slideWarnings, type Warning } from '@/lib/canvas/checks';
+import { claimKey, factBasis, lessonBasis, slideWarnings, slidesToFactCheck, type Warning } from '@/lib/canvas/checks';
 import { speakingOrder } from '@/lib/canvas/queue';
 import { deckFromAnyVersion } from '@/lib/canvas/fromLegacy';
 import { countTodo, todoTotal } from '@/lib/canvas/aiFields';
+import { startsTopic } from '@/lib/canvas/intro';
+import { applyRepeatFix, type RepeatSuggestion } from '@/lib/canvas/repeats';
+import RepeatsPanel from '@/components/editor/RepeatsPanel';
+import Menu, { MenuHeading, MenuItem } from '@/components/editor/Menu';
+import CheckPanel, { picturesWithoutDescription, type Described } from '@/components/editor/CheckPanel';
+import { deckSections, findCrossSectionRepeats } from '@/lib/lessonOverlap';
+import { DEFAULT_PDF, type PdfOptions } from '@/components/editor/exportPdf';
 import { DEFAULT_LESSON, type LessonInfo } from '@/lib/canvas/lessons';
-import type { Deck, Slide, SlideElement } from '@/lib/canvas/types';
+import type { CheckedClaim, Deck, DeckChecks, Slide, SlideElement } from '@/lib/canvas/types';
 import { ACTIVITY_KINDS, VISUAL_KINDS, activityTemplate, visualTemplate } from '@/components/editor/templates';
 
 /*
@@ -141,7 +148,7 @@ function Editor({
   const baseRev = useRef<string | undefined>(initial.editRev);
   const [conflict, setConflict] = useState<{ by: string; at: string | null; then: 'save' | 'publish' } | null>(null);
   const { deck, slide, slideIdx, element } = ed;
-  const [panel, setPanel] = useState<'props' | 'images' | 'background'>('props');
+  const [panel, setPanel] = useState<'props' | 'images' | 'background' | 'repeats' | 'check'>('props');
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState<{ at?: string; by?: string }>({ at: initialSavedAt, by: initialSavedBy });
   const [notice, setNotice] = useState<{ text: string; tone: 'ok' | 'warn' | 'error' } | null>(null);
@@ -172,6 +179,20 @@ function Editor({
     }
   };
 
+  // "⬇ PDF": the lesson as it is in the editor (unsaved changes too), as a teacher script or a handout
+  const [pdfProgress, setPdfProgress] = useState<string | null>(null);
+  const [pdfOpts, setPdfOpts] = useState<PdfOptions>(DEFAULT_PDF);
+  const downloadPdf = async () => {
+    setPdfProgress('0%');
+    try {
+      const { exportDeckPdf } = await import('@/components/editor/exportPdf');
+      await exportDeckPdf(deck, pdfOpts, (done, total) => setPdfProgress(`${Math.round((done / Math.max(1, total)) * 100)}%`));
+    } catch (e) {
+      flash(`The PDF couldn't be made: ${e instanceof Error ? e.message : String(e)}`, 'error');
+    } finally {
+      setPdfProgress(null);
+    }
+  };
   const flash = useCallback((text: string, tone: 'ok' | 'warn' | 'error' = 'ok') => {
     setNotice({ text, tone });
     if (tone === 'ok') setTimeout(() => setNotice((n) => (n?.text === text ? null : n)), 3000);
@@ -292,13 +313,38 @@ function Editor({
     window.open(`/presentation?lesson=${encodeURIComponent(lessonId)}&preview=1${fromHere ? `&slide=${slideIdx + 1}` : ''}`, '_blank');
   };
 
+  // Publish asks first: warnings, and repeats the free check finds (with a way to have the AI check first)
+  type PublishCheck = {
+    warnings: number;
+    repeats: number;                 // the free word match
+    repeatsAi: 'none' | 'changed' | 'ok';   // the AI repeat check: never run / the lesson changed since / up to date
+    factsToCheck: number;            // slides never fact-checked, or changed since
+    factsOpen: { bad: number; missing: number };   // ❌ / ⚠️ not marked fine, on checked slides
+    pictures: number;                // pictures without a description
+  };
+  const [publishAsk, setPublishAsk] = useState<PublishCheck | null>(null);
+  const [repeatRun, setRepeatRun] = useState(0);   // bumped: the Repeats panel runs the AI check
   const publish = async () => {
-    const count = allWarnings.flat().filter((w) => w.level === 'warn').length;
-    const ask = count
-      ? `There ${count === 1 ? 'is 1 warning' : `are ${count} warnings`} (slides marked ⚠). Publish anyway? Learners will see this deck.`
-      : 'Publish? Learners will see this deck instead of the AI lesson.';
-    if (!window.confirm(ask)) return;
-    await publishNow();
+    // What's been checked is remembered (deck.checks): only what changed since needs looking at
+    const fine = new Set(deck.checks?.factsOk ?? []);
+    const open = { bad: 0, missing: 0 };
+    for (const sl of deck.slides) {
+      const f = deck.checks?.facts?.[sl.id];
+      if (!f || f.from !== factBasis(sl)) continue;
+      for (const c of f.claims) {
+        if (c.verdict === 'supported' || fine.has(claimKey(sl.id, c.claim))) continue;
+        if (c.verdict === 'contradicted') open.bad++; else open.missing++;
+      }
+    }
+    const last = deck.checks?.repeats;
+    setPublishAsk({
+      warnings: allWarnings.flat().filter((w) => w.level === 'warn').length,
+      repeats: findCrossSectionRepeats(deckSections(deck)).length,
+      repeatsAi: !last ? 'none' : last.from === lessonBasis(deck) ? 'ok' : 'changed',
+      factsToCheck: slidesToFactCheck(deck).length,
+      factsOpen: open,
+      pictures: picturesWithoutDescription(deck).length,
+    });
   };
 
   /** Publish without asking (after the confirm, or after "Keep mine" in a conflict). */
@@ -505,6 +551,88 @@ function Editor({
   const main = ed.mainSlide;
   const helperState = !main?.helper?.elements.length ? (main?.helper?.off ? 'off' : 'none') : main.helper.byAI ? 'ai' : 'yours';
   const switchLayer = (l: 'main' | 'helper') => { ed.setLayer(l); ed.setSelected(null); };
+  // "Check for repeats": accept a rewrite (an undoable edit), or jump to the slide it's on
+  const acceptRepeat = (s: RepeatSuggestion) => {
+    if (!applyRepeatFix(structuredClone(deck), s, 'person')) return false;   // that part changed since the check
+    ed.change((d) => { applyRepeatFix(d, s, 'person'); }, `repeat:${s.slideId}:${s.elId}`);
+    return true;
+  };
+  // The Check tab's results live with the lesson (deck.checks): kept through undo, saved with the lesson
+  const [factRun, setFactRun] = useState(0);   // bumped: the Check tab checks the changed slides (Publish)
+  const recordFacts = (slideId: string, fact: NonNullable<DeckChecks['facts']>[string]) =>
+    ed.annotate((d) => {
+      // (results for slides that have since been deleted go)
+      const ids = new Set(d.slides.map((x) => x.id));
+      const kept = Object.fromEntries(Object.entries(d.checks?.facts ?? {}).filter(([id]) => ids.has(id)));
+      d.checks = { ...d.checks, facts: { ...kept, [slideId]: fact } };
+    });
+  const markFine = (key: string, fine: boolean) => ed.annotate((d) => {
+    const ok = new Set(d.checks?.factsOk ?? []);
+    if (fine) ok.add(key); else ok.delete(key);
+    d.checks = { ...d.checks, factsOk: [...ok] };
+  });
+  /** "Use this": a ❌ fact's fix into its box (an undoable edit), unless the box changed since the check */
+  const applyFix = (slideId: string, c: CheckedClaim) => {
+    if (!c.rewrite || !c.elId) return false;
+    const fix: RepeatSuggestion = { slideIndex: 0, slideId, elId: c.elId, say: c.rewrite.say, text: c.rewrite.text, why: '', beforeSay: c.rewrite.beforeSay, beforeText: c.rewrite.beforeText };
+    if (!applyRepeatFix(structuredClone(deck), fix, 'person')) return false;
+    ed.change((d) => { applyRepeatFix(d, fix, 'person'); }, `fix:${slideId}:${c.elId}`);
+    return true;
+  };
+  /** ✨ Describe all: the descriptions in one undo step, only where there's still none and it's the same picture */
+  const fillDescriptions = (list: Described[]) => {
+    let n = 0;
+    const fits = (d: Deck, x: Described) => {
+      const s = d.slides.find((v) => v.id === x.slideId);
+      const el = (x.helper ? s?.helper?.elements : s?.elements)?.find((e) => e.id === x.elId);
+      return el?.type === 'image' && el.src === x.src && !el.alt?.trim() ? el : null;
+    };
+    n = list.filter((x) => fits(deck, x)).length;
+    if (n) ed.change((d) => { for (const x of list) { const el = fits(d, x); if (el) el.alt = x.alt; } });
+    return n;
+  };
+  // "Split this topic": the AI suggests where and the names; a person confirms
+  const [splitAsk, setSplitAsk] = useState<{ start: number; busy?: boolean; error?: string; split?: { splitAt: number; first: string; second: string; why: string } } | null>(null);
+  const askSplit = async (start: number) => {
+    setSplitAsk({ start, busy: true });
+    try {
+      const res = await fetch('/api/editor/split-topic', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ deck, start }) });
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok || !d.split) throw new Error(d.error || `It didn't work (${res.status})`);
+      setSplitAsk({ start, split: d.split });
+    } catch (e) {
+      setSplitAsk({ start, error: e instanceof Error ? e.message : String(e) });
+    }
+  };
+  const doSplit = () => {
+    const a = splitAsk;
+    if (!a?.split) return;
+    const { splitAt, first, second } = a.split;
+    const old = (deck.slides[a.start]?.topic ?? '').trim().toLowerCase();
+    ed.change((d) => {
+      for (let i = a.start; i < d.slides.length && (d.slides[i].topic ?? '').trim().toLowerCase() === old; i++) {
+        // a person's names now (the AI won't rename them); the new part gets its intro written on save
+        Object.assign(d.slides[i], { topic: i < splitAt ? first : second, topicByAI: undefined });
+      }
+    });
+    setSplitAsk(null);
+    flash(`Split into “${first}” and “${second}” (Ctrl+Z undoes it)`);
+  };
+  // The Check tab's count: open ❌ / ⚠️ facts on up-to-date checks, and pictures without a description
+  const checkBadge = useMemo(() => {
+    const fine = new Set(deck.checks?.factsOk ?? []);
+    let n = picturesWithoutDescription(deck).length;
+    for (const sl of deck.slides) {
+      const f = deck.checks?.facts?.[sl.id];
+      if (f && f.from === factBasis(sl)) n += f.claims.filter((c) => c.verdict !== 'supported' && !fine.has(claimKey(sl.id, c.claim))).length;
+    }
+    return n;
+  }, [deck]);
+  const goToRepeat = (i: number, elId?: string) => {
+    if (ed.layer !== 'main') ed.setLayer('main');
+    ed.setSlideIdx(Math.max(0, Math.min(i, deck.slides.length - 1)));
+    ed.setSelected(elId ?? null);
+  };
   const copyIntoHelper = () => ed.change((d) => {
     const s = d.slides[slideIdx];
     const h = elementsOf(s, 'helper');
@@ -585,21 +713,19 @@ function Editor({
 
   return (
     <div className="flex flex-col h-[calc(100vh-40px)] bg-slate-100 text-slate-900">
-      {/* toolbar */}
-      <div className="flex flex-wrap items-center gap-2 px-3 py-2 bg-white border-b border-slate-200">
-        <select className="px-2 py-1.5 rounded-md border border-slate-300 text-sm" value={lessonId} onChange={(e) => (e.target.value === '__new' ? onNewLesson() : confirmSwitch(e.target.value))}>
+      {/* toolbar, row 1: the lesson, its state, and saving / previewing / publishing */}
+      <div className="flex flex-wrap items-center gap-2 px-3 pt-2 pb-1.5 bg-white">
+        <select className="px-2 py-1.5 rounded-md border border-slate-300 text-sm font-semibold max-w-56" value={lessonId} aria-label="Lesson"
+          onChange={(e) => (e.target.value === '__new' ? onNewLesson() : confirmSwitch(e.target.value))}>
           {lessons.map((l) => <option key={l.id} value={l.id}>{l.title}</option>)}
           <option value="__new">+ New lesson…</option>
         </select>
-        {lessonId !== DEFAULT_LESSON.id && (
-          <button className={`${btn} text-red-600`} onClick={() => setConfirmDelete({ busy: false })} title="Delete this lesson">Delete lesson</button>
-        )}
-        <span className="text-xs text-slate-500 min-w-40">
-          {saving ? 'Saving…' : ed.dirty ? <span className="text-amber-700 font-medium">Unsaved changes</span> : saved.at ? `Saved ${when(saved.at)}${saved.by ? ` by ${saved.by}` : ''}` : 'Not saved yet'}
+        <span className="text-xs text-slate-500">
+          {saving ? 'Saving…' : ed.dirty ? <span className="text-amber-700 font-medium">● Unsaved changes</span> : saved.at ? `Saved ${when(saved.at)}${saved.by ? ` by ${saved.by}` : ''}` : 'Not saved yet'}
         </span>
         <span
-          className={`text-xs px-2 py-1 rounded-md ${ai.running ? 'bg-violet-100 text-violet-800' : ai.errors.length ? 'bg-red-100 text-red-800' : todoHere ? 'bg-amber-50 text-amber-800' : 'bg-emerald-50 text-emerald-800'}`}
-          title={ai.errors.join('\n') || 'Spoken words, plain versions, topics and audio the AI fills in when you save'}
+          className={`text-xs px-2 py-0.5 rounded-full ${ai.running ? 'bg-violet-100 text-violet-800' : ai.errors.length ? 'bg-red-100 text-red-800' : todoHere ? 'bg-amber-50 text-amber-800' : 'bg-emerald-50 text-emerald-800'}`}
+          title={ai.errors.join('\n') || 'Spoken words, plain versions, topics, intros, captions and audio the AI fills in when you save'}
         >
           {ai.running
             ? `✨ AI writing & recording… ${ai.remaining ? `${ai.remaining} left` : ''}`
@@ -609,23 +735,42 @@ function Editor({
                 ? `${todoHere} to write/record: Save to start`
                 : '✓ Words & audio ready'}
         </span>
-        <div className="w-px h-6 bg-slate-200" />
-        <button className={btn} onClick={ed.undo} disabled={!ed.canUndo} title="Undo (Ctrl+Z)">↶ Undo</button>
-        <button className={btn} onClick={ed.redo} disabled={!ed.canRedo} title="Redo (Ctrl+Shift+Z)">↷ Redo</button>
+        <div className="flex-1" />
+        <span className="text-xs text-slate-500">
+          {live === undefined ? '' : live ? <>🟢 Live since {when(live.at)}{live.by ? ` (${live.by})` : ''} · <button className="underline" onClick={unpublish}>take down</button></> : '⚪ Not published: learners get the AI lesson'}
+        </span>
+        <button className={btn} onClick={() => save()} disabled={saving} title="Ctrl+S">Save</button>
+        <Menu className={btn} label="▶ Preview ▾" title="Play the saved lesson in a new tab" width="w-56">
+          {(close) => (
+            <>
+              <MenuItem onClick={() => { close(); preview(); }} hint="Opens in a new tab">From the start ↗</MenuItem>
+              <MenuItem onClick={() => { close(); preview(true); }} hint="Opens in a new tab">From slide {slideIdx + 1} ↗</MenuItem>
+            </>
+          )}
+        </Menu>
+        <button className={primary} onClick={publish}>Publish</button>
+      </div>
+
+      {/* toolbar, row 2: editing, then the lesson-wide tools */}
+      <div className="flex flex-wrap items-center gap-1.5 px-3 pb-2 bg-white border-b border-slate-200">
+        <button className={btn} onClick={ed.undo} disabled={!ed.canUndo} title="Undo (Ctrl+Z)">↶</button>
+        <button className={btn} onClick={ed.redo} disabled={!ed.canRedo} title="Redo (Ctrl+Shift+Z)">↷</button>
+        <div className="w-px h-6 bg-slate-200 mx-1" />
         <button className={btn} onClick={addText}>＋ Text</button>
         <button className={btn} onClick={() => setPanel('images')}>＋ Image</button>
-        <select className={`${btn} w-32`} value="" aria-label="Add a chart or diagram"
-          onChange={(e) => { const k = e.target.value as (typeof VISUAL_KINDS)[number][0]; if (k) addElement(visualTemplate(k)); }}>
-          <option value="">＋ Visual…</option>
-          {VISUAL_KINDS.map(([k, name]) => <option key={k} value={k}>{name}</option>)}
-        </select>
-        <select className={`${btn} ${handsOnBusy ? 'w-64' : 'w-36'}`} value="" aria-label="Add a hands-on box" disabled={!!handsOnBusy}
-          onChange={(e) => { const k = e.target.value; if (k === 'ai') aiHandsOn(); else if (k) addElement(activityTemplate(k as (typeof ACTIVITY_KINDS)[number][0])); }}>
-          <option value="">{handsOnBusy ? '✨ Making a hands-on slide…' : '🖐 Hands-on…'}</option>
-          <option value="ai">✨ Hands-on slide from this slide (AI)</option>
-          {ACTIVITY_KINDS.map(([k, name]) => <option key={k} value={k}>＋ {name} (example to edit)</option>)}
-        </select>
-        <button className={btn} onClick={openVersions}>Start from AI…</button>
+        <Menu className={btn} label="＋ Chart or diagram ▾" width="w-56">
+          {(close) => VISUAL_KINDS.map(([k, name]) => <MenuItem key={k} onClick={() => { close(); addElement(visualTemplate(k)); }}>{name}</MenuItem>)}
+        </Menu>
+        <Menu className={btn} label={handsOnBusy ? '✨ Making a hands-on slide…' : '🖐 Hands-on ▾'} disabled={!!handsOnBusy} width="w-72">
+          {(close) => (
+            <>
+              <MenuItem onClick={() => { close(); aiHandsOn(); }} hint="The AI makes a hands-on slide from what this slide teaches">✨ Hands-on slide from this slide</MenuItem>
+              <MenuHeading>Add an example to edit</MenuHeading>
+              {ACTIVITY_KINDS.map(([k, name]) => <MenuItem key={k} onClick={() => { close(); addElement(activityTemplate(k)); }}>{name}</MenuItem>)}
+            </>
+          )}
+        </Menu>
+        <div className="flex-1" />
         <button
           className={`${btn} ${heat ? 'bg-cyan-50 border-cyan-500' : ''}`}
           onClick={toggleHeat}
@@ -634,14 +779,49 @@ function Editor({
         >
           {heatLoading ? 'Loading…' : '📊 Learners'}
         </button>
-        <div className="flex-1" />
-        <span className="text-xs text-slate-500">
-          {live === undefined ? '' : live ? <>Live: published {when(live.at)}{live.by ? ` by ${live.by}` : ''} · <button className="underline" onClick={unpublish}>take down</button></> : 'Not published: learners get the AI lesson'}
-        </span>
-        <button className={btn} onClick={() => save()} disabled={saving} title="Ctrl+S">Save</button>
-        <button className={btn} onClick={() => preview()}>Preview ↗</button>
-        <button className={btn} onClick={() => preview(true)} title={`Preview the lesson starting at slide ${slideIdx + 1}`}>▶ From this slide</button>
-        <button className={primary} onClick={publish}>Publish</button>
+        <Menu className={btn} label={pdfProgress ? `⬇ PDF ${pdfProgress}…` : '⬇ PDF ▾'} disabled={pdfProgress !== null} title="Download the lesson as a PDF" width="w-72">
+          {(close) => (
+            <div className="p-1.5 flex flex-col gap-2" aria-label="PDF options">
+              <label className="flex items-start gap-2">
+                <input type="radio" name="pdf-kind" className="mt-1" checked={pdfOpts.kind === 'script'} onChange={() => setPdfOpts((o) => ({ ...o, kind: 'script' }))} />
+                <span><b>Teacher script</b><br /><span className="text-xs text-slate-500">One slide per page, each part with what the professor says</span></span>
+              </label>
+              <label className="flex items-start gap-2">
+                <input type="radio" name="pdf-kind" className="mt-1" checked={pdfOpts.kind === 'handout'} onChange={() => setPdfOpts((o) => ({ ...o, kind: 'handout' }))} />
+                <span><b>Handout</b><br /><span className="text-xs text-slate-500">Just the slides, two per page, for learners</span></span>
+              </label>
+              <label className="flex items-start gap-2">
+                <input type="radio" name="pdf-kind" className="mt-1" checked={pdfOpts.kind === 'narration'} onChange={() => setPdfOpts((o) => ({ ...o, kind: 'narration' }))} />
+                <span><b>Narration only</b><br /><span className="text-xs text-slate-500">Just what the professor says, in order: no pictures</span></span>
+              </label>
+              <div className="border-t border-slate-200 pt-2 flex flex-col gap-1.5">
+                <label className={`flex items-center gap-2 text-xs ${pdfOpts.kind === 'handout' ? 'opacity-40' : ''}`}>
+                  <input type="checkbox" disabled={pdfOpts.kind === 'handout'} checked={pdfOpts.helpers && pdfOpts.kind !== 'handout'} onChange={(e) => setPdfOpts((o) => ({ ...o, helpers: e.target.checked }))} />
+                  Helper slides (after each slide)
+                </label>
+                <label className="flex items-center gap-2 text-xs">
+                  <input type="checkbox" checked={pdfOpts.sources} onChange={(e) => setPdfOpts((o) => ({ ...o, sources: e.target.checked }))} />
+                  Sources page at the end
+                </label>
+              </div>
+              <div className="flex gap-2 justify-end">
+                <button className={btn} onClick={close}>Cancel</button>
+                <button className={primary} onClick={() => { close(); downloadPdf(); }}>Download</button>
+              </div>
+            </div>
+          )}
+        </Menu>
+        <Menu className={btn} label="More ▾" width="w-64">
+          {(close) => (
+            <>
+              <MenuItem onClick={() => { close(); openVersions(); }} hint="Replace this draft with an AI-made deck">Start from AI…</MenuItem>
+              <MenuItem onClick={() => { close(); window.open(`/lessonReview?lesson=${encodeURIComponent(lessonId)}&preview=1`, '_blank', 'noopener'); }} hint="The saved draft as a readable page, to print">📖 Lesson review ↗</MenuItem>
+              {lessonId !== DEFAULT_LESSON.id && (
+                <MenuItem danger onClick={() => { close(); setConfirmDelete({ busy: false }); }}>Delete this lesson…</MenuItem>
+              )}
+            </>
+          )}
+        </Menu>
       </div>
 
       {notice && (
@@ -655,6 +835,7 @@ function Editor({
         {/* slides */}
         <aside className="w-52 shrink-0 p-2 border-r border-slate-200 bg-slate-50 min-h-0">
           <SlideList
+            onSplitTopic={askSplit}
             slides={deck.slides}
             current={slideIdx}
             warnCounts={allWarnings.map((w) => w.filter((x) => x.level === 'warn').length)}
@@ -747,12 +928,39 @@ function Editor({
 
         {/* properties / images */}
         <aside className="w-80 shrink-0 border-l border-slate-200 bg-white flex flex-col min-h-0">
-          <div className="flex border-b border-slate-200 text-sm">
-            <button className={`flex-1 py-2 ${panel === 'props' ? 'font-semibold border-b-2 border-cyan-600' : 'text-slate-500'}`} onClick={() => setPanel('props')}>Properties</button>
-            <button className={`flex-1 py-2 ${panel !== 'props' ? 'font-semibold border-b-2 border-cyan-600' : 'text-slate-500'}`} onClick={() => setPanel('images')}>Images</button>
+          {/* tabs: what's selected, pictures, and the two lesson checks (a count when something needs a look) */}
+          <div className="flex border-b border-slate-200 text-xs" role="tablist">
+            {([
+              ['props', '✏️', 'Edit', 'The selected box, or the slide'],
+              ['images', '🖼', 'Images', 'Add a picture from the library'],
+              ['repeats', '🔁', 'Repeats', 'Where the lesson says the same thing twice'],
+              ['check', '🔎', 'Check', 'Facts against the knowledge base; pictures without a description'],
+            ] as const).map(([id, icon, name, hint]) => {
+              const on = panel === id || (id === 'images' && panel === 'background');
+              const badge = id === 'check' ? checkBadge : 0;
+              return (
+                <button key={id} role="tab" aria-selected={on} title={hint} onClick={() => setPanel(id)}
+                  className={`flex-1 py-2 flex items-center justify-center gap-1 border-b-2 ${on ? 'font-semibold border-cyan-600 text-slate-900' : 'border-transparent text-slate-500 hover:text-slate-800'}`}>
+                  <span aria-hidden>{icon}</span>{name}
+                  {badge > 0 && <span className="min-w-4 px-1 rounded-full bg-amber-400 text-[10px] font-bold text-slate-900 leading-4" aria-label={`${badge} to look at`}>{badge}</span>}
+                </button>
+              );
+            })}
           </div>
           <div className="flex-1 min-h-0 overflow-y-auto p-3">
-            {panel === 'props' ? (
+            {/* kept mounted, so its results stay while you edit (and switch tabs) */}
+            <div className={panel === 'repeats' ? '' : 'hidden'}>
+              <RepeatsPanel deck={deck} active={panel === 'repeats'} runSignal={repeatRun} onAccept={acceptRepeat} onGoTo={goToRepeat}
+                onChecked={(from, found) => ed.annotate((d) => { d.checks = { ...d.checks, repeats: { from, at: new Date().toISOString(), found } }; })}
+                onSkip={(key) => ed.annotate((d) => { d.checks = { ...d.checks, repeatSkips: [...new Set([...(d.checks?.repeatSkips ?? []), key])] }; })} />
+            </div>
+            {/* kept mounted too: each slide's results stay */}
+            <div className={panel === 'check' ? '' : 'hidden'}>
+              <CheckPanel deck={deck} slideIndex={slideIdx} lessonTitle={deck.title} active={panel === 'check'} runSignal={factRun}
+                onRecord={recordFacts} onFine={markFine} onUseThis={applyFix} onDescribed={fillDescriptions}
+                onGoTo={(id) => { if (ed.layer !== 'main') ed.setLayer('main'); ed.setSelected(id); }} onGoToSlide={(i) => goToRepeat(i)} />
+            </div>
+            {panel === 'repeats' || panel === 'check' ? null : panel === 'props' ? (
               element ? (
                 <ElementInspector
                   el={element}
@@ -764,6 +972,7 @@ function Editor({
                   warnings={slideWarns.filter((w) => w.elementId === element.id)}
                   placing={placingMark}
                   onPlacePointer={setPlacingMark}
+                  about={{ lessonTitle: deck.title, topic: slide.topic }}
                 />
               ) : (
                 <SlideInspector
@@ -773,6 +982,7 @@ function Editor({
                   onPickBackground={() => setPanel('background')}
                   recap={deck.recap}
                   recapByAI={deck.recapByAI}
+                  topicStart={ed.layer !== 'helper' && startsTopic(deck.slides, slideIdx)}
                   onRecap={(text) => ed.change((d) => { d.recap = text || undefined; d.recapByAI = undefined; }, 'deck:recap')}
                 />
               )
@@ -792,6 +1002,83 @@ function Editor({
           </div>
         </aside>
       </div>
+
+      {/* Publish? A checklist of what's been checked (remembered with the lesson: only what changed needs another look) */}
+      {publishAsk && (() => {
+        const a = publishAsk;
+        const go = (tab: 'repeats' | 'check', run?: 'repeats' | 'facts') => {
+          setPublishAsk(null);
+          setPanel(tab);
+          if (run === 'repeats') setRepeatRun((n) => n + 1);
+          if (run === 'facts') setFactRun((n) => n + 1);
+        };
+        const row = (tone: 'ok' | 'warn' | 'bad', icon: string, text: React.ReactNode, action?: React.ReactNode) => (
+          <li className={`flex items-start gap-2 rounded-md px-3 py-2 border ${tone === 'ok' ? 'bg-emerald-50 border-emerald-200' : tone === 'warn' ? 'bg-amber-50 border-amber-200' : 'bg-red-50 border-red-200'}`}>
+            <span aria-hidden>{icon}</span><span className="flex-1">{text}</span>{action}
+          </li>
+        );
+        const link = (label: string, onClick: () => void) => <button className="underline shrink-0" onClick={onClick}>{label}</button>;
+        const issues = a.warnings + a.repeats + (a.repeatsAi !== 'ok' ? 1 : 0) + a.factsToCheck + a.factsOpen.bad + a.factsOpen.missing + a.pictures;
+        return (
+          <div className="fixed inset-0 z-[1000] bg-black/40 flex items-center justify-center p-6" onClick={() => setPublishAsk(null)}>
+            <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg p-6 flex flex-col gap-4" role="alertdialog" aria-labelledby="publish-title" onClick={(e) => e.stopPropagation()}>
+              <h2 id="publish-title" className="font-bold text-lg">Publish this lesson?</h2>
+              <p className="text-sm text-slate-600">Learners will see this deck instead of the AI lesson. Checks you&apos;ve already done are remembered: only what changed since needs another look.</p>
+              <ul className="text-sm flex flex-col gap-2">
+                {a.warnings > 0
+                  ? row('warn', '⚠', <>{a.warnings === 1 ? '1 warning' : `${a.warnings} warnings`} on the slides (marked ⚠)</>)
+                  : row('ok', '✓', 'No layout warnings')}
+                {a.pictures > 0 && row('warn', '🖼', <>{a.pictures} picture{a.pictures === 1 ? '' : 's'} without a description</>, link('Describe', () => go('check')))}
+                {a.factsToCheck > 0
+                  ? row('warn', '🔎', <>{a.factsToCheck} slide{a.factsToCheck === 1 ? '' : 's'} not fact-checked since {a.factsToCheck === 1 ? 'it' : 'they'} changed</>, link('Check now', () => go('check', 'facts')))
+                  : row('ok', '✓', 'Facts checked on every slide')}
+                {(a.factsOpen.bad > 0 || a.factsOpen.missing > 0) && row(a.factsOpen.bad ? 'bad' : 'warn', a.factsOpen.bad ? '❌' : '⚠️',
+                  <>{a.factsOpen.bad ? `${a.factsOpen.bad} fact${a.factsOpen.bad === 1 ? '' : 's'} the sources disagree with` : ''}{a.factsOpen.bad && a.factsOpen.missing ? ', ' : ''}{a.factsOpen.missing ? `${a.factsOpen.missing} not found in the sources` : ''}</>,
+                  link('Review', () => go('check')))}
+                {a.repeats > 0 && row('warn', '🔁', <>{a.repeats === 1 ? '1 possible repeat' : `${a.repeats} possible repeats`}: the same words on screen in two topics</>, link('Review', () => go('repeats')))}
+                {a.repeatsAi === 'ok'
+                  ? row('ok', '✓', 'Checked for repeats with the AI, nothing changed since')
+                  : row('warn', '✨', a.repeatsAi === 'none' ? 'Not checked for repeats with the AI yet' : 'Changed since the last AI repeat check', link('Check now', () => go('repeats', 'repeats')))}
+              </ul>
+              <div className="flex gap-2 justify-end">
+                <button className={btn} onClick={() => setPublishAsk(null)}>Cancel</button>
+                <button className={primary} onClick={() => { setPublishAsk(null); publishNow(); }}>{issues ? 'Publish anyway' : 'Publish'}</button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* Split this topic? */}
+      {splitAsk && (
+        <div className="fixed inset-0 z-[1000] bg-black/40 flex items-center justify-center p-6" onClick={() => setSplitAsk(null)}>
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-md p-6 flex flex-col gap-3" role="dialog" aria-labelledby="split-title" onClick={(e) => e.stopPropagation()}>
+            <h2 id="split-title" className="font-bold text-lg">Split “{deck.slides[splitAsk.start]?.topic || 'this topic'}”</h2>
+            {splitAsk.busy && <p className="text-sm text-slate-600" role="status">✨ Finding the best place to split it…</p>}
+            {splitAsk.error && <p className="text-sm text-red-700">{splitAsk.error}</p>}
+            {splitAsk.split && (() => {
+              const sp = splitAsk.split;
+              const old = (deck.slides[splitAsk.start]?.topic ?? '').trim().toLowerCase();
+              let end = splitAsk.start;
+              while (end + 1 < deck.slides.length && (deck.slides[end + 1].topic ?? '').trim().toLowerCase() === old) end++;
+              return (
+                <>
+                  <ol className="text-sm flex flex-col gap-1.5">
+                    <li className="rounded-md bg-slate-50 border border-slate-200 px-3 py-2"><b>{sp.first}</b> <span className="text-slate-500">· slides {splitAsk.start + 1}{sp.splitAt - 1 > splitAsk.start ? `–${sp.splitAt}` : ''}</span></li>
+                    <li className="rounded-md bg-cyan-50 border border-cyan-200 px-3 py-2"><b>{sp.second}</b> <span className="text-slate-500">· slides {sp.splitAt + 1}{end > sp.splitAt ? `–${end + 1}` : ''} (new topic)</span></li>
+                  </ol>
+                  {sp.why && <p className="text-xs text-slate-500">{sp.why}</p>}
+                  <p className="text-xs text-slate-500">You can rename either afterwards (the Topic box on a slide). The new topic gets its introduction written when you save.</p>
+                </>
+              );
+            })()}
+            <div className="flex gap-2 justify-end">
+              <button className={btn} onClick={() => setSplitAsk(null)}>Cancel</button>
+              <button className={primary} disabled={!splitAsk.split} onClick={doSplit}>Split</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Someone else saved this lesson since it was opened here */}
       {conflict && (

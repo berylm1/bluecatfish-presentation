@@ -1,4 +1,6 @@
-import type { Slide, SlideElement } from './types';
+import type { Deck, Slide, SlideElement } from './types';
+import { shownWords, spokenText } from './queue';
+import { fingerprint } from './aiFields';
 import { activityReady } from './queue';
 
 // Editor warnings that can be worked out from the slide alone. "Text doesn't
@@ -31,8 +33,18 @@ export function slideWarnings(slide: Slide): Warning[] {
     if (el.x < 0 || el.y < 0 || el.x + el.w > 100.01 || el.y + el.h > 100.01) {
       out.push({ elementId: el.id, level: 'warn', message: `${label(el)} goes off the edge of the slide` });
     }
-    if (el.type === 'image' && !el.silent && !el.alt?.trim()) {
-      out.push({ elementId: el.id, level: 'warn', message: 'An image has no description (the professor’s words about it are written from the description)' });
+    // A picture's description is what the AI writes its spoken words, caption and laser marks from,
+    // and what screen readers say for it
+    if (el.type === 'image' && !el.alt?.trim()) {
+      if (!el.silent) {
+        out.push({ elementId: el.id, level: 'warn', message: 'A picture has no description: the AI can’t write what the professor says about it, its caption or its laser marks, and screen readers skip it' });
+      } else if ((el.z ?? 1) > 0 && el.w * el.h >= 100) {
+        // a quiet picture that isn't background: fine for decoration, but worth a word
+        out.push({ elementId: el.id, level: 'info', message: 'A quiet picture has no description: screen readers skip it and it gets no caption (fine if it’s only decoration)' });
+      }
+    }
+    if (el.type === 'activity' && el.src && !el.alt?.trim() && (el.kind === 'hotspots' || el.kind === 'slider')) {
+      out.push({ elementId: el.id, level: 'info', message: 'The hands-on box’s picture has no description, so screen readers can’t say what it shows' });
     }
     if (el.type === 'activity' && !activityReady(el)) {
       out.push({ elementId: el.id, level: 'warn', message: 'The hands-on box isn’t finished, so learners won’t see it (it needs its groups, items, picture or stops)' });
@@ -59,3 +71,23 @@ export function slideWarnings(slide: Slide): Warning[] {
   }
   return out;
 }
+
+/* ------------------------------------------------- remembered checks */
+
+/** What a slide's fact check looked at: everything it shows and says. Changes when either does. */
+export const factBasis = (slide: Slide) =>
+  fingerprint(slide.elements.map((e) => `${shownWords(e)}|${spokenText(e)}`).join('||'));
+
+/** What the AI repeat check looked at: the whole lesson's shown and spoken words. */
+export const lessonBasis = (deck: Deck) => fingerprint(deck.slides.map(factBasis).join('|'));
+
+/** A fact a person marked "It's fine": per slide and claim. */
+export const claimKey = (slideId: string, claim: string) => fingerprint(`${slideId}|${claim.trim().toLowerCase()}`);
+
+/** A repeat suggestion a person skipped: per element and the words it was about. */
+export const repeatKey = (slideId: string, elId: string, beforeSay: string) => fingerprint(`${slideId}|${elId}|${beforeSay}`);
+
+/** Slides whose fact check is missing or out of date (they changed since). */
+export const slidesToFactCheck = (deck: Deck) =>
+  deck.slides.map((s, i) => ({ s, i })).filter(({ s }) =>
+    s.elements.some((e) => !e.silent || e.type === 'text') && deck.checks?.facts?.[s.id]?.from !== factBasis(s));

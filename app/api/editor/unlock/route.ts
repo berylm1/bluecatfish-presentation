@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { AUTH_COOKIE, AUTH_DAYS, NAME_COOKIE, checkPassword, gateConfigured, makeToken } from '@/lib/editorAuth';
+import { rateLimit } from '@/lib/rateLimit';
 
 // POST { password } → sets the editor cookie for 30 days
 export async function POST(req: Request) {
@@ -9,6 +10,9 @@ export async function POST(req: Request) {
       { status: 503 },
     );
   }
+  // was: only a 400 ms pause per try, so many tries at once could guess a password
+  const limited = await rateLimit(req, 'unlock');
+  if (limited) return limited;
   const { password } = await req.json().catch(() => ({ password: '' }));
   // A short pause on every try makes guessing slow
   await new Promise((r) => setTimeout(r, 400));

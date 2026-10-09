@@ -4,7 +4,8 @@ import { createServerClient, type CookieOptions } from "@supabase/ssr";
 import { AUTH_COOKIE, isProtected, verifyToken } from "@/lib/editorAuth";
 
 // Routes that DON'T require login — everything else is protected by default
-const PUBLIC_PATHS = ["/login", "/auth/callback", "/presentation", "/presentationv2", "/lessonReview", "/textIngest", "/imageIngest"];
+// (the editor password gate is separate: lib/editorAuth.ts, e.g. /lessonReview, /textIngest, /imageIngest)
+const PUBLIC_PATHS = ["/login", "/auth/callback", "/presentation", "/presentationv2"];
 
 export async function proxy(request: NextRequest) {
   const pathname = request.nextUrl.pathname;

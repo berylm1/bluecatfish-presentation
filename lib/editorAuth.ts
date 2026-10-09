@@ -13,7 +13,7 @@ export const NAME_COOKIE = 'editor_name';   // readable by the page, for "Unlock
 export const AUTH_DAYS = 30;
 
 /** Pages and APIs that need the password. */
-export const PROTECTED_PAGES = ['/slideEditor', '/imageIngest', '/textIngest', '/instructor-view'];
+export const PROTECTED_PAGES = ['/slideEditor', '/imageIngest', '/textIngest', '/instructor-view', '/lessonReview'];
 export const PROTECTED_APIS = [
   '/api/editor',        // deck save / publish / upload (step 3)
   '/api/image-Ingest',  // /imageIngest uploads
