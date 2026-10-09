@@ -77,7 +77,7 @@ Design: every slide looks different. Mix layouts, e.g. an image in the middle wi
 }
 
 async function planTopics(lesson: LessonInfo): Promise<TopicPlan[]> {
-  const facts = await knowledge(`${lesson.title}: overview, causes, impacts, what people can do`, 30);
+  const facts = await knowledge(`${lesson.title}: overview, causes, impacts, what people can do`, 40);
   const out = await chat(
     'You plan a short interactive lesson for 10-14 year olds. Split it into 4 to 6 topics in a sensible teaching order ' +
       '(what it is → why it matters → what is being done). Each topic covers DIFFERENT facts: never plan the same fact into two topics. ' +
