@@ -4,7 +4,7 @@ import type { Deck, Pointer, Slide, SlideElement } from './types';
 import { spokenText } from './queue';
 import { introBasis, introText } from './intro';
 import {
-  answerBasis, applyPatches, audioKey, fingerprint, helperElements, needsAnswerCheck, needsAudio, needsCaption, needsHelper, needsIntro, needsIntroAudio, needsPlain, needsPlainAudio, needsPointers, needsSay, needsTopic,
+  answerBasis, applyPatches, needsQuiz, quizBasis, quizKey, audioKey, fingerprint, helperElements, needsAnswerCheck, needsAudio, needsCaption, needsHelper, needsIntro, needsIntroAudio, needsPlain, needsPlainAudio, needsPointers, needsSay, needsTopic,
   pointersBasis,
   plainText, sayBasis, slideBasis, type Patch,
 } from './aiFields';
@@ -18,12 +18,14 @@ const supabase = lazySupabaseAdmin();
 const CONCURRENCY = 6;
 const AUDIO_BUCKET = 'slide-audio';
 const AUDIO_FOLDER = 'canvas';
+const QUIZ_TIME_MS = 25_000;   // the quiz's check, write and check, roughly
 
 // Shared AI helpers live in ai.ts (re-exported here: generate.ts imports them from this file)
 export { STYLE, chat, knowledge } from './ai';
 import { STYLE, chat, chatVision, imageForVision, knowledge } from './ai';
 import { draftHelper } from './helperDraft';
 import { checkActivityAnswers } from './activityCheck';
+import { refreshQuiz } from './quiz';
 
 const otherText = (slide: Slide, el: SlideElement) =>
   slide.elements.filter((e) => e.id !== el.id).map(sayBasis).filter(Boolean).join(' | ');
@@ -266,6 +268,17 @@ export async function prepareDeck(source: Deck, deadline: number): Promise<{ pat
     } catch (e) { fail('Writing spoken words', e); }
   });
 
+  // 1c. The end-of-lesson quiz pool (the words are final now): alongside the rest, it needs no audio
+  // (three AI reads: started only with time for them, else the next round does it)
+  const quizTask = needsQuiz(deck) && deadline - Date.now() > QUIZ_TIME_MS ? (async () => {
+    const from = quizBasis(deck);
+    const prev = quizKey(deck.quiz?.questions);
+    try {
+      const { questions } = await refreshQuiz(structuredClone(deck));
+      keep({ slideId: '', kind: 'quiz', from, prev, questions });
+    } catch (e) { fail('Writing the quiz', e); }
+  })() : Promise.resolve();
+
   // 2. Plain versions (from the spoken words, including ones just written)
   await pool(jobs(deck, needsPlain), deadline, async ({ slide, el }) => {
     try {
@@ -305,5 +318,6 @@ export async function prepareDeck(source: Deck, deadline: number): Promise<{ pat
     } catch (e) { fail('Making audio', e); }
   });
 
+  await quizTask;
   return { patches, errors };
 }

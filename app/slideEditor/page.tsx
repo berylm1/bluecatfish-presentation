@@ -12,7 +12,7 @@ import SlideCanvas from '@/components/canvas/SlideCanvas';
 import { answersToLookAt, claimKey, factBasis, lessonBasis, slideWarnings, slidesToFactCheck, type Warning } from '@/lib/canvas/checks';
 import { speakingOrder } from '@/lib/canvas/queue';
 import { deckFromAnyVersion } from '@/lib/canvas/fromLegacy';
-import { answerState, countTodo, todoTotal } from '@/lib/canvas/aiFields';
+import { answerState, countTodo, quizBasis, todoTotal } from '@/lib/canvas/aiFields';
 import { startsTopic } from '@/lib/canvas/intro';
 import { applyRepeatFix, type RepeatSuggestion } from '@/lib/canvas/repeats';
 import RepeatsPanel from '@/components/editor/RepeatsPanel';
@@ -448,6 +448,7 @@ function Editor({
       draft.slides = d.deck.slides;
       draft.recap = d.deck.recap;
       draft.recapByAI = d.deck.recapByAI;
+      draft.quiz = d.deck.quiz;
       draft.basedOn = `canvas_ai:${d.deck.updatedAt ?? ''}`;
     });
     ed.setSlideIdx(0);
@@ -986,6 +987,9 @@ function Editor({
                   recapByAI={deck.recapByAI}
                   topicStart={ed.layer !== 'helper' && startsTopic(deck.slides, slideIdx)}
                   onRecap={(text) => ed.change((d) => { d.recap = text || undefined; d.recapByAI = undefined; }, 'deck:recap')}
+                  quiz={deck.quiz}
+                  quizStale={!!deck.quiz && deck.quiz.from !== quizBasis(deck)}
+                  onQuiz={(change) => ed.change((d) => { d.quiz = change(d.quiz ? structuredClone(d.quiz) : undefined); })}
                 />
               )
             ) : (

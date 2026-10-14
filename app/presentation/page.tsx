@@ -28,11 +28,12 @@ import type { ActivityMistake, FinnEvent, FinnMove } from '@/components/canvas/A
 import { focusSlide, helperSlide, ownHelper } from '@/lib/canvas/morph';
 import { isIntroId } from '@/lib/canvas/intro';
 import { activityReady, shownWords, speakingOrder, spokenText } from '@/lib/canvas/queue';
-import { answerBasis, currentAudio } from '@/lib/canvas/aiFields';
+import { answerBasis, currentAudio, QUIZ_ASKED } from '@/lib/canvas/aiFields';
 import { activePointer } from '@/lib/canvas/laser';
-import type { ActivityElement, Pointer, Slide } from '@/lib/canvas/types';
+import type { ActivityElement, Pointer, QuizQuestion, Slide } from '@/lib/canvas/types';
 import { VOICE_SPEEDS, loadVoiceSpeed, setVoiceSpeed, type VoiceSpeed } from '@/lib/voiceSpeed';
 import { lessonLength } from '@/lib/canvas/lessonLength';
+import Quiz, { pickQuiz } from '@/components/canvas/Quiz';
 
 /*
  * The canvas presentation (see docs/customization-plan.md).
@@ -133,6 +134,9 @@ const SLIDE_WIDTH = 'min(var(--slide-max-w, 88vw), calc((100vh - var(--slide-chr
 const ANSWER_BOX_UNDER_SLIDE = false;
 // The recap's text on the end screen: off, the achievements are there instead (the professor says the recap, and the transcript shows it)
 const SHOW_RECAP_ON_END = false;
+// After "kind of" / "lost me" at the end of a part
+const REPLAY_ASK_KIND = 'No problem. Want to see that part a different way?';
+const REPLAY_ASK_LOST = "That's okay, it happens. Want me to show you that part a different way?";
 // Cards, when the instructions don't already ask for a guess (said once per box)
 const THINK_LINE = 'Before you flip one, take a second to guess the answer in your head.';
 const EXCHANGE_HIDE_MS = 12000;   // the question + answer box under the slide goes away this long after the answer
@@ -253,6 +257,8 @@ function Player({ deck, preview, startAt = 0 }: { deck: Deck; preview: boolean; 
   // Hands-on sounds (pop, bonk, chime): on unless turned off (remembered on this browser)
   const [soundsOn, setSoundsOn] = useState(true);
   const lessonStartedAt = useRef(0);   // for the end screen's "you stuck with it for N minutes"
+  // The end-of-lesson quiz: QUIZ_ASKED questions from the deck's pool, picked when the lesson ends
+  const [quiz, setQuiz] = useState<{ state: 'waiting' | 'asking' | 'done' | 'skipped'; questions: QuizQuestion[]; right: number }>({ state: 'waiting', questions: [], right: 0 });
   // A phone held upright (the "turn it sideways" tip), and a short screen (a phone turned sideways)
   const phonePortrait = useMedia('(orientation: portrait) and (max-width: 640px)');
   const shortScreen = useMedia('(max-height: 500px)');
@@ -775,12 +781,25 @@ function Player({ deck, preview, startAt = 0 }: { deck: Deck; preview: boolean; 
     checked.current.add(sc.from);
     setSelfCheck(null);
     cues.stop();
-    // Like v2: 'kind of' and 'lost me' both get another way to see it before
-    // moving on ('lost me' the gentler, remedial kind)
-    if (rating === 'lost') confused(() => playerRef.current.goToSlide(sc.to), 'frustrated');
-    else if (rating === 'kind') confused(() => playerRef.current.goToSlide(sc.to), 'confused');
-    else playerRef.current.goToSlide(sc.to);
-  }, [selfCheck, tracking, cues, confused]);
+    // 'kind of' and 'lost me': the professor offers another way to see it first ('lost me' the
+    // gentler, remedial kind). Was: shown straight away, even to a learner who was only a bit unsure
+    if (rating === 'lost' || rating === 'kind') {
+      setReplayOffer({ to: sc.to, mood: rating === 'lost' ? 'frustrated' : 'confused', rating });
+      cues.play({ text: rating === 'lost' ? REPLAY_ASK_LOST : REPLAY_ASK_KIND });
+    } else playerRef.current.goToSlide(sc.to);
+  }, [selfCheck, tracking, cues]);
+
+  // "Want to see that part a different way?" after "kind of" / "lost me": a button, or said / typed
+  const [replayOffer, setReplayOffer] = useState<{ to: number; mood: 'confused' | 'frustrated'; rating: SelfCheckRating } | null>(null);
+  const answerReplay = useCallback((yes: boolean, how: 'button' | 'said') => {
+    const offer = replayOffer;
+    if (!offer) return;
+    tracking.track('tutor_decision', { action: 'replay_offer', rating: offer.rating, answer: yes ? 'yes' : 'no', how });
+    setReplayOffer(null);
+    cues.stop();
+    if (yes) confused(() => playerRef.current.goToSlide(offer.to), offer.mood);
+    else playerRef.current.goToSlide(offer.to);
+  }, [replayOffer, tracking, cues, confused]);
 
   // Paused on purpose before talking? Then a turn with nothing in it leaves it paused
   const resumeAfterTurn = useRef(true);
@@ -798,6 +817,12 @@ function Player({ deck, preview, startAt = 0 }: { deck: Deck; preview: boolean; 
     // Their call on Finn's mistake (a command, like "next", calls it off and is done instead)
     if (finnCheck.current) { if (!parseCanvasCommand(text)) { finnVerdict(text, 'typed'); return; } finnVerdict(null, 'typed'); }
     takeOverFromFinn();   // the learner's own question or command during Finn's turn: theirs goes first
+    if (replayOffer) {
+      // "yes" / "show me" or "no" / "keep going"; anything else (a question) is handled as usual, and the offer stays
+      const t = text.trim();
+      if (YES.test(t) || /\b(show me|another way|again)\b/i.test(t)) return answerReplay(true, 'said');
+      if (NO.test(t) || /\b(next|move on|keep going|continue)\b/i.test(t)) return answerReplay(false, 'said');
+    }
     if (selfCheck) {
       const t = text.toLowerCase();
       if (/\b(lost|confus|no\b|nope|didn'?t|don'?t)/.test(t)) return answerSelfCheck('lost');
@@ -842,7 +867,7 @@ function Player({ deck, preview, startAt = 0 }: { deck: Deck; preview: boolean; 
         break;
       }
     }
-  }, [deck, player, act, answer, confused, showSlide, tutor, tutorBusy, tracking, variant, cues, selfCheck, answerSelfCheck, finnVerdict]);
+  }, [deck, player, act, answer, confused, showSlide, tutor, tutorBusy, tracking, variant, cues, selfCheck, answerSelfCheck, finnVerdict, replayOffer, answerReplay]);
 
   // Barge-in: with interruptions on, starting to talk over the professor (or
   // over an answer) makes them finish the sentence, then stop and listen.
@@ -877,11 +902,24 @@ function Player({ deck, preview, startAt = 0 }: { deck: Deck; preview: boolean; 
   });
   micRef.current = { status: micStatus, talk };
 
+  // The end, first: the quiz (if the lesson has one, and it hasn't been done or skipped this time through)
+  const quizPool = deck.quiz && !deck.quiz.off && deck.quiz.questions.length >= QUIZ_ASKED ? deck.quiz.questions : null;
+  useEffect(() => {
+    if (player.status !== 'finished' || !quizPool) return;
+    setQuiz((q) => (q.state === 'waiting' ? { state: 'asking', questions: pickQuiz(quizPool, QUIZ_ASKED), right: 0 } : q));
+  }, [player.status, quizPool]);
+  const quizShowing = player.status === 'finished' && !!quizPool && (quiz.state === 'waiting' || quiz.state === 'asking');
+  const endQuiz = (how: 'done' | 'skipped', right = 0) => {
+    cues.stop();
+    tracking.track('tutor_decision', how === 'done' ? { action: 'quiz_done', right, of: quiz.questions.length } : { action: 'quiz_skip' });
+    setQuiz((q) => ({ ...q, state: how, right }));
+  };
+
   // The end: "Let's look back…", the recap (with a word for the learner), and a goodbye
   const { play: playCue, stop: stopCue, preload: preloadCue } = cues;   // stable, unlike `cues` (which changes as lines start and stop)
   const { stateOf } = tracking;
   useEffect(() => {
-    if (player.status !== 'finished') return;
+    if (player.status !== 'finished' || quizShowing) return;   // (after the quiz)
     let cancelled = false;
     // The recap and the personal line are ONE clip (no gap around the name),
     // made while "Let's look back…" is playing
@@ -895,7 +933,7 @@ function Player({ deck, preview, startAt = 0 }: { deck: Deck; preview: boolean; 
     return () => { cancelled = true; stopCue(); };
     // learnerName: as it was when the lesson ended
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [player.status, deck, topicOf, stateOf, playCue, stopCue, preloadCue]);
+  }, [player.status, quizShowing, deck, topicOf, stateOf, playCue, stopCue, preloadCue]);
 
   /* ------------------------------------------------ camera: the instructor notices */
 
@@ -1194,6 +1232,7 @@ function Player({ deck, preview, startAt = 0 }: { deck: Deck; preview: boolean; 
       const t = e.target as HTMLElement | null;
       // The self-check: 1 got it, 2 kind of, 3 lost me
       if (selfCheck && !variant && ['1', '2', '3'].includes(e.key) && t?.tagName !== 'INPUT') { answerSelfCheck(e.key === '1' ? 'got' : e.key === '2' ? 'kind' : 'lost'); return; }
+      if (replayOffer && !variant && ['y', 'n'].includes(e.key.toLowerCase()) && t?.tagName !== 'INPUT') { answerReplay(e.key.toLowerCase() === 'y', 'button'); return; }
       if (t && (['INPUT', 'TEXTAREA', 'SELECT'].includes(t.tagName) || t.closest?.('[data-activity]'))) return;
       if (t?.tagName === 'BUTTON' && (e.key === ' ' || e.key === 'Enter')) return;   // the button's own click (was: clicked AND pause/resume)
       if (e.key === 'ArrowRight' && e.shiftKey) player.nextSlide();
@@ -1208,7 +1247,7 @@ function Player({ deck, preview, startAt = 0 }: { deck: Deck; preview: boolean; 
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [started, player, confused, selfCheck, variant, answerSelfCheck]);
+  }, [started, player, confused, selfCheck, variant, answerSelfCheck, replayOffer, answerReplay]);
 
   // What the slide shows right now: the slide, the helper it morphed into, or
   // the element being explained, focused and in plain words
@@ -1240,6 +1279,8 @@ function Player({ deck, preview, startAt = 0 }: { deck: Deck; preview: boolean; 
     // (a preview never touches the learner's saved place in this browser)
     setSelfCheck(null); setYourTurn(null); cues.stop(); if (!preview) forgetProgress(); player.restart();
     lessonStartedAt.current = Date.now();
+    setQuiz({ state: 'waiting', questions: [], right: 0 });
+    setReplayOffer(null);
   }
 
   function startLesson(from?: Progress & { index: number }) {
@@ -1329,13 +1370,14 @@ function Player({ deck, preview, startAt = 0 }: { deck: Deck; preview: boolean; 
     achievements.push({ icon: '📚', text: topics.length > 1 ? <>You finished every part: <b>{topics.join(', ')}</b></> : <>You finished the lesson{topics[0] ? <>: <b>{topics[0]}</b></> : ''}</> });
     const handsOn = [...activitiesSolved.current].filter((id) => !activitiesRevealed.current.has(id)).length;
     if (handsOn) achievements.push({ icon: '🖐', text: <>You solved <b>{handsOn}</b> hands-on activit{handsOn === 1 ? 'y' : 'ies'} yourself</> });
+    if (quiz.state === 'done') achievements.push({ icon: '🧠', text: <>Quiz: <b>{quiz.right}</b> of <b>{quiz.questions.length}</b> right{quiz.right === quiz.questions.length ? '. Perfect!' : ''}</> });
     if (finnSummary) achievements.push({ icon: '🙋', text: finnSummary });
     const asked = tutor.history.filter((h) => !h.asker).length;
     if (asked) achievements.push({ icon: '✋', text: <>You asked <b>{asked}</b> question{asked === 1 ? '' : 's'}: curious minds learn more</> });
     const minutes = lessonStartedAt.current ? Math.max(1, Math.round((Date.now() - lessonStartedAt.current) / 60000)) : 0;
     if (minutes) achievements.push({ icon: '⏱', text: <>You stuck with it for <b>{minutes}</b> minute{minutes === 1 ? '' : 's'}</> });
   }
-  const btn = 'px-3 py-2 rounded-lg bg-white/10 hover:bg-white/20 text-sm font-medium transition-colors disabled:opacity-40';
+  const btn = 'px-2.5 py-2 rounded-lg bg-white/10 hover:bg-white/20 text-sm font-medium transition-colors disabled:opacity-40';
   const group = 'flex items-center gap-1 p-1 rounded-xl bg-white/[0.04] border border-white/10';
   // a button's name: hidden (but read out) on a phone, and on a phone turned sideways
   const label = 'max-sm:sr-only [@media(max-height:500px)]:sr-only';
@@ -1389,7 +1431,13 @@ function Player({ deck, preview, startAt = 0 }: { deck: Deck; preview: boolean; 
         </div>
       )}
       <div className="relative" data-bubble-avoid data-bubble-slide>
-        {player.status === 'finished' ? (
+        {quizShowing ? (
+          quiz.state === 'asking' && (
+            <Quiz questions={quiz.questions} width={SLIDE_WIDTH} say={(text) => playCue({ text })}
+              onAnswer={(i, right) => tracking.track('tutor_decision', { action: 'quiz_answer', right, q: quiz.questions[i]?.q.slice(0, 120) })}
+              onDone={(right) => endQuiz('done', right)} onSkip={() => endQuiz('skipped')} />
+          )
+        ) : player.status === 'finished' ? (
           // The end: what the learner did, as achievements popping in one by one (was: the recap's
           // text again, which Professor Marine says anyway, and only "Start over")
           <div
@@ -1460,6 +1508,21 @@ function Player({ deck, preview, startAt = 0 }: { deck: Deck; preview: boolean; 
                 ))}
               </div>
               <p className="text-xs text-slate-500 mt-4">Or just say it (or press 1, 2 or 3).</p>
+            </div>
+          </div>
+        )}
+        {replayOffer && !variant && !selfCheck && (
+          <div className="absolute inset-0 z-20 flex items-center justify-center bg-slate-950/60 backdrop-blur-sm rounded-2xl" role="dialog" aria-label="See it a different way?">
+            <div className="bg-white text-slate-900 rounded-2xl p-6 sm:p-8 text-center shadow-2xl max-w-md mx-4">
+              <h3 className="text-xl sm:text-2xl font-bold">Want to see that part a different way?</h3>
+              <div className="mt-5 flex flex-wrap gap-3 justify-center">
+                <button className="px-5 py-3 rounded-xl bg-cyan-500 hover:bg-cyan-400 font-semibold" onClick={() => answerReplay(true, 'button')} autoFocus>Yes, show me</button>
+                <button className="px-5 py-3 rounded-xl bg-slate-200 hover:bg-slate-300 font-semibold" onClick={() => answerReplay(false, 'button')}>No, keep going</button>
+              </div>
+              <button className={`mt-4 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm ${micStatus === 'listening' ? 'bg-red-500 text-white' : 'bg-slate-100 hover:bg-slate-200 text-slate-700'}`}
+                onClick={talk} disabled={micStatus === 'processing'}>
+                {micStatus === 'listening' ? '● Listening… say yes or no' : '🎤 Or say it: “yes” or “no”'}
+              </button>
             </div>
           </div>
         )}

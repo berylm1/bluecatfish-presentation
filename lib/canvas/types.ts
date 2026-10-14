@@ -211,6 +211,27 @@ export interface DeckChecks {
   repeatSkips?: string[];
 }
 
+/** One end-of-lesson quiz question: a few choices, one right (by index). */
+export interface QuizQuestion {
+  q: string;
+  choices: string[];
+  answer: number;
+  /** Why the answer is right, in a short sentence (said after a wrong pick) */
+  why?: string;
+}
+
+/**
+ * The end-of-lesson quiz (lib/canvas/quiz.ts): a pool the AI writes when the lesson is saved, each
+ * answer checked against the lesson and the knowledge base. Learners get 3 at random.
+ */
+export interface DeckQuiz {
+  questions: QuizQuestion[];
+  /** quizBasis of the lesson the questions were last checked against (a changed lesson: checked again) */
+  from: string;
+  /** No quiz at the end of this lesson */
+  off?: boolean;
+}
+
 export interface Deck {
   lessonId: string;
   title: string;
@@ -223,6 +244,8 @@ export interface Deck {
   /** Changes with every save from the editor (not with AI fill-ins), to spot two people editing at once. */
   editRev?: string;
   recapByAI?: boolean;
+  /** The end-of-lesson quiz pool */
+  quiz?: DeckQuiz;
   /** The editor's fact and repeat checks (editor-only) */
   checks?: DeckChecks;
   updatedAt?: string;

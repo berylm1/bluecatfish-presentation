@@ -226,6 +226,20 @@ function checks(raw: any): DeckChecks | undefined {
   return out.facts || out.factsOk?.length || out.repeats || out.repeatSkips?.length ? out : undefined;
 }
 
+/** The quiz pool: known fields only, capped; a question needs 2 to 4 different choices and a right one. */
+export function quiz(raw: any): Deck['quiz'] {
+  if (!raw || typeof raw !== 'object' || !tag(raw.from)) return undefined;
+  const questions = (Array.isArray(raw.questions) ? raw.questions : []).slice(0, 12).flatMap((q: any) => {
+    const text = str(q?.q, 200);
+    const choices = (Array.isArray(q?.choices) ? q.choices : []).slice(0, 4).map((c: unknown) => str(c, 100) ?? '');
+    const answer = typeof q?.answer === 'number' ? Math.round(q.answer) : -1;
+    const distinct = new Set(choices.map((c: string) => c.trim().toLowerCase())).size === choices.length;
+    if (!text || choices.length < 2 || choices.some((c: string) => !c) || !distinct || answer < 0 || answer >= choices.length) return [];
+    return [{ q: text, choices, answer, why: str(q?.why, 240) }];
+  });
+  return { questions, from: raw.from, off: bool(raw.off) };
+}
+
 export function sanitizeDeck(raw: any, lessonId: string, source: Deck['source']): Deck {
   if (!raw || typeof raw !== 'object' || !Array.isArray(raw.slides)) throw new Error('Not a deck: missing slides');
   if (raw.slides.length > MAX_SLIDES) throw new Error(`Too many slides (max ${MAX_SLIDES})`);
@@ -241,6 +255,7 @@ export function sanitizeDeck(raw: any, lessonId: string, source: Deck['source'])
     slides,
     recap: str(raw.recap, 4000),
     recapByAI: bool(raw.recapByAI),
+    quiz: quiz(raw.quiz),
     checks: checks(raw.checks),
     editRev: typeof raw.editRev === 'string' && /^[a-z0-9]{1,24}$/.test(raw.editRev) ? raw.editRev : undefined,
     basedOn: typeof raw.basedOn === 'string' && /^(bluecatfish_|canvas_ai:)[\w:.-]{1,120}$/.test(raw.basedOn) ? raw.basedOn : undefined,

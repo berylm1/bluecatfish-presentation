@@ -1,4 +1,4 @@
-import type { ActivityElement, Deck, Pointer, Slide, SlideElement, SlideHelper } from './types';
+import type { ActivityElement, Deck, Pointer, QuizQuestion, Slide, SlideElement, SlideHelper } from './types';
 import { activityReady, shownWords, spokenText } from './queue';
 import { introBasis, introText, startsTopic } from './intro';
 import { TTS_VOICE, VOICE_INSTRUCTIONS, SIMPLE_VOICE_INSTRUCTIONS } from '@/lib/voice';
@@ -151,6 +151,22 @@ export function needsIntroAudio(slides: Slide[], i: number): boolean {
 /** What a hands-on box's answer check looked at: its task and answer key. */
 export const answerBasis = (el: ActivityElement) => fingerprint(`${el.kind}|${el.prompt ?? ''}|${shownWords(el)}`);
 
+/** The quiz: questions in the pool, and asked at the end (at random) */
+export const QUIZ_POOL = 8;
+export const QUIZ_ASKED = 3;
+
+/** What the end-of-lesson quiz is checked against: everything the lesson shows and says. */
+export const quizBasis = (deck: Deck) =>
+  fingerprint(deck.slides.map((s) => s.elements.map((e) => `${shownWords(e)}\n${spokenText(e)}`).join('|')).join('||'));
+/** The quiz's questions as they are (a quiz patch only lands on the questions it started from). */
+export const quizKey = (questions: QuizQuestion[] = []) => fingerprint(JSON.stringify(questions));
+
+/** Does the quiz pool need writing (none yet) or checking again (the lesson changed)? */
+export function needsQuiz(deck: Deck): boolean {
+  if (deck.quiz?.off || !deck.slides.some((s) => slideBasis(s))) return false;
+  return !deck.quiz || deck.quiz.from !== quizBasis(deck);
+}
+
 /**
  * Where a hands-on box's answers stand: not checked (or changed since), flagged (⚠),
  * fixed by the AI and not looked at yet, or fine.
@@ -179,6 +195,7 @@ export interface Todo {
   intros: number;
   captions: number;
   answers: number;
+  quiz: number;
   topics: number;
   say: number;
   plain: number;
@@ -186,7 +203,7 @@ export interface Todo {
 }
 
 export function countTodo(deck: Deck): Todo {
-  const t: Todo = { helpers: 0, pointers: 0, intros: 0, captions: 0, answers: 0, topics: 0, say: 0, plain: 0, audio: 0 };
+  const t: Todo = { helpers: 0, pointers: 0, intros: 0, captions: 0, answers: 0, quiz: needsQuiz(deck) ? 1 : 0, topics: 0, say: 0, plain: 0, audio: 0 };
   deck.slides.forEach((_, i) => {
     if (needsIntro(deck.slides, i)) t.intros++;
     if (needsIntroAudio(deck.slides, i)) t.audio++;
@@ -214,7 +231,7 @@ export function countTodo(deck: Deck): Todo {
   return t;
 }
 
-export const todoTotal = (t: Todo) => t.helpers + t.pointers + t.intros + t.captions + t.answers + t.topics + t.say + t.plain + t.audio;
+export const todoTotal = (t: Todo) => t.helpers + t.pointers + t.intros + t.captions + t.answers + t.quiz + t.topics + t.say + t.plain + t.audio;
 
 /* -------------------------------------------------------- applying */
 
@@ -228,6 +245,8 @@ export type Patch =
   | (At & { kind: 'caption'; caption: string; captionFrom: string })
   /** The answer check: corrected items / slider (if any) and the result; `from` = the box as it was checked */
   | (At & { kind: 'answerCheck'; from: string; items?: ActivityElement['items']; slider?: ActivityElement['slider']; check: NonNullable<ActivityElement['answerCheck']> })
+  /** The quiz pool, checked against the lesson `from`; only onto the questions it started from (`prev`, quizKey) */
+  | { slideId: ''; kind: 'quiz'; from: string; prev: string; questions: QuizQuestion[] }
   | (At & { kind: 'say'; say: string; sayFrom: string })
   | (At & { kind: 'plain'; plain: string; plainFrom: string })
   | (At & { kind: 'audio'; audioUrl: string; audioFor: string })
@@ -242,6 +261,14 @@ export type Patch =
 export function applyPatches(deck: Deck, patches: Patch[]): number {
   let applied = 0;
   for (const p of patches) {
+    if (p.kind === 'quiz') {
+      // the lesson as it was checked, and nobody changed the questions meanwhile (or turned the quiz off)
+      if (!deck.quiz?.off && quizBasis(deck) === p.from && quizKey(deck.quiz?.questions) === p.prev) {
+        deck.quiz = { questions: structuredClone(p.questions), from: p.from };
+        applied++;
+      }
+      continue;
+    }
     const slide = deck.slides.find((s) => s.id === p.slideId);
     if (!slide) continue;
     if (p.kind === 'topic') {

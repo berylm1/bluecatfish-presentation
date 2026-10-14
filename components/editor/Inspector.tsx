@@ -1,9 +1,9 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import type { ActivityElement, ChartElement, DiagramElement, Slide, SlideElement, TextStyle } from '@/lib/canvas/types';
+import type { ActivityElement, ChartElement, DeckQuiz, DiagramElement, Slide, SlideElement, TextStyle } from '@/lib/canvas/types';
 import type { Warning } from '@/lib/canvas/checks';
-import { answerBasis } from '@/lib/canvas/aiFields';
+import { answerBasis, QUIZ_ASKED, QUIZ_POOL } from '@/lib/canvas/aiFields';
 import { activityReady } from '@/lib/canvas/queue';
 
 // Right-hand panel: everything about the selected element, or the slide when
@@ -271,6 +271,9 @@ export function SlideInspector({
   recapByAI,
   onRecap,
   topicStart,
+  quiz,
+  quizStale,
+  onQuiz,
 }: {
   slide: Slide;
   /** The first slide of its topic: it has the topic's introduction */
@@ -282,6 +285,11 @@ export function SlideInspector({
   recap?: string;
   recapByAI?: boolean;
   onRecap: (text: string) => void;
+  /** The end-of-lesson quiz pool; stale: the lesson changed since it was checked */
+  quiz?: DeckQuiz;
+  quizStale?: boolean;
+  /** Change the quiz (undefined: write a new pool on the next save) */
+  onQuiz: (change: (quiz: DeckQuiz | undefined) => DeckQuiz | undefined) => void;
 }) {
   return (
     <div className="flex flex-col gap-4">
@@ -355,7 +363,66 @@ export function SlideInspector({
         <p className="text-xs text-slate-500 mt-1">
           {recapByAI ? 'Written by the AI: it is rewritten on each publish until you edit it.' : recap?.trim() ? 'Yours: publishing keeps it as it is.' : ''}
         </p>
+        <QuizSection quiz={quiz} stale={quizStale} onQuiz={onQuiz} />
       </div>
+    </div>
+  );
+}
+
+/** The end-of-lesson quiz: on or off, and the pool the AI wrote (a question can be taken out). */
+function QuizSection({ quiz, stale, onQuiz }: { quiz?: DeckQuiz; stale?: boolean; onQuiz: (change: (q: DeckQuiz | undefined) => DeckQuiz | undefined) => void }) {
+  const qs = quiz?.questions ?? [];
+  const off = !!quiz?.off;
+  return (
+    <div className="mt-4" data-quiz-section>
+      <label className={label}>End-of-lesson quiz</label>
+      <label className="flex items-center gap-2 text-sm text-slate-700">
+        <input type="checkbox" checked={!off}
+          onChange={(e) => onQuiz((q) => ({ questions: q?.questions ?? [], from: q?.from ?? 'none', off: !e.target.checked || undefined }))} />
+        {QUIZ_ASKED} questions at the end, picked at random (learners can skip it)
+      </label>
+      {!off && (
+        <>
+          <p className="text-xs text-slate-500 mt-1">
+            {!quiz ? `Written by the AI when you save: ${QUIZ_POOL} questions, each answer checked against the lesson and the knowledge base.`
+              : stale ? 'The lesson changed: the questions are checked against it again when you save (wrong ones are replaced).'
+                : `Checked against the lesson and the knowledge base. Take out any you don't like.`}
+          </p>
+          {quiz && qs.length < QUIZ_ASKED && (
+            <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-md px-2 py-1.5 mt-1.5">
+              ⚠ Fewer than {QUIZ_ASKED} questions: learners get no quiz. Write new ones below.
+            </p>
+          )}
+          {qs.length > 0 && (
+            <details className="mt-1.5 rounded-md border border-slate-200">
+              <summary className="cursor-pointer px-2 py-1.5 text-xs font-semibold text-slate-700">{qs.length} question{qs.length === 1 ? '' : 's'} in the pool</summary>
+              <ol className="flex flex-col divide-y divide-slate-100">
+                {qs.map((q, i) => (
+                  <li key={i} className="px-2 py-2 text-xs text-slate-700 flex gap-2" data-quiz-question>
+                    <div className="flex-1 min-w-0">
+                      <p className="font-semibold text-slate-900">{i + 1}. {q.q}</p>
+                      <ul className="mt-0.5">
+                        {q.choices.map((c, k) => (
+                          <li key={k} className={k === q.answer ? 'text-emerald-700 font-semibold' : ''}>{k === q.answer ? '✓' : '·'} {c}</li>
+                        ))}
+                      </ul>
+                      {q.why && <p className="mt-0.5 text-slate-500">{q.why}</p>}
+                    </div>
+                    <button className="shrink-0 self-start text-slate-400 hover:text-red-600" title="Take this question out" aria-label={`Take out question ${i + 1}`}
+                      onClick={() => onQuiz((cur) => cur && { ...cur, questions: cur.questions.filter((_, j) => j !== i) })}>✕</button>
+                  </li>
+                ))}
+              </ol>
+            </details>
+          )}
+          {quiz && (
+            <button className={`${small} mt-1.5`}
+              onClick={() => { if (window.confirm('Replace all the questions with new ones? They are written when you save.')) onQuiz(() => undefined); }}>
+              Write new questions
+            </button>
+          )}
+        </>
+      )}
     </div>
   );
 }
