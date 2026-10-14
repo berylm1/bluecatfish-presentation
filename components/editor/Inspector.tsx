@@ -3,6 +3,8 @@
 import { useEffect, useState } from 'react';
 import type { ActivityElement, ChartElement, DiagramElement, Slide, SlideElement, TextStyle } from '@/lib/canvas/types';
 import type { Warning } from '@/lib/canvas/checks';
+import { answerBasis } from '@/lib/canvas/aiFields';
+import { activityReady } from '@/lib/canvas/queue';
 
 // Right-hand panel: everything about the selected element, or the slide when
 // nothing is selected.
@@ -588,6 +590,7 @@ function ActivityFields({ el, update, placing = null, onPlace }: { el: ActivityE
           <option value="slider">Slider: move it and watch what changes</option>
         </select>
       </div>
+      <AnswerCheck el={el} set={set} />
       <div>
         <label className={label}>Instruction shown on the box</label>
         <input className={input} value={el.prompt ?? ''} placeholder="Drag each fish to where it came from" onChange={(e) => set({ prompt: e.target.value || undefined })} />
@@ -640,6 +643,38 @@ function ActivityFields({ el, update, placing = null, onPlace }: { el: ActivityE
         </>
       )}
     </>
+  );
+}
+/** The answer check's result for this box (made on save, against the knowledge base). */
+function AnswerCheck({ el, set }: { el: ActivityElement; set: (patch: Partial<ActivityElement>) => void }) {
+  if (!activityReady(el)) return null;
+  const ac = el.answerCheck;
+  const current = !!ac && ac.from === answerBasis(el);
+  if (!current) {
+    return <p className="text-xs text-slate-500">Answers: checked against the knowledge base when you save.</p>;
+  }
+  if (ac.ok) {
+    return (
+      <div className="text-xs text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-md px-2 py-1.5">
+        ✓ {ac.byPerson ? 'You said the answers look right.' : 'Answers checked against the knowledge base.'}
+        {!!ac.fixed?.length && (
+          <ul className="mt-1 list-disc pl-4 text-slate-600">{ac.fixed.map((f, i) => <li key={i}>Fixed: {f}</li>)}</ul>
+        )}
+      </div>
+    );
+  }
+  return (
+    <div className="text-xs text-amber-800 bg-amber-50 border border-amber-300 rounded-md px-2 py-1.5" data-answer-warning>
+      <b>⚠ Check the answers.</b> The knowledge base doesn&apos;t back these up. Finn won&apos;t try this box until they&apos;re right.
+      <ul className="mt-1 list-disc pl-4">{(ac.notes ?? []).map((n, i) => <li key={i}>{n}</li>)}</ul>
+      {!!ac.fixed?.length && (
+        <ul className="mt-1 list-disc pl-4 text-slate-600">{ac.fixed.map((f, i) => <li key={i}>Fixed: {f}</li>)}</ul>
+      )}
+      <p className="mt-1 text-slate-600">Fix them below (they&apos;re checked again on save), or if they&apos;re right:</p>
+      <button className={`${small} mt-1`} onClick={() => set({ answerCheck: { from: answerBasis(el), ok: true, byPerson: true, fixed: ac.fixed } })}>
+        Answers look right
+      </button>
+    </div>
   );
 }
 const sliderOf = (el: ActivityElement): NonNullable<ActivityElement['slider']> => el.slider ?? { label: '', min: 0, max: 10, stops: [] };

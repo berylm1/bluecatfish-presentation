@@ -1,5 +1,5 @@
-import type { Deck, Pointer, Slide, SlideElement, SlideHelper } from './types';
-import { shownWords, spokenText } from './queue';
+import type { ActivityElement, Deck, Pointer, Slide, SlideElement, SlideHelper } from './types';
+import { activityReady, shownWords, spokenText } from './queue';
 import { introBasis, introText, startsTopic } from './intro';
 import { TTS_VOICE, VOICE_INSTRUCTIONS, SIMPLE_VOICE_INSTRUCTIONS } from '@/lib/voice';
 
@@ -148,6 +148,15 @@ export function needsIntroAudio(slides: Slide[], i: number): boolean {
   return !!text && !s.intro?.off && startsTopic(slides, i) && s.intro?.audioFor !== audioKey(text, false);
 }
 
+/** What a hands-on box's answer check looked at: its task and answer key. */
+export const answerBasis = (el: ActivityElement) => fingerprint(`${el.kind}|${el.prompt ?? ''}|${shownWords(el)}`);
+
+/** Does a hands-on box need its answers checked (never checked, or changed since; a person's "look right" counts)? */
+export function needsAnswerCheck(el: SlideElement): boolean {
+  if (el.type !== 'activity' || !activityReady(el)) return false;
+  return el.answerCheck?.from !== answerBasis(el);
+}
+
 export function needsTopic(slide: Slide): boolean {
   if (!slide.topic?.trim()) return true;
   return !!slide.topicByAI && slide.topicFrom !== fingerprint(slideBasis(slide));
@@ -158,6 +167,7 @@ export interface Todo {
   pointers: number;
   intros: number;
   captions: number;
+  answers: number;
   topics: number;
   say: number;
   plain: number;
@@ -165,7 +175,7 @@ export interface Todo {
 }
 
 export function countTodo(deck: Deck): Todo {
-  const t: Todo = { helpers: 0, pointers: 0, intros: 0, captions: 0, topics: 0, say: 0, plain: 0, audio: 0 };
+  const t: Todo = { helpers: 0, pointers: 0, intros: 0, captions: 0, answers: 0, topics: 0, say: 0, plain: 0, audio: 0 };
   deck.slides.forEach((_, i) => {
     if (needsIntro(deck.slides, i)) t.intros++;
     if (needsIntroAudio(deck.slides, i)) t.audio++;
@@ -180,9 +190,11 @@ export function countTodo(deck: Deck): Todo {
       if (needsPlainAudio(e)) t.audio++;
       if (needsPointers(e)) t.pointers++;
       if (needsCaption(e, s)) t.captions++;
+      if (needsAnswerCheck(e)) t.answers++;
     }
     // Helper elements speak too (no plain version: the helper IS the simpler way)
     for (const e of helperElements(s)) {
+      if (needsAnswerCheck(e)) t.answers++;
       if (needsSay(e)) t.say++;
       if (needsAudio(e)) t.audio++;
       if (needsPointers(e)) t.pointers++;
@@ -191,7 +203,7 @@ export function countTodo(deck: Deck): Todo {
   return t;
 }
 
-export const todoTotal = (t: Todo) => t.helpers + t.pointers + t.intros + t.captions + t.topics + t.say + t.plain + t.audio;
+export const todoTotal = (t: Todo) => t.helpers + t.pointers + t.intros + t.captions + t.answers + t.topics + t.say + t.plain + t.audio;
 
 /* -------------------------------------------------------- applying */
 
@@ -203,6 +215,8 @@ export type Patch =
   | { slideId: string; kind: 'intro'; say: string; sayFrom: string }
   | { slideId: string; kind: 'introAudio'; audioUrl: string; audioFor: string }
   | (At & { kind: 'caption'; caption: string; captionFrom: string })
+  /** The answer check: corrected items / slider (if any) and the result; `from` = the box as it was checked */
+  | (At & { kind: 'answerCheck'; from: string; items?: ActivityElement['items']; slider?: ActivityElement['slider']; check: NonNullable<ActivityElement['answerCheck']> })
   | (At & { kind: 'say'; say: string; sayFrom: string })
   | (At & { kind: 'plain'; plain: string; plainFrom: string })
   | (At & { kind: 'audio'; audioUrl: string; audioFor: string })
@@ -274,6 +288,13 @@ export function applyPatches(deck: Deck, patches: Patch[]): number {
       case 'pointers':
         if ((el.pointers === undefined || el.pointersByAI) && fingerprint(pointersBasis(el)) === p.pointersFrom) {
           Object.assign(el, { pointers: p.pointers, pointersByAI: true, pointersFrom: p.pointersFrom });
+          applied++;
+        }
+        break;
+      case 'answerCheck':
+        // only onto the box as it was checked (a person's edit since wins, and gets checked next time)
+        if (el.type === 'activity' && answerBasis(el) === p.from) {
+          Object.assign(el, { ...(p.items ? { items: structuredClone(p.items) } : {}), ...(p.slider ? { slider: structuredClone(p.slider) } : {}), answerCheck: { ...p.check } });
           applied++;
         }
         break;

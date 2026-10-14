@@ -119,6 +119,13 @@ export interface ActivityElement extends ElementBase {
   src?: string;
   slider?: { label: string; min: number; max: number; step?: number; unit?: string; stops: { at: number; text: string; scale?: number }[] };
   alt?: string;
+  /**
+   * The answer check (lib/canvas/activityCheck.ts): the AI read the answer key against the
+   * knowledge base before any audio was made. from = fingerprint of the box it checked;
+   * ok = nothing doubtful left; notes = what a person should look at; fixed = what it corrected.
+   * A person's "Answers look right" sets ok (byPerson) until the box changes.
+   */
+  answerCheck?: { from: string; ok: boolean; notes?: string[]; fixed?: string[]; byPerson?: boolean };
 }
 
 export type SlideElement = TextElement | ImageElement | ChartElement | DiagramElement | ActivityElement;

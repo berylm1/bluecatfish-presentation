@@ -4,7 +4,7 @@ import type { Deck, Pointer, Slide, SlideElement } from './types';
 import { spokenText } from './queue';
 import { introBasis, introText } from './intro';
 import {
-  applyPatches, audioKey, fingerprint, helperElements, needsAudio, needsCaption, needsHelper, needsIntro, needsIntroAudio, needsPlain, needsPlainAudio, needsPointers, needsSay, needsTopic,
+  answerBasis, applyPatches, audioKey, fingerprint, helperElements, needsAnswerCheck, needsAudio, needsCaption, needsHelper, needsIntro, needsIntroAudio, needsPlain, needsPlainAudio, needsPointers, needsSay, needsTopic,
   pointersBasis,
   plainText, sayBasis, slideBasis, type Patch,
 } from './aiFields';
@@ -23,6 +23,7 @@ const AUDIO_FOLDER = 'canvas';
 export { STYLE, chat, knowledge } from './ai';
 import { STYLE, chat, chatVision, imageForVision, knowledge } from './ai';
 import { draftHelper } from './helperDraft';
+import { checkActivityAnswers } from './activityCheck';
 
 const otherText = (slide: Slide, el: SlideElement) =>
   slide.elements.filter((e) => e.id !== el.id).map(sayBasis).filter(Boolean).join(' | ');
@@ -245,6 +246,25 @@ export async function prepareDeck(source: Deck, deadline: number): Promise<{ pat
       } catch (e) { fail('Drafting a helper', e); }
     }),
   ]);
+
+  // 1b. Hands-on boxes' answer keys, checked against the knowledge base before any audio is made
+  //     (a key the sources contradict is corrected; a doubtful one is flagged for a person)
+  const corrected = new Set<string>();
+  await pool(jobs(deck, needsAnswerCheck, true), deadline, async ({ slide, el, helper }) => {
+    if (el.type !== 'activity') return;
+    try {
+      const r = await checkActivityAnswers(el, { lesson: deck.title, topic: slide.topic });
+      keep({ slideId: baseId(slide.id), elId: el.id, helper, kind: 'answerCheck', from: answerBasis(el), items: r.items, slider: r.slider, check: r.check });
+      if (r.check.fixed?.length) corrected.add(`${baseId(slide.id)}|${el.id}`);
+    } catch (e) { fail('Checking hands-on answers', e); }
+  });
+  // A corrected key changes what the box shows: its AI-written words are redone first (so no audio says the old answer)
+  await pool(jobs(deck, (el, slide) => corrected.has(`${baseId(slide.id)}|${el.id}`) && needsSay(el), true), deadline, async ({ slide, el, helper }) => {
+    try {
+      const say = await writeSay(el, slide, deck);
+      keep({ slideId: baseId(slide.id), elId: el.id, helper, kind: 'say', say, sayFrom: fingerprint(sayBasis(el)) });
+    } catch (e) { fail('Writing spoken words', e); }
+  });
 
   // 2. Plain versions (from the spoken words, including ones just written)
   await pool(jobs(deck, needsPlain), deadline, async ({ slide, el }) => {

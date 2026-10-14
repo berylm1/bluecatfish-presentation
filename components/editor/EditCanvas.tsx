@@ -4,6 +4,7 @@ import { useRef, useState } from 'react';
 import SlideCanvas from '@/components/canvas/SlideCanvas';
 import type { Slide, SlideElement } from '@/lib/canvas/types';
 import { contentRect } from '@/lib/canvas/laser';
+import { answerBasis } from '@/lib/canvas/aiFields';
 
 // The slide being edited: the real renderer underneath, and on top a box per
 // element that can be clicked, dragged and resized. Positions stay in percent.
@@ -172,6 +173,13 @@ export default function EditCanvas({
                     ✨ AI
                   </span>
                 </>
+              )}
+              {/* A hands-on box whose answers the knowledge base doesn't back up */}
+              {el.type === 'activity' && el.answerCheck && !el.answerCheck.ok && el.answerCheck.from === answerBasis(el) && (
+                <span className="absolute bottom-0 left-4 px-1 rounded-t bg-amber-500 text-[10px] font-semibold text-white pointer-events-none" data-answer-flag
+                  title={`Check the answers: ${(el.answerCheck.notes ?? []).join('; ')}`}>
+                  ⚠ Check answers
+                </span>
               )}
               {/* Laser marks of the selected element, numbered */}
               {isSel && (el.pointers ?? []).map((m, i) => {

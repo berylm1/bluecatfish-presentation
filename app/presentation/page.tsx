@@ -28,7 +28,7 @@ import type { ActivityMistake, FinnEvent, FinnMove } from '@/components/canvas/A
 import { focusSlide, helperSlide, ownHelper } from '@/lib/canvas/morph';
 import { isIntroId } from '@/lib/canvas/intro';
 import { activityReady, shownWords, speakingOrder, spokenText } from '@/lib/canvas/queue';
-import { currentAudio } from '@/lib/canvas/aiFields';
+import { answerBasis, currentAudio } from '@/lib/canvas/aiFields';
 import { activePointer } from '@/lib/canvas/laser';
 import type { ActivityElement, Pointer, Slide } from '@/lib/canvas/types';
 
@@ -1068,6 +1068,9 @@ function Player({ deck, preview, startAt = 0 }: { deck: Deck; preview: boolean; 
       steppedIn.current.delete(b.id);
       for (const k of [...mistakeCounts.current.keys()]) if (k.startsWith(`${b.id}|`)) mistakeCounts.current.delete(k);
       if (!classmateOnRef.current) continue;
+      // Finn plays against the answer key: not on a box whose key the knowledge base didn't back up
+      // (or that changed since it was checked). Older lessons, never checked, he still plays.
+      if (b.answerCheck && (!b.answerCheck.ok || b.answerCheck.from !== answerBasis(b))) continue;
       const items = b.items ?? [];
       const pick = Math.floor(Math.random() * items.length);
       if (b.kind === 'sort' && items.length >= 3 && (b.groups?.length ?? 0) >= 2) {

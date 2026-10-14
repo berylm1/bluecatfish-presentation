@@ -115,6 +115,12 @@ function element(raw: any, fallbackId: string): SlideElement | null {
       ...base, type: 'activity', kind, prompt: str(raw.prompt, 120), alt: str(raw.alt, 2000),
       groups: kind === 'sort' ? groups : undefined, items: kind === 'slider' ? undefined : items,
       src: safeUrl(raw.src), slider,
+      answerCheck: raw.answerCheck && typeof raw.answerCheck === 'object' && tag(raw.answerCheck.from) ? {
+        from: raw.answerCheck.from, ok: raw.answerCheck.ok === true,
+        notes: (Array.isArray(raw.answerCheck.notes) ? raw.answerCheck.notes : []).slice(0, 10).map((x: unknown) => str(x, 300)).filter(Boolean) as string[],
+        fixed: (Array.isArray(raw.answerCheck.fixed) ? raw.answerCheck.fixed : []).slice(0, 10).map((x: unknown) => str(x, 300)).filter(Boolean) as string[],
+        byPerson: bool(raw.answerCheck.byPerson),
+      } : undefined,
     };
     return el;
   }

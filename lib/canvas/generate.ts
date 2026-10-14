@@ -5,10 +5,11 @@ import type { Deck, Slide, SlideElement, TextElement } from './types';
 import type { LessonInfo } from './lessons';
 import { sanitizeDeck } from './sanitize';
 import { fitStatus, neededHeight, textMetrics } from './fitEstimate';
-import { fingerprint, sayBasis, slideBasis } from './aiFields';
+import { fingerprint, needsAnswerCheck, sayBasis, slideBasis } from './aiFields';
 import { chat, knowledge, STYLE } from './ai';
 import { writeRecap } from './prepare';
 import { removeRepeats } from './repeats';
+import { checkActivityAnswers } from './activityCheck';
 
 const GENERATE_BUDGET_MS = 270_000;   // the ai-deck route's maxDuration is 300 s
 
@@ -231,6 +232,20 @@ export async function generateAiDeck(lesson: LessonInfo): Promise<{ deck: Deck; 
   });
   // Before markAi, so the fingerprints are of the final words (and audio is made for them only)
   await removeRepeats(deck, notes, started + GENERATE_BUDGET_MS);
+  // Hands-on answer keys against the knowledge base (the save-time AI checks any left over)
+  await Promise.all(deck.slides.flatMap((s) => s.elements.filter(needsAnswerCheck).map(async (el) => {
+    if (el.type !== 'activity' || Date.now() > started + GENERATE_BUDGET_MS) return;
+    try {
+      const r = await checkActivityAnswers(el, { lesson: lesson.title, topic: s.topic });
+      Object.assign(el, { ...(r.items ? { items: r.items } : {}), ...(r.slider ? { slider: r.slider } : {}), answerCheck: r.check });
+      // its words were written for the old key: the save-time AI writes them again from the corrected one
+      if (r.check.fixed?.length) { delete el.say; delete el.plain; }
+      if (r.check.fixed?.length) notes.push(`"${s.topic}": corrected a hands-on answer key: ${r.check.fixed.join('; ')}`);
+      if (!r.check.ok) notes.push(`"${s.topic}": a hands-on box's answers need a look: ${r.check.notes?.join('; ')}`);
+    } catch (e) {
+      notes.push(`Checking a hands-on box failed: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  })));
   deck.slides.forEach(markAi);
   try {
     deck.recap = await writeRecap(deck);
