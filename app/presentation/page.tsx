@@ -1511,19 +1511,16 @@ function Player({ deck, preview, startAt = 0 }: { deck: Deck; preview: boolean; 
             </div>
           </div>
         )}
+        {/* Low-key, like "Is Finn right?": a pill at the bottom of the slide (was: a blurred pop-up over the slide) */}
         {replayOffer && !variant && !selfCheck && (
-          <div className="absolute inset-0 z-20 flex items-center justify-center bg-slate-950/60 backdrop-blur-sm rounded-2xl" role="dialog" aria-label="See it a different way?">
-            <div className="bg-white text-slate-900 rounded-2xl p-6 sm:p-8 text-center shadow-2xl max-w-md mx-4">
-              <h3 className="text-xl sm:text-2xl font-bold">Want to see that part a different way?</h3>
-              <div className="mt-5 flex flex-wrap gap-3 justify-center">
-                <button className="px-5 py-3 rounded-xl bg-cyan-500 hover:bg-cyan-400 font-semibold" onClick={() => answerReplay(true, 'button')} autoFocus>Yes, show me</button>
-                <button className="px-5 py-3 rounded-xl bg-slate-200 hover:bg-slate-300 font-semibold" onClick={() => answerReplay(false, 'button')}>No, keep going</button>
-              </div>
-              <button className={`mt-4 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm ${micStatus === 'listening' ? 'bg-red-500 text-white' : 'bg-slate-100 hover:bg-slate-200 text-slate-700'}`}
-                onClick={talk} disabled={micStatus === 'processing'}>
-                {micStatus === 'listening' ? '● Listening… say yes or no' : '🎤 Or say it: “yes” or “no”'}
-              </button>
-            </div>
+          <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-20 flex items-center gap-2 px-4 py-2 rounded-full bg-slate-900/90 text-white text-sm shadow-lg whitespace-nowrap max-sm:whitespace-normal max-sm:flex-wrap max-sm:justify-center max-sm:rounded-2xl max-sm:w-[94%] max-sm:bottom-2" role="dialog" aria-label="See it a different way?">
+            <span>See that part a different way?</span>
+            <button className="px-3 py-1 rounded-full bg-cyan-500 hover:bg-cyan-400 text-slate-900 font-semibold" onClick={() => answerReplay(true, 'button')}>Yes, show me</button>
+            <button className="px-3 py-1 rounded-full bg-white/15 hover:bg-white/25" onClick={() => answerReplay(false, 'button')}>No, keep going</button>
+            <button className={`w-8 h-8 rounded-full ${micStatus === 'listening' ? 'bg-red-500 animate-pulse' : 'bg-white/15 hover:bg-white/25'}`}
+              onClick={talk} disabled={micStatus === 'processing'} title="Or say it: “yes” or “no”" aria-label={micStatus === 'listening' ? 'Listening' : 'Or say it'}>
+              {micStatus === 'listening' ? '●' : '🎤'}
+            </button>
           </div>
         )}
         {askingHelp && !variant && !selfCheck && (
