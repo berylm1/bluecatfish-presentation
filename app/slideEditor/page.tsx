@@ -1035,14 +1035,15 @@ function Editor({
                   ? row('bad', '⚠', <>{a.answers.flagged} hands-on box{a.answers.flagged === 1 ? '' : 'es'} with answers the knowledge base doesn&apos;t back up (marked ⚠ Check answers)</>,
                     link('Show', () => {
                       setPublishAsk(null);
-                      const i = deck.slides.findIndex((sl) => [...sl.elements, ...(sl.helper?.elements ?? [])].some((e) => e.type === 'activity' && e.answerCheck && !e.answerCheck.ok && e.answerCheck.from === answerBasis(e)));
+                      const flagged = (e: SlideElement) => e.type === 'activity' && !!e.answerCheck && !e.answerCheck.ok && e.answerCheck.from === answerBasis(e);
+                      const i = deck.slides.findIndex((sl) => [...sl.elements, ...(sl.helper?.elements ?? [])].some(flagged));
                       if (i < 0) return;
                       const sl = deck.slides[i];
-                      const onMain = sl.elements.find((e) => e.type === 'activity' && e.answerCheck && !e.answerCheck.ok);
+                      const onMain = sl.elements.find(flagged);
                       if (onMain) return goToRepeat(i, onMain.id);
                       ed.setSlideIdx(i);
                       ed.setLayer('helper');
-                      ed.setSelected(sl.helper?.elements.find((e) => e.type === 'activity' && e.answerCheck && !e.answerCheck.ok)?.id ?? null);
+                      ed.setSelected(sl.helper?.elements.find(flagged)?.id ?? null);
                     }))
                   : a.answers.unchecked > 0
                     ? row('warn', '🖐', <>{a.answers.unchecked} hands-on box{a.answers.unchecked === 1 ? '' : 'es'} not checked yet: the answers are checked against the knowledge base as you publish</>)

@@ -47,10 +47,13 @@ export async function checkActivityAnswers(el: ActivityElement, about: { lesson?
     true,
     2500,
   ));
+  const seen = new Set<number>();
   const verdicts: Verdict[] = (Array.isArray(out.items) ? out.items : []).flatMap((v: any) => {
     const n = Number(v?.n);
     const verdict = v?.verdict === 'wrong' || v?.verdict === 'unsure' ? v.verdict : 'right';
-    return Number.isInteger(n) && n >= 1 && n <= lines.length ? [{ n, verdict, why: typeof v.why === 'string' ? v.why.slice(0, 200) : undefined, fix: v.fix && typeof v.fix === 'object' ? v.fix : undefined }] : [];
+    if (!Number.isInteger(n) || n < 1 || n > lines.length || seen.has(n)) return [];
+    seen.add(n);
+    return [{ n, verdict, why: typeof v.why === 'string' ? v.why.slice(0, 200) : undefined, fix: v.fix && typeof v.fix === 'object' ? v.fix : undefined }];
   });
 
   const items = el.items ? el.items.map((it) => ({ ...it })) : undefined;
@@ -58,22 +61,26 @@ export async function checkActivityAnswers(el: ActivityElement, about: { lesson?
   const notes: string[] = [];
   const fixed: string[] = [];
   const short = (t: unknown, max: number) => (typeof t === 'string' && t.trim() ? t.trim().slice(0, max) : undefined);
+  // A key a person typed is never changed: the fix becomes a suggestion (⚠) instead
+  const mayFix = !el.keyByPerson;
   for (const v of verdicts) {
     if (v.verdict === 'right') continue;
     const i = v.n - 1;
     const what = el.kind === 'slider' ? `"${slider?.stops[i]?.text}"` : el.kind === 'order' ? 'the order' : `"${items?.[i]?.text}"`;
-    let applied: string | undefined;
+    // the fix, as words and as a change to make
+    let change: { says: string; suggest: string; apply: () => void } | undefined;
     const fix = v.fix;
     if (v.verdict === 'wrong' && fix) {
       if (el.kind === 'sort' && items?.[i]) {
         const g = groups.findIndex((name) => name.trim().toLowerCase() === String(fix.group ?? '').trim().toLowerCase());
-        if (g >= 0 && g !== items[i].group) { applied = `${what}: moved to "${groups[g]}" (was "${groups[items[i].group ?? 0]}")`; items[i].group = g; }
+        const it = items[i];
+        if (g >= 0 && g !== it.group) change = { says: `${what}: moved to "${groups[g]}" (was "${groups[it.group ?? 0]}")`, suggest: `move it to "${groups[g]}"`, apply: () => { it.group = g; } };
       } else if ((el.kind === 'cards' || el.kind === 'hotspots') && items?.[i] && short(fix.back, 160)) {
-        applied = `${what}: answer changed to "${short(fix.back, 160)}" (was "${items[i].back ?? ''}")`;
-        items[i].back = short(fix.back, 160);
+        const it = items[i], back = short(fix.back, 160);
+        change = { says: `${what}: answer changed to "${back}" (was "${it.back ?? ''}")`, suggest: `make the answer "${back}"`, apply: () => { it.back = back; } };
       } else if (el.kind === 'slider' && slider?.stops[i] && short(fix.text, 120)) {
-        applied = `stop ${slider.stops[i].at}: changed to "${short(fix.text, 120)}" (was "${slider.stops[i].text}")`;
-        slider.stops[i].text = short(fix.text, 120)!;
+        const st = slider.stops[i], text = short(fix.text, 120)!;
+        change = { says: `stop ${st.at}: changed to "${text}" (was "${st.text}")`, suggest: `make it "${text}"`, apply: () => { st.text = text; } };
       }
     }
     if (el.kind === 'order' && v.verdict === 'wrong' && Array.isArray(out.order) && items) {
@@ -81,12 +88,14 @@ export async function checkActivityAnswers(el: ActivityElement, about: { lesson?
       const want = (out.order as unknown[]).map((t) => items.findIndex((it) => it.text.trim().toLowerCase() === String(t).trim().toLowerCase()));
       if (want.length === items.length && new Set(want).size === items.length && !want.includes(-1)) {
         const reordered = want.map((k) => items[k]);
-        items.splice(0, items.length, ...reordered);
-        applied = `the order: changed to ${reordered.map((it) => it.text).join(' → ')}`;
+        const right = reordered.map((it) => it.text).join(' → ');
+        change = { says: `the order: changed to ${right}`, suggest: `make it ${right}`, apply: () => { items.splice(0, items.length, ...reordered); } };
       }
     }
-    if (applied) fixed.push(`${applied}${v.why ? ` (${v.why})` : ''}`);
-    else notes.push(`${what}: ${v.verdict === 'wrong' ? 'looks wrong' : 'not confirmed by the sources'}${v.why ? ` (${v.why})` : ''}`);
+    const why = v.why ? ` (${v.why})` : '';
+    if (change && mayFix) { change.apply(); fixed.push(change.says + why); }
+    else if (change) notes.push(`${what}: looks wrong, so ${change.suggest}?${why}`);
+    else notes.push(`${what}: ${v.verdict === 'wrong' ? 'looks wrong' : 'not confirmed by the sources'}${why}`);
   }
   const after: ActivityElement = { ...el, items, slider };
   return { items, slider, check: { from: answerBasis(after), ok: notes.length === 0, notes, fixed } };

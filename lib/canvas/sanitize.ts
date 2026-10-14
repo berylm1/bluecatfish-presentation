@@ -121,6 +121,7 @@ function element(raw: any, fallbackId: string): SlideElement | null {
         fixed: (Array.isArray(raw.answerCheck.fixed) ? raw.answerCheck.fixed : []).slice(0, 10).map((x: unknown) => str(x, 300)).filter(Boolean) as string[],
         byPerson: bool(raw.answerCheck.byPerson),
       } : undefined,
+      keyByPerson: bool(raw.keyByPerson),
     };
     return el;
   }

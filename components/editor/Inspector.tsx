@@ -572,7 +572,9 @@ function SpotRows({ el, set, placing, onPlace }: {
 }
 
 function ActivityFields({ el, update, placing = null, onPlace }: { el: ActivityElement; update: Update; placing?: number | null; onPlace?: (index: number | null) => void }) {
-  const set = (patch: Partial<ActivityElement>) => update(patch as Partial<SlideElement>);
+  // Editing the answer key marks it as the person's: the answer check then suggests, never changes it
+  const set = (patch: Partial<ActivityElement>) =>
+    update(('items' in patch || 'groups' in patch || 'slider' in patch ? { ...patch, keyByPerson: true } : patch) as Partial<SlideElement>);
   const items = el.items ?? [];
   return (
     <>

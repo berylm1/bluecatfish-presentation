@@ -126,6 +126,8 @@ export interface ActivityElement extends ElementBase {
    * A person's "Answers look right" sets ok (byPerson) until the box changes.
    */
   answerCheck?: { from: string; ok: boolean; notes?: string[]; fixed?: string[]; byPerson?: boolean };
+  /** A person edited the answer key (groups, items, stops): the answer check only suggests fixes, never makes them */
+  keyByPerson?: boolean;
 }
 
 export type SlideElement = TextElement | ImageElement | ChartElement | DiagramElement | ActivityElement;

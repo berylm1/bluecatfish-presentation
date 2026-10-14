@@ -34,7 +34,11 @@ export async function POST(req: Request) {
     }
   }
   // The editor's check results stay with the draft: learners get the lesson without them
-  const { checks: _editorOnly, ...live } = draft;
+  // (a hands-on box keeps only whether its answers checked out: Finn plays only those)
+  const { checks: _editorOnly, ...live } = structuredClone(draft);
+  for (const s of live.slides) for (const e of [...s.elements, ...(s.helper?.elements ?? [])]) {
+    if (e.type === 'activity' && e.answerCheck) e.answerCheck = { from: e.answerCheck.from, ok: e.answerCheck.ok };
+  }
   const warning = (await writeDeck(lesson, 'live', live, by)) ?? recapError;
   return NextResponse.json({ ok: true, publishedAt: new Date().toISOString(), by, warning, recap: draft.recap ?? null, recapByAI: !!draft.recapByAI });
 }
