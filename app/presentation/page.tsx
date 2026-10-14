@@ -116,6 +116,8 @@ const SLIDE_WIDTH = 'min(88vw, calc((100vh - 190px) * 16 / 9))';
 // (was: it made the page taller than the screen, so it scrolled). Still shown with the transcript off.
 const ANSWER_BOX_UNDER_SLIDE = false;
 const EXCHANGE_HIDE_MS = 12000;   // the question + answer box under the slide goes away this long after the answer
+const SKIP_LINE = "No problem. Here's how it goes.";
+const SKIP_LOOK_MS = 1800;   // after that line, a moment to look at the answers before the lesson goes on
 const FINN_HANDS_ON_DELAY_MS = 900;   // Finn's go in a hands-on box, this long after the learner's turn begins
 const STEP_IN_AFTER = 2;              // the same item wrong this many times: the professor explains it
 const STEP_IN_MAX = 2;                // at most this many explanations per hands-on box   // a board (or slide) shown with an answer stays up at least this long
@@ -249,6 +251,7 @@ function Player({ deck, preview, startAt = 0 }: { deck: Deck; preview: boolean; 
   // Hands-on boxes: the ones finished this lesson, and the one it's waiting on now
   const activitiesDone = useRef(new Set<string>());
   const activitiesSolved = useRef(new Set<string>());
+  const activitiesRevealed = useRef(new Set<string>());   // skipped: shown with the answers filled in
   const turnStarted = useRef(new Map<string, number>());   // when the learner's turn began (time to finish, for the stats)   // done by the learner (not skipped): drawn finished if drawn again
   const [yourTurn, setYourTurn] = useState<string | null>(null);
   const yourTurnRef = useRef(yourTurn);
@@ -1098,20 +1101,25 @@ function Player({ deck, preview, startAt = 0 }: { deck: Deck; preview: boolean; 
     // after the professor (an explanation, a reply to Finn) has finished, not over them
     queueLine(() => playCue({ text: praise })).then(() => { if (playerRef.current.activeId === id) playerRef.current.nextClip(); });
   }, [track, playCue, praise, queueLine]);
+  /** Skip: the box fills in its answers (so the learner still sees how it goes), a word from the professor, then on. */
   const skipActivity = () => {
     const id = yourTurnRef.current;
     if (!id) return;
-    tracking.track('tutor_decision', { action: 'activity_skip' });
+    tracking.track('tutor_decision', { action: 'activity_skip' });   // a skip, not a solve (learner stats)
     activitiesDone.current.add(id);
+    activitiesSolved.current.add(id);
+    activitiesRevealed.current.add(id);
     setSettledTick((n) => n + 1);
     setYourTurn(null);
     cuesRef.current.stop();   // Finn (or a reply) mid-line: not over what comes next
-    playerRef.current.nextClip();
+    // a moment to look at the answers while it's said, then the lesson goes on (if still on that box)
+    queueLine(() => playCue({ text: SKIP_LINE })).then(() => new Promise((r) => setTimeout(r, SKIP_LOOK_MS)))
+      .then(() => { if (playerRef.current.activeId === id) playerRef.current.nextClip(); });
   };
   // Back on a hands-on slide (going back, or starting over): the lesson waits for it again
   useEffect(() => {
     for (const e of deck.slides[player.slideIndex]?.elements ?? []) {
-      if (e.type === 'activity') { activitiesDone.current.delete(e.id); activitiesSolved.current.delete(e.id); }
+      if (e.type === 'activity') { activitiesDone.current.delete(e.id); activitiesSolved.current.delete(e.id); activitiesRevealed.current.delete(e.id); }
     }
   }, [player.slideIndex, deck]);
   // Moved on some other way (a command, a jump): no longer their turn
@@ -1187,7 +1195,7 @@ function Player({ deck, preview, startAt = 0 }: { deck: Deck; preview: boolean; 
     cancelAnswer();
     setClassmateSaying(false);
     if (variant) { variantAfter.current = null; variantMode.current = 'answer'; setVariant(null); helperSeq.current++; setHelperActive(null); }
-    checked.current.clear(); activitiesDone.current.clear(); activitiesSolved.current.clear(); classmateTopics.current.clear(); classmateAsked.current = []; finnReady.current.clear(); finnResults.current.clear();
+    checked.current.clear(); activitiesDone.current.clear(); activitiesSolved.current.clear(); activitiesRevealed.current.clear(); classmateTopics.current.clear(); classmateAsked.current = []; finnReady.current.clear(); finnResults.current.clear();
     finnSpoken.current.clear(); mistakeCounts.current.clear(); steppedIn.current.clear();
     // (a preview never touches the learner's saved place in this browser)
     setSelfCheck(null); setYourTurn(null); cues.stop(); if (!preview) forgetProgress(); player.restart();
@@ -1309,7 +1317,7 @@ function Player({ deck, preview, startAt = 0 }: { deck: Deck; preview: boolean; 
         ) : (
           <SlideCanvas slide={shownSlide} width={SLIDE_WIDTH} activeId={variant ? helperActive : player.activeId} morph={MORPH_HELPERS} laser={laser} spotlight={SPOTLIGHT}
             interactive onActivityDone={onActivityDone} activityHint={activityHint}
-            solvedActivities={activitiesSolved.current} settledActivities={activitiesDone.current} settledTick={settledTick} activitySounds={soundsOn} onActivityMistake={onActivityMistake}
+            solvedActivities={activitiesSolved.current} revealedActivities={activitiesRevealed.current} settledActivities={activitiesDone.current} settledTick={settledTick} activitySounds={soundsOn} onActivityMistake={onActivityMistake}
             finnMoves={finnMoves} onFinn={onFinn} activityGuides={activityGuides} />
         )}
         {/* A topic's introduction is being said: a small title card for the part that's starting */}
