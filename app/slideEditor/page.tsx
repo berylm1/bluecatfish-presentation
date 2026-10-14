@@ -12,7 +12,7 @@ import SlideCanvas from '@/components/canvas/SlideCanvas';
 import { answersToLookAt, claimKey, factBasis, lessonBasis, slideWarnings, slidesToFactCheck, type Warning } from '@/lib/canvas/checks';
 import { speakingOrder } from '@/lib/canvas/queue';
 import { deckFromAnyVersion } from '@/lib/canvas/fromLegacy';
-import { answerBasis, countTodo, todoTotal } from '@/lib/canvas/aiFields';
+import { answerState, countTodo, todoTotal } from '@/lib/canvas/aiFields';
 import { startsTopic } from '@/lib/canvas/intro';
 import { applyRepeatFix, type RepeatSuggestion } from '@/lib/canvas/repeats';
 import RepeatsPanel from '@/components/editor/RepeatsPanel';
@@ -321,7 +321,7 @@ function Editor({
     factsToCheck: number;            // slides never fact-checked, or changed since
     factsOpen: { bad: number; missing: number };   // ❌ / ⚠️ not marked fine, on checked slides
     pictures: number;                // pictures without a description
-    answers: { flagged: number; unchecked: number };   // hands-on answer keys the knowledge base doesn't back up / not checked yet
+    answers: { flagged: number; fixed: number; unchecked: number };   // hands-on answer keys: not backed up by the knowledge base / fixed by the AI, not looked at / not checked yet
   };
   const [publishAsk, setPublishAsk] = useState<PublishCheck | null>(null);
   const [repeatRun, setRepeatRun] = useState(0);   // bumped: the Repeats panel runs the AI check
@@ -339,7 +339,7 @@ function Editor({
     }
     const last = deck.checks?.repeats;
     setPublishAsk({
-      warnings: allWarnings.flat().filter((w) => w.level === 'warn').length,
+      warnings: allWarnings.flat().filter((w) => w.level === 'warn' && w.kind !== 'answers').length,   // (answers: their own row)
       repeats: findCrossSectionRepeats(deckSections(deck)).length,
       repeatsAi: !last ? 'none' : last.from === lessonBasis(deck) ? 'ok' : 'changed',
       factsToCheck: slidesToFactCheck(deck).length,
@@ -915,7 +915,7 @@ function Editor({
             />
           </div>
           )}
-          {heat && <SlideStatsPanel stats={heat[main.id]} days={HEAT_DAYS} onClose={() => setHeat(null)} />}
+          {heat && <SlideStatsPanel stats={heat[main.id]} days={HEAT_DAYS} onClose={() => setHeat(null)} all={heat} slides={deck.slides} current={main.id} onGo={(i) => goToRepeat(i)} />}
           {morphPreview !== null && main && (
             <div className="fixed inset-0 z-50 bg-slate-950/70 flex flex-col items-center justify-center gap-3 p-6" onPointerDown={(e) => { e.stopPropagation(); setMorphPreview(null); }} role="dialog" aria-label="Morph preview">
               <SlideCanvas slide={morphPreview ? helperView(main) : main} morph width="min(80vw, calc(75vh * 16 / 9))" />
@@ -1020,7 +1020,20 @@ function Editor({
           </li>
         );
         const link = (label: string, onClick: () => void) => <button className="underline shrink-0" onClick={onClick}>{label}</button>;
-        const issues = a.answers.flagged + a.warnings + a.repeats + (a.repeatsAi !== 'ok' ? 1 : 0) + a.factsToCheck + a.factsOpen.bad + a.factsOpen.missing + a.pictures;
+        // The first hands-on box in that state, selected (on the helper if that's where it is)
+        const showBox = (state: 'flagged' | 'fixed') => {
+          setPublishAsk(null);
+          const is = (e: SlideElement) => e.type === 'activity' && answerState(e) === state;
+          const i = deck.slides.findIndex((sl) => [...sl.elements, ...(sl.helper?.elements ?? [])].some(is));
+          if (i < 0) return;
+          const sl = deck.slides[i];
+          const onMain = sl.elements.find(is);
+          if (onMain) return goToRepeat(i, onMain.id);
+          ed.setSlideIdx(i);
+          ed.setLayer('helper');
+          ed.setSelected(sl.helper?.elements.find(is)?.id ?? null);
+        };
+        const issues = a.answers.flagged + a.answers.fixed + a.warnings + a.repeats + (a.repeatsAi !== 'ok' ? 1 : 0) + a.factsToCheck + a.factsOpen.bad + a.factsOpen.missing + a.pictures;
         return (
           <div className="fixed inset-0 z-[1000] bg-black/40 flex items-center justify-center p-6" onClick={() => setPublishAsk(null)}>
             <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg p-6 flex flex-col gap-4" role="alertdialog" aria-labelledby="publish-title" onClick={(e) => e.stopPropagation()}>
@@ -1032,22 +1045,11 @@ function Editor({
                   : row('ok', '✓', 'No layout warnings')}
                 {a.pictures > 0 && row('warn', '🖼', <>{a.pictures} picture{a.pictures === 1 ? '' : 's'} without a description</>, link('Describe', () => go('check')))}
                 {a.answers.flagged > 0
-                  ? row('bad', '⚠', <>{a.answers.flagged} hands-on box{a.answers.flagged === 1 ? '' : 'es'} with answers the knowledge base doesn&apos;t back up (marked ⚠ Check answers)</>,
-                    link('Show', () => {
-                      setPublishAsk(null);
-                      const flagged = (e: SlideElement) => e.type === 'activity' && !!e.answerCheck && !e.answerCheck.ok && e.answerCheck.from === answerBasis(e);
-                      const i = deck.slides.findIndex((sl) => [...sl.elements, ...(sl.helper?.elements ?? [])].some(flagged));
-                      if (i < 0) return;
-                      const sl = deck.slides[i];
-                      const onMain = sl.elements.find(flagged);
-                      if (onMain) return goToRepeat(i, onMain.id);
-                      ed.setSlideIdx(i);
-                      ed.setLayer('helper');
-                      ed.setSelected(sl.helper?.elements.find(flagged)?.id ?? null);
-                    }))
+                  ? row('bad', '⚠', <>{a.answers.flagged} hands-on box{a.answers.flagged === 1 ? '' : 'es'} with answers the knowledge base doesn&apos;t back up (marked ⚠ Check answers)</>, link('Show', () => showBox('flagged')))
                   : a.answers.unchecked > 0
                     ? row('warn', '🖐', <>{a.answers.unchecked} hands-on box{a.answers.unchecked === 1 ? '' : 'es'} not checked yet: the answers are checked against the knowledge base as you publish</>)
                     : row('ok', '✓', 'Hands-on answers checked against the knowledge base')}
+                {a.answers.fixed > 0 && row('warn', '🛠', <>The AI fixed the answers in {a.answers.fixed} hands-on box{a.answers.fixed === 1 ? '' : 'es'} (marked ✓ AI fixed answers): have a look</>, link('Show', () => showBox('fixed')))}
                 {a.factsToCheck > 0
                   ? row('warn', '🔎', <>{a.factsToCheck} slide{a.factsToCheck === 1 ? '' : 's'} not fact-checked since {a.factsToCheck === 1 ? 'it' : 'they'} changed</>, link('Check now', () => go('check', 'facts')))
                   : row('ok', '✓', 'Facts checked on every slide')}

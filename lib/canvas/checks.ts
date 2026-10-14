@@ -1,6 +1,6 @@
 import type { ActivityElement, Deck, Slide, SlideElement } from './types';
 import { shownWords, spokenText } from './queue';
-import { answerBasis, fingerprint } from './aiFields';
+import { answerBasis, answerState, fingerprint } from './aiFields';
 import { activityReady } from './queue';
 
 // Editor warnings that can be worked out from the slide alone. "Text doesn't
@@ -10,6 +10,8 @@ export interface Warning {
   elementId?: string;
   level: 'warn' | 'info';
   message: string;
+  /** 'answers': the answer check's ⚠ (the hands-on box's own panel and the Publish checklist show it in full) */
+  kind?: 'answers';
 }
 
 export const isDecorative = (el: SlideElement) => el.type === 'image' && !!el.silent;
@@ -54,7 +56,7 @@ export function slideWarnings(slide: Slide): Warning[] {
       for (const m of activityFormatProblems(el)) out.push({ elementId: el.id, level: 'warn', message: `Hands-on box: ${m}` });
       const ac = el.answerCheck;
       if (ac && !ac.ok && ac.from === answerBasis(el)) {
-        out.push({ elementId: el.id, level: 'warn', message: `Check the answers: ${ac.notes?.join('; ') || 'the answer check had doubts'}` });
+        out.push({ elementId: el.id, level: 'warn', kind: 'answers', message: `Check the answers: ${ac.notes?.join('; ') || 'the answer check had doubts'}` });
       }
     }
     if (el.type === 'text' && !el.text.trim()) {
@@ -146,14 +148,13 @@ export function activityFormatProblems(el: ActivityElement): string[] {
   return out;
 }
 
-/** Hands-on boxes whose answers need a person's look: flagged by the answer check, or not checked yet. */
-export function answersToLookAt(deck: Deck): { flagged: number; unchecked: number } {
-  let flagged = 0, unchecked = 0;
+/** Hands-on boxes whose answers need a person's look: flagged by the answer check, fixed by the AI and not looked at, or not checked yet. */
+export function answersToLookAt(deck: Deck): { flagged: number; fixed: number; unchecked: number } {
+  const n = { flagged: 0, fixed: 0, unchecked: 0 };
   for (const s of deck.slides) for (const e of [...s.elements, ...(s.helper?.elements ?? [])]) {
     if (e.type !== 'activity' || !activityReady(e)) continue;
-    const ac = e.answerCheck;
-    if (!ac || ac.from !== answerBasis(e)) unchecked++;
-    else if (!ac.ok) flagged++;
+    const st = answerState(e);
+    if (st !== 'ok') n[st]++;
   }
-  return { flagged, unchecked };
+  return n;
 }

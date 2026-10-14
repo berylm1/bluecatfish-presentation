@@ -43,7 +43,56 @@ function HandsOnRow({ h }: { h: NonNullable<SlideStats['handsOn']> }) {
   );
 }
 
-export function SlideStatsPanel({ stats, days, onClose }: { stats: SlideStats | undefined; days: number; onClose: () => void }) {
+/** Share of learners who skipped or needed help with a hands-on box: what puts a box at the top of the list. */
+const trouble = (h: NonNullable<SlideStats['handsOn']>) => (h.started ? Math.min(1, (h.skipped + h.hints + h.steppedIn) / h.started) : 0);
+
+/**
+ * Every hands-on box in the lesson, the ones learners skip or need help with most first:
+ * which boxes to look at again (a confusing instruction, a wrong or tricky answer).
+ */
+function HandsOnOverview({ all, slides, current, onGo }: {
+  all: Record<string, SlideStats>;
+  slides: { id: string; topic?: string }[];
+  current: string;
+  onGo: (index: number) => void;
+}) {
+  const boxes = slides
+    .map((s, i) => ({ i, s, h: all[s.id]?.handsOn }))
+    .filter((b): b is { i: number; s: { id: string; topic?: string }; h: NonNullable<SlideStats['handsOn']> } => !!b.h && b.h.started > 0)
+    .sort((a, b) => trouble(b.h) - trouble(a.h) || b.h.skipped - a.h.skipped);
+  if (!boxes.length) return null;
+  return (
+    <div className="mt-1.5 pt-1.5 border-t border-slate-100" data-handson-overview>
+      <span className="font-semibold text-slate-900">🖐 Hands-on boxes in this lesson</span>
+      <span className="text-slate-400"> · most skipped or needing help first</span>
+      <ul className="mt-1 flex flex-col">
+        {boxes.slice(0, 6).map(({ i, s, h }) => {
+          const pct = Math.round(trouble(h) * 100);
+          const tone = h.started < MIN_LEARNERS ? 'bg-slate-300 text-slate-800' : pct >= 35 ? 'bg-red-500 text-white' : pct >= 15 ? 'bg-amber-400 text-slate-900' : 'bg-emerald-500 text-white';
+          return (
+            <li key={s.id}>
+              <button onClick={() => onGo(i)} disabled={s.id === current}
+                className="w-full flex items-center gap-2 px-1.5 py-1 rounded hover:bg-slate-50 disabled:bg-cyan-50 text-left">
+                <span className={`shrink-0 w-11 text-center rounded px-1 text-[10px] font-semibold ${tone}`} title="Skipped or needed help">{pct}%</span>
+                <span className="shrink-0 font-medium text-slate-900">Slide {i + 1}</span>
+                <span className="truncate text-slate-500">{s.topic}</span>
+                <span className="ml-auto shrink-0 whitespace-nowrap">
+                  skipped <b>{h.skipped}</b> · help <b>{h.hints + h.steppedIn}</b> · done <b>{h.done}</b>/<b>{h.started}</b>
+                </span>
+              </button>
+            </li>
+          );
+        })}
+      </ul>
+    </div>
+  );
+}
+
+export function SlideStatsPanel({ stats, days, onClose, all, slides, current, onGo }: {
+  stats: SlideStats | undefined; days: number; onClose: () => void;
+  /** The whole lesson's stats, for the hands-on overview */
+  all?: Record<string, SlideStats>; slides?: { id: string; topic?: string }[]; current?: string; onGo?: (index: number) => void;
+}) {
   const row = (label: string, n: number | string | null, hint?: string) =>
     n === 0 || n === null ? null : (
       <span className="whitespace-nowrap" title={hint}>{label} <b>{n}</b></span>
@@ -81,6 +130,7 @@ export function SlideStatsPanel({ stats, days, onClose }: { stats: SlideStats | 
         </div>
       )}
       {stats?.handsOn && <HandsOnRow h={stats.handsOn} />}
+      {all && slides && onGo && <HandsOnOverview all={all} slides={slides} current={current ?? ''} onGo={onGo} />}
     </div>
   );
 }

@@ -1,5 +1,6 @@
 import { useRef, useState } from 'react';
 import { learnerHeaders } from '@/lib/learnerSession';
+import { voiced } from '@/lib/voiceSpeed';
 
 async function fetchClip(text: string): Promise<Blob | null> {
   try {
@@ -45,7 +46,7 @@ export function useSpeechQueue() {
   const playBlob = (blob: Blob) =>
     new Promise<void>((resolve) => {
       const url = URL.createObjectURL(blob);
-      const audio = new Audio(url);
+      const audio = voiced(new Audio(url));
       audioRef.current = audio;
       let finished = false;
       const done = () => {

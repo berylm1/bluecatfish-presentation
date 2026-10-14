@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { CUE_TEXT, type CueKey } from '@/lib/canvas/cues';
 import { learnerHeaders } from '@/lib/learnerSession';
+import { voiced } from '@/lib/voiceSpeed';
 
 /** A live clip: its URL and where the sound starts and ends (the silence around it is skipped). */
 type Live = { url: string; start: number; end: number | null };
@@ -98,7 +99,7 @@ export function useCues(enabled: boolean) {
       source.then((clip) => {
         if (my !== seq.current) return;
         if (!clip) { finish.current = null; setSaying(''); resolve(true); return; }
-        const a = new Audio(clip.url);
+        const a = voiced(new Audio(clip.url));
         audio.current = a;
         let watch = 0;
         const done = () => {

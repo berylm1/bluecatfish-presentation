@@ -31,6 +31,7 @@ import { activityReady, shownWords, speakingOrder, spokenText } from '@/lib/canv
 import { answerBasis, currentAudio } from '@/lib/canvas/aiFields';
 import { activePointer } from '@/lib/canvas/laser';
 import type { ActivityElement, Pointer, Slide } from '@/lib/canvas/types';
+import { VOICE_SPEEDS, loadVoiceSpeed, setVoiceSpeed, type VoiceSpeed } from '@/lib/voiceSpeed';
 
 /*
  * The canvas presentation (see docs/customization-plan.md).
@@ -232,6 +233,10 @@ function Player({ deck, preview, startAt = 0 }: { deck: Deck; preview: boolean; 
   const [classmateSaying, setClassmateSaying] = useState(false);
   // Hands-on sounds (pop, bonk, chime): on unless turned off (remembered on this browser)
   const [soundsOn, setSoundsOn] = useState(true);
+  // How fast the voices talk (remembered on this browser)
+  const [voiceSpeed, setSpeed] = useState<VoiceSpeed>(1);
+  useEffect(() => { setSpeed(loadVoiceSpeed()); }, []);
+  const chooseSpeed = (v: VoiceSpeed) => { setVoiceSpeed(v); setSpeed(v); };
   useEffect(() => { try { setSoundsOn(localStorage.getItem('handsOnSounds') !== 'off'); } catch { /* private mode */ } }, []);
   const toggleSounds = () => setSoundsOn((on) => {
     try { localStorage.setItem('handsOnSounds', on ? 'off' : 'on'); } catch { /* private mode */ }
@@ -1444,13 +1449,26 @@ function Player({ deck, preview, startAt = 0 }: { deck: Deck; preview: boolean; 
         {/* The on/off switches, in one menu (was: five more buttons, so the controls took two rows) */}
         <div className="relative" ref={optionsRef}>
           <button className={`${btn} ${optionsOpen ? 'bg-white/25' : ''}`} onClick={() => setOptionsOpen((o) => !o)} aria-expanded={optionsOpen}
-            title="Interrupt, camera, Finn, sounds, transcript">
+            title="Voice speed, interrupt, camera, Finn, sounds, transcript">
             ⚙ Options
             {/* what's on, at a glance */}
-            <span className="ml-1.5 text-xs opacity-80">{[interruptOn && '🎙', cameraOn && '📷', classmateOn && '🙋', soundsOn && '🔔', showTranscript && '💬'].filter(Boolean).join('')}</span>
+            <span className="ml-1.5 text-xs opacity-80">{[interruptOn && '🎙', cameraOn && '📷', classmateOn && '🙋', soundsOn && '🔔', showTranscript && '💬'].filter(Boolean).join('')}{voiceSpeed !== 1 && ` ${voiceSpeed}×`}</span>
           </button>
           {optionsOpen && (
             <div className="absolute bottom-full mb-2 right-0 z-30 w-72 rounded-xl bg-slate-900/95 border border-white/15 shadow-2xl p-2 flex flex-col gap-1" role="menu">
+              {/* Voice speed: three steps, not a switch */}
+              <div className="px-2.5 pt-1.5 pb-2 border-b border-white/10 mb-1">
+                <span className="block text-sm font-medium" id="speed-label">🗣 Voice speed</span>
+                <div className="mt-1.5 grid grid-cols-3 gap-1 rounded-lg bg-white/10 p-0.5" role="radiogroup" aria-labelledby="speed-label">
+                  {VOICE_SPEEDS.map((v) => (
+                    <button key={v} role="radio" aria-checked={voiceSpeed === v} onClick={() => chooseSpeed(v)}
+                      className={`rounded-md py-1 text-xs leading-tight ${voiceSpeed === v ? 'bg-white text-slate-900 font-semibold' : 'text-white/80 hover:bg-white/10'}`}>
+                      {v < 1 ? 'Slower' : v > 1 ? 'Faster' : 'Normal'}
+                      <span className="block text-[10px] opacity-70">{v}×</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
               {([
                 ['🎙', 'Interrupt', 'Talk over the professor any time (uses the microphone)', interruptOn, () => {
                   setInterruptOn((on) => !on);

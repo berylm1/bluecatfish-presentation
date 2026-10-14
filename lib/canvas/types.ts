@@ -125,7 +125,13 @@ export interface ActivityElement extends ElementBase {
    * ok = nothing doubtful left; notes = what a person should look at; fixed = what it corrected.
    * A person's "Answers look right" sets ok (byPerson) until the box changes.
    */
-  answerCheck?: { from: string; ok: boolean; notes?: string[]; fixed?: string[]; byPerson?: boolean };
+  answerCheck?: {
+    from: string; ok: boolean; notes?: string[]; fixed?: string[]; byPerson?: boolean;
+    /** The AI's fixes for a key a person typed (not made): the whole key with them in, and the notes they answer */
+    suggested?: { items?: ActivityElement['items']; slider?: ActivityElement['slider']; notes: string[]; says: string[] };
+    /** A person has looked at what the AI fixed (the "fixed by AI" tag goes) */
+    fixesSeen?: boolean;
+  };
   /** A person edited the answer key (groups, items, stops): the answer check only suggests fixes, never makes them */
   keyByPerson?: boolean;
 }

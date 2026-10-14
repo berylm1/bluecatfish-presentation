@@ -6,6 +6,7 @@ import { speakingOrder, spokenText, topicIndexes } from '@/lib/canvas/queue';
 import { currentAudio } from '@/lib/canvas/aiFields';
 import { introClip, isIntroId } from '@/lib/canvas/intro';
 import { learnerHeaders } from '@/lib/learnerSession';
+import { voiced, voiceSpeedNow } from '@/lib/voiceSpeed';
 
 const AFTER_SLIDE_MS = 1500;    // pause after a slide's last clip before moving on
 const SILENT_SLIDE_MS = 5000;   // a slide with nothing to say stays up this long
@@ -231,10 +232,10 @@ export function useDeckPlayer(
         if (pausedRef.current) return;
         setStatus('playing');
         const words = textRef.current.split(/\s+/).filter(Boolean).length;
-        timerRef.current = setTimeout(next, Math.min(12000, Math.max(2000, words * 350)));
+        timerRef.current = setTimeout(next, Math.min(12000, Math.max(2000, (words * 350) / voiceSpeedNow())));
         return;
       }
-      const audio = new Audio(url);
+      const audio = voiced(new Audio(url));
       audioRef.current = audio;
       audio.onended = next;
       audio.onerror = next;

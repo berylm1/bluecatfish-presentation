@@ -151,6 +151,17 @@ export function needsIntroAudio(slides: Slide[], i: number): boolean {
 /** What a hands-on box's answer check looked at: its task and answer key. */
 export const answerBasis = (el: ActivityElement) => fingerprint(`${el.kind}|${el.prompt ?? ''}|${shownWords(el)}`);
 
+/**
+ * Where a hands-on box's answers stand: not checked (or changed since), flagged (⚠),
+ * fixed by the AI and not looked at yet, or fine.
+ */
+export function answerState(el: ActivityElement): 'unchecked' | 'flagged' | 'fixed' | 'ok' {
+  const ac = el.answerCheck;
+  if (!ac || ac.from !== answerBasis(el)) return 'unchecked';
+  if (!ac.ok) return 'flagged';
+  return ac.fixed?.length && !ac.fixesSeen && !ac.byPerson ? 'fixed' : 'ok';
+}
+
 /** Does a hands-on box need its answers checked (never checked, or changed since; a person's "look right" counts)? */
 export function needsAnswerCheck(el: SlideElement): boolean {
   if (el.type !== 'activity' || !activityReady(el)) return false;

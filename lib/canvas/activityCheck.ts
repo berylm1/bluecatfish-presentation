@@ -56,13 +56,20 @@ export async function checkActivityAnswers(el: ActivityElement, about: { lesson?
     return [{ n, verdict, why: typeof v.why === 'string' ? v.why.slice(0, 200) : undefined, fix: v.fix && typeof v.fix === 'object' ? v.fix : undefined }];
   });
 
-  const items = el.items ? el.items.map((it) => ({ ...it })) : undefined;
-  const slider = el.slider ? { ...el.slider, stops: el.slider.stops.map((s) => ({ ...s })) } : undefined;
+  const copyItems = () => (el.items ? el.items.map((it) => ({ ...it })) : undefined);
+  const copySlider = () => (el.slider ? { ...el.slider, stops: el.slider.stops.map((s) => ({ ...s })) } : undefined);
+  const items = copyItems();
+  const slider = copySlider();
   const notes: string[] = [];
   const fixed: string[] = [];
   const short = (t: unknown, max: number) => (typeof t === 'string' && t.trim() ? t.trim().slice(0, max) : undefined);
-  // A key a person typed is never changed: the fix becomes a suggestion (⚠) instead
+  // A key a person typed is never changed: the fix becomes a suggestion (⚠, with a button to use it) instead
   const mayFix = !el.keyByPerson;
+  // where fixes go: the box's key, or (for a person's key) a copy that becomes the suggestion
+  const tItems = mayFix ? items : copyItems();
+  const tSlider = mayFix ? slider : copySlider();
+  const suggestNotes: string[] = [];
+  const suggestSays: string[] = [];
   for (const v of verdicts) {
     if (v.verdict === 'right') continue;
     const i = v.n - 1;
@@ -71,32 +78,39 @@ export async function checkActivityAnswers(el: ActivityElement, about: { lesson?
     let change: { says: string; suggest: string; apply: () => void } | undefined;
     const fix = v.fix;
     if (v.verdict === 'wrong' && fix) {
-      if (el.kind === 'sort' && items?.[i]) {
+      if (el.kind === 'sort' && tItems?.[i]) {
         const g = groups.findIndex((name) => name.trim().toLowerCase() === String(fix.group ?? '').trim().toLowerCase());
-        const it = items[i];
+        const it = tItems[i];
         if (g >= 0 && g !== it.group) change = { says: `${what}: moved to "${groups[g]}" (was "${groups[it.group ?? 0]}")`, suggest: `move it to "${groups[g]}"`, apply: () => { it.group = g; } };
-      } else if ((el.kind === 'cards' || el.kind === 'hotspots') && items?.[i] && short(fix.back, 160)) {
-        const it = items[i], back = short(fix.back, 160);
+      } else if ((el.kind === 'cards' || el.kind === 'hotspots') && tItems?.[i] && short(fix.back, 160)) {
+        const it = tItems[i], back = short(fix.back, 160);
         change = { says: `${what}: answer changed to "${back}" (was "${it.back ?? ''}")`, suggest: `make the answer "${back}"`, apply: () => { it.back = back; } };
-      } else if (el.kind === 'slider' && slider?.stops[i] && short(fix.text, 120)) {
-        const st = slider.stops[i], text = short(fix.text, 120)!;
+      } else if (el.kind === 'slider' && tSlider?.stops[i] && short(fix.text, 120)) {
+        const st = tSlider.stops[i], text = short(fix.text, 120)!;
         change = { says: `stop ${st.at}: changed to "${text}" (was "${st.text}")`, suggest: `make it "${text}"`, apply: () => { st.text = text; } };
       }
     }
-    if (el.kind === 'order' && v.verdict === 'wrong' && Array.isArray(out.order) && items) {
+    if (el.kind === 'order' && v.verdict === 'wrong' && Array.isArray(out.order) && tItems) {
       // the right order, as long as it's the same items
-      const want = (out.order as unknown[]).map((t) => items.findIndex((it) => it.text.trim().toLowerCase() === String(t).trim().toLowerCase()));
-      if (want.length === items.length && new Set(want).size === items.length && !want.includes(-1)) {
-        const reordered = want.map((k) => items[k]);
+      const want = (out.order as unknown[]).map((t) => tItems.findIndex((it) => it.text.trim().toLowerCase() === String(t).trim().toLowerCase()));
+      if (want.length === tItems.length && new Set(want).size === tItems.length && !want.includes(-1)) {
+        const reordered = want.map((k) => tItems[k]);
         const right = reordered.map((it) => it.text).join(' → ');
-        change = { says: `the order: changed to ${right}`, suggest: `make it ${right}`, apply: () => { items.splice(0, items.length, ...reordered); } };
+        change = { says: `the order: changed to ${right}`, suggest: `make it ${right}`, apply: () => { tItems.splice(0, tItems.length, ...reordered); } };
       }
     }
     const why = v.why ? ` (${v.why})` : '';
     if (change && mayFix) { change.apply(); fixed.push(change.says + why); }
-    else if (change) notes.push(`${what}: looks wrong, so ${change.suggest}?${why}`);
+    else if (change) {
+      change.apply();
+      const note = `${what}: looks wrong, so ${change.suggest}?${why}`;
+      notes.push(note);
+      suggestNotes.push(note);
+      suggestSays.push(change.says + why);
+    }
     else notes.push(`${what}: ${v.verdict === 'wrong' ? 'looks wrong' : 'not confirmed by the sources'}${why}`);
   }
   const after: ActivityElement = { ...el, items, slider };
-  return { items, slider, check: { from: answerBasis(after), ok: notes.length === 0, notes, fixed } };
+  const suggested = suggestNotes.length ? { items: tItems, slider: tSlider, notes: suggestNotes, says: suggestSays } : undefined;
+  return { items, slider, check: { from: answerBasis(after), ok: notes.length === 0, notes, fixed, ...(suggested ? { suggested } : {}) } };
 }

@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { ActivityElement, ChartElement, DiagramElement, Slide, SlideElement, TextStyle } from '@/lib/canvas/types';
 import type { Warning } from '@/lib/canvas/checks';
 import { answerBasis } from '@/lib/canvas/aiFields';
@@ -67,7 +67,8 @@ export function ElementInspector({
         </div>
       </div>
 
-      {warnings.map((w, i) => (
+      {/* (the answer check's ⚠ is in the hands-on box's own panel below) */}
+      {warnings.filter((w) => w.kind !== 'answers').map((w, i) => (
         <p key={i} className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-md px-2 py-1.5">⚠ {w.message}</p>
       ))}
 
@@ -468,10 +469,14 @@ function LinesField({ id, title, hint, initial, rows = 5, onLines }: {
   id: string; title: string; hint: string; initial: string; rows?: number; onLines: (lines: string[][]) => void;
 }) {
   const [text, setText] = useState(initial);
+  const box = useRef<HTMLTextAreaElement>(null);
+  // Changed from outside (undo, "Use the suggested fix"): show it. Not while typing here
+  // (the lines would be tidied under the cursor). Was: only read when the panel opened.
+  useEffect(() => { if (document.activeElement !== box.current) setText(initial); }, [initial]);
   return (
     <div>
       <label className={label} htmlFor={id}>{title}</label>
-      <textarea id={id} rows={rows} className={`${input} font-mono text-xs`} value={text} placeholder={hint}
+      <textarea ref={box} id={id} rows={rows} className={`${input} font-mono text-xs`} value={text} placeholder={hint}
         onChange={(e) => {
           setText(e.target.value);
           onLines(e.target.value.split('\n').map((l) => l.split(/\s*(?:\||→|->)\s*/).map((c) => c.trim())).filter((c) => c[0]));
@@ -655,27 +660,49 @@ function AnswerCheck({ el, set }: { el: ActivityElement; set: (patch: Partial<Ac
   if (!current) {
     return <p className="text-xs text-slate-500">Answers: checked against the knowledge base when you save.</p>;
   }
+  const fixedList = !!ac.fixed?.length && (
+    <ul className="mt-1 list-disc pl-4 text-slate-600">{ac.fixed!.map((f, i) => <li key={i}>{f}</li>)}</ul>
+  );
   if (ac.ok) {
+    const unseen = !!ac.fixed?.length && !ac.fixesSeen && !ac.byPerson;
     return (
-      <div className="text-xs text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-md px-2 py-1.5">
+      <div className={`text-xs rounded-md px-2 py-1.5 border ${unseen ? 'text-emerald-900 bg-emerald-50 border-emerald-400' : 'text-emerald-700 bg-emerald-50 border-emerald-200'}`} data-answer-ok>
         ✓ {ac.byPerson ? 'You said the answers look right.' : 'Answers checked against the knowledge base.'}
-        {!!ac.fixed?.length && (
-          <ul className="mt-1 list-disc pl-4 text-slate-600">{ac.fixed.map((f, i) => <li key={i}>Fixed: {f}</li>)}</ul>
+        {!!ac.fixed?.length && <><span className="block mt-1 font-semibold">{unseen ? 'The AI fixed these answers. Have a look:' : 'Fixed by the AI:'}</span>{fixedList}</>}
+        {unseen && (
+          <button className={`${small} mt-1.5`} onClick={() => set({ answerCheck: { ...ac, fixesSeen: true } })}>OK, looks good</button>
         )}
       </div>
     );
   }
+  const sg = ac.suggested;
+  const useFix = () => {
+    if (!sg) return;
+    const fixed = { ...el, items: sg.items ?? el.items, slider: sg.slider ?? el.slider };
+    const notes = (ac.notes ?? []).filter((n) => !sg.notes.includes(n));
+    // one undo step: the key and its check together (the check now covers the fixed key)
+    set({
+      items: fixed.items, slider: fixed.slider,
+      answerCheck: { from: answerBasis(fixed), ok: notes.length === 0, notes, fixed: [...(ac.fixed ?? []), ...sg.says], fixesSeen: true },
+    });
+  };
   return (
     <div className="text-xs text-amber-800 bg-amber-50 border border-amber-300 rounded-md px-2 py-1.5" data-answer-warning>
       <b>⚠ Check the answers.</b> The knowledge base doesn&apos;t back these up. Finn won&apos;t try this box until they&apos;re right.
       <ul className="mt-1 list-disc pl-4">{(ac.notes ?? []).map((n, i) => <li key={i}>{n}</li>)}</ul>
-      {!!ac.fixed?.length && (
-        <ul className="mt-1 list-disc pl-4 text-slate-600">{ac.fixed.map((f, i) => <li key={i}>Fixed: {f}</li>)}</ul>
-      )}
-      <p className="mt-1 text-slate-600">Fix them below (they&apos;re checked again on save), or if they&apos;re right:</p>
-      <button className={`${small} mt-1`} onClick={() => set({ answerCheck: { from: answerBasis(el), ok: true, byPerson: true, fixed: ac.fixed } })}>
-        Answers look right
-      </button>
+      {!!ac.fixed?.length && <><span className="block mt-1 font-semibold text-slate-600">Fixed by the AI:</span>{fixedList}</>}
+      <p className="mt-1 text-slate-600">Fix them below (they&apos;re checked again on save), or:</p>
+      <div className="mt-1 flex flex-wrap gap-1.5">
+        {sg && (
+          <button className="px-2 py-1 rounded-md bg-amber-500 hover:bg-amber-600 text-white text-xs font-semibold" onClick={useFix}
+            title={sg.says.join('\n')}>
+            Use the suggested fix{sg.notes.length > 1 ? `es (${sg.notes.length})` : ''}
+          </button>
+        )}
+        <button className={small} onClick={() => set({ answerCheck: { from: answerBasis(el), ok: true, byPerson: true, fixed: ac.fixed, fixesSeen: true } })}>
+          Answers look right
+        </button>
+      </div>
     </div>
   );
 }

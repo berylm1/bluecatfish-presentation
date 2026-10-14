@@ -120,6 +120,15 @@ function element(raw: any, fallbackId: string): SlideElement | null {
         notes: (Array.isArray(raw.answerCheck.notes) ? raw.answerCheck.notes : []).slice(0, 10).map((x: unknown) => str(x, 300)).filter(Boolean) as string[],
         fixed: (Array.isArray(raw.answerCheck.fixed) ? raw.answerCheck.fixed : []).slice(0, 10).map((x: unknown) => str(x, 300)).filter(Boolean) as string[],
         byPerson: bool(raw.answerCheck.byPerson),
+        fixesSeen: bool(raw.answerCheck.fixesSeen),
+        suggested: (() => {
+          const sg = raw.answerCheck.suggested;
+          if (!sg || typeof sg !== 'object') return undefined;
+          // the suggested key is cleaned exactly like the box's own
+          const clean = element({ ...raw, answerCheck: undefined, items: sg.items, slider: sg.slider }, fallbackId) as ActivityElement | null;
+          const list = (v: unknown) => (Array.isArray(v) ? v : []).slice(0, 10).map((x: unknown) => str(x, 300)).filter(Boolean) as string[];
+          return clean ? { items: clean.items, slider: clean.slider, notes: list(sg.notes), says: list(sg.says) } : undefined;
+        })(),
       } : undefined,
       keyByPerson: bool(raw.keyByPerson),
     };
