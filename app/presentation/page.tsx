@@ -268,7 +268,15 @@ function Player({ deck, preview, startAt = 0 }: { deck: Deck; preview: boolean; 
   const checked = useRef(new Set<number>());   // topic-end slides already asked about
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const topicOf = useMemo(() => topicIndexes(deck.slides), [deck]);
-  const player = useDeckPlayer(deck, started && introDone, {
+  // The lesson's first clip waits while something else is talking: an answer (a question asked
+  // during the hello) or a helper ("I'm lost" during the hello). Was: the lesson started the
+  // moment the hello ended, over them. Once begun it stays begun (later on, those pause the
+  // lesson themselves, and it carries on after them).
+  const tutor = useTutor();
+  const [begun, setBegun] = useState(false);
+  const busyElsewhere = tutor.thinking || tutor.speaking || !!variant;
+  useEffect(() => { if (started && introDone && !busyElsewhere) setBegun(true); }, [started, introDone, busyElsewhere]);
+  const player = useDeckPlayer(deck, begun, {
     holdBefore: (from, to) => !checked.current.has(from) && (to >= deck.slides.length || topicOf[to] !== topicOf[from]),
     // End of a topic: maybe Finn asks something first, then "How did that section go?"
     onHold: (from, to) => { topicEndRef.current(from, to); },
@@ -286,7 +294,6 @@ function Player({ deck, preview, startAt = 0 }: { deck: Deck; preview: boolean; 
     },
     startAt,
   });
-  const tutor = useTutor();
   const cues = useCues(started);
   // The personal hello is made once they stop typing their name, so Start speaks at once
   const { preload: preloadLine } = cues;
@@ -1171,8 +1178,14 @@ function Player({ deck, preview, startAt = 0 }: { deck: Deck; preview: boolean; 
   /** A fresh lesson from the first slide: Finn asks again, hands-on boxes wait again (the end screen, and ↺ at the top left). */
   function startOver() {
     // whatever is going on now stops: an answer, Finn's turn, a helper
-    if (finnBusy.current) { finnVerdict(null, 'button'); takeOverFromFinn(); }
-    if (tutorBusyRef.current) cancelAnswer();
+    // (always, not only when they look busy: an answer still loading its first sentence, or Finn's
+    // turn between his line and the answer, didn't, and went on over the restarted lesson)
+    finnVerdict(null, 'button');
+    takeOverFromFinn();
+    finnTurn.current++;   // a Finn turn in progress sees it's over at its next step
+    finnBusy.current = false;
+    cancelAnswer();
+    setClassmateSaying(false);
     if (variant) { variantAfter.current = null; variantMode.current = 'answer'; setVariant(null); helperSeq.current++; setHelperActive(null); }
     checked.current.clear(); activitiesDone.current.clear(); activitiesSolved.current.clear(); classmateTopics.current.clear(); classmateAsked.current = []; finnReady.current.clear(); finnResults.current.clear();
     finnSpoken.current.clear(); mistakeCounts.current.clear(); steppedIn.current.clear();
