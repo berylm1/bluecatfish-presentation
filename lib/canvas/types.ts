@@ -265,4 +265,6 @@ export interface Deck {
   checks?: DeckChecks;
   updatedAt?: string;
   updatedBy?: string;
+  /** The name this version was saved under when it was published (lib/canvas/saved.ts) */
+  savedAs?: string;
 }

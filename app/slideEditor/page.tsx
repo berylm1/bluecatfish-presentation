@@ -24,6 +24,7 @@ import { DEFAULT_LESSON, type LessonInfo } from '@/lib/canvas/lessons';
 import type { CheckedClaim, Deck, DeckChecks, OrderMove, Slide, SlideElement } from '@/lib/canvas/types';
 import { ACTIVITY_KINDS, VISUAL_KINDS, activityTemplate, visualTemplate } from '@/components/editor/templates';
 import { applyMove, clearRewordedWords, moveDone, moveKey, openMoves, slideName } from '@/lib/canvas/order';
+import SavedVersions from '@/components/editor/SavedVersions';
 
 /*
  * Slide editor (docs/customization-plan.md, step 3). Password-protected by the
@@ -31,7 +32,7 @@ import { applyMove, clearRewordedWords, moveDone, moveKey, openMoves, slideName 
  * makes the draft the live deck that /presentation plays.
  */
 
-type LiveInfo = { at?: string; by?: string; basedOn?: string } | null;
+type LiveInfo = { at?: string; by?: string; basedOn?: string; savedAs?: string } | null;
 type AiDeckInfo = { at?: string; slides: number; topics: number } | null;
 type Version = { key: string; label: string; slides: number; current: boolean };
 
@@ -156,8 +157,9 @@ function Editor({
   const [live, setLive] = useState<LiveInfo | undefined>(undefined);
   const [versions, setVersions] = useState<Version[] | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<{ busy: boolean; error?: string } | null>(null);
+  const [savedOpen, setSavedOpen] = useState(false);   // More ▾ → Saved versions…
   const versionsOpen = useRef(false);
-  versionsOpen.current = versions !== null || confirmDelete !== null || conflict !== null;
+  versionsOpen.current = versions !== null || confirmDelete !== null || conflict !== null || savedOpen;
   const [overflow, setOverflow] = useState<Record<string, string[]>>({});
   // 📊 Learners: how each slide went for learners (a heatmap on the slide list)
   const HEAT_DAYS = 30;
@@ -202,7 +204,7 @@ function Editor({
   const loadLive = useCallback(() => {
     fetch(`/api/editor/deck?lesson=${encodeURIComponent(lessonId)}&kind=live`)
       .then((r) => r.json())
-      .then((d) => setLive(d.deck ? { at: d.deck.updatedAt, by: d.deck.updatedBy, basedOn: d.deck.basedOn } : null))
+      .then((d) => setLive(d.deck ? { at: d.deck.updatedAt, by: d.deck.updatedBy, basedOn: d.deck.basedOn, savedAs: d.deck.savedAs } : null))
       .catch(() => setLive(null));
   }, [lessonId]);
   useEffect(loadLive, [loadLive]);
@@ -322,10 +324,36 @@ function Editor({
     factsToCheck: number;            // slides never fact-checked, or changed since
     factsOpen: { bad: number; missing: number };   // ❌ / ⚠️ not marked fine, on checked slides
     pictures: number;                // pictures without a description
-    answers: { flagged: number; fixed: number; unchecked: number };
-    orderMoves: number;              // story-order moves suggested, not made or skipped   // hands-on answer keys: not backed up by the knowledge base / fixed by the AI, not looked at / not checked yet
+    answers: { flagged: number; fixed: number; unchecked: number };   // hands-on answer keys: not backed up by the knowledge base / fixed by the AI, not looked at / not checked yet
+    orderMoves: number;              // story-order moves suggested, not made or skipped
   };
   const [publishAsk, setPublishAsk] = useState<PublishCheck | null>(null);
+  // The name the published version is saved under (a name not used before: lib/canvas/saved.ts)
+  const [publishName, setPublishName] = useState('');
+  const [nameCheck, setNameCheck] = useState<'checking' | 'ok' | 'taken' | 'bad'>('checking');
+  const lastPublishName = useRef('');   // for "Keep mine" after a conflict
+  const nameFree = async (name: string) => {
+    const d = await fetch(`/api/editor/saved?name=${encodeURIComponent(name)}`).then((r) => r.json()).catch(() => null);
+    return d ? (!d.ok ? 'bad' : d.taken ? 'taken' : 'ok') : 'ok';
+  };
+  // checked as it's typed
+  useEffect(() => {
+    if (!publishAsk) return;
+    if (!publishName.trim()) { setNameCheck('bad'); return; }
+    setNameCheck('checking');
+    let gone = false;
+    const t = setTimeout(async () => { const r = await nameFree(publishName); if (!gone) setNameCheck(r); }, 300);
+    return () => { gone = true; clearTimeout(t); };
+  }, [publishName, publishAsk]);
+  /** A name to start from: the lesson and the date, with (2), (3)… if that's taken */
+  const suggestName = async () => {
+    const base = `${deck.title} · ${new Date().toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}`.slice(0, 52);
+    for (let n = 1; n <= 20; n++) {
+      const name = n === 1 ? base : `${base} (${n})`;
+      if ((await nameFree(name)) === 'ok') return name;
+    }
+    return base;
+  };
   const [repeatRun, setRepeatRun] = useState(0);   // bumped: the Repeats panel runs the AI check
   const publish = async () => {
     // What's been checked is remembered (deck.checks): only what changed since needs looking at
@@ -350,10 +378,13 @@ function Editor({
       answers: answersToLookAt(deck),
       orderMoves: openMoves(deck).length,
     });
+    setPublishName('');
+    suggestName().then((n) => setPublishName((cur) => cur || n));
   };
 
   /** Publish without asking (after the confirm, or after "Keep mine" in a conflict). */
-  const publishNow = async (force = false) => {
+  const publishNow = async (force = false, name = lastPublishName.current) => {
+    lastPublishName.current = name;
     if ((ed.dirty || force) && !(await save({ force, then: 'publish' }))) return;
     // Learners should get finished words and audio: let the AI finish first
     if (todoHere > 0 || aiRun.current) {
@@ -363,13 +394,15 @@ function Editor({
     const d = await fetch('/api/editor/publish', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ lesson: lessonId, baseRev: baseRev.current ?? null }),
+      body: JSON.stringify({ lesson: lessonId, baseRev: baseRev.current ?? null, saveAs: name }),
     }).then((r) => r.json());
     if (d.conflict) return setConflict({ ...d.conflict, then: 'publish' });
+    // the name was taken meanwhile (or isn't a name): back to the dialog to pick another
+    if (d.field === 'saveAs') { flash(d.error, 'error'); publish(); return; }
     if (d.error) return flash(d.error, 'error');
     // The recap the server wrote (or kept), so saving later doesn't lose it
     ed.mergeRemote((deck) => { deck.recap = d.recap ?? undefined; deck.recapByAI = d.recapByAI || undefined; });
-    flash(d.warning ? `Published, but: ${d.warning}` : 'Published: /presentation now plays this deck', d.warning ? 'warn' : 'ok');
+    flash(d.warning ? `Published, but: ${d.warning}` : `Published and saved as “${d.savedAs}”: /presentation now plays this deck`, d.warning ? 'warn' : 'ok');
     loadLive();
   };
 
@@ -689,7 +722,7 @@ function Editor({
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (versionsOpen.current) {   // a popup is open: only Escape, to close it
-        if (e.key === 'Escape') { setVersions(null); setConfirmDelete(null); }
+        if (e.key === 'Escape') { setVersions(null); setConfirmDelete(null); setSavedOpen(false); }
         return;
       }
       const typing = ['INPUT', 'TEXTAREA', 'SELECT'].includes((e.target as HTMLElement)?.tagName);
@@ -759,7 +792,7 @@ function Editor({
         </span>
         <div className="flex-1" />
         <span className="text-xs text-slate-500">
-          {live === undefined ? '' : live ? <>🟢 Live since {when(live.at)}{live.by ? ` (${live.by})` : ''} · <button className="underline" onClick={unpublish}>take down</button></> : '⚪ Not published: learners get the AI lesson'}
+          {live === undefined ? '' : live ? <>🟢 Live{live.savedAs ? <>: <b className="font-semibold">“{live.savedAs}”</b></> : ''} since {when(live.at)}{live.by ? ` (${live.by})` : ''} · <button className="underline" onClick={unpublish}>take down</button></> : '⚪ Not published: learners get the AI lesson'}
         </span>
         <button className={btn} onClick={() => save()} disabled={saving} title="Ctrl+S">Save</button>
         <Menu className={btn} label="▶ Preview ▾" title="Play the saved lesson in a new tab" width="w-56">
@@ -836,6 +869,7 @@ function Editor({
         <Menu className={btn} label="More ▾" width="w-64">
           {(close) => (
             <>
+              <MenuItem onClick={() => { close(); setSavedOpen(true); }} hint="Versions saved when they were published: copy a slide back, or go back to one">Saved versions…</MenuItem>
               <MenuItem onClick={() => { close(); openVersions(); }} hint="Replace this draft with an AI-made deck">Start from AI…</MenuItem>
               <MenuItem onClick={() => { close(); window.open(`/lessonReview?lesson=${encodeURIComponent(lessonId)}&preview=1`, '_blank', 'noopener'); }} hint="The saved draft as a readable page, to print">📖 Lesson review ↗</MenuItem>
               {lessonId !== DEFAULT_LESSON.id && (
@@ -1086,9 +1120,21 @@ function Editor({
                   ? row('ok', '✓', 'Checked for repeats with the AI, nothing changed since')
                   : row('warn', '✨', a.repeatsAi === 'none' ? 'Not checked for repeats with the AI yet' : 'Changed since the last AI repeat check', link('Check now', () => go('repeats', 'repeats')))}
               </ul>
+              <label className="flex flex-col gap-1 text-sm" data-publish-name>
+                <span className="font-semibold text-slate-800">Save this version as</span>
+                <input value={publishName} maxLength={60} onChange={(e) => setPublishName(e.target.value)} placeholder="A name for this version"
+                  className={`px-3 py-2 rounded-md border outline-none ${nameCheck === 'taken' || nameCheck === 'bad' ? 'border-red-400 focus:border-red-500' : 'border-slate-300 focus:border-cyan-500'}`}
+                  onKeyDown={(e) => { if (e.key === 'Enter' && nameCheck === 'ok') { setPublishAsk(null); publishNow(false, publishName.trim()); } }} />
+                <span className={`text-xs ${nameCheck === 'taken' || nameCheck === 'bad' ? 'text-red-700' : 'text-slate-500'}`} role="status">
+                  {nameCheck === 'taken' ? 'That name is already used: pick another.'
+                    : nameCheck === 'bad' ? 'Give it a name (letters or numbers, up to 60 characters).'
+                      : nameCheck === 'checking' ? 'Checking the name…'
+                        : 'You can load it again later (More ▾ → Saved versions).'}
+                </span>
+              </label>
               <div className="flex gap-2 justify-end">
                 <button className={btn} onClick={() => setPublishAsk(null)}>Cancel</button>
-                <button className={primary} onClick={() => { setPublishAsk(null); publishNow(); }}>{issues ? 'Publish anyway' : 'Publish'}</button>
+                <button className={primary} disabled={nameCheck !== 'ok'} onClick={() => { setPublishAsk(null); publishNow(false, publishName.trim()); }}>{issues ? 'Publish anyway' : 'Publish'}</button>
               </div>
             </div>
           </div>
@@ -1183,6 +1229,24 @@ function Editor({
             </div>
           </div>
         </div>
+      )}
+
+      {savedOpen && (
+        <SavedVersions lessonId={lessonId} slideNumber={slideIdx + 1} onClose={() => setSavedOpen(false)}
+          onReplace={(saved, name) => {
+            ed.change((draft) => {
+              draft.slides = structuredClone(saved.slides);
+              draft.recap = saved.recap; draft.recapByAI = saved.recapByAI; draft.quiz = saved.quiz;
+              draft.basedOn = undefined;
+            });
+            ed.setSlideIdx(0); ed.setSelected(null); setSavedOpen(false);
+            flash(`The draft is now “${name}” (${saved.slides.length} slides). Ctrl+Z undoes it; press Save to keep it.`);
+          }}
+          onCopySlide={(sl, name) => {
+            ed.change((d) => { d.slides.splice(slideIdx + 1, 0, cloneSlide(sl)); });
+            ed.setSlideIdx(slideIdx + 1); ed.setSelected(null);
+            flash(`Copied a slide from “${name}” after slide ${slideIdx + 1} (Ctrl+Z undoes it)`);
+          }} />
       )}
 
       {/* Start from AI: every lesson version in Redis */}

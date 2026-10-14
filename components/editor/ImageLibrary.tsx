@@ -93,7 +93,8 @@ export default function ImageLibrary({
       </button>
       {mode === 'background' && <p className="text-xs text-cyan-700">Click an image to use it as this slide’s background.</p>}
       {status && <p className="text-xs text-slate-500">{status}</p>}
-      <div className="grid grid-cols-2 gap-2 overflow-y-auto pr-1">
+      {/* Each picture whole, at its own shape (was: cropped to squares to save space); two columns, like a wall of photos */}
+      <div className="columns-2 gap-2 overflow-y-auto pr-1" data-image-library>
         {images.map((img) => (
           <button
             key={img.url}
@@ -101,10 +102,10 @@ export default function ImageLibrary({
             onDragStart={(e) => e.dataTransfer.setData(IMAGE_DRAG_TYPE, JSON.stringify(img))}
             onClick={() => onAdd(img)}
             title={img.description}
-            className="group relative aspect-square rounded-md overflow-hidden bg-slate-100 border border-slate-200 hover:border-cyan-500"
+            className="group relative block w-full mb-2 break-inside-avoid rounded-md overflow-hidden bg-slate-100 border border-slate-200 hover:border-cyan-500"
           >
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={img.url} alt={img.description} loading="lazy" className="w-full h-full object-cover" />
+            <img src={img.url} alt={img.description} loading="lazy" className="block w-full h-auto" />
             <span className="absolute inset-x-0 bottom-0 p-1 bg-black/60 text-[10px] leading-tight text-white text-left line-clamp-3 opacity-0 group-hover:opacity-100">
               {img.description}
             </span>
