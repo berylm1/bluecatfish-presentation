@@ -20,8 +20,10 @@ import { playSound, type HandsOnSound } from '@/lib/canvas/sounds';
 const IDLE_HINT_MS = 9000;   // stopped this long before finishing: the hand shows again
 const INK = '#0f172a';
 
-export default function ActivityView({ el, interactive, onDone, hintNonce = 0, solved = false, quiet = false, sounds = false, onMistake, finnMove, onFinn, guide }: {
+export default function ActivityView({ el, interactive, onDone, hintNonce = 0, solved = false, quiet = false, sounds = false, onMistake, finnMove, onFinn, guide, turn = false }: {
   el: ActivityElement; interactive: boolean; onDone?: () => void;
+  /** It's the learner's turn on this box now (the professor has said what to do) */
+  turn?: boolean;
   /** A wrong move: what it was about ("Blue catfish → Native"), for the learner stats and for stepping in when it repeats */
   onMistake?: (m: ActivityMistake) => void;
   /** Finn takes a turn (a new nonce = a new move): a sort item in the wrong group, or a wrong guess on a card */
@@ -85,7 +87,7 @@ export default function ActivityView({ el, interactive, onDone, hintNonce = 0, s
 
   const ready = activityReady(el);
   const hint = interactive && ready && !touched && !done && !quiet;
-  const kit: Kit = { interactive: interactive && ready && !done, hint, touch, finish, solved, sound, mistake, finnMove: interactive ? finnMove : null, finnEvent, guide };
+  const kit: Kit = { interactive: interactive && ready && !done, hint, touch, finish, solved, sound, mistake, finnMove: interactive ? finnMove : null, finnEvent, guide, turn: interactive && turn };
   // A half-made box: the editor shows what's missing; learners see nothing (it isn't waited on either)
   if (!ready && interactive) return null;
   return (
@@ -121,6 +123,7 @@ type Kit = {
   interactive: boolean; hint: boolean; touch: () => void; finish: () => void; solved: boolean;
   sound: (k: HandsOnSound) => void; mistake: (m: ActivityMistake) => void;
   finnMove?: FinnMove | null; finnEvent: (e: FinnEvent) => void; guide?: string;
+  turn: boolean;
 };
 
 /** A wrong move: the item, where it went (or what was tapped instead), and where it belongs (or what comes next) */
@@ -145,10 +148,15 @@ function HintHand({ area, mode }: { area: HTMLDivElement; mode: 'drag' | 'tap' }
   useLayoutEffect(() => {
     const measure = () => {
       const a = area.getBoundingClientRect();
-      const from = area.querySelector('[data-hint-from]')?.getBoundingClientRect();
+      const fromEl = area.querySelector<HTMLElement>('[data-hint-from]');
+      const from = fromEl?.getBoundingClientRect();
       const to = area.querySelector('[data-hint-to]')?.getBoundingClientRect() ?? from;
       if (!from || !to) { setPts(null); return; }
-      setPts({ fx: from.left + from.width / 2 - a.left, fy: from.top + from.height / 2 - a.top, tx: to.left + to.width / 2 - a.left, ty: to.top + to.height / 2 - a.top });
+      // a card or a step full of words: tap near its bottom-right corner, not on the words (was: the hand covered the question)
+      const corner = fromEl?.dataset.hintSpot === 'corner';
+      const fx = corner ? from.left + from.width * 0.84 : from.left + from.width / 2;
+      const fy = corner ? from.top + from.height * 0.8 : from.top + from.height / 2;
+      setPts({ fx: fx - a.left, fy: fy - a.top, tx: (corner ? fx : to.left + to.width / 2) - a.left, ty: (corner ? fy : to.top + to.height / 2) - a.top });
     };
     measure();
     const ro = new ResizeObserver(measure);
@@ -170,6 +178,8 @@ function HintHand({ area, mode }: { area: HTMLDivElement; mode: 'drag' | 'tap' }
     </span>
   );
 }
+
+const THINK_MS = 3000;   // cards: the moment to guess before they can flip
 
 const glow = (on: boolean): CSSProperties => (on ? { animation: 'hint-pulse 1.4s ease-in-out infinite' } : {});
 
@@ -354,7 +364,7 @@ function Order({ el, kit }: { el: ActivityElement; kit: Kit }) {
       {order.map((k) => {
         const doneStep = k < next;
         return (
-          <button key={k} type="button" disabled={!kit.interactive} onClick={() => tap(k)} data-hint-from={k === next ? '' : undefined}
+          <button key={k} type="button" disabled={!kit.interactive} onClick={() => tap(k)} data-hint-from={k === next ? '' : undefined} data-hint-spot="corner"
             style={chip(doneStep ? '#16a34a' : '#64748b', {
               position: 'relative', minWidth: '36%', maxWidth: '47%', padding: '1.8cqh 2cqh 1.8cqh 6.5cqh', textAlign: 'left',
               background: doneStep ? '#f0fdf4' : '#fff', cursor: kit.interactive && !doneStep ? 'pointer' : 'default',
@@ -388,9 +398,25 @@ function Cards({ el, kit }: { el: ActivityElement; kit: Kit }) {
     kit.finnEvent({ type: 'applied', item: items[item].text, guess: m.guess });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [finnNonce]);
+  // A moment to guess before any card can flip, once, when the learner's turn starts (guessing first is the point)
+  const [thinking, setThinking] = useState(false);
+  const thinkFrom = useRef(0);   // when the moment started (a time, not a flag: an effect that runs twice picks it up again)
+  useEffect(() => {
+    if (!kit.turn || kit.solved) return;
+    if (!thinkFrom.current) {
+      if (flipped.size) return;   // already flipping (during the instructions): no wait
+      thinkFrom.current = Date.now();
+    }
+    const left = thinkFrom.current + THINK_MS - Date.now();
+    if (left <= 0) return;
+    setThinking(true);
+    const t = setTimeout(() => setThinking(false), left);
+    return () => { clearTimeout(t); setThinking(false); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [kit.turn]);
   const first = items.findIndex((_, i) => !flipped.has(i));
   const flip = (i: number) => {
-    if (!kit.interactive || flipped.has(i)) return;
+    if (!kit.interactive || flipped.has(i) || thinking) return;
     kit.touch();
     const next = new Set(flipped).add(i);
     setFlipped(next);
@@ -401,13 +427,24 @@ function Cards({ el, kit }: { el: ActivityElement; kit: Kit }) {
   const cols = items.length <= 3 ? items.length : items.length === 4 ? 2 : 3;
   return (
     <div style={{ position: 'absolute', inset: 0, display: 'grid', gridTemplateColumns: `repeat(${cols}, 1fr)`, gap: '1.6cqh', perspective: '120cqh' }}>
+      {thinking && (
+        <div role="status" data-think style={{ position: 'absolute', left: '50%', top: '50%', transform: 'translate(-50%, -50%)', zIndex: 8, padding: '1.4cqh 3cqh 1.8cqh',
+          borderRadius: '2cqh', background: 'rgba(15,23,42,0.88)', color: '#fff', fontSize: '3.6cqh', fontWeight: 800, textAlign: 'center', pointerEvents: 'none',
+          boxShadow: '0 1cqh 3cqh rgba(0,0,0,0.35)', animation: 'pop-in 300ms ease both' }}>
+          🤔 Think of your guesses first…
+          {/* the wait, running out */}
+          <div style={{ marginTop: '1cqh', height: '0.7cqh', borderRadius: '99cqh', background: 'rgba(255,255,255,0.2)', overflow: 'hidden' }}>
+            <div style={{ height: '100%', background: '#67e8f9', transformOrigin: 'left', animation: `think-bar ${THINK_MS}ms linear both` }} />
+          </div>
+        </div>
+      )}
       {items.map((it, i) => {
         const open = flipped.has(i);
         const face: CSSProperties = { position: 'absolute', inset: 0, backfaceVisibility: 'hidden', borderRadius: '1.6cqh', display: 'flex', alignItems: 'center',
           justifyContent: 'center', padding: '1.2cqh', textAlign: 'center', lineHeight: 1.2 };
         return (
           <button key={i} type="button" disabled={!kit.interactive} onClick={() => flip(i)} aria-label={open ? `${it.text}: ${it.back ?? ''}` : `${it.text} (tap to flip)`}
-            data-hint-from={i === first ? '' : undefined}
+            data-hint-from={i === first && !thinking ? '' : undefined} data-hint-spot="corner"
             style={{ position: 'relative', border: 0, padding: 0, background: 'none', cursor: kit.interactive && !open ? 'pointer' : 'default', borderRadius: '1.6cqh',
               ...(kit.hint && !open ? glow(true) : {}) }}>
             <div style={{ position: 'absolute', inset: 0, transformStyle: 'preserve-3d', transition: 'transform 600ms cubic-bezier(0.4, 0.2, 0.2, 1)', transform: open ? 'rotateY(180deg)' : 'none' }}>
