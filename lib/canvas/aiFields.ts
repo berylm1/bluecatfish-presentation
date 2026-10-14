@@ -1,4 +1,4 @@
-import type { ActivityElement, Deck, Pointer, QuizQuestion, Slide, SlideElement, SlideHelper } from './types';
+import type { ActivityElement, Deck, OrderMove, Pointer, QuizQuestion, Slide, SlideElement, SlideHelper } from './types';
 import { activityReady, shownWords, spokenText } from './queue';
 import { introBasis, introText, startsTopic } from './intro';
 import { TTS_VOICE, VOICE_INSTRUCTIONS, SIMPLE_VOICE_INSTRUCTIONS } from '@/lib/voice';
@@ -151,6 +151,14 @@ export function needsIntroAudio(slides: Slide[], i: number): boolean {
 /** What a hands-on box's answer check looked at: its task and answer key. */
 export const answerBasis = (el: ActivityElement) => fingerprint(`${el.kind}|${el.prompt ?? ''}|${shownWords(el)}`);
 
+/** What the story-order check looked at: the slides in order, their topics and what they show and say. */
+export const orderBasis = (deck: Deck) => fingerprint(deck.slides.map((s) => `${s.id}|${s.topic ?? ''}|${slideBasis(s)}`).join('||'));
+
+/** Does the order need checking (a lesson of a few slides, changed since the last check)? */
+export function needsOrderCheck(deck: Deck): boolean {
+  return deck.slides.length >= 3 && deck.checks?.order?.from !== orderBasis(deck);
+}
+
 /** The quiz: questions in the pool, and asked at the end (at random) */
 export const QUIZ_POOL = 8;
 export const QUIZ_ASKED = 3;
@@ -196,6 +204,7 @@ export interface Todo {
   captions: number;
   answers: number;
   quiz: number;
+  order: number;
   topics: number;
   say: number;
   plain: number;
@@ -203,7 +212,7 @@ export interface Todo {
 }
 
 export function countTodo(deck: Deck): Todo {
-  const t: Todo = { helpers: 0, pointers: 0, intros: 0, captions: 0, answers: 0, quiz: needsQuiz(deck) ? 1 : 0, topics: 0, say: 0, plain: 0, audio: 0 };
+  const t: Todo = { helpers: 0, pointers: 0, intros: 0, captions: 0, answers: 0, quiz: needsQuiz(deck) ? 1 : 0, order: needsOrderCheck(deck) ? 1 : 0, topics: 0, say: 0, plain: 0, audio: 0 };
   deck.slides.forEach((_, i) => {
     if (needsIntro(deck.slides, i)) t.intros++;
     if (needsIntroAudio(deck.slides, i)) t.audio++;
@@ -231,7 +240,7 @@ export function countTodo(deck: Deck): Todo {
   return t;
 }
 
-export const todoTotal = (t: Todo) => t.helpers + t.pointers + t.intros + t.captions + t.answers + t.quiz + t.topics + t.say + t.plain + t.audio;
+export const todoTotal = (t: Todo) => t.helpers + t.pointers + t.intros + t.captions + t.answers + t.quiz + t.order + t.topics + t.say + t.plain + t.audio;
 
 /* -------------------------------------------------------- applying */
 
@@ -247,6 +256,8 @@ export type Patch =
   | (At & { kind: 'answerCheck'; from: string; items?: ActivityElement['items']; slider?: ActivityElement['slider']; check: NonNullable<ActivityElement['answerCheck']> })
   /** The quiz pool, checked against the lesson `from`; only onto the questions it started from (`prev`, quizKey) */
   | { slideId: ''; kind: 'quiz'; from: string; prev: string; questions: QuizQuestion[] }
+  /** The story-order check's suggestions, for the lesson as it was (`from`, orderBasis) */
+  | { slideId: ''; kind: 'order'; from: string; at: string; why?: string; moves: OrderMove[] }
   | (At & { kind: 'say'; say: string; sayFrom: string })
   | (At & { kind: 'plain'; plain: string; plainFrom: string })
   | (At & { kind: 'audio'; audioUrl: string; audioFor: string })
@@ -265,6 +276,13 @@ export function applyPatches(deck: Deck, patches: Patch[]): number {
       // the lesson as it was checked, and nobody changed the questions meanwhile (or turned the quiz off)
       if (!deck.quiz?.off && quizBasis(deck) === p.from && quizKey(deck.quiz?.questions) === p.prev) {
         deck.quiz = { questions: structuredClone(p.questions), from: p.from };
+        applied++;
+      }
+      continue;
+    }
+    if (p.kind === 'order') {
+      if (orderBasis(deck) === p.from) {
+        deck.checks = { ...deck.checks, order: { from: p.from, at: p.at, why: p.why, moves: structuredClone(p.moves) } };
         applied++;
       }
       continue;

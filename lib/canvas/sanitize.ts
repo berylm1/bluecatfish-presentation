@@ -222,8 +222,22 @@ function checks(raw: any): DeckChecks | undefined {
   }
   const repeats = raw.repeats && typeof raw.repeats === 'object' && tag(raw.repeats.from)
     ? { from: raw.repeats.from, at: str(raw.repeats.at, 40) ?? '', found: num(raw.repeats.found, 0, 1000, 0) } : undefined;
-  const out: DeckChecks = { facts, factsOk: tags(raw.factsOk, 500), repeats, repeatSkips: tags(raw.repeatSkips, 500) };
-  return out.facts || out.factsOk?.length || out.repeats || out.repeatSkips?.length ? out : undefined;
+  // the story-order suggestions: moves of slide ids (checked again against the deck when made)
+  const o = raw.order;
+  const ids = (v: unknown, max: number) => (Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string' && /^[\w~-]{1,64}$/.test(x)).slice(0, max) : []);
+  const order = o && typeof o === 'object' && tag(o.from) ? {
+    from: o.from as string,
+    at: str(o.at, 40) ?? '',
+    why: str(o.why, 300),
+    moves: (Array.isArray(o.moves) ? o.moves : []).slice(0, 30).flatMap((m: any) => {
+      const list = ids(m?.ids, 60);
+      const after = m?.after === null ? null : ids([m?.after], 1)[0];
+      if (!list.length || after === undefined) return [];
+      return [{ ids: list, after, label: str(m?.label, 200) ?? 'Move slides', topic: bool(m?.topic), reword: ids(m?.reword, 60) }];
+    }),
+  } : undefined;
+  const out: DeckChecks = { facts, factsOk: tags(raw.factsOk, 500), repeats, repeatSkips: tags(raw.repeatSkips, 500), order, orderSkips: tags(raw.orderSkips, 200) };
+  return out.facts || out.factsOk?.length || out.repeats || out.repeatSkips?.length || out.order || out.orderSkips?.length ? out : undefined;
 }
 
 /** The quiz pool: known fields only, capped; a question needs 2 to 4 different choices and a right one. */

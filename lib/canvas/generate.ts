@@ -10,6 +10,7 @@ import { chat, knowledge, STYLE } from './ai';
 import { writeRecap } from './prepare';
 import { removeRepeats } from './repeats';
 import { checkActivityAnswers } from './activityCheck';
+import { fixStoryOrder } from './storyOrder';
 
 const GENERATE_BUDGET_MS = 270_000;   // the ai-deck route's maxDuration is 300 s
 
@@ -20,6 +21,8 @@ const GENERATE_BUDGET_MS = 270_000;   // the ai-deck route's maxDuration is 300 
 //   3. check every slide (text that won't fit, off the slide, overlapping
 //      text); broken slides go back to the AI once, then get small automatic fixes
 //   4. read the whole deck for repeated content (up to 3 times) and rewrite repeats
+//   5. check the hands-on boxes' answer keys against the knowledge base
+//   6. put the whole lesson in story order (storyOrder.ts): the right first and last topics
 // Audio is made afterwards by the save-time AI (prepare.ts).
 
 const supabase = lazySupabaseAdmin();
@@ -246,6 +249,15 @@ export async function generateAiDeck(lesson: LessonInfo): Promise<{ deck: Deck; 
       notes.push(`Checking a hands-on box failed: ${e instanceof Error ? e.message : String(e)}`);
     }
   })));
+  // Last check before any audio: the whole lesson in story order (the topics were written
+  // in parallel): the right first and last topics, each slide building on the one before
+  if (Date.now() < started + GENERATE_BUDGET_MS) {
+    try {
+      notes.push(...(await fixStoryOrder(deck, lesson.title)));
+    } catch (e) {
+      notes.push(`Checking the slide order failed: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
   deck.slides.forEach(markAi);
   try {
     deck.recap = await writeRecap(deck);

@@ -21,8 +21,9 @@ import CheckPanel, { picturesWithoutDescription, type Described } from '@/compon
 import { deckSections, findCrossSectionRepeats } from '@/lib/lessonOverlap';
 import { DEFAULT_PDF, type PdfOptions } from '@/components/editor/exportPdf';
 import { DEFAULT_LESSON, type LessonInfo } from '@/lib/canvas/lessons';
-import type { CheckedClaim, Deck, DeckChecks, Slide, SlideElement } from '@/lib/canvas/types';
+import type { CheckedClaim, Deck, DeckChecks, OrderMove, Slide, SlideElement } from '@/lib/canvas/types';
 import { ACTIVITY_KINDS, VISUAL_KINDS, activityTemplate, visualTemplate } from '@/components/editor/templates';
+import { applyMove, clearRewordedWords, moveDone, moveKey, openMoves, slideName } from '@/lib/canvas/order';
 
 /*
  * Slide editor (docs/customization-plan.md, step 3). Password-protected by the
@@ -321,7 +322,8 @@ function Editor({
     factsToCheck: number;            // slides never fact-checked, or changed since
     factsOpen: { bad: number; missing: number };   // ❌ / ⚠️ not marked fine, on checked slides
     pictures: number;                // pictures without a description
-    answers: { flagged: number; fixed: number; unchecked: number };   // hands-on answer keys: not backed up by the knowledge base / fixed by the AI, not looked at / not checked yet
+    answers: { flagged: number; fixed: number; unchecked: number };
+    orderMoves: number;              // story-order moves suggested, not made or skipped   // hands-on answer keys: not backed up by the knowledge base / fixed by the AI, not looked at / not checked yet
   };
   const [publishAsk, setPublishAsk] = useState<PublishCheck | null>(null);
   const [repeatRun, setRepeatRun] = useState(0);   // bumped: the Repeats panel runs the AI check
@@ -346,6 +348,7 @@ function Editor({
       factsOpen: open,
       pictures: picturesWithoutDescription(deck).length,
       answers: answersToLookAt(deck),
+      orderMoves: openMoves(deck).length,
     });
   };
 
@@ -624,13 +627,29 @@ function Editor({
   // The Check tab's count: open ❌ / ⚠️ facts on up-to-date checks, and pictures without a description
   const checkBadge = useMemo(() => {
     const fine = new Set(deck.checks?.factsOk ?? []);
-    let n = picturesWithoutDescription(deck).length;
+    let n = picturesWithoutDescription(deck).length + openMoves(deck).length;
     for (const sl of deck.slides) {
       const f = deck.checks?.facts?.[sl.id];
       if (f && f.from === factBasis(sl)) n += f.claims.filter((c) => c.verdict !== 'supported' && !fine.has(claimKey(sl.id, c.claim))).length;
     }
     return n;
   }, [deck]);
+  // Story order (the Check tab): make suggested moves (one undo step), or skip one
+  const makeMoves = (moves: OrderMove[]) => {
+    let made = 0;
+    const theirs: string[] = [];
+    ed.change((d) => {
+      for (const m of moves) {
+        if (moveDone(d.slides, m) || !applyMove(d, m)) continue;
+        made++;
+        theirs.push(...clearRewordedWords(d, m.reword).map(slideName));
+      }
+    });
+    if (!made) return flash('The slides have changed since: nothing to move', 'warn');
+    flash(`${made === 1 ? 'Moved' : `Made ${made} moves`} (Ctrl+Z undoes it).${theirs.length ? ` Check your words on “${theirs.join('”, “')}”: they may not fit the new order.` : ''}`, theirs.length ? 'warn' : 'ok');
+  };
+  const skipMove = (m: OrderMove) => ed.change((d) => { d.checks = { ...d.checks, orderSkips: [...(d.checks?.orderSkips ?? []), moveKey(m)].slice(-200) }; });
+
   const goToRepeat = (i: number, elId?: string) => {
     if (ed.layer !== 'main') ed.setLayer('main');
     ed.setSlideIdx(Math.max(0, Math.min(i, deck.slides.length - 1)));
@@ -937,7 +956,7 @@ function Editor({
               ['props', '✏️', 'Edit', 'The selected box, or the slide'],
               ['images', '🖼', 'Images', 'Add a picture from the library'],
               ['repeats', '🔁', 'Repeats', 'Where the lesson says the same thing twice'],
-              ['check', '🔎', 'Check', 'Facts against the knowledge base; pictures without a description'],
+              ['check', '🔎', 'Check', 'Facts against the knowledge base; pictures without a description; story order'],
             ] as const).map(([id, icon, name, hint]) => {
               const on = panel === id || (id === 'images' && panel === 'background');
               const badge = id === 'check' ? checkBadge : 0;
@@ -961,7 +980,8 @@ function Editor({
             <div className={panel === 'check' ? '' : 'hidden'}>
               <CheckPanel deck={deck} slideIndex={slideIdx} lessonTitle={deck.title} active={panel === 'check'} runSignal={factRun}
                 onRecord={recordFacts} onFine={markFine} onUseThis={applyFix} onDescribed={fillDescriptions}
-                onGoTo={(id) => { if (ed.layer !== 'main') ed.setLayer('main'); ed.setSelected(id); }} onGoToSlide={(i) => goToRepeat(i)} />
+                onGoTo={(id) => { if (ed.layer !== 'main') ed.setLayer('main'); ed.setSelected(id); }} onGoToSlide={(i) => goToRepeat(i)}
+                onMoves={makeMoves} onSkipMove={skipMove} />
             </div>
             {panel === 'repeats' || panel === 'check' ? null : panel === 'props' ? (
               element ? (
@@ -1037,7 +1057,7 @@ function Editor({
           ed.setLayer('helper');
           ed.setSelected(sl.helper?.elements.find(is)?.id ?? null);
         };
-        const issues = a.answers.flagged + a.answers.fixed + a.warnings + a.repeats + (a.repeatsAi !== 'ok' ? 1 : 0) + a.factsToCheck + a.factsOpen.bad + a.factsOpen.missing + a.pictures;
+        const issues = a.orderMoves + a.answers.flagged + a.answers.fixed + a.warnings + a.repeats + (a.repeatsAi !== 'ok' ? 1 : 0) + a.factsToCheck + a.factsOpen.bad + a.factsOpen.missing + a.pictures;
         return (
           <div className="fixed inset-0 z-[1000] bg-black/40 flex items-center justify-center p-6" onClick={() => setPublishAsk(null)}>
             <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg p-6 flex flex-col gap-4" role="alertdialog" aria-labelledby="publish-title" onClick={(e) => e.stopPropagation()}>
@@ -1054,6 +1074,7 @@ function Editor({
                     ? row('warn', '🖐', <>{a.answers.unchecked} hands-on box{a.answers.unchecked === 1 ? '' : 'es'} not checked yet: the answers are checked against the knowledge base as you publish</>)
                     : row('ok', '✓', 'Hands-on answers checked against the knowledge base')}
                 {a.answers.fixed > 0 && row('warn', '🛠', <>The AI fixed the answers in {a.answers.fixed} hands-on box{a.answers.fixed === 1 ? '' : 'es'} (marked ✓ AI fixed answers): have a look</>, link('Show', () => showBox('fixed')))}
+                {a.orderMoves > 0 && row('warn', '📖', <>{a.orderMoves} suggested move{a.orderMoves === 1 ? '' : 's'} to put the slides in story order</>, link('Review', () => go('check')))}
                 {a.factsToCheck > 0
                   ? row('warn', '🔎', <>{a.factsToCheck} slide{a.factsToCheck === 1 ? '' : 's'} not fact-checked since {a.factsToCheck === 1 ? 'it' : 'they'} changed</>, link('Check now', () => go('check', 'facts')))
                   : row('ok', '✓', 'Facts checked on every slide')}

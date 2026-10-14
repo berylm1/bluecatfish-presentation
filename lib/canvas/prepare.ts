@@ -4,7 +4,7 @@ import type { Deck, Pointer, Slide, SlideElement } from './types';
 import { spokenText } from './queue';
 import { introBasis, introText } from './intro';
 import {
-  answerBasis, applyPatches, needsQuiz, quizBasis, quizKey, audioKey, fingerprint, helperElements, needsAnswerCheck, needsAudio, needsCaption, needsHelper, needsIntro, needsIntroAudio, needsPlain, needsPlainAudio, needsPointers, needsSay, needsTopic,
+  answerBasis, applyPatches, needsOrderCheck, needsQuiz, orderBasis, quizBasis, quizKey, audioKey, fingerprint, helperElements, needsAnswerCheck, needsAudio, needsCaption, needsHelper, needsIntro, needsIntroAudio, needsPlain, needsPlainAudio, needsPointers, needsSay, needsTopic,
   pointersBasis,
   plainText, sayBasis, slideBasis, type Patch,
 } from './aiFields';
@@ -19,6 +19,7 @@ const CONCURRENCY = 6;
 const AUDIO_BUCKET = 'slide-audio';
 const AUDIO_FOLDER = 'canvas';
 const QUIZ_TIME_MS = 25_000;   // the quiz's check, write and check, roughly
+const ORDER_TIME_MS = 12_000;  // the story-order check, roughly
 
 // Shared AI helpers live in ai.ts (re-exported here: generate.ts imports them from this file)
 export { STYLE, chat, knowledge } from './ai';
@@ -26,6 +27,8 @@ import { STYLE, chat, chatVision, imageForVision, knowledge } from './ai';
 import { draftHelper } from './helperDraft';
 import { checkActivityAnswers } from './activityCheck';
 import { refreshQuiz } from './quiz';
+import { askStoryOrder } from './storyOrder';
+import { movesFor } from './order';
 
 const otherText = (slide: Slide, el: SlideElement) =>
   slide.elements.filter((e) => e.id !== el.id).map(sayBasis).filter(Boolean).join(' | ');
@@ -279,6 +282,18 @@ export async function prepareDeck(source: Deck, deadline: number): Promise<{ pat
     } catch (e) { fail('Writing the quiz', e); }
   })() : Promise.resolve();
 
+  // 1d. The story order: suggested moves for the editor's Check tab (an AI-made lesson is put in order
+  //     when it's made, generate.ts). One AI read; alongside the rest
+  const orderTask = needsOrderCheck(deck) && deadline - Date.now() > ORDER_TIME_MS ? (async () => {
+    const from = orderBasis(deck);
+    const snapshot = structuredClone(deck);
+    try {
+      const want = await askStoryOrder(snapshot, deck.title);
+      const moves = want ? movesFor(snapshot.slides, want.order, want.reword) : [];
+      keep({ slideId: '', kind: 'order', from, at: new Date().toISOString(), why: want?.why, moves });
+    } catch (e) { fail('Checking the slide order', e); }
+  })() : Promise.resolve();
+
   // 2. Plain versions (from the spoken words, including ones just written)
   await pool(jobs(deck, needsPlain), deadline, async ({ slide, el }) => {
     try {
@@ -319,5 +334,6 @@ export async function prepareDeck(source: Deck, deadline: number): Promise<{ pat
   });
 
   await quizTask;
+  await orderTask;
   return { patches, errors };
 }

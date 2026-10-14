@@ -1,7 +1,9 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import type { CheckedClaim, Deck, DeckChecks, Slide } from '@/lib/canvas/types';
+import type { CheckedClaim, Deck, DeckChecks, OrderMove, Slide } from '@/lib/canvas/types';
+import { needsOrderCheck } from '@/lib/canvas/aiFields';
+import { openMoves } from '@/lib/canvas/order';
 import { claimKey, factBasis, slidesToFactCheck } from '@/lib/canvas/checks';
 
 /*
@@ -14,6 +16,7 @@ import { claimKey, factBasis, slidesToFactCheck } from '@/lib/canvas/checks';
  *     and is checked again). "Use this" on a ❌: the box's words with the fix.
  *   - Gaps in the knowledge base: every ⚠️ fact, to find sources for.
  *   - Pictures without a description: ✨ Describe all.
+ *   - Story order: moves the AI suggests (checked on save) so the slides tell the story in order.
  */
 
 type Fact = NonNullable<DeckChecks['facts']>[string];
@@ -47,7 +50,7 @@ export function picturesWithoutDescription(deck: Deck): (Omit<Described, 'alt'> 
       ? [{ slideIndex, slideId: s.id, elId: e.id, helper, src: e.src }] : []));
 }
 
-export default function CheckPanel({ deck, slideIndex, lessonTitle, active, runSignal = 0, onRecord, onFine, onUseThis, onDescribed, onGoTo, onGoToSlide }: {
+export default function CheckPanel({ deck, slideIndex, lessonTitle, active, runSignal = 0, onRecord, onFine, onUseThis, onDescribed, onGoTo, onGoToSlide, onMoves, onSkipMove }: {
   deck: Deck;
   slideIndex: number;
   lessonTitle: string;
@@ -65,6 +68,9 @@ export default function CheckPanel({ deck, slideIndex, lessonTitle, active, runS
   onDescribed: (list: Described[]) => number;
   onGoTo: (elId: string) => void;
   onGoToSlide: (index: number) => void;
+  /** Story order: make these suggested moves (one undo step), or skip one */
+  onMoves: (moves: OrderMove[]) => void;
+  onSkipMove: (move: OrderMove) => void;
 }) {
   const slide = deck.slides[Math.min(slideIndex, deck.slides.length - 1)];
   const facts = deck.checks?.facts ?? {};
@@ -240,6 +246,8 @@ export default function CheckPanel({ deck, slideIndex, lessonTitle, active, runS
         </div>
       )}
 
+      <StoryOrder deck={deck} onMoves={onMoves} onSkipMove={onSkipMove} onGoToSlide={onGoToSlide} />
+
       {/* gaps in the knowledge base */}
       {gaps.length > 0 && (
         <div className="rounded-md border border-amber-200 bg-amber-50/60 p-2">
@@ -333,6 +341,50 @@ export default function CheckPanel({ deck, slideIndex, lessonTitle, active, runS
       </ul>
       {result && result.claims.some((c) => c.verdict !== 'supported' && !isFine(slide.id, c)) && (
         <p className="text-xs text-slate-500">“Not found” doesn&apos;t mean wrong: the knowledge base may just not cover it. Add a source in Text upload, reword it, or mark it fine.</p>
+      )}
+    </div>
+  );
+}
+
+/** The story-order check's suggestions (made on save): Move / Skip each, or all at once. */
+function StoryOrder({ deck, onMoves, onSkipMove, onGoToSlide }: {
+  deck: Deck; onMoves: (moves: OrderMove[]) => void; onSkipMove: (m: OrderMove) => void; onGoToSlide: (index: number) => void;
+}) {
+  const result = deck.checks?.order;
+  const moves = openMoves(deck);
+  const stale = needsOrderCheck(deck);
+  if (deck.slides.length < 3) return null;
+  return (
+    <div className="rounded-md border border-slate-200 p-2 text-xs flex flex-col gap-1.5" data-story-order>
+      <div className="flex items-center gap-2">
+        <span className="font-semibold text-slate-800 flex-1">📖 Story order</span>
+        {moves.length > 1 && <button className="text-cyan-700 underline" onClick={() => onMoves(moves)}>Use them all ({moves.length})</button>}
+      </div>
+      {!result ? (
+        <p className="text-slate-500">Checked when you save: whether the slides tell the story in order, starting and ending with the right topics.</p>
+      ) : moves.length === 0 ? (
+        <p className="text-emerald-700">✓ The slides tell the story in order.{stale ? <span className="text-slate-500"> (Checked again on save, since the lesson changed.)</span> : ''}</p>
+      ) : (
+        <>
+          {result.why && <p className="text-slate-600">{result.why}</p>}
+          <ul className="flex flex-col gap-1">
+            {moves.map((m) => {
+              const at = deck.slides.findIndex((s) => s.id === m.ids[0]);
+              return (
+                <li key={m.ids.join() + (m.after ?? '^')} className="rounded border border-amber-200 bg-amber-50 px-2 py-1.5" data-order-move>
+                  <p className="text-slate-800">{m.topic ? '🗂 ' : '↕ '}{m.label}</p>
+                  {!!m.reword?.length && <p className="text-[11px] text-slate-500">Its spoken words are written again to fit.</p>}
+                  <div className="mt-1 flex items-center gap-3">
+                    <button className="px-2 py-0.5 rounded border border-cyan-600 text-cyan-800 bg-white hover:bg-cyan-50" onClick={() => onMoves([m])}>Move</button>
+                    {at >= 0 && <button className="underline text-slate-600" onClick={() => onGoToSlide(at)}>Show</button>}
+                    <button className="underline text-slate-600 ml-auto" onClick={() => onSkipMove(m)}>Skip</button>
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+          {stale && <p className="text-slate-500">The lesson changed since this check: it&apos;s checked again on save.</p>}
+        </>
       )}
     </div>
   );

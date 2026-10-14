@@ -209,6 +209,21 @@ export interface DeckChecks {
   repeats?: { from: string; at: string; found: number };
   /** Repeat suggestions a person skipped (repeatKey) */
   repeatSkips?: string[];
+  /** The story-order check (storyOrder.ts): the lesson it looked at (orderBasis), and the moves it suggests */
+  order?: { from: string; at: string; why?: string; moves: OrderMove[] };
+  /** Order moves a person skipped (moveKey) */
+  orderSkips?: string[];
+}
+
+/** A suggested move: these slides (a topic, or one slide), put right after `after` (null: at the start). */
+export interface OrderMove {
+  ids: string[];
+  after: string | null;
+  /** "Move the topic “…” to the start", "Move “…” after “…”" */
+  label: string;
+  topic?: boolean;
+  /** Slides whose AI-written words don't fit the new order: written again when the move is made */
+  reword?: string[];
 }
 
 /** One end-of-lesson quiz question: a few choices, one right (by index). */
