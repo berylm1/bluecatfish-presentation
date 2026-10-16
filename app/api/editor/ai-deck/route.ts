@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { isLessonId, listLessons, readDeck, writeDeck } from '@/lib/canvas/store';
 import { generateAiDeck } from '@/lib/canvas/generate';
+import { countTodo, todoTotal } from '@/lib/canvas/aiFields';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 300;   // planning + one call per topic (in parallel) + one retry
@@ -14,7 +15,8 @@ export async function GET(req: Request) {
   if (!isLessonId(lesson)) return NextResponse.json({ error: 'Bad lesson' }, { status: 400 });
   const deck = await readDeck(lesson, 'ai');
   return NextResponse.json({
-    ai: deck?.slides?.length ? { at: deck.updatedAt, slides: deck.slides.length, topics: new Set(deck.slides.map((s) => s.topic)).size } : null,
+    // todo: what the save-time AI still has to do (audio…): above 0 after a cut-short round, for "Finish the audio"
+    ai: deck?.slides?.length ? { at: deck.updatedAt, slides: deck.slides.length, topics: new Set(deck.slides.map((s) => s.topic)).size, todo: todoTotal(countTodo(deck)) } : null,
   });
 }
 

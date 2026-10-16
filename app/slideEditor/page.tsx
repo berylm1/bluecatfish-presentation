@@ -12,7 +12,7 @@ import SlideCanvas from '@/components/canvas/SlideCanvas';
 import { answersToLookAt, claimKey, factBasis, lessonBasis, slideWarnings, slidesToFactCheck, type Warning } from '@/lib/canvas/checks';
 import { speakingOrder } from '@/lib/canvas/queue';
 import { deckFromAnyVersion } from '@/lib/canvas/fromLegacy';
-import { answerState, countTodo, quizBasis, todoTotal } from '@/lib/canvas/aiFields';
+import { answerState, countTodo, quizBasis, todoTotal, type Patch } from '@/lib/canvas/aiFields';
 import { startsTopic } from '@/lib/canvas/intro';
 import { applyRepeatFix, type RepeatSuggestion } from '@/lib/canvas/repeats';
 import RepeatsPanel from '@/components/editor/RepeatsPanel';
@@ -32,8 +32,28 @@ import SavedVersions from '@/components/editor/SavedVersions';
  * makes the draft the live deck that /presentation plays.
  */
 
+/**
+ * One round of the save-time AI (/api/editor/prepare). A round that fails on the way (the server
+ * timed out or was busy: a 504, a dropped connection) is tried again, twice, a few seconds apart.
+ * Was: one failed round ended it all, and the AI deck's audio never got made.
+ */
+async function prepareRound(lesson: string, kind: 'draft' | 'ai'): Promise<{ patches?: Patch[]; remaining?: number; errors?: string[]; error?: string; more?: boolean }> {
+  for (let attempt = 0; ; attempt++) {
+    const res = await fetch('/api/editor/prepare', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ lesson, kind }),
+    }).catch(() => null);
+    const d = res ? await res.json().catch(() => null) : null;
+    // an answer from the route itself (done, or a real error like "Save the draft first"): as it is
+    if (res && d && res.status < 500) return d;
+    if (attempt >= 2) return { error: res ? `The AI step failed (${res.status}${res.status === 504 ? ': it took too long' : ''})` : 'The AI step couldn’t be reached' };
+    await new Promise((r) => setTimeout(r, 3000 * (attempt + 1)));
+  }
+}
+
 type LiveInfo = { at?: string; by?: string; basedOn?: string; savedAs?: string } | null;
-type AiDeckInfo = { at?: string; slides: number; topics: number } | null;
+type AiDeckInfo = { at?: string; slides: number; topics: number; todo?: number } | null;
 type Version = { key: string; label: string; slides: number; current: boolean };
 
 const btn = 'px-3 py-1.5 rounded-md text-sm font-medium border border-slate-300 bg-white hover:bg-slate-50 text-slate-800 disabled:opacity-40';
@@ -288,17 +308,13 @@ function Editor({
         do {
           aiAgain.current = false;
           for (let pass = 0; pass < 30; pass++) {
-            const res = await fetch('/api/editor/prepare', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ lesson: lessonId }),
-            });
-            const d = await res.json().catch(() => ({ error: `The AI step failed (${res.status})` }));
+            const d = await prepareRound(lessonId, 'draft');
             if (d.error) { errors = [d.error]; break; }
             ed.applyRemote(d.patches ?? []);
             errors = d.errors ?? [];
             setAi({ running: true, remaining: d.remaining ?? 0, errors });
-            if (!d.remaining || !d.patches?.length) break;   // done, or stuck (errors say why)
+            // done, or stuck (errors say why); "more": the round ran out of time, so on with the next
+            if (!d.remaining || (!d.patches?.length && !d.more)) break;
           }
         } while (aiAgain.current);
       } finally {
@@ -454,22 +470,33 @@ function Editor({
       if (d.error) throw new Error(d.error);
       setAiNotes(d.notes ?? []);
       loadAiDeck();
-      // Audio for the new deck: the same save-time AI step, on the AI deck
-      setAiGen({ phase: 'audio' });
-      for (let pass = 0; pass < 30; pass++) {
-        const p = await fetch('/api/editor/prepare', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ lesson: lessonId, kind: 'ai' }),
-        }).then((r) => r.json()).catch(() => ({ error: 'The audio step failed' }));
-        if (p.error) throw new Error(p.error);
-        setAiGen({ phase: 'audio', remaining: p.remaining });
-        if (p.errors?.length) setAiNotes((n) => [...n, ...p.errors]);
-        if (!p.remaining || !p.patches?.length) break;
-      }
-      flash(`AI deck ready: ${d.slides} slides (${d.seconds}s).`);
+      flash(`AI deck written: ${d.slides} slides (${d.seconds}s). Now the audio…`);
     } catch (e) {
       flash(e instanceof Error ? e.message : String(e), 'error');
+      setAiGen(null);
+      return;
+    }
+    await recordAiAudio();
+  };
+
+  /**
+   * Audio (and the rest of the save-time AI) for the AI deck, round after round. Also "Finish the audio"
+   * in Start from AI, for a deck whose audio was cut short (a failed round, a closed tab): the deck
+   * itself is kept the moment it's written, so nothing is lost but time.
+   */
+  const recordAiAudio = async () => {
+    setAiGen({ phase: 'audio' });
+    try {
+      for (let pass = 0; pass < 40; pass++) {
+        const p = await prepareRound(lessonId, 'ai');
+        if (p.error) throw new Error(p.error);
+        setAiGen({ phase: 'audio', remaining: p.remaining });
+        if (p.errors?.length) setAiNotes((n) => [...n, ...(p.errors ?? [])].slice(-12));
+        if (!p.remaining || (!p.patches?.length && !p.more)) break;
+      }
+      flash('AI deck ready, with its audio.');
+    } catch (e) {
+      flash(`${e instanceof Error ? e.message : String(e)}. The AI deck is kept: press “Finish the audio” (More ▾ → Start from AI…) to carry on.`, 'error');
     } finally {
       setAiGen(null);
       loadAiDeck();
@@ -1279,6 +1306,11 @@ function Editor({
                   {aiDeck && <button className={btn} onClick={copyAiDeck} disabled={!!aiGen}>Copy into draft</button>}
                 </div>
               </div>
+              {aiDeck && !aiGen && (aiDeck.todo ?? 0) > 0 && (
+                <button className={btn} onClick={recordAiAudio} title="The audio (and the rest the AI fills in) was cut short: carry on from where it stopped">
+                  🔊 Finish the audio ({aiDeck.todo} left)
+                </button>
+              )}
               <button className={primary} onClick={generateAi} disabled={!!aiGen}>
                 {aiGen?.phase === 'writing' ? '✨ Writing the slides… (a few minutes)'
                   : aiGen?.phase === 'audio' ? `🔊 Recording audio…${aiGen.remaining ? ` ${aiGen.remaining} left` : ''}`

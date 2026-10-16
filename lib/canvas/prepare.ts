@@ -201,10 +201,14 @@ const baseId = (id: string) => id.split('~')[0];
  * Returns the results as patches (the caller applies them to the stored draft,
  * which may have been edited meanwhile) and any errors.
  */
-export async function prepareDeck(source: Deck, deadline: number): Promise<{ patches: Patch[]; errors: string[] }> {
+export async function prepareDeck(
+  source: Deck,
+  deadline: number,
+  /** Where results go as they're made: the caller can take what's done if it has to stop waiting (a hard time limit) */
+  out: { patches: Patch[]; errors: string[] } = { patches: [], errors: [] },
+): Promise<{ patches: Patch[]; errors: string[] }> {
   const deck: Deck = structuredClone(source);
-  const patches: Patch[] = [];
-  const errors: string[] = [];
+  const { patches, errors } = out;
   const keep = (p: Patch) => { patches.push(p); applyPatches(deck, [p]); };
   const fail = (what: string, e: unknown) => {
     const msg = `${what}: ${e instanceof Error ? e.message : String(e)}`;

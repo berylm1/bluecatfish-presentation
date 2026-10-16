@@ -13,6 +13,8 @@ import { checkActivityAnswers } from './activityCheck';
 import { fixStoryOrder } from './storyOrder';
 
 const GENERATE_BUDGET_MS = 270_000;   // the ai-deck route's maxDuration is 300 s
+const ANSWER_CHECK_MS = 30_000;        // a hands-on box's answer check, roughly, with room to spare
+const STORY_ORDER_MS = 40_000;         // the story-order read and the recap after it
 
 // Step 5: the AI makes a whole deck in the canvas format.
 //   1. plan the lesson's topics from the knowledge base
@@ -237,7 +239,8 @@ export async function generateAiDeck(lesson: LessonInfo): Promise<{ deck: Deck; 
   await removeRepeats(deck, notes, started + GENERATE_BUDGET_MS);
   // Hands-on answer keys against the knowledge base (the save-time AI checks any left over)
   await Promise.all(deck.slides.flatMap((s) => s.elements.filter(needsAnswerCheck).map(async (el) => {
-    if (el.type !== 'activity' || Date.now() > started + GENERATE_BUDGET_MS) return;
+    // (with room left for it: one not checked here is checked by the save-time AI)
+    if (el.type !== 'activity' || Date.now() > started + GENERATE_BUDGET_MS - ANSWER_CHECK_MS) return;
     try {
       const r = await checkActivityAnswers(el, { lesson: lesson.title, topic: s.topic });
       Object.assign(el, { ...(r.items ? { items: r.items } : {}), ...(r.slider ? { slider: r.slider } : {}), answerCheck: r.check });
@@ -251,7 +254,8 @@ export async function generateAiDeck(lesson: LessonInfo): Promise<{ deck: Deck; 
   })));
   // Last check before any audio: the whole lesson in story order (the topics were written
   // in parallel): the right first and last topics, each slide building on the one before
-  if (Date.now() < started + GENERATE_BUDGET_MS) {
+  // (with room left for it and the recap after it: else the save-time AI suggests the moves instead)
+  if (Date.now() < started + GENERATE_BUDGET_MS - STORY_ORDER_MS) {
     try {
       notes.push(...(await fixStoryOrder(deck, lesson.title)));
     } catch (e) {
