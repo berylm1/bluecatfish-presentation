@@ -481,3 +481,7 @@ body {
 
 @keyframes rotate-hint { 0%, 55%, 100% { transform: rotate(0deg); } 70%, 85% { transform: rotate(-90deg); } }
 @keyframes think-bar { from { transform: scaleX(1); } to { transform: scaleX(0); } }
+
+/* The editor's ✨ helper pointing at something ("Show me") */
+@keyframes help-flash { 0%, 100% { box-shadow: 0 0 0 0 rgba(139, 92, 246, 0); } 30%, 70% { box-shadow: 0 0 0 4px rgba(139, 92, 246, 0.85), 0 0 18px 4px rgba(139, 92, 246, 0.45); } }
+.help-flash { animation: help-flash 1s ease-in-out 3; position: relative; z-index: 70; border-radius: 6px; }

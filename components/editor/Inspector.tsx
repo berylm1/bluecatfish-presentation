@@ -150,9 +150,11 @@ export function ElementInspector({
           <div>
             <div className="flex flex-wrap items-center justify-between">
               <label className={label}>Description</label>
-              <DescribeButton src={el.src} hasText={!!el.alt?.trim()} about={about} onDescribed={(alt) => update({ alt })} />
+              {!!el.alt?.trim() && <DescribeButton src={el.src} hasText about={about} onDescribed={(alt) => update({ alt })} />}
             </div>
             <textarea rows={3} className={`${input} ${!el.alt?.trim() && !el.silent ? 'border-amber-400 bg-amber-50' : ''}`} value={el.alt ?? ''} placeholder="What the image shows" onChange={(e) => update({ alt: e.target.value })} />
+            {/* none yet: a real button, right under the box (was: a small link by the label, easy to miss) */}
+            {!el.alt?.trim() && <DescribeButton src={el.src} hasText={false} big about={about} onDescribed={(alt) => update({ alt })} />}
             {!el.alt?.trim() && (
               <p className="text-xs text-amber-800 mt-1">
                 {el.silent
@@ -432,9 +434,11 @@ function QuizSection({ quiz, stale, onQuiz }: { quiz?: DeckQuiz; stale?: boolean
  * at the spot. "Place" then a click on the slide puts the mark there.
  */
 /** "✨ Describe it": the AI looks at the picture and writes its description (an undoable edit, then yours). */
-function DescribeButton({ src, hasText, about, onDescribed }: {
+function DescribeButton({ src, hasText, big, about, onDescribed }: {
   src: string;
   hasText: boolean;
+  /** A full-width button (no description yet), not a small link */
+  big?: boolean;
   about?: { lessonTitle?: string; topic?: string };
   onDescribed: (text: string) => void;
 }) {
@@ -461,9 +465,10 @@ function DescribeButton({ src, hasText, about, onDescribed }: {
   };
   return (
     <>
-      <button className="text-xs text-violet-700 hover:underline disabled:opacity-50" onClick={run} disabled={busy}
+      <button className={big ? 'w-full mt-1.5 px-3 py-2 rounded-md bg-violet-600 hover:bg-violet-700 text-white text-sm font-semibold disabled:opacity-60' : 'text-xs text-violet-700 hover:underline disabled:opacity-50'}
+        onClick={run} disabled={busy} data-describe-it
         title="The AI looks at the picture and writes what it shows (Ctrl+Z undoes it)">
-        {busy ? '✨ Looking…' : hasText ? '✨ Rewrite with AI' : '✨ Describe it'}
+        {busy ? '✨ Looking at the picture…' : hasText ? '✨ Rewrite with AI' : big ? '✨ Describe it with AI' : '✨ Describe it'}
       </button>
       {error && <p className="basis-full text-xs text-red-700 mt-1" role="alert">{error}</p>}
     </>

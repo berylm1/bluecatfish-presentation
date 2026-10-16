@@ -50,7 +50,7 @@ export function picturesWithoutDescription(deck: Deck): (Omit<Described, 'alt'> 
       ? [{ slideIndex, slideId: s.id, elId: e.id, helper, src: e.src }] : []));
 }
 
-export default function CheckPanel({ deck, slideIndex, lessonTitle, active, runSignal = 0, onRecord, onFine, onUseThis, onDescribed, onGoTo, onGoToSlide, onMoves, onSkipMove }: {
+export default function CheckPanel({ deck, slideIndex, lessonTitle, active, runSignal = 0, describeSignal = 0, onRecord, onFine, onUseThis, onDescribed, onGoTo, onGoToSlide, onMoves, onSkipMove }: {
   deck: Deck;
   slideIndex: number;
   lessonTitle: string;
@@ -58,6 +58,8 @@ export default function CheckPanel({ deck, slideIndex, lessonTitle, active, runS
   active: boolean;
   /** Changes when Publish asks for the changed slides to be checked */
   runSignal?: number;
+  /** Changes when "✨ Describe all" is pressed outside the tab (the top row, More ▾) */
+  describeSignal?: number;
   /** Keep a slide's check with the lesson */
   onRecord: (slideId: string, fact: Fact) => void;
   /** Mark a fact fine (or not) */
@@ -159,6 +161,15 @@ export default function CheckPanel({ deck, slideIndex, lessonTitle, active, runS
 
   const toCheck = active ? slidesToFactCheck(deck).length : 0;
   const missingPictures = useMemo(() => (active ? picturesWithoutDescription(deck) : []), [active, deck]);
+
+  // "✨ Describe all" from the top row or More ▾: run it here (once the tab has the list)
+  const describeAsked = useRef(describeSignal);
+  useEffect(() => {
+    if (describeSignal === describeAsked.current || !active || describing) return;
+    describeAsked.current = describeSignal;
+    if (missingPictures.length) describeAll();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [describeSignal, active, missingPictures]);
 
   /** ✨ Describe all: every picture without a description, two at a time; filled in together (one undo step). */
   const describeAll = async () => {

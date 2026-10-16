@@ -174,6 +174,13 @@ export default function EditCanvas({
                   </span>
                 </>
               )}
+              {/* A picture that needs a description (the AI writes its words, caption and laser marks from it) */}
+              {el.type === 'image' && !el.alt?.trim() && (!el.silent || ((el.z ?? 1) > 0 && el.w * el.h >= 100)) && (
+                <span className="absolute bottom-0 left-4 px-1 rounded-t bg-amber-500 text-[10px] font-semibold text-white pointer-events-none" data-no-description
+                  title="No description: select it and press ✨ Describe it with AI (or ✨ Describe all at the top)">
+                  🖼 No description
+                </span>
+              )}
               {/* A hands-on box whose answers the knowledge base doesn't back up, or that the AI fixed */}
               {el.type === 'activity' && answerState(el) === 'flagged' && (
                 <span className="absolute bottom-0 left-4 px-1 rounded-t bg-amber-500 text-[10px] font-semibold text-white pointer-events-none" data-answer-flag

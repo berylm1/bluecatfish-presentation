@@ -25,6 +25,7 @@ import type { CheckedClaim, Deck, DeckChecks, OrderMove, Slide, SlideElement } f
 import { ACTIVITY_KINDS, VISUAL_KINDS, activityTemplate, visualTemplate } from '@/components/editor/templates';
 import { applyMove, clearRewordedWords, moveDone, moveKey, openMoves, slideName } from '@/lib/canvas/order';
 import SavedVersions from '@/components/editor/SavedVersions';
+import AssistantBox from '@/components/editor/AssistantBox';
 
 /*
  * Slide editor (docs/customization-plan.md, step 3). Password-protected by the
@@ -710,6 +711,27 @@ function Editor({
   };
   const skipMove = (m: OrderMove) => ed.change((d) => { d.checks = { ...d.checks, orderSkips: [...(d.checks?.orderSkips ?? []), moveKey(m)].slice(-200) }; });
 
+  // Pictures with no description (the chip in the top row, More ▾): the Check tab's ✨ Describe all, started from here
+  const missingDescriptions = useMemo(() => picturesWithoutDescription(deck).length, [deck]);
+  const [describeRun, setDescribeRun] = useState(0);
+  const describeAllPictures = () => { setPanel('check'); setDescribeRun((n) => n + 1); };
+  /** The ✨ helper's "Show me": that part of the page, scrolled to and flashing (a right-panel tab is opened too) */
+  const showPart = (where: string) => {
+    if (where === 'tab-edit') setPanel('props');
+    else if (where === 'tab-images' || where === 'tab-repeats' || where === 'tab-check') setPanel(where.slice(4) as 'images' | 'repeats' | 'check');
+    else if (where === 'describe-all' && !missingDescriptions) setPanel('check');
+    setTimeout(() => {
+      const el = document.querySelector<HTMLElement>(`[data-help="${CSS.escape(where)}"]`)
+        ?? (where === 'describe-all' ? document.querySelector<HTMLElement>('[data-help="tab-check"]') : null);
+      if (!el) return;
+      el.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+      el.classList.remove('help-flash');
+      void el.offsetWidth;   // (restart the animation)
+      el.classList.add('help-flash');
+      setTimeout(() => el.classList.remove('help-flash'), 3200);
+    }, 80);
+  };
+
   const goToRepeat = (i: number, elId?: string) => {
     if (ed.layer !== 'main') ed.setLayer('main');
     ed.setSlideIdx(Math.max(0, Math.min(i, deck.slides.length - 1)));
@@ -797,7 +819,7 @@ function Editor({
     <div className="flex flex-col h-[calc(100vh-40px)] bg-slate-100 text-slate-900">
       {/* toolbar, row 1: the lesson, its state, and saving / previewing / publishing */}
       <div className="flex flex-wrap items-center gap-2 px-3 pt-2 pb-1.5 bg-white">
-        <select className="px-2 py-1.5 rounded-md border border-slate-300 text-sm font-semibold max-w-56" value={lessonId} aria-label="Lesson"
+        <select data-help="lesson" className="px-2 py-1.5 rounded-md border border-slate-300 text-sm font-semibold max-w-56" value={lessonId} aria-label="Lesson"
           onChange={(e) => (e.target.value === '__new' ? onNewLesson() : confirmSwitch(e.target.value))}>
           {lessons.map((l) => <option key={l.id} value={l.id}>{l.title}</option>)}
           <option value="__new">+ New lesson…</option>
@@ -805,7 +827,7 @@ function Editor({
         <span className="text-xs text-slate-500">
           {saving ? 'Saving…' : ed.dirty ? <span className="text-amber-700 font-medium">● Unsaved changes</span> : saved.at ? `Saved ${when(saved.at)}${saved.by ? ` by ${saved.by}` : ''}` : 'Not saved yet'}
         </span>
-        <span
+        <span data-help="ai-status"
           className={`text-xs px-2 py-0.5 rounded-full ${ai.running ? 'bg-violet-100 text-violet-800' : ai.errors.length ? 'bg-red-100 text-red-800' : todoHere ? 'bg-amber-50 text-amber-800' : 'bg-emerald-50 text-emerald-800'}`}
           title={ai.errors.join('\n') || 'Spoken words, plain versions, topics, intros, captions and audio the AI fills in when you save'}
         >
@@ -817,12 +839,22 @@ function Editor({
                 ? `${todoHere} to write/record: Save to start`
                 : '✓ Words & audio ready'}
         </span>
-        <div className="flex-1" />
-        <span className="text-xs text-slate-500">
+        {/* Pictures with no description: one click for the AI to describe them all (was: only in the Check tab) */}
+        {missingDescriptions > 0 && (
+          <button data-help="describe-all" className="text-xs px-2 py-0.5 rounded-full bg-amber-50 text-amber-900 border border-amber-300 hover:bg-amber-100"
+            onClick={describeAllPictures} title="The AI looks at each picture and writes what it shows (Ctrl+Z undoes them all)">
+            🖼 {missingDescriptions} without a description · <b>✨ Describe all</b>
+          </button>
+        )}
+        <div className="flex-1 min-w-[14rem] flex justify-center">
+          <AssistantBox onShow={showPart} onAddImage={(img) => { addImage(img); flash('Added the picture to this slide (Ctrl+Z undoes it)'); }}
+            onAddText={(text) => { addElement({ id: newId('el'), type: 'text', x: 8, y: 68, w: 84, h: 20, text, style: 'body', color: '#0f172a' }); flash('Added the sentence as a text box (Ctrl+Z undoes it)'); }} />
+        </div>
+        <span className="text-xs text-slate-500" data-help="live">
           {live === undefined ? '' : live ? <>🟢 Live{live.savedAs ? <>: <b className="font-semibold">“{live.savedAs}”</b></> : ''} since {when(live.at)}{live.by ? ` (${live.by})` : ''} · <button className="underline" onClick={unpublish}>take down</button></> : '⚪ Not published: learners get the AI lesson'}
         </span>
-        <button className={btn} onClick={() => save()} disabled={saving} title="Ctrl+S">Save</button>
-        <Menu className={btn} label="▶ Preview ▾" title="Play the saved lesson in a new tab" width="w-56">
+        <button data-help="save" className={btn} onClick={() => save()} disabled={saving} title="Ctrl+S">Save</button>
+        <Menu help="preview" className={btn} label="▶ Preview ▾" title="Play the saved lesson in a new tab" width="w-56">
           {(close) => (
             <>
               <MenuItem onClick={() => { close(); preview(); }} hint="Opens in a new tab">From the start ↗</MenuItem>
@@ -830,20 +862,20 @@ function Editor({
             </>
           )}
         </Menu>
-        <button className={primary} onClick={publish}>Publish</button>
+        <button data-help="publish" className={primary} onClick={publish}>Publish</button>
       </div>
 
       {/* toolbar, row 2: editing, then the lesson-wide tools */}
       <div className="flex flex-wrap items-center gap-1.5 px-3 pb-2 bg-white border-b border-slate-200">
-        <button className={btn} onClick={ed.undo} disabled={!ed.canUndo} title="Undo (Ctrl+Z)">↶</button>
+        <button data-help="undo" className={btn} onClick={ed.undo} disabled={!ed.canUndo} title="Undo (Ctrl+Z)">↶</button>
         <button className={btn} onClick={ed.redo} disabled={!ed.canRedo} title="Redo (Ctrl+Shift+Z)">↷</button>
         <div className="w-px h-6 bg-slate-200 mx-1" />
-        <button className={btn} onClick={addText}>＋ Text</button>
-        <button className={btn} onClick={() => setPanel('images')}>＋ Image</button>
-        <Menu className={btn} label="＋ Chart or diagram ▾" width="w-56">
+        <button data-help="add-text" className={btn} onClick={addText}>＋ Text</button>
+        <button data-help="add-image" className={btn} onClick={() => setPanel('images')}>＋ Image</button>
+        <Menu help="add-chart" className={btn} label="＋ Chart or diagram ▾" width="w-56">
           {(close) => VISUAL_KINDS.map(([k, name]) => <MenuItem key={k} onClick={() => { close(); addElement(visualTemplate(k)); }}>{name}</MenuItem>)}
         </Menu>
-        <Menu className={btn} label={handsOnBusy ? '✨ Making a hands-on slide…' : '🖐 Hands-on ▾'} disabled={!!handsOnBusy} width="w-72">
+        <Menu help="hands-on" className={btn} label={handsOnBusy ? '✨ Making a hands-on slide…' : '🖐 Hands-on ▾'} disabled={!!handsOnBusy} width="w-72">
           {(close) => (
             <>
               <MenuItem onClick={() => { close(); aiHandsOn(); }} hint="The AI makes a hands-on slide from what this slide teaches">✨ Hands-on slide from this slide</MenuItem>
@@ -853,7 +885,7 @@ function Editor({
           )}
         </Menu>
         <div className="flex-1" />
-        <button
+        <button data-help="learners"
           className={`${btn} ${heat ? 'bg-cyan-50 border-cyan-500' : ''}`}
           onClick={toggleHeat}
           disabled={heatLoading}
@@ -861,7 +893,7 @@ function Editor({
         >
           {heatLoading ? 'Loading…' : '📊 Learners'}
         </button>
-        <Menu className={btn} label={pdfProgress ? `⬇ PDF ${pdfProgress}…` : '⬇ PDF ▾'} disabled={pdfProgress !== null} title="Download the lesson as a PDF" width="w-72">
+        <Menu help="pdf" className={btn} label={pdfProgress ? `⬇ PDF ${pdfProgress}…` : '⬇ PDF ▾'} disabled={pdfProgress !== null} title="Download the lesson as a PDF" width="w-72">
           {(close) => (
             <div className="p-1.5 flex flex-col gap-2" aria-label="PDF options">
               <label className="flex items-start gap-2">
@@ -893,9 +925,13 @@ function Editor({
             </div>
           )}
         </Menu>
-        <Menu className={btn} label="More ▾" width="w-64">
+        <Menu help="more" className={btn} label="More ▾" width="w-64">
           {(close) => (
             <>
+              <MenuItem onClick={() => { close(); describeAllPictures(); }} disabled={missingDescriptions === 0}
+                hint={missingDescriptions ? `${missingDescriptions} picture${missingDescriptions === 1 ? ' has' : 's have'} no description: the AI writes them` : 'Every picture has a description'}>
+                ✨ Describe all pictures{missingDescriptions ? ` (${missingDescriptions})` : ''}
+              </MenuItem>
               <MenuItem onClick={() => { close(); setSavedOpen(true); }} hint="Versions saved when they were published: copy a slide back, or go back to one">Saved versions…</MenuItem>
               <MenuItem onClick={() => { close(); openVersions(); }} hint="Replace this draft with an AI-made deck">Start from AI…</MenuItem>
               <MenuItem onClick={() => { close(); window.open(`/lessonReview?lesson=${encodeURIComponent(lessonId)}&preview=1`, '_blank', 'noopener'); }} hint="The saved draft as a readable page, to print">📖 Lesson review ↗</MenuItem>
@@ -916,7 +952,7 @@ function Editor({
 
       <div className="flex flex-1 min-h-0">
         {/* slides */}
-        <aside className="w-52 shrink-0 p-2 border-r border-slate-200 bg-slate-50 min-h-0">
+        <aside data-help="slide-list" className="w-52 shrink-0 p-2 border-r border-slate-200 bg-slate-50 min-h-0">
           <SlideList
             onSplitTopic={askSplit}
             slides={deck.slides}
@@ -935,7 +971,7 @@ function Editor({
         <main className="flex-1 min-w-0 flex flex-col items-center justify-center p-4 gap-2" onPointerDown={() => ed.setSelected(null)}>
           <div className="flex flex-wrap items-center justify-center gap-3 text-xs text-slate-500" onPointerDown={(e) => e.stopPropagation()}>
             <span>Slide {slideIdx + 1} of {deck.slides.length}{main?.topic ? ` · ${main.topic}` : ''}</span>
-            <div className="inline-flex rounded-md border border-slate-300 overflow-hidden" role="tablist" aria-label="Which version">
+            <div data-help="layers" className="inline-flex rounded-md border border-slate-300 overflow-hidden" role="tablist" aria-label="Which version">
               <button role="tab" aria-selected={ed.layer === 'main'} onClick={() => switchLayer('main')}
                 className={`px-3 py-1 ${ed.layer === 'main' ? 'bg-cyan-600 text-white' : 'bg-white hover:bg-slate-50 text-slate-700'}`}>Main slide</button>
               <button role="tab" aria-selected={ed.layer === 'helper'} onClick={() => switchLayer('helper')}
@@ -968,7 +1004,7 @@ function Editor({
               <p className="text-xs text-slate-500 max-w-md">Copied boxes morph from the box they were copied from: move them, resize them, change their words or pictures. New boxes fade in.</p>
             </div>
           ) : (
-          <div className="w-full flex justify-center" onPointerDown={(e) => e.stopPropagation()}>
+          <div data-help="canvas" className="w-full flex justify-center" onPointerDown={(e) => e.stopPropagation()}>
             <EditCanvas
               slide={slide}
               selected={ed.selected}
@@ -1022,7 +1058,7 @@ function Editor({
               const on = panel === id || (id === 'images' && panel === 'background');
               const badge = id === 'check' ? checkBadge : 0;
               return (
-                <button key={id} role="tab" aria-selected={on} title={hint} onClick={() => setPanel(id)}
+                <button key={id} data-help={`tab-${id === 'props' ? 'edit' : id}`} role="tab" aria-selected={on} title={hint} onClick={() => setPanel(id)}
                   className={`flex-1 py-2 flex items-center justify-center gap-1 border-b-2 ${on ? 'font-semibold border-cyan-600 text-slate-900' : 'border-transparent text-slate-500 hover:text-slate-800'}`}>
                   <span aria-hidden>{icon}</span>{name}
                   {badge > 0 && <span className="min-w-4 px-1 rounded-full bg-amber-400 text-[10px] font-bold text-slate-900 leading-4" aria-label={`${badge} to look at`}>{badge}</span>}
@@ -1039,7 +1075,7 @@ function Editor({
             </div>
             {/* kept mounted too: each slide's results stay */}
             <div className={panel === 'check' ? '' : 'hidden'}>
-              <CheckPanel deck={deck} slideIndex={slideIdx} lessonTitle={deck.title} active={panel === 'check'} runSignal={factRun}
+              <CheckPanel deck={deck} slideIndex={slideIdx} lessonTitle={deck.title} active={panel === 'check'} runSignal={factRun} describeSignal={describeRun}
                 onRecord={recordFacts} onFine={markFine} onUseThis={applyFix} onDescribed={fillDescriptions}
                 onGoTo={(id) => { if (ed.layer !== 'main') ed.setLayer('main'); ed.setSelected(id); }} onGoToSlide={(i) => goToRepeat(i)}
                 onMoves={makeMoves} onSkipMove={skipMove} />

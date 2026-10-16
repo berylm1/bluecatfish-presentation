@@ -32,12 +32,14 @@ export const LIMITS = {
   learnerState: { perSession: 60, perAddress: 1000, windowSec: 60, label: 'updates' },
   // Learner events (/api/signals/events), in batches of ~5: a lesson sends a few batches a minute
   events: { perSession: 60, perAddress: 1000, windowSec: 60, label: 'updates' },
-  classmate: { perSession: 6, perAddress: 60, windowSec: 60, perDay: 3000, label: 'classmate questions' },
+  classmate: { perSession: 10, perAddress: 80, windowSec: 60, perDay: 3000, label: 'classmate questions' },   // (a Finn turn can be 3: his line, and up to 2 follow-ups)
   board: { perSession: 10, perAddress: 60, windowSec: 60, perDay: 3000, label: 'drawings' },
   slides: { perSession: 15, perAddress: 120, windowSec: 60, perDay: 5000, label: 'slide lookups' },
   // Making the whole /presentationv2 lesson (only when it isn't cached yet): many paid calls
   lesson: { perSession: 2, perAddress: 4, windowSec: 3600, perDay: 20, label: 'lesson builds' },
   cues: { perSession: 10, perAddress: 60, windowSec: 60, label: 'requests' },
+  // The editor's ✨ helper (/api/editor/assistant): limited for editors too (editorsToo), per editor
+  assistant: { perSession: 12, perAddress: 30, windowSec: 60, perDay: 600, label: 'helper questions' },
   // Editor password tries: slows down guessing (no daily cap, so a guesser can't lock everyone out)
   unlock: { perSession: 10, perAddress: 10, windowSec: 600, label: 'password tries' },
 } satisfies Record<string, Rule>;
@@ -61,26 +63,33 @@ function address(req: Request): string {
   return (fwd || req.headers.get('x-real-ip') || 'unknown').slice(0, 64);
 }
 
-async function isEditor(req: Request): Promise<boolean> {
+/** The unlocked editor's name, or null. */
+async function editorOf(req: Request): Promise<string | null> {
   const m = (req.headers.get('cookie') ?? '').match(new RegExp(`(?:^|;\\s*)${AUTH_COOKIE}=([^;]*)`));
-  return !!m && !!(await verifyToken(decodeURIComponent(m[1])));
+  return m ? (await verifyToken(decodeURIComponent(m[1]))) ?? null : null;
 }
 
 export function tooLarge(what: string): NextResponse {
   return NextResponse.json({ error: `That ${what} is too long.`, limited: true }, { status: 413 });
 }
 
-/** null = go ahead; otherwise a 429 response to return as is. */
-export async function rateLimit(req: Request, name: keyof typeof LIMITS): Promise<NextResponse | null> {
+/**
+ * null = go ahead; otherwise a 429 response to return as is.
+ * editorsToo: unlocked editors are limited as well (counted per editor, as the "session"), for
+ * editor tools that cost money per use (the ✨ helper).
+ */
+export async function rateLimit(req: Request, name: keyof typeof LIMITS, opts: { editorsToo?: boolean } = {}): Promise<NextResponse | null> {
   const rule: Rule = LIMITS[name];
-  if (await isEditor(req)) return null;
+  const editor = await editorOf(req);
+  if (editor && !opts.editorsToo) return null;
 
   const now = Date.now();
   const window = Math.floor(now / 1000 / rule.windowSec);
   const retryAfter = rule.windowSec - (Math.floor(now / 1000) % rule.windowSec);
   const session = req.headers.get(SESSION_HEADER);
   const checks: [string, number, number][] = [[`rl:${name}:a:${address(req)}:${window}`, rule.perAddress, rule.windowSec]];
-  if (session && /^[\w-]{6,64}$/.test(session)) checks.push([`rl:${name}:s:${session}:${window}`, rule.perSession, rule.windowSec]);
+  if (editor) checks.push([`rl:${name}:e:${editor.replace(/[^\w-]/g, '_').slice(0, 40)}:${window}`, rule.perSession, rule.windowSec]);
+  else if (session && /^[\w-]{6,64}$/.test(session)) checks.push([`rl:${name}:s:${session}:${window}`, rule.perSession, rule.windowSec]);
 
   for (const [key, max, ttl] of checks) {
     const n = await incrWindow(key, ttl + 5);
