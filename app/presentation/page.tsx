@@ -98,6 +98,32 @@ function finnVerdictKind(verdict: string): 'caught' | 'fooled' | 'unsure' | 'oth
   return 'other';
 }
 
+type FinnKind = 'caught' | 'fooled' | 'unsure';
+// Follow-ups to a one-click answer on Finn (they say which, not why); then the learner's words lead
+const FINN_FOLLOWUPS = 2;
+const FINN_ASK: Record<FinnKind, string[]> = {
+  caught: ['What makes you say that?', "Ooh, what do you think is actually true?", 'Interesting! What do you think the real answer is?'],
+  fooled: ['What makes you think he’s right?', 'Tell me more. Why do you think so?'],
+  unsure: ["That's okay! What's your best guess?", 'No problem. Which part are you not sure about?'],
+};
+const pickOne = <T,>(list: T[]): T => list[Math.floor(Math.random() * list.length)];
+
+/** Is the learner's answer on Finn's mistake complete, or is there a follow-up to ask? (On any failure: complete.) */
+async function judgeFinn(mistake: string, truth: string, turns: { who: 'professor' | 'learner'; text: string }[]): Promise<{ kind: FinnKind | null; complete: boolean; ask?: string }> {
+  try {
+    const res = await fetch('/api/classmate', {
+      method: 'POST',
+      headers: learnerHeaders({ 'Content-Type': 'application/json' }),
+      body: JSON.stringify({ followup: { mistake, truth, turns } }),
+      signal: AbortSignal.timeout(8000),
+    });
+    const d = res.ok ? await res.json() : null;
+    return d ? { kind: d.kind ?? null, complete: d.complete !== false, ask: d.ask } : { kind: null, complete: true };
+  } catch {
+    return { kind: null, complete: true };
+  }
+}
+
 const YES = /^(?:yes|yeah|yep|yup|sure|ok(?:ay)?|please|uh[- ]huh|definitely|go ahead|do it|mhm)\b/i;
 const NO = /^(?:no|nope|nah|not really|i'?m (?:good|fine|ok(?:ay)?)|all good|keep going|carry on)\b/i;
 const SPEAKING: string[] = ['playing', 'loading', 'finishing', 'waiting'];
@@ -655,12 +681,18 @@ function Player({ deck, preview, startAt = 0 }: { deck: Deck; preview: boolean; 
   // null = called off (the learner moved on, or gave a command instead)
   const finnCheck = useRef<((verdict: string | null) => void) | null>(null);
   const micRef = useRef<{ status: string; talk: () => void }>({ status: 'off', talk: () => {} });   // the mic (set up further down)
-  const [finnWaiting, setFinnWaiting] = useState(false);
+  // Waiting for the learner's call on Finn: 'buttons' (Not quite! / He's right / Not sure), then 'open' (the professor
+  // asked them to say more: no one-click answers, just their words, typed or said)
+  const [finnWaiting, setFinnWaiting] = useState<false | 'buttons' | 'open'>(false);
+  const [finnReply, setFinnReply] = useState('');
+  const finnHow = useRef<'voice' | 'button' | 'typed'>('button');   // how the last answer came (a button has no reasons in it)
   const finnVerdict = useCallback((verdict: string | null, how: 'voice' | 'button' | 'typed') => {
     const done = finnCheck.current;
     if (!done) return false;
     finnCheck.current = null;
     setFinnWaiting(false);
+    setFinnReply('');
+    finnHow.current = how;
     // Answered with a button or typing while the mic listens: stop it, and ignore what it heard
     const mic = micRef.current;
     if (how !== 'voice' && (mic.status === 'listening' || mic.status === 'processing')) {
@@ -696,13 +728,37 @@ function Player({ deck, preview, startAt = 0 }: { deck: Deck; preview: boolean; 
         else if (said && !over() && line.truth) {
           // The professor turns to the learner, and waits for their call (buttons, typing, or the mic)
           if (await cues.play({ text: turnTo }) && !over()) {
-            const verdict = await new Promise<string | null>((resolve) => {
+            const wait = (mode: 'buttons' | 'open') => new Promise<string | null>((resolve) => {
               finnCheck.current = resolve;
-              setFinnWaiting(true);
+              setFinnWaiting(mode);
               if (interruptOn) { resumeAfterTurn.current = false; micRef.current.talk(); }   // listen for it too
             });
-            if (verdict === null) return;   // moved on: no answer, and no "How did that section go?" on another slide
-            const kind = finnVerdictKind(verdict);
+            const first = await wait('buttons');
+            if (first === null) return;   // moved on: no answer, and no "How did that section go?" on another slide
+            // A back-and-forth: a one-click answer, or one with nothing to go on, gets "What makes you say
+            // that?"; the learner's words then decide if there's more to ask (up to FINN_FOLLOWUPS times)
+            const turns: { who: 'professor' | 'learner'; text: string }[] = [{ who: 'learner', text: first }];
+            let judged: FinnKind | null = null;
+            for (let round = 0; round < FINN_FOLLOWUPS && !over(); round++) {
+              let ask: string | undefined;
+              if (round === 0 && finnHow.current === 'button') {
+                ask = pickOne(FINN_ASK[finnVerdictKind(first) === 'other' ? 'unsure' : finnVerdictKind(first) as FinnKind]);
+              } else {
+                const j = await judgeFinn(q, line.truth, turns);
+                if (j.kind) judged = j.kind;
+                if (j.complete || !j.ask) break;
+                ask = j.ask;
+              }
+              if (over()) return;
+              turns.push({ who: 'professor', text: ask });
+              tracking.track('tutor_decision', { action: 'classmate_followup', round });
+              if (!(await cues.play({ text: ask })) || over()) return;
+              const more = await wait('open');
+              if (more === null) return;
+              turns.push({ who: 'learner', text: more });
+            }
+            const verdict = turns.filter((t) => t.who === 'learner').map((t) => t.text).join(' … ');
+            const kind = judged ?? finnVerdictKind(first);
             tracking.track('tutor_decision', { action: 'classmate_mistake_answer', answer: verdict.slice(0, 200), kind });
             finnResults.current.set(topic, { kind, truth: line.truth });   // for the ending
             // Fooled or unsure: after the explanation, the topic's helper ("another way to see it")
@@ -720,7 +776,9 @@ function Player({ deck, preview, startAt = 0 }: { deck: Deck; preview: boolean; 
                     `If not, start with "Actually${you}, that isn't true." and kindly explain what's right. Kindly to ${CLASSMATE_NAME} too. 2 to 4 short sentences.`;
             const { superseded } = await tutor.ask(q, slideContext() +
               `\n${CLASSMATE_NAME}, a classmate, just said this, and it is WRONG on purpose, to see if the learner catches it. What's actually right: ${line.truth}` +
-              `\nYou asked the learner if ${CLASSMATE_NAME} was right. The learner answered: "${verdict || '(nothing)'}".` +
+              `\nYou asked the learner if ${CLASSMATE_NAME} was right. ${turns.length > 1
+                ? `You talked it through:\n${turns.map((t) => `${t.who === 'professor' ? 'You' : 'Learner'}: ${t.text}`).join('\n')}\nRespond to what they said, building on their reasons.`
+                : `The learner answered: "${verdict || '(nothing)'}".`}` +
               `\n${how}${helper ? ' End with one short sentence saying you\'ll show it another way.' : ''} No question at the end.`,
               { asker: CLASSMATE_NAME });
             // (not when the learner talked over the answer: what they said decides what's next)
@@ -1239,7 +1297,7 @@ function Player({ deck, preview, startAt = 0 }: { deck: Deck; preview: boolean; 
       else if (e.key === 'ArrowRight') player.nextClip();
       else if (e.key === 'PageDown') player.nextSlide();
       else if (e.key === 'ArrowLeft' || e.key === 'PageUp') player.prevSlide();
-      else if (e.key === ' ') { e.preventDefault(); if (player.status === 'paused') player.resume(); else player.pause(); }
+      else if (e.key === ' ') { e.preventDefault(); if (player.status === 'paused') resumeLesson(); else player.pause(); }
       else if (e.key.toLowerCase() === 'r') player.repeat();
       else if (e.key.toLowerCase() === 's') player.simplify();
       else if (e.key.toLowerCase() === 'l') confused();
@@ -1261,6 +1319,17 @@ function Player({ deck, preview, startAt = 0 }: { deck: Deck; preview: boolean; 
     if (player.mode === 'plain') return isIntroId(focusId) ? baseSlide : focusSlide(baseSlide, focusId) ?? baseSlide;
     return baseSlide;
   }, [baseSlide, variant, player.mode, focusId]);
+
+  /**
+   * ▶ Resume (the button, Space): the lesson goes on, and whatever is talking now stops first: the
+   * professor's answer, or Finn's turn. Was: the answer went on and the slide's audio started over it.
+   */
+  function resumeLesson() {
+    if (finnBusy.current) { finnVerdict(null, 'button'); takeOverFromFinn(); finnTurn.current++; finnBusy.current = false; }
+    if (tutorBusyRef.current || tutor.speaking || tutor.thinking) cancelAnswer();
+    cues.stop();
+    playerRef.current.resume();
+  }
 
   /** A fresh lesson from the first slide: Finn asks again, hands-on boxes wait again (the end screen, and ↺ at the top left). */
   function startOver() {
@@ -1548,13 +1617,28 @@ function Player({ deck, preview, startAt = 0 }: { deck: Deck; preview: boolean; 
             </div>
           )}
         </div>
-        {finnWaiting && (
+        {finnWaiting === 'buttons' && (
           <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-20 flex items-center gap-2 px-4 py-2 rounded-full bg-slate-900/90 text-white text-sm shadow-lg" role="dialog" aria-label={`Is ${CLASSMATE_NAME} right?`}>
             <span>Is {CLASSMATE_NAME} right?</span>
             <button className="px-3 py-1 rounded-full bg-amber-400 hover:bg-amber-300 text-slate-900 font-semibold" onClick={() => finnVerdict(`Not quite, ${CLASSMATE_NAME} is wrong.`, 'button')}>Not quite!</button>
             <button className="px-3 py-1 rounded-full bg-white/15 hover:bg-white/25" onClick={() => finnVerdict(`Yes, ${CLASSMATE_NAME} is right.`, 'button')}>He&apos;s right</button>
             <button className="px-3 py-1 rounded-full bg-white/15 hover:bg-white/25" onClick={() => finnVerdict("I'm not sure.", 'button')}>Not sure</button>
           </div>
+        )}
+        {/* The professor asked them to say more: their own words now (typed, or the mic; talking over works too) */}
+        {finnWaiting === 'open' && (
+          <form className="absolute bottom-4 left-1/2 -translate-x-1/2 z-20 w-[min(36rem,92%)] flex items-center gap-2 pl-4 pr-1.5 py-1.5 rounded-full bg-slate-900/90 text-white text-sm shadow-lg max-sm:rounded-2xl"
+            role="dialog" aria-label="Tell the professor what you think"
+            onSubmit={(e) => { e.preventDefault(); if (finnReply.trim()) finnVerdict(finnReply.trim().slice(0, 400), 'typed'); }}>
+            <input value={finnReply} onChange={(e) => setFinnReply(e.target.value)} maxLength={400} autoFocus
+              placeholder="Type what you think…" aria-label="Your answer"
+              className="flex-1 min-w-0 bg-transparent outline-none placeholder:text-white/45" />
+            <button type="button" className={`w-8 h-8 shrink-0 rounded-full ${micStatus === 'listening' ? 'bg-red-500 animate-pulse' : 'bg-white/15 hover:bg-white/25'}`}
+              onClick={talk} disabled={micStatus === 'processing'} aria-label={micStatus === 'listening' ? 'Listening' : 'Say it'} title="Say it instead">
+              {micStatus === 'listening' ? '●' : '🎤'}
+            </button>
+            <button className="px-3 py-1.5 shrink-0 rounded-full bg-cyan-500 hover:bg-cyan-400 text-slate-900 font-semibold disabled:opacity-40" disabled={!finnReply.trim()}>Send</button>
+          </form>
         )}
         {toast && (
           <div className="absolute top-3 left-1/2 -translate-x-1/2 px-4 py-2 rounded-full bg-slate-900/85 text-white text-sm shadow-lg" role="status">
@@ -1589,7 +1673,7 @@ function Player({ deck, preview, startAt = 0 }: { deck: Deck; preview: boolean; 
           {ctl('⏮', 'Previous slide', { onClick: player.prevSlide, disabled: player.slideIndex === 0 })}
           {/* (no Resume while it's the learner's turn: the hands-on box moves the lesson on. Was: a greyed-out ▶ Resume) */}
           {player.status === 'paused'
-            ? !yourTurn && ctl('▶', 'Resume', { onClick: player.resume })
+            ? !yourTurn && ctl('▶', 'Resume', { onClick: resumeLesson })
             : ctl('⏸', 'Pause', { onClick: player.pause, disabled: player.status === 'finished' })}
           {ctl('⏭', 'Skip ahead', { onClick: player.nextClip, title: 'Skip to the next part of this slide' })}
           {ctl('⏩', 'Next slide', { onClick: player.nextSlide })}

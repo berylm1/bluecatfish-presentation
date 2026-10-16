@@ -480,10 +480,12 @@ function Hotspots({ el, kit }: { el: ActivityElement; kit: Kit }) {
   const [opened, setOpened] = useState<Set<number>>(() => new Set(kit.solved ? items.map((_, i) => i) : []));
   const [active, setActive] = useState<number | null>(null);
   const first = items.findIndex((_, i) => !opened.has(i));
+  const spots = useMemo(() => spreadSpots(items), [items]);
   useLayoutEffect(() => {
     const img = imgRef.current;
     if (!img) return;
-    const fit = () => { const b = img.getBoundingClientRect(); setRect(contentRect(b.width, b.height, img.naturalWidth, img.naturalHeight, 'contain')); };
+    // (a picture that didn't load has no size: the spots go on the whole box, not nowhere)
+    const fit = () => { const b = img.getBoundingClientRect(); setRect(img.naturalWidth && img.naturalHeight ? contentRect(b.width, b.height, img.naturalWidth, img.naturalHeight, 'contain') : { x: 0, y: 0, w: 100, h: 100 }); };
     if (img.complete) fit(); else img.addEventListener('load', fit, { once: true });
     const ro = new ResizeObserver(fit);
     ro.observe(img);
@@ -503,7 +505,7 @@ function Hotspots({ el, kit }: { el: ActivityElement; kit: Kit }) {
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img ref={imgRef} src={el.src} alt={el.alt ?? ''} draggable={false} style={{ width: '100%', height: '100%', objectFit: 'contain', pointerEvents: 'none' }} />
       {items.map((it, i) => {
-        const left = rect.x + ((it.x ?? 50) / 100) * rect.w, top = rect.y + ((it.y ?? 50) / 100) * rect.h;
+        const left = rect.x + (spots[i].x / 100) * rect.w, top = rect.y + (spots[i].y / 100) * rect.h;
         const seen = opened.has(i);
         return (
           <div key={i}>
@@ -528,12 +530,37 @@ function Hotspots({ el, kit }: { el: ActivityElement; kit: Kit }) {
   );
 }
 
+/**
+ * Where each spot goes (% of the picture). A spot never placed gets a place of its own along the
+ * middle, and a spot right on top of another is moved off it, so every spot can be tapped. Was: unplaced
+ * spots all sat at the centre, only the top one could be opened, and the box could never be finished.
+ */
+export function spreadSpots(items: { x?: number; y?: number }[]): { x: number; y: number }[] {
+  const unplaced = items.filter((it) => typeof it.x !== 'number' || typeof it.y !== 'number').length;
+  let k = 0;
+  const out = items.map((it) => (typeof it.x === 'number' && typeof it.y === 'number'
+    ? { x: it.x, y: it.y }
+    : { x: ((++k) / (unplaced + 1)) * 100, y: 50 + (k % 2 ? -8 : 8) }));
+  const MIN = 9;   // closer than this (% of the picture) and two spots overlap
+  for (let i = 1; i < out.length; i++) {
+    for (let tries = 0; tries < 12 && out.slice(0, i).some((o) => Math.hypot(o.x - out[i].x, o.y - out[i].y) < MIN); tries++) {
+      const a = (tries * 137.5 * Math.PI) / 180;   // around it, a little further each time
+      out[i] = { x: Math.min(95, Math.max(5, out[i].x + Math.cos(a) * MIN)), y: Math.min(95, Math.max(5, out[i].y + Math.sin(a) * MIN)) };
+    }
+  }
+  return out;
+}
+
 /* -------------------------------------------------------------- slider */
 
 function Slider({ el, kit }: { el: ActivityElement; kit: Kit }) {
   const s = el.slider!;
-  const [value, setValue] = useState(kit.solved ? s.stops[s.stops.length - 1].at : s.min);
-  const stops = s.stops;
+  const step = s.step ?? (s.max - s.min) / 100;
+  // The furthest the knob can go: a step that doesn't divide the range stops short of the max (0 to 20
+  // in 3s ends at 18). A stop past that counts as there. Was: a last stop out of reach, never finished
+  const end = step > 0 ? s.min + Math.floor((s.max - s.min) / step + 1e-9) * step : s.max;
+  const stops = s.stops.map((st) => ({ ...st, at: Math.min(st.at, end) }));
+  const [value, setValue] = useState(kit.solved ? stops[stops.length - 1].at : s.min);
   const stop = [...stops].reverse().find((st) => value >= st.at) ?? stops[0];
   // The picture's size follows the stops' scales, smoothly between them
   const scale = (() => {
@@ -549,7 +576,7 @@ function Slider({ el, kit }: { el: ActivityElement; kit: Kit }) {
     const stopAt = (x: number) => [...stops].reverse().findIndex((st) => x >= st.at);
     if (stopAt(v) !== stopAt(value)) kit.sound('tick');   // reached another stop
     setValue(v);
-    if (v >= stops[stops.length - 1].at) kit.finish();
+    if (v >= stops[stops.length - 1].at - 1e-9) kit.finish();
   };
   const fmt = (v: number) => `${v.toLocaleString('en-US', { maximumFractionDigits: 1 })}${s.unit ? ` ${s.unit}` : ''}`;
   return (
@@ -567,7 +594,7 @@ function Slider({ el, kit }: { el: ActivityElement; kit: Kit }) {
       </div>
       <div style={{ fontSize: '3.8cqh', fontWeight: 900, color: '#0891b2' }}>{s.label ? `${s.label}: ` : ''}{fmt(value)}</div>
       <div style={{ position: 'relative', width: '86%', borderRadius: '99cqh', ...(kit.hint ? glow(true) : {}) }}>
-        <input type="range" min={s.min} max={s.max} step={s.step ?? (s.max - s.min) / 100} value={value} disabled={!kit.interactive}
+        <input type="range" min={s.min} max={s.max} step={step} value={value} disabled={!kit.interactive}
           aria-label={s.label || 'slider'} onChange={(e) => change(Number(e.target.value))}
           style={{ width: '100%', height: '4cqh', accentColor: '#0891b2', cursor: kit.interactive ? 'pointer' : 'default', margin: 0, touchAction: 'none' }} />
         {/* where the example hand slides from and to */}

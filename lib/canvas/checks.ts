@@ -142,6 +142,11 @@ export function activityFormatProblems(el: ActivityElement): string[] {
       if (new Set(ats).size !== ats.length) out.push('two slider stops are at the same value');
       if (s.stops.some((x) => x.at < s.min || x.at > s.max)) out.push('a slider stop is outside the slider');
       if (s.stops.some((x) => !x.text.trim())) out.push('a slider stop has no text');
+      // a step that doesn't divide the range: the knob stops short of the max
+      if (s.step && s.step > 0) {
+        const end = s.min + Math.floor((s.max - s.min) / s.step + 1e-9) * s.step;
+        if (s.stops.some((x) => x.at > end + 1e-9)) out.push(`the slider moves in steps of ${s.step}, so it can't reach ${s.max} (it stops at ${end}): change the step or the stops`);
+      }
       break;
     }
   }
