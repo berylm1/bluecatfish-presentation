@@ -119,6 +119,21 @@ export interface ActivityElement extends ElementBase {
   src?: string;
   slider?: { label: string; min: number; max: number; step?: number; unit?: string; stops: { at: number; text: string; scale?: number }[] };
   alt?: string;
+  /**
+   * The answer check (lib/canvas/activityCheck.ts): the AI read the answer key against the
+   * knowledge base before any audio was made. from = fingerprint of the box it checked;
+   * ok = nothing doubtful left; notes = what a person should look at; fixed = what it corrected.
+   * A person's "Answers look right" sets ok (byPerson) until the box changes.
+   */
+  answerCheck?: {
+    from: string; ok: boolean; notes?: string[]; fixed?: string[]; byPerson?: boolean;
+    /** The AI's fixes for a key a person typed (not made): the whole key with them in, and the notes they answer */
+    suggested?: { items?: ActivityElement['items']; slider?: ActivityElement['slider']; notes: string[]; says: string[] };
+    /** A person has looked at what the AI fixed (the "fixed by AI" tag goes) */
+    fixesSeen?: boolean;
+  };
+  /** A person edited the answer key (groups, items, stops): the answer check only suggests fixes, never makes them */
+  keyByPerson?: boolean;
 }
 
 export type SlideElement = TextElement | ImageElement | ChartElement | DiagramElement | ActivityElement;
@@ -194,6 +209,42 @@ export interface DeckChecks {
   repeats?: { from: string; at: string; found: number };
   /** Repeat suggestions a person skipped (repeatKey) */
   repeatSkips?: string[];
+  /** The story-order check (storyOrder.ts): the lesson it looked at (orderBasis), and the moves it suggests */
+  order?: { from: string; at: string; why?: string; moves: OrderMove[] };
+  /** Order moves a person skipped (moveKey) */
+  orderSkips?: string[];
+}
+
+/** A suggested move: these slides (a topic, or one slide), put right after `after` (null: at the start). */
+export interface OrderMove {
+  ids: string[];
+  after: string | null;
+  /** "Move the topic “…” to the start", "Move “…” after “…”" */
+  label: string;
+  topic?: boolean;
+  /** Slides whose AI-written words don't fit the new order: written again when the move is made */
+  reword?: string[];
+}
+
+/** One end-of-lesson quiz question: a few choices, one right (by index). */
+export interface QuizQuestion {
+  q: string;
+  choices: string[];
+  answer: number;
+  /** Why the answer is right, in a short sentence (said after a wrong pick) */
+  why?: string;
+}
+
+/**
+ * The end-of-lesson quiz (lib/canvas/quiz.ts): a pool the AI writes when the lesson is saved, each
+ * answer checked against the lesson and the knowledge base. Learners get 3 at random.
+ */
+export interface DeckQuiz {
+  questions: QuizQuestion[];
+  /** quizBasis of the lesson the questions were last checked against (a changed lesson: checked again) */
+  from: string;
+  /** No quiz at the end of this lesson */
+  off?: boolean;
 }
 
 export interface Deck {
@@ -208,8 +259,12 @@ export interface Deck {
   /** Changes with every save from the editor (not with AI fill-ins), to spot two people editing at once. */
   editRev?: string;
   recapByAI?: boolean;
+  /** The end-of-lesson quiz pool */
+  quiz?: DeckQuiz;
   /** The editor's fact and repeat checks (editor-only) */
   checks?: DeckChecks;
   updatedAt?: string;
   updatedBy?: string;
+  /** The name this version was saved under when it was published (lib/canvas/saved.ts) */
+  savedAs?: string;
 }

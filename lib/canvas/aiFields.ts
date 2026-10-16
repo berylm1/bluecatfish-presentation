@@ -1,5 +1,5 @@
-import type { Deck, Pointer, Slide, SlideElement, SlideHelper } from './types';
-import { shownWords, spokenText } from './queue';
+import type { ActivityElement, Deck, OrderMove, Pointer, QuizQuestion, Slide, SlideElement, SlideHelper } from './types';
+import { activityReady, shownWords, spokenText } from './queue';
 import { introBasis, introText, startsTopic } from './intro';
 import { TTS_VOICE, VOICE_INSTRUCTIONS, SIMPLE_VOICE_INSTRUCTIONS } from '@/lib/voice';
 
@@ -148,6 +148,50 @@ export function needsIntroAudio(slides: Slide[], i: number): boolean {
   return !!text && !s.intro?.off && startsTopic(slides, i) && s.intro?.audioFor !== audioKey(text, false);
 }
 
+/** What a hands-on box's answer check looked at: its task and answer key. */
+export const answerBasis = (el: ActivityElement) => fingerprint(`${el.kind}|${el.prompt ?? ''}|${shownWords(el)}`);
+
+/** What the story-order check looked at: the slides in order, their topics and what they show and say. */
+export const orderBasis = (deck: Deck) => fingerprint(deck.slides.map((s) => `${s.id}|${s.topic ?? ''}|${slideBasis(s)}`).join('||'));
+
+/** Does the order need checking (a lesson of a few slides, changed since the last check)? */
+export function needsOrderCheck(deck: Deck): boolean {
+  return deck.slides.length >= 3 && deck.checks?.order?.from !== orderBasis(deck);
+}
+
+/** The quiz: questions in the pool, and asked at the end (at random) */
+export const QUIZ_POOL = 8;
+export const QUIZ_ASKED = 3;
+
+/** What the end-of-lesson quiz is checked against: everything the lesson shows and says. */
+export const quizBasis = (deck: Deck) =>
+  fingerprint(deck.slides.map((s) => s.elements.map((e) => `${shownWords(e)}\n${spokenText(e)}`).join('|')).join('||'));
+/** The quiz's questions as they are (a quiz patch only lands on the questions it started from). */
+export const quizKey = (questions: QuizQuestion[] = []) => fingerprint(JSON.stringify(questions));
+
+/** Does the quiz pool need writing (none yet) or checking again (the lesson changed)? */
+export function needsQuiz(deck: Deck): boolean {
+  if (deck.quiz?.off || !deck.slides.some((s) => slideBasis(s))) return false;
+  return !deck.quiz || deck.quiz.from !== quizBasis(deck);
+}
+
+/**
+ * Where a hands-on box's answers stand: not checked (or changed since), flagged (⚠),
+ * fixed by the AI and not looked at yet, or fine.
+ */
+export function answerState(el: ActivityElement): 'unchecked' | 'flagged' | 'fixed' | 'ok' {
+  const ac = el.answerCheck;
+  if (!ac || ac.from !== answerBasis(el)) return 'unchecked';
+  if (!ac.ok) return 'flagged';
+  return ac.fixed?.length && !ac.fixesSeen && !ac.byPerson ? 'fixed' : 'ok';
+}
+
+/** Does a hands-on box need its answers checked (never checked, or changed since; a person's "look right" counts)? */
+export function needsAnswerCheck(el: SlideElement): boolean {
+  if (el.type !== 'activity' || !activityReady(el)) return false;
+  return el.answerCheck?.from !== answerBasis(el);
+}
+
 export function needsTopic(slide: Slide): boolean {
   if (!slide.topic?.trim()) return true;
   return !!slide.topicByAI && slide.topicFrom !== fingerprint(slideBasis(slide));
@@ -158,6 +202,9 @@ export interface Todo {
   pointers: number;
   intros: number;
   captions: number;
+  answers: number;
+  quiz: number;
+  order: number;
   topics: number;
   say: number;
   plain: number;
@@ -165,7 +212,7 @@ export interface Todo {
 }
 
 export function countTodo(deck: Deck): Todo {
-  const t: Todo = { helpers: 0, pointers: 0, intros: 0, captions: 0, topics: 0, say: 0, plain: 0, audio: 0 };
+  const t: Todo = { helpers: 0, pointers: 0, intros: 0, captions: 0, answers: 0, quiz: needsQuiz(deck) ? 1 : 0, order: needsOrderCheck(deck) ? 1 : 0, topics: 0, say: 0, plain: 0, audio: 0 };
   deck.slides.forEach((_, i) => {
     if (needsIntro(deck.slides, i)) t.intros++;
     if (needsIntroAudio(deck.slides, i)) t.audio++;
@@ -180,9 +227,11 @@ export function countTodo(deck: Deck): Todo {
       if (needsPlainAudio(e)) t.audio++;
       if (needsPointers(e)) t.pointers++;
       if (needsCaption(e, s)) t.captions++;
+      if (needsAnswerCheck(e)) t.answers++;
     }
     // Helper elements speak too (no plain version: the helper IS the simpler way)
     for (const e of helperElements(s)) {
+      if (needsAnswerCheck(e)) t.answers++;
       if (needsSay(e)) t.say++;
       if (needsAudio(e)) t.audio++;
       if (needsPointers(e)) t.pointers++;
@@ -191,7 +240,7 @@ export function countTodo(deck: Deck): Todo {
   return t;
 }
 
-export const todoTotal = (t: Todo) => t.helpers + t.pointers + t.intros + t.captions + t.topics + t.say + t.plain + t.audio;
+export const todoTotal = (t: Todo) => t.helpers + t.pointers + t.intros + t.captions + t.answers + t.quiz + t.order + t.topics + t.say + t.plain + t.audio;
 
 /* -------------------------------------------------------- applying */
 
@@ -203,6 +252,12 @@ export type Patch =
   | { slideId: string; kind: 'intro'; say: string; sayFrom: string }
   | { slideId: string; kind: 'introAudio'; audioUrl: string; audioFor: string }
   | (At & { kind: 'caption'; caption: string; captionFrom: string })
+  /** The answer check: corrected items / slider (if any) and the result; `from` = the box as it was checked */
+  | (At & { kind: 'answerCheck'; from: string; items?: ActivityElement['items']; slider?: ActivityElement['slider']; check: NonNullable<ActivityElement['answerCheck']> })
+  /** The quiz pool, checked against the lesson `from`; only onto the questions it started from (`prev`, quizKey) */
+  | { slideId: ''; kind: 'quiz'; from: string; prev: string; questions: QuizQuestion[] }
+  /** The story-order check's suggestions, for the lesson as it was (`from`, orderBasis) */
+  | { slideId: ''; kind: 'order'; from: string; at: string; why?: string; moves: OrderMove[] }
   | (At & { kind: 'say'; say: string; sayFrom: string })
   | (At & { kind: 'plain'; plain: string; plainFrom: string })
   | (At & { kind: 'audio'; audioUrl: string; audioFor: string })
@@ -217,6 +272,21 @@ export type Patch =
 export function applyPatches(deck: Deck, patches: Patch[]): number {
   let applied = 0;
   for (const p of patches) {
+    if (p.kind === 'quiz') {
+      // the lesson as it was checked, and nobody changed the questions meanwhile (or turned the quiz off)
+      if (!deck.quiz?.off && quizBasis(deck) === p.from && quizKey(deck.quiz?.questions) === p.prev) {
+        deck.quiz = { questions: structuredClone(p.questions), from: p.from };
+        applied++;
+      }
+      continue;
+    }
+    if (p.kind === 'order') {
+      if (orderBasis(deck) === p.from) {
+        deck.checks = { ...deck.checks, order: { from: p.from, at: p.at, why: p.why, moves: structuredClone(p.moves) } };
+        applied++;
+      }
+      continue;
+    }
     const slide = deck.slides.find((s) => s.id === p.slideId);
     if (!slide) continue;
     if (p.kind === 'topic') {
@@ -274,6 +344,13 @@ export function applyPatches(deck: Deck, patches: Patch[]): number {
       case 'pointers':
         if ((el.pointers === undefined || el.pointersByAI) && fingerprint(pointersBasis(el)) === p.pointersFrom) {
           Object.assign(el, { pointers: p.pointers, pointersByAI: true, pointersFrom: p.pointersFrom });
+          applied++;
+        }
+        break;
+      case 'answerCheck':
+        // only onto the box as it was checked (a person's edit since wins, and gets checked next time)
+        if (el.type === 'activity' && answerBasis(el) === p.from) {
+          Object.assign(el, { ...(p.items ? { items: structuredClone(p.items) } : {}), ...(p.slider ? { slider: structuredClone(p.slider) } : {}), answerCheck: { ...p.check } });
           applied++;
         }
         break;

@@ -5,12 +5,16 @@ import type { Deck, Slide, SlideElement, TextElement } from './types';
 import type { LessonInfo } from './lessons';
 import { sanitizeDeck } from './sanitize';
 import { fitStatus, neededHeight, textMetrics } from './fitEstimate';
-import { fingerprint, sayBasis, slideBasis } from './aiFields';
+import { fingerprint, needsAnswerCheck, sayBasis, slideBasis } from './aiFields';
 import { chat, knowledge, STYLE } from './ai';
 import { writeRecap } from './prepare';
 import { removeRepeats } from './repeats';
+import { checkActivityAnswers } from './activityCheck';
+import { fixStoryOrder } from './storyOrder';
 
 const GENERATE_BUDGET_MS = 270_000;   // the ai-deck route's maxDuration is 300 s
+const ANSWER_CHECK_MS = 30_000;        // a hands-on box's answer check, roughly, with room to spare
+const STORY_ORDER_MS = 40_000;         // the story-order read and the recap after it
 
 // Step 5: the AI makes a whole deck in the canvas format.
 //   1. plan the lesson's topics from the knowledge base
@@ -19,6 +23,8 @@ const GENERATE_BUDGET_MS = 270_000;   // the ai-deck route's maxDuration is 300 
 //   3. check every slide (text that won't fit, off the slide, overlapping
 //      text); broken slides go back to the AI once, then get small automatic fixes
 //   4. read the whole deck for repeated content (up to 3 times) and rewrite repeats
+//   5. check the hands-on boxes' answer keys against the knowledge base
+//   6. put the whole lesson in story order (storyOrder.ts): the right first and last topics
 // Audio is made afterwards by the save-time AI (prepare.ts).
 
 const supabase = lazySupabaseAdmin();
@@ -231,6 +237,31 @@ export async function generateAiDeck(lesson: LessonInfo): Promise<{ deck: Deck; 
   });
   // Before markAi, so the fingerprints are of the final words (and audio is made for them only)
   await removeRepeats(deck, notes, started + GENERATE_BUDGET_MS);
+  // Hands-on answer keys against the knowledge base (the save-time AI checks any left over)
+  await Promise.all(deck.slides.flatMap((s) => s.elements.filter(needsAnswerCheck).map(async (el) => {
+    // (with room left for it: one not checked here is checked by the save-time AI)
+    if (el.type !== 'activity' || Date.now() > started + GENERATE_BUDGET_MS - ANSWER_CHECK_MS) return;
+    try {
+      const r = await checkActivityAnswers(el, { lesson: lesson.title, topic: s.topic });
+      Object.assign(el, { ...(r.items ? { items: r.items } : {}), ...(r.slider ? { slider: r.slider } : {}), answerCheck: r.check });
+      // its words were written for the old key: the save-time AI writes them again from the corrected one
+      if (r.check.fixed?.length) { delete el.say; delete el.plain; }
+      if (r.check.fixed?.length) notes.push(`"${s.topic}": corrected a hands-on answer key: ${r.check.fixed.join('; ')}`);
+      if (!r.check.ok) notes.push(`"${s.topic}": a hands-on box's answers need a look: ${r.check.notes?.join('; ')}`);
+    } catch (e) {
+      notes.push(`Checking a hands-on box failed: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  })));
+  // Last check before any audio: the whole lesson in story order (the topics were written
+  // in parallel): the right first and last topics, each slide building on the one before
+  // (with room left for it and the recap after it: else the save-time AI suggests the moves instead)
+  if (Date.now() < started + GENERATE_BUDGET_MS - STORY_ORDER_MS) {
+    try {
+      notes.push(...(await fixStoryOrder(deck, lesson.title)));
+    } catch (e) {
+      notes.push(`Checking the slide order failed: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
   deck.slides.forEach(markAi);
   try {
     deck.recap = await writeRecap(deck);

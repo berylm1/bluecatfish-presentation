@@ -44,7 +44,7 @@ export default function SlideList({
 
   return (
     <div className="flex flex-col gap-2 h-full">
-      <div className="flex gap-1">
+      <div className="flex gap-1" data-help="new-slide">
         <button className={btn} onClick={onAdd} title="New slide after this one">+ New</button>
         <button className={btn} onClick={onDuplicate}>Duplicate</button>
         <button className={`${btn} text-red-600`} onClick={onDelete} disabled={slides.length <= 1}>Delete</button>

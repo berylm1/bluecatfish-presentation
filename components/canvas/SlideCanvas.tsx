@@ -97,11 +97,15 @@ function LaserDot({ el, p, imgRef }: { el: SlideElement; p: Pointer; imgRef: Rea
   );
 }
 
-function ElementView({ el, active, laser, dim = 1, interactive = false, onActivityDone, activityHint, solvedActivities, settledActivities, activitySounds, onActivityMistake, finnMoves, onFinn, activityGuides }: {
+function ElementView({ el, active, laser, dim = 1, interactive = false, onActivityDone, activityHint, solvedActivities, revealedActivities, settledActivities, activitySounds, onActivityMistake, finnMoves, onFinn, activityGuides, yourTurn }: {
   el: SlideElement; active: boolean; laser?: Pointer | null; dim?: number; interactive?: boolean; onActivityDone?: (id: string) => void; activityHint?: number;
   solvedActivities?: ReadonlySet<string>; settledActivities?: ReadonlySet<string>; activitySounds?: boolean;
+  /** Skipped boxes: drawn again, solved (the answers shown) */
+  revealedActivities?: ReadonlySet<string>;
   onActivityMistake?: (elementId: string, m: ActivityMistake) => void;
   finnMoves?: Record<string, FinnMove>; onFinn?: (elementId: string, e: FinnEvent) => void; activityGuides?: Record<string, string>;
+  /** The hands-on box whose turn it is (the professor has said what to do) */
+  yourTurn?: string | null;
 }) {
   const imgRef = useRef<HTMLImageElement>(null);
   const decorative = el.type === 'image' && el.silent && !el.alt;
@@ -134,10 +138,10 @@ function ElementView({ el, active, laser, dim = 1, interactive = false, onActivi
         <DiagramView el={el} />
       ) : el.type === 'activity' ? (
         // a fresh start whenever the box itself changes (the editor)
-        <ActivityView key={JSON.stringify([el.kind, el.items, el.groups, el.slider, el.src])} el={el} interactive={interactive} onDone={() => onActivityDone?.(el.id)} hintNonce={activityHint}
+        <ActivityView key={JSON.stringify([el.kind, el.items, el.groups, el.slider, el.src, !!revealedActivities?.has(el.id)])} el={el} interactive={interactive} onDone={() => onActivityDone?.(el.id)} hintNonce={activityHint}
           solved={solvedActivities?.has(el.id)} quiet={settledActivities?.has(el.id)} sounds={activitySounds}
           onMistake={(m) => onActivityMistake?.(el.id, m)}
-          finnMove={finnMoves?.[el.id] ?? null} onFinn={(e) => onFinn?.(el.id, e)} guide={activityGuides?.[el.id]} />
+          finnMove={finnMoves?.[el.id] ?? null} onFinn={(e) => onFinn?.(el.id, e)} guide={activityGuides?.[el.id]} turn={yourTurn === el.id} />
       ) : (
         // eslint-disable-next-line @next/next/no-img-element
         <img
@@ -340,6 +344,7 @@ function SlideCanvas({
   onActivityDone,
   activityHint,
   solvedActivities,
+  revealedActivities,
   settledActivities,
   settledTick: _settledTick,
   activitySounds = false,
@@ -347,6 +352,7 @@ function SlideCanvas({
   finnMoves,
   onFinn,
   activityGuides,
+  yourTurn,
   children,
 }: {
   slide: Slide;
@@ -368,6 +374,8 @@ function SlideCanvas({
   activityHint?: number;
   /** Hands-on boxes already done (read when a box is drawn: one drawn again comes back finished) */
   solvedActivities?: ReadonlySet<string>;
+  /** Hands-on boxes the learner skipped: shown solved */
+  revealedActivities?: ReadonlySet<string>;
   /** Hands-on boxes done or skipped: no example hand */
   settledActivities?: ReadonlySet<string>;
   /** Bump when the sets above change (they're the same objects, so the memo wouldn't see it) */
@@ -381,6 +389,8 @@ function SlideCanvas({
   onFinn?: (elementId: string, e: FinnEvent) => void;
   /** Per hands-on box: the item the professor just explained (the hand shows it) */
   activityGuides?: Record<string, string>;
+  /** The hands-on box whose turn it is (cards wait a moment for a guess) */
+  yourTurn?: string | null;
   /** Drawn on top of the slide (the editor's selection boxes) */
   children?: React.ReactNode;
 }) {
@@ -410,8 +420,8 @@ function SlideCanvas({
       {morphing ? <Solved.Provider value={solvedActivities}><MorphLayer plan={morphing.plan} on={morphing.on} /></Solved.Provider> : slide.elements.map((el) => (
         <ElementView key={el.id} el={el} active={el.id === activeId} laser={laser?.elementId === el.id ? laser.pointer : null}
           dim={activeId && slide.elements.some((e) => e.id === activeId) ? spotlight : 1}
-          interactive={interactive} onActivityDone={onActivityDone} activityHint={activityHint} solvedActivities={solvedActivities} settledActivities={settledActivities} activitySounds={activitySounds} onActivityMistake={onActivityMistake}
-          finnMoves={finnMoves} onFinn={onFinn} activityGuides={activityGuides} />
+          interactive={interactive} onActivityDone={onActivityDone} activityHint={activityHint} solvedActivities={solvedActivities} revealedActivities={revealedActivities} settledActivities={settledActivities} activitySounds={activitySounds} onActivityMistake={onActivityMistake}
+          finnMoves={finnMoves} onFinn={onFinn} activityGuides={activityGuides} yourTurn={yourTurn} />
       ))}
       {children}
     </div>

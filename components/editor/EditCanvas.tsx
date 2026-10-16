@@ -4,6 +4,7 @@ import { useRef, useState } from 'react';
 import SlideCanvas from '@/components/canvas/SlideCanvas';
 import type { Slide, SlideElement } from '@/lib/canvas/types';
 import { contentRect } from '@/lib/canvas/laser';
+import { answerState } from '@/lib/canvas/aiFields';
 
 // The slide being edited: the real renderer underneath, and on top a box per
 // element that can be clicked, dragged and resized. Positions stay in percent.
@@ -172,6 +173,26 @@ export default function EditCanvas({
                     ✨ AI
                   </span>
                 </>
+              )}
+              {/* A picture that needs a description (the AI writes its words, caption and laser marks from it) */}
+              {el.type === 'image' && !el.alt?.trim() && (!el.silent || ((el.z ?? 1) > 0 && el.w * el.h >= 100)) && (
+                <span className="absolute bottom-0 left-4 px-1 rounded-t bg-amber-500 text-[10px] font-semibold text-white pointer-events-none" data-no-description
+                  title="No description: select it and press ✨ Describe it with AI (or ✨ Describe all at the top)">
+                  🖼 No description
+                </span>
+              )}
+              {/* A hands-on box whose answers the knowledge base doesn't back up, or that the AI fixed */}
+              {el.type === 'activity' && answerState(el) === 'flagged' && (
+                <span className="absolute bottom-0 left-4 px-1 rounded-t bg-amber-500 text-[10px] font-semibold text-white pointer-events-none" data-answer-flag
+                  title={`Check the answers: ${(el.answerCheck?.notes ?? []).join('; ')}`}>
+                  ⚠ Check answers
+                </span>
+              )}
+              {el.type === 'activity' && answerState(el) === 'fixed' && (
+                <span className="absolute bottom-0 left-4 px-1 rounded-t bg-emerald-600 text-[10px] font-semibold text-white pointer-events-none" data-answer-fixed
+                  title={`The AI fixed: ${(el.answerCheck?.fixed ?? []).join('; ')}`}>
+                  ✓ AI fixed answers
+                </span>
               )}
               {/* Laser marks of the selected element, numbered */}
               {isSel && (el.pointers ?? []).map((m, i) => {

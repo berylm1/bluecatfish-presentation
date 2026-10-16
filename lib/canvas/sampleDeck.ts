@@ -5,7 +5,7 @@ import type { Deck } from './types';
 // number with queue numbers that differ from reading order, text + image.
 export const SAMPLE_DECK: Deck = {
   lessonId: 'sample',
-  title: 'Blue Catfish (sample deck)',
+  title: 'Blue Catfish',
   source: 'hand',
   slides: [
     {

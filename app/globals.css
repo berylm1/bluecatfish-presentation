@@ -471,3 +471,17 @@ body {
 /* A topic's title card (its introduction is being said) */
 @keyframes intro-card { from { opacity: 0; transform: translateY(0.6rem) scale(0.97); } to { opacity: 1; transform: none; } }
 @keyframes intro-fade { from { opacity: 0; } to { opacity: 1; } }
+
+/* The lesson's slide size (app/presentation): as wide as fits beside everything around it.
+   A phone gets more of its width; a phone turned sideways (short screen) packs the rest
+   tighter so the slide gets more of the height. */
+:root { --slide-max-w: 88vw; --slide-chrome: 190px; }
+@media (max-width: 640px) { :root { --slide-max-w: 96vw; } }
+@media (max-height: 500px) { :root { --slide-chrome: 112px; } }
+
+@keyframes rotate-hint { 0%, 55%, 100% { transform: rotate(0deg); } 70%, 85% { transform: rotate(-90deg); } }
+@keyframes think-bar { from { transform: scaleX(1); } to { transform: scaleX(0); } }
+
+/* The editor's ✨ helper pointing at something ("Show me") */
+@keyframes help-flash { 0%, 100% { box-shadow: 0 0 0 0 rgba(139, 92, 246, 0); } 30%, 70% { box-shadow: 0 0 0 4px rgba(139, 92, 246, 0.85), 0 0 18px 4px rgba(139, 92, 246, 0.45); } }
+.help-flash { animation: help-flash 1s ease-in-out 3; position: relative; z-index: 70; border-radius: 6px; }

@@ -115,6 +115,22 @@ function element(raw: any, fallbackId: string): SlideElement | null {
       ...base, type: 'activity', kind, prompt: str(raw.prompt, 120), alt: str(raw.alt, 2000),
       groups: kind === 'sort' ? groups : undefined, items: kind === 'slider' ? undefined : items,
       src: safeUrl(raw.src), slider,
+      answerCheck: raw.answerCheck && typeof raw.answerCheck === 'object' && tag(raw.answerCheck.from) ? {
+        from: raw.answerCheck.from, ok: raw.answerCheck.ok === true,
+        notes: (Array.isArray(raw.answerCheck.notes) ? raw.answerCheck.notes : []).slice(0, 10).map((x: unknown) => str(x, 300)).filter(Boolean) as string[],
+        fixed: (Array.isArray(raw.answerCheck.fixed) ? raw.answerCheck.fixed : []).slice(0, 10).map((x: unknown) => str(x, 300)).filter(Boolean) as string[],
+        byPerson: bool(raw.answerCheck.byPerson),
+        fixesSeen: bool(raw.answerCheck.fixesSeen),
+        suggested: (() => {
+          const sg = raw.answerCheck.suggested;
+          if (!sg || typeof sg !== 'object') return undefined;
+          // the suggested key is cleaned exactly like the box's own
+          const clean = element({ ...raw, answerCheck: undefined, items: sg.items, slider: sg.slider }, fallbackId) as ActivityElement | null;
+          const list = (v: unknown) => (Array.isArray(v) ? v : []).slice(0, 10).map((x: unknown) => str(x, 300)).filter(Boolean) as string[];
+          return clean ? { items: clean.items, slider: clean.slider, notes: list(sg.notes), says: list(sg.says) } : undefined;
+        })(),
+      } : undefined,
+      keyByPerson: bool(raw.keyByPerson),
     };
     return el;
   }
@@ -206,8 +222,36 @@ function checks(raw: any): DeckChecks | undefined {
   }
   const repeats = raw.repeats && typeof raw.repeats === 'object' && tag(raw.repeats.from)
     ? { from: raw.repeats.from, at: str(raw.repeats.at, 40) ?? '', found: num(raw.repeats.found, 0, 1000, 0) } : undefined;
-  const out: DeckChecks = { facts, factsOk: tags(raw.factsOk, 500), repeats, repeatSkips: tags(raw.repeatSkips, 500) };
-  return out.facts || out.factsOk?.length || out.repeats || out.repeatSkips?.length ? out : undefined;
+  // the story-order suggestions: moves of slide ids (checked again against the deck when made)
+  const o = raw.order;
+  const ids = (v: unknown, max: number) => (Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string' && /^[\w~-]{1,64}$/.test(x)).slice(0, max) : []);
+  const order = o && typeof o === 'object' && tag(o.from) ? {
+    from: o.from as string,
+    at: str(o.at, 40) ?? '',
+    why: str(o.why, 300),
+    moves: (Array.isArray(o.moves) ? o.moves : []).slice(0, 30).flatMap((m: any) => {
+      const list = ids(m?.ids, 60);
+      const after = m?.after === null ? null : ids([m?.after], 1)[0];
+      if (!list.length || after === undefined) return [];
+      return [{ ids: list, after, label: str(m?.label, 200) ?? 'Move slides', topic: bool(m?.topic), reword: ids(m?.reword, 60) }];
+    }),
+  } : undefined;
+  const out: DeckChecks = { facts, factsOk: tags(raw.factsOk, 500), repeats, repeatSkips: tags(raw.repeatSkips, 500), order, orderSkips: tags(raw.orderSkips, 200) };
+  return out.facts || out.factsOk?.length || out.repeats || out.repeatSkips?.length || out.order || out.orderSkips?.length ? out : undefined;
+}
+
+/** The quiz pool: known fields only, capped; a question needs 2 to 4 different choices and a right one. */
+export function quiz(raw: any): Deck['quiz'] {
+  if (!raw || typeof raw !== 'object' || !tag(raw.from)) return undefined;
+  const questions = (Array.isArray(raw.questions) ? raw.questions : []).slice(0, 12).flatMap((q: any) => {
+    const text = str(q?.q, 200);
+    const choices = (Array.isArray(q?.choices) ? q.choices : []).slice(0, 4).map((c: unknown) => str(c, 100) ?? '');
+    const answer = typeof q?.answer === 'number' ? Math.round(q.answer) : -1;
+    const distinct = new Set(choices.map((c: string) => c.trim().toLowerCase())).size === choices.length;
+    if (!text || choices.length < 2 || choices.some((c: string) => !c) || !distinct || answer < 0 || answer >= choices.length) return [];
+    return [{ q: text, choices, answer, why: str(q?.why, 240) }];
+  });
+  return { questions, from: raw.from, off: bool(raw.off) };
 }
 
 export function sanitizeDeck(raw: any, lessonId: string, source: Deck['source']): Deck {
@@ -225,6 +269,7 @@ export function sanitizeDeck(raw: any, lessonId: string, source: Deck['source'])
     slides,
     recap: str(raw.recap, 4000),
     recapByAI: bool(raw.recapByAI),
+    quiz: quiz(raw.quiz),
     checks: checks(raw.checks),
     editRev: typeof raw.editRev === 'string' && /^[a-z0-9]{1,24}$/.test(raw.editRev) ? raw.editRev : undefined,
     basedOn: typeof raw.basedOn === 'string' && /^(bluecatfish_|canvas_ai:)[\w:.-]{1,120}$/.test(raw.basedOn) ? raw.basedOn : undefined,

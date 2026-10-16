@@ -4,7 +4,7 @@ import type { Deck, Pointer, Slide, SlideElement } from './types';
 import { spokenText } from './queue';
 import { introBasis, introText } from './intro';
 import {
-  applyPatches, audioKey, fingerprint, helperElements, needsAudio, needsCaption, needsHelper, needsIntro, needsIntroAudio, needsPlain, needsPlainAudio, needsPointers, needsSay, needsTopic,
+  answerBasis, applyPatches, needsOrderCheck, needsQuiz, orderBasis, quizBasis, quizKey, audioKey, fingerprint, helperElements, needsAnswerCheck, needsAudio, needsCaption, needsHelper, needsIntro, needsIntroAudio, needsPlain, needsPlainAudio, needsPointers, needsSay, needsTopic,
   pointersBasis,
   plainText, sayBasis, slideBasis, type Patch,
 } from './aiFields';
@@ -18,11 +18,17 @@ const supabase = lazySupabaseAdmin();
 const CONCURRENCY = 6;
 const AUDIO_BUCKET = 'slide-audio';
 const AUDIO_FOLDER = 'canvas';
+const QUIZ_TIME_MS = 25_000;   // the quiz's check, write and check, roughly
+const ORDER_TIME_MS = 12_000;  // the story-order check, roughly
 
 // Shared AI helpers live in ai.ts (re-exported here: generate.ts imports them from this file)
 export { STYLE, chat, knowledge } from './ai';
 import { STYLE, chat, chatVision, imageForVision, knowledge } from './ai';
 import { draftHelper } from './helperDraft';
+import { checkActivityAnswers } from './activityCheck';
+import { refreshQuiz } from './quiz';
+import { askStoryOrder } from './storyOrder';
+import { movesFor } from './order';
 
 const otherText = (slide: Slide, el: SlideElement) =>
   slide.elements.filter((e) => e.id !== el.id).map(sayBasis).filter(Boolean).join(' | ');
@@ -195,10 +201,14 @@ const baseId = (id: string) => id.split('~')[0];
  * Returns the results as patches (the caller applies them to the stored draft,
  * which may have been edited meanwhile) and any errors.
  */
-export async function prepareDeck(source: Deck, deadline: number): Promise<{ patches: Patch[]; errors: string[] }> {
+export async function prepareDeck(
+  source: Deck,
+  deadline: number,
+  /** Where results go as they're made: the caller can take what's done if it has to stop waiting (a hard time limit) */
+  out: { patches: Patch[]; errors: string[] } = { patches: [], errors: [] },
+): Promise<{ patches: Patch[]; errors: string[] }> {
   const deck: Deck = structuredClone(source);
-  const patches: Patch[] = [];
-  const errors: string[] = [];
+  const { patches, errors } = out;
   const keep = (p: Patch) => { patches.push(p); applyPatches(deck, [p]); };
   const fail = (what: string, e: unknown) => {
     const msg = `${what}: ${e instanceof Error ? e.message : String(e)}`;
@@ -246,6 +256,48 @@ export async function prepareDeck(source: Deck, deadline: number): Promise<{ pat
     }),
   ]);
 
+  // 1b. Hands-on boxes' answer keys, checked against the knowledge base before any audio is made
+  //     (a key the sources contradict is corrected; a doubtful one is flagged for a person)
+  const corrected = new Set<string>();
+  await pool(jobs(deck, needsAnswerCheck, true), deadline, async ({ slide, el, helper }) => {
+    if (el.type !== 'activity') return;
+    try {
+      const r = await checkActivityAnswers(el, { lesson: deck.title, topic: slide.topic });
+      keep({ slideId: baseId(slide.id), elId: el.id, helper, kind: 'answerCheck', from: answerBasis(el), items: r.items, slider: r.slider, check: r.check });
+      if (r.check.fixed?.length) corrected.add(`${baseId(slide.id)}|${el.id}`);
+    } catch (e) { fail('Checking hands-on answers', e); }
+  });
+  // A corrected key changes what the box shows: its AI-written words are redone first (so no audio says the old answer)
+  await pool(jobs(deck, (el, slide) => corrected.has(`${baseId(slide.id)}|${el.id}`) && needsSay(el), true), deadline, async ({ slide, el, helper }) => {
+    try {
+      const say = await writeSay(el, slide, deck);
+      keep({ slideId: baseId(slide.id), elId: el.id, helper, kind: 'say', say, sayFrom: fingerprint(sayBasis(el)) });
+    } catch (e) { fail('Writing spoken words', e); }
+  });
+
+  // 1c. The end-of-lesson quiz pool (the words are final now): alongside the rest, it needs no audio
+  // (three AI reads: started only with time for them, else the next round does it)
+  const quizTask = needsQuiz(deck) && deadline - Date.now() > QUIZ_TIME_MS ? (async () => {
+    const from = quizBasis(deck);
+    const prev = quizKey(deck.quiz?.questions);
+    try {
+      const { questions } = await refreshQuiz(structuredClone(deck));
+      keep({ slideId: '', kind: 'quiz', from, prev, questions });
+    } catch (e) { fail('Writing the quiz', e); }
+  })() : Promise.resolve();
+
+  // 1d. The story order: suggested moves for the editor's Check tab (an AI-made lesson is put in order
+  //     when it's made, generate.ts). One AI read; alongside the rest
+  const orderTask = needsOrderCheck(deck) && deadline - Date.now() > ORDER_TIME_MS ? (async () => {
+    const from = orderBasis(deck);
+    const snapshot = structuredClone(deck);
+    try {
+      const want = await askStoryOrder(snapshot, deck.title);
+      const moves = want ? movesFor(snapshot.slides, want.order, want.reword) : [];
+      keep({ slideId: '', kind: 'order', from, at: new Date().toISOString(), why: want?.why, moves });
+    } catch (e) { fail('Checking the slide order', e); }
+  })() : Promise.resolve();
+
   // 2. Plain versions (from the spoken words, including ones just written)
   await pool(jobs(deck, needsPlain), deadline, async ({ slide, el }) => {
     try {
@@ -285,5 +337,7 @@ export async function prepareDeck(source: Deck, deadline: number): Promise<{ pat
     } catch (e) { fail('Making audio', e); }
   });
 
+  await quizTask;
+  await orderTask;
   return { patches, errors };
 }

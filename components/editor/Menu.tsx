@@ -6,8 +6,10 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
  * A toolbar button with a small menu under it: opens toward the side with
  * room (the toolbar wraps), closes on a click outside or Escape.
  */
-export default function Menu({ label, title, className, width = 'w-64', disabled, children }: {
+export default function Menu({ label, title, className, width = 'w-64', disabled, children, help }: {
   label: ReactNode;
+  /** Where the ✨ helper can point ([data-help]) */
+  help?: string;
   title?: string;
   className: string;
   width?: string;
@@ -27,7 +29,7 @@ export default function Menu({ label, title, className, width = 'w-64', disabled
     return () => { document.removeEventListener('pointerdown', away); document.removeEventListener('keydown', esc); };
   }, [open]);
   return (
-    <div className="relative" ref={box}>
+    <div className="relative" ref={box} data-help={help}>
       <button className={className} title={title} disabled={disabled} aria-expanded={open} aria-haspopup="menu"
         onClick={(e) => { setRight(e.currentTarget.getBoundingClientRect().left + 300 > window.innerWidth); setOpen((v) => !v); }}>
         {label}

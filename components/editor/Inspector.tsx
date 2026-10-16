@@ -1,8 +1,10 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import type { ActivityElement, ChartElement, DiagramElement, Slide, SlideElement, TextStyle } from '@/lib/canvas/types';
+import { useEffect, useRef, useState } from 'react';
+import type { ActivityElement, ChartElement, DeckQuiz, DiagramElement, Slide, SlideElement, TextStyle } from '@/lib/canvas/types';
 import type { Warning } from '@/lib/canvas/checks';
+import { answerBasis, QUIZ_ASKED, QUIZ_POOL } from '@/lib/canvas/aiFields';
+import { activityReady } from '@/lib/canvas/queue';
 
 // Right-hand panel: everything about the selected element, or the slide when
 // nothing is selected.
@@ -65,7 +67,8 @@ export function ElementInspector({
         </div>
       </div>
 
-      {warnings.map((w, i) => (
+      {/* (the answer check's ⚠ is in the hands-on box's own panel below) */}
+      {warnings.filter((w) => w.kind !== 'answers').map((w, i) => (
         <p key={i} className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-md px-2 py-1.5">⚠ {w.message}</p>
       ))}
 
@@ -147,9 +150,11 @@ export function ElementInspector({
           <div>
             <div className="flex flex-wrap items-center justify-between">
               <label className={label}>Description</label>
-              <DescribeButton src={el.src} hasText={!!el.alt?.trim()} about={about} onDescribed={(alt) => update({ alt })} />
+              {!!el.alt?.trim() && <DescribeButton src={el.src} hasText about={about} onDescribed={(alt) => update({ alt })} />}
             </div>
             <textarea rows={3} className={`${input} ${!el.alt?.trim() && !el.silent ? 'border-amber-400 bg-amber-50' : ''}`} value={el.alt ?? ''} placeholder="What the image shows" onChange={(e) => update({ alt: e.target.value })} />
+            {/* none yet: a real button, right under the box (was: a small link by the label, easy to miss) */}
+            {!el.alt?.trim() && <DescribeButton src={el.src} hasText={false} big about={about} onDescribed={(alt) => update({ alt })} />}
             {!el.alt?.trim() && (
               <p className="text-xs text-amber-800 mt-1">
                 {el.silent
@@ -268,6 +273,9 @@ export function SlideInspector({
   recapByAI,
   onRecap,
   topicStart,
+  quiz,
+  quizStale,
+  onQuiz,
 }: {
   slide: Slide;
   /** The first slide of its topic: it has the topic's introduction */
@@ -279,6 +287,11 @@ export function SlideInspector({
   recap?: string;
   recapByAI?: boolean;
   onRecap: (text: string) => void;
+  /** The end-of-lesson quiz pool; stale: the lesson changed since it was checked */
+  quiz?: DeckQuiz;
+  quizStale?: boolean;
+  /** Change the quiz (undefined: write a new pool on the next save) */
+  onQuiz: (change: (quiz: DeckQuiz | undefined) => DeckQuiz | undefined) => void;
 }) {
   return (
     <div className="flex flex-col gap-4">
@@ -352,7 +365,66 @@ export function SlideInspector({
         <p className="text-xs text-slate-500 mt-1">
           {recapByAI ? 'Written by the AI: it is rewritten on each publish until you edit it.' : recap?.trim() ? 'Yours: publishing keeps it as it is.' : ''}
         </p>
+        <QuizSection quiz={quiz} stale={quizStale} onQuiz={onQuiz} />
       </div>
+    </div>
+  );
+}
+
+/** The end-of-lesson quiz: on or off, and the pool the AI wrote (a question can be taken out). */
+function QuizSection({ quiz, stale, onQuiz }: { quiz?: DeckQuiz; stale?: boolean; onQuiz: (change: (q: DeckQuiz | undefined) => DeckQuiz | undefined) => void }) {
+  const qs = quiz?.questions ?? [];
+  const off = !!quiz?.off;
+  return (
+    <div className="mt-4" data-quiz-section>
+      <label className={label}>End-of-lesson quiz</label>
+      <label className="flex items-center gap-2 text-sm text-slate-700">
+        <input type="checkbox" checked={!off}
+          onChange={(e) => onQuiz((q) => ({ questions: q?.questions ?? [], from: q?.from ?? 'none', off: !e.target.checked || undefined }))} />
+        {QUIZ_ASKED} questions at the end, picked at random (learners can skip it)
+      </label>
+      {!off && (
+        <>
+          <p className="text-xs text-slate-500 mt-1">
+            {!quiz ? `Written by the AI when you save: ${QUIZ_POOL} questions, each answer checked against the lesson and the knowledge base.`
+              : stale ? 'The lesson changed: the questions are checked against it again when you save (wrong ones are replaced).'
+                : `Checked against the lesson and the knowledge base. Take out any you don't like.`}
+          </p>
+          {quiz && qs.length < QUIZ_ASKED && (
+            <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-md px-2 py-1.5 mt-1.5">
+              ⚠ Fewer than {QUIZ_ASKED} questions: learners get no quiz. Write new ones below.
+            </p>
+          )}
+          {qs.length > 0 && (
+            <details className="mt-1.5 rounded-md border border-slate-200">
+              <summary className="cursor-pointer px-2 py-1.5 text-xs font-semibold text-slate-700">{qs.length} question{qs.length === 1 ? '' : 's'} in the pool</summary>
+              <ol className="flex flex-col divide-y divide-slate-100">
+                {qs.map((q, i) => (
+                  <li key={i} className="px-2 py-2 text-xs text-slate-700 flex gap-2" data-quiz-question>
+                    <div className="flex-1 min-w-0">
+                      <p className="font-semibold text-slate-900">{i + 1}. {q.q}</p>
+                      <ul className="mt-0.5">
+                        {q.choices.map((c, k) => (
+                          <li key={k} className={k === q.answer ? 'text-emerald-700 font-semibold' : ''}>{k === q.answer ? '✓' : '·'} {c}</li>
+                        ))}
+                      </ul>
+                      {q.why && <p className="mt-0.5 text-slate-500">{q.why}</p>}
+                    </div>
+                    <button className="shrink-0 self-start text-slate-400 hover:text-red-600" title="Take this question out" aria-label={`Take out question ${i + 1}`}
+                      onClick={() => onQuiz((cur) => cur && { ...cur, questions: cur.questions.filter((_, j) => j !== i) })}>✕</button>
+                  </li>
+                ))}
+              </ol>
+            </details>
+          )}
+          {quiz && (
+            <button className={`${small} mt-1.5`}
+              onClick={() => { if (window.confirm('Replace all the questions with new ones? They are written when you save.')) onQuiz(() => undefined); }}>
+              Write new questions
+            </button>
+          )}
+        </>
+      )}
     </div>
   );
 }
@@ -362,9 +434,11 @@ export function SlideInspector({
  * at the spot. "Place" then a click on the slide puts the mark there.
  */
 /** "✨ Describe it": the AI looks at the picture and writes its description (an undoable edit, then yours). */
-function DescribeButton({ src, hasText, about, onDescribed }: {
+function DescribeButton({ src, hasText, big, about, onDescribed }: {
   src: string;
   hasText: boolean;
+  /** A full-width button (no description yet), not a small link */
+  big?: boolean;
   about?: { lessonTitle?: string; topic?: string };
   onDescribed: (text: string) => void;
 }) {
@@ -391,9 +465,10 @@ function DescribeButton({ src, hasText, about, onDescribed }: {
   };
   return (
     <>
-      <button className="text-xs text-violet-700 hover:underline disabled:opacity-50" onClick={run} disabled={busy}
+      <button className={big ? 'w-full mt-1.5 px-3 py-2 rounded-md bg-violet-600 hover:bg-violet-700 text-white text-sm font-semibold disabled:opacity-60' : 'text-xs text-violet-700 hover:underline disabled:opacity-50'}
+        onClick={run} disabled={busy} data-describe-it
         title="The AI looks at the picture and writes what it shows (Ctrl+Z undoes it)">
-        {busy ? '✨ Looking…' : hasText ? '✨ Rewrite with AI' : '✨ Describe it'}
+        {busy ? '✨ Looking at the picture…' : hasText ? '✨ Rewrite with AI' : big ? '✨ Describe it with AI' : '✨ Describe it'}
       </button>
       {error && <p className="basis-full text-xs text-red-700 mt-1" role="alert">{error}</p>}
     </>
@@ -466,10 +541,14 @@ function LinesField({ id, title, hint, initial, rows = 5, onLines }: {
   id: string; title: string; hint: string; initial: string; rows?: number; onLines: (lines: string[][]) => void;
 }) {
   const [text, setText] = useState(initial);
+  const box = useRef<HTMLTextAreaElement>(null);
+  // Changed from outside (undo, "Use the suggested fix"): show it. Not while typing here
+  // (the lines would be tidied under the cursor). Was: only read when the panel opened.
+  useEffect(() => { if (document.activeElement !== box.current) setText(initial); }, [initial]);
   return (
     <div>
       <label className={label} htmlFor={id}>{title}</label>
-      <textarea id={id} rows={rows} className={`${input} font-mono text-xs`} value={text} placeholder={hint}
+      <textarea ref={box} id={id} rows={rows} className={`${input} font-mono text-xs`} value={text} placeholder={hint}
         onChange={(e) => {
           setText(e.target.value);
           onLines(e.target.value.split('\n').map((l) => l.split(/\s*(?:\||→|->)\s*/).map((c) => c.trim())).filter((c) => c[0]));
@@ -570,7 +649,9 @@ function SpotRows({ el, set, placing, onPlace }: {
 }
 
 function ActivityFields({ el, update, placing = null, onPlace }: { el: ActivityElement; update: Update; placing?: number | null; onPlace?: (index: number | null) => void }) {
-  const set = (patch: Partial<ActivityElement>) => update(patch as Partial<SlideElement>);
+  // Editing the answer key marks it as the person's: the answer check then suggests, never changes it
+  const set = (patch: Partial<ActivityElement>) =>
+    update(('items' in patch || 'groups' in patch || 'slider' in patch ? { ...patch, keyByPerson: true } : patch) as Partial<SlideElement>);
   const items = el.items ?? [];
   return (
     <>
@@ -588,6 +669,7 @@ function ActivityFields({ el, update, placing = null, onPlace }: { el: ActivityE
           <option value="slider">Slider: move it and watch what changes</option>
         </select>
       </div>
+      <AnswerCheck el={el} set={set} />
       <div>
         <label className={label}>Instruction shown on the box</label>
         <input className={input} value={el.prompt ?? ''} placeholder="Drag each fish to where it came from" onChange={(e) => set({ prompt: e.target.value || undefined })} />
@@ -640,6 +722,60 @@ function ActivityFields({ el, update, placing = null, onPlace }: { el: ActivityE
         </>
       )}
     </>
+  );
+}
+/** The answer check's result for this box (made on save, against the knowledge base). */
+function AnswerCheck({ el, set }: { el: ActivityElement; set: (patch: Partial<ActivityElement>) => void }) {
+  if (!activityReady(el)) return null;
+  const ac = el.answerCheck;
+  const current = !!ac && ac.from === answerBasis(el);
+  if (!current) {
+    return <p className="text-xs text-slate-500">Answers: checked against the knowledge base when you save.</p>;
+  }
+  const fixedList = !!ac.fixed?.length && (
+    <ul className="mt-1 list-disc pl-4 text-slate-600">{ac.fixed!.map((f, i) => <li key={i}>{f}</li>)}</ul>
+  );
+  if (ac.ok) {
+    const unseen = !!ac.fixed?.length && !ac.fixesSeen && !ac.byPerson;
+    return (
+      <div className={`text-xs rounded-md px-2 py-1.5 border ${unseen ? 'text-emerald-900 bg-emerald-50 border-emerald-400' : 'text-emerald-700 bg-emerald-50 border-emerald-200'}`} data-answer-ok>
+        ✓ {ac.byPerson ? 'You said the answers look right.' : 'Answers checked against the knowledge base.'}
+        {!!ac.fixed?.length && <><span className="block mt-1 font-semibold">{unseen ? 'The AI fixed these answers. Have a look:' : 'Fixed by the AI:'}</span>{fixedList}</>}
+        {unseen && (
+          <button className={`${small} mt-1.5`} onClick={() => set({ answerCheck: { ...ac, fixesSeen: true } })}>OK, looks good</button>
+        )}
+      </div>
+    );
+  }
+  const sg = ac.suggested;
+  const useFix = () => {
+    if (!sg) return;
+    const fixed = { ...el, items: sg.items ?? el.items, slider: sg.slider ?? el.slider };
+    const notes = (ac.notes ?? []).filter((n) => !sg.notes.includes(n));
+    // one undo step: the key and its check together (the check now covers the fixed key)
+    set({
+      items: fixed.items, slider: fixed.slider,
+      answerCheck: { from: answerBasis(fixed), ok: notes.length === 0, notes, fixed: [...(ac.fixed ?? []), ...sg.says], fixesSeen: true },
+    });
+  };
+  return (
+    <div className="text-xs text-amber-800 bg-amber-50 border border-amber-300 rounded-md px-2 py-1.5" data-answer-warning>
+      <b>⚠ Check the answers.</b> The knowledge base doesn&apos;t back these up. Finn won&apos;t try this box until they&apos;re right.
+      <ul className="mt-1 list-disc pl-4">{(ac.notes ?? []).map((n, i) => <li key={i}>{n}</li>)}</ul>
+      {!!ac.fixed?.length && <><span className="block mt-1 font-semibold text-slate-600">Fixed by the AI:</span>{fixedList}</>}
+      <p className="mt-1 text-slate-600">Fix them below (they&apos;re checked again on save), or:</p>
+      <div className="mt-1 flex flex-wrap gap-1.5">
+        {sg && (
+          <button className="px-2 py-1 rounded-md bg-amber-500 hover:bg-amber-600 text-white text-xs font-semibold" onClick={useFix}
+            title={sg.says.join('\n')}>
+            Use the suggested fix{sg.notes.length > 1 ? `es (${sg.notes.length})` : ''}
+          </button>
+        )}
+        <button className={small} onClick={() => set({ answerCheck: { from: answerBasis(el), ok: true, byPerson: true, fixed: ac.fixed, fixesSeen: true } })}>
+          Answers look right
+        </button>
+      </div>
+    </div>
   );
 }
 const sliderOf = (el: ActivityElement): NonNullable<ActivityElement['slider']> => el.slider ?? { label: '', min: 0, max: 10, stops: [] };

@@ -1,6 +1,6 @@
-import type { Deck, Slide, SlideElement } from './types';
+import type { ActivityElement, Deck, Slide, SlideElement } from './types';
 import { shownWords, spokenText } from './queue';
-import { fingerprint } from './aiFields';
+import { answerBasis, answerState, fingerprint } from './aiFields';
 import { activityReady } from './queue';
 
 // Editor warnings that can be worked out from the slide alone. "Text doesn't
@@ -10,6 +10,8 @@ export interface Warning {
   elementId?: string;
   level: 'warn' | 'info';
   message: string;
+  /** 'answers': the answer check's ⚠ (the hands-on box's own panel and the Publish checklist show it in full) */
+  kind?: 'answers';
 }
 
 export const isDecorative = (el: SlideElement) => el.type === 'image' && !!el.silent;
@@ -48,6 +50,14 @@ export function slideWarnings(slide: Slide): Warning[] {
     }
     if (el.type === 'activity' && !activityReady(el)) {
       out.push({ elementId: el.id, level: 'warn', message: 'The hands-on box isn’t finished, so learners won’t see it (it needs its groups, items, picture or stops)' });
+    }
+    if (el.type === 'activity' && activityReady(el)) {
+      // the free format check, then what the answer check found
+      for (const m of activityFormatProblems(el)) out.push({ elementId: el.id, level: 'warn', message: `Hands-on box: ${m}` });
+      const ac = el.answerCheck;
+      if (ac && !ac.ok && ac.from === answerBasis(el)) {
+        out.push({ elementId: el.id, level: 'warn', kind: 'answers', message: `Check the answers: ${ac.notes?.join('; ') || 'the answer check had doubts'}` });
+      }
     }
     if (el.type === 'text' && !el.text.trim()) {
       out.push({ elementId: el.id, level: 'warn', message: 'A text box is empty' });
@@ -91,3 +101,65 @@ export const repeatKey = (slideId: string, elId: string, beforeSay: string) => f
 export const slidesToFactCheck = (deck: Deck) =>
   deck.slides.map((s, i) => ({ s, i })).filter(({ s }) =>
     s.elements.some((e) => !e.silent || e.type === 'text') && deck.checks?.facts?.[s.id]?.from !== factBasis(s));
+
+/**
+ * The free format check for a hands-on box (no AI): what would make it confusing or
+ * impossible to do right. Empty = fine.
+ */
+export function activityFormatProblems(el: ActivityElement): string[] {
+  const out: string[] = [];
+  const items = el.items ?? [];
+  const norm = (t: string) => t.trim().toLowerCase();
+  const dupes = (list: string[]) => [...new Set(list.map(norm).filter((t, i, a) => t && a.indexOf(t) !== i))];
+  const dItems = dupes(items.map((i) => i.text));
+  if (el.kind !== 'slider' && dItems.length) out.push(`the same item twice (“${dItems[0]}”)`);
+  if (el.kind !== 'slider' && items.some((i) => !i.text.trim())) out.push('an item has no text');
+  switch (el.kind) {
+    case 'sort': {
+      const groups = el.groups ?? [];
+      if (dupes(groups).length) out.push('two groups have the same name');
+      if (groups.some((g) => !g.trim())) out.push('a group has no name');
+      const bad = items.filter((i) => typeof i.group !== 'number' || i.group < 0 || i.group >= groups.length);
+      if (bad.length) out.push(`“${bad[0].text}” isn’t in any group`);
+      const empty = groups.filter((_, g) => !items.some((i) => (i.group ?? 0) === g));
+      if (empty.length) out.push(`nothing belongs in “${empty[0]}”`);
+      break;
+    }
+    case 'order':
+      if (items.length < 3) out.push('an order needs at least 3 steps');
+      break;
+    case 'cards':
+    case 'hotspots': {
+      const noBack = items.filter((i) => !i.back?.trim());
+      if (noBack.length) out.push(`“${noBack[0].text}” has nothing on the back`);
+      if (el.kind === 'hotspots' && items.some((i) => typeof i.x !== 'number' || typeof i.y !== 'number')) out.push('a spot isn’t placed on the picture');
+      break;
+    }
+    case 'slider': {
+      const s = el.slider;
+      if (!s) break;
+      const ats = s.stops.map((x) => x.at);
+      if (new Set(ats).size !== ats.length) out.push('two slider stops are at the same value');
+      if (s.stops.some((x) => x.at < s.min || x.at > s.max)) out.push('a slider stop is outside the slider');
+      if (s.stops.some((x) => !x.text.trim())) out.push('a slider stop has no text');
+      // a step that doesn't divide the range: the knob stops short of the max
+      if (s.step && s.step > 0) {
+        const end = s.min + Math.floor((s.max - s.min) / s.step + 1e-9) * s.step;
+        if (s.stops.some((x) => x.at > end + 1e-9)) out.push(`the slider moves in steps of ${s.step}, so it can't reach ${s.max} (it stops at ${end}): change the step or the stops`);
+      }
+      break;
+    }
+  }
+  return out;
+}
+
+/** Hands-on boxes whose answers need a person's look: flagged by the answer check, fixed by the AI and not looked at, or not checked yet. */
+export function answersToLookAt(deck: Deck): { flagged: number; fixed: number; unchecked: number } {
+  const n = { flagged: 0, fixed: 0, unchecked: 0 };
+  for (const s of deck.slides) for (const e of [...s.elements, ...(s.helper?.elements ?? [])]) {
+    if (e.type !== 'activity' || !activityReady(e)) continue;
+    const st = answerState(e);
+    if (st !== 'ok') n[st]++;
+  }
+  return n;
+}

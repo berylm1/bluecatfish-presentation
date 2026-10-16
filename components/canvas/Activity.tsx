@@ -20,8 +20,10 @@ import { playSound, type HandsOnSound } from '@/lib/canvas/sounds';
 const IDLE_HINT_MS = 9000;   // stopped this long before finishing: the hand shows again
 const INK = '#0f172a';
 
-export default function ActivityView({ el, interactive, onDone, hintNonce = 0, solved = false, quiet = false, sounds = false, onMistake, finnMove, onFinn, guide }: {
+export default function ActivityView({ el, interactive, onDone, hintNonce = 0, solved = false, quiet = false, sounds = false, onMistake, finnMove, onFinn, guide, turn = false }: {
   el: ActivityElement; interactive: boolean; onDone?: () => void;
+  /** It's the learner's turn on this box now (the professor has said what to do) */
+  turn?: boolean;
   /** A wrong move: what it was about ("Blue catfish → Native"), for the learner stats and for stepping in when it repeats */
   onMistake?: (m: ActivityMistake) => void;
   /** Finn takes a turn (a new nonce = a new move): a sort item in the wrong group, or a wrong guess on a card */
@@ -85,7 +87,7 @@ export default function ActivityView({ el, interactive, onDone, hintNonce = 0, s
 
   const ready = activityReady(el);
   const hint = interactive && ready && !touched && !done && !quiet;
-  const kit: Kit = { interactive: interactive && ready && !done, hint, touch, finish, solved, sound, mistake, finnMove: interactive ? finnMove : null, finnEvent, guide };
+  const kit: Kit = { interactive: interactive && ready && !done, hint, touch, finish, solved, sound, mistake, finnMove: interactive ? finnMove : null, finnEvent, guide, turn: interactive && turn };
   // A half-made box: the editor shows what's missing; learners see nothing (it isn't waited on either)
   if (!ready && interactive) return null;
   return (
@@ -121,6 +123,7 @@ type Kit = {
   interactive: boolean; hint: boolean; touch: () => void; finish: () => void; solved: boolean;
   sound: (k: HandsOnSound) => void; mistake: (m: ActivityMistake) => void;
   finnMove?: FinnMove | null; finnEvent: (e: FinnEvent) => void; guide?: string;
+  turn: boolean;
 };
 
 /** A wrong move: the item, where it went (or what was tapped instead), and where it belongs (or what comes next) */
@@ -145,10 +148,15 @@ function HintHand({ area, mode }: { area: HTMLDivElement; mode: 'drag' | 'tap' }
   useLayoutEffect(() => {
     const measure = () => {
       const a = area.getBoundingClientRect();
-      const from = area.querySelector('[data-hint-from]')?.getBoundingClientRect();
+      const fromEl = area.querySelector<HTMLElement>('[data-hint-from]');
+      const from = fromEl?.getBoundingClientRect();
       const to = area.querySelector('[data-hint-to]')?.getBoundingClientRect() ?? from;
       if (!from || !to) { setPts(null); return; }
-      setPts({ fx: from.left + from.width / 2 - a.left, fy: from.top + from.height / 2 - a.top, tx: to.left + to.width / 2 - a.left, ty: to.top + to.height / 2 - a.top });
+      // a card or a step full of words: tap near its bottom-right corner, not on the words (was: the hand covered the question)
+      const corner = fromEl?.dataset.hintSpot === 'corner';
+      const fx = corner ? from.left + from.width * 0.84 : from.left + from.width / 2;
+      const fy = corner ? from.top + from.height * 0.8 : from.top + from.height / 2;
+      setPts({ fx: fx - a.left, fy: fy - a.top, tx: (corner ? fx : to.left + to.width / 2) - a.left, ty: (corner ? fy : to.top + to.height / 2) - a.top });
     };
     measure();
     const ro = new ResizeObserver(measure);
@@ -170,6 +178,8 @@ function HintHand({ area, mode }: { area: HTMLDivElement; mode: 'drag' | 'tap' }
     </span>
   );
 }
+
+const THINK_MS = 3000;   // cards: the moment to guess before they can flip
 
 const glow = (on: boolean): CSSProperties => (on ? { animation: 'hint-pulse 1.4s ease-in-out infinite' } : {});
 
@@ -354,7 +364,7 @@ function Order({ el, kit }: { el: ActivityElement; kit: Kit }) {
       {order.map((k) => {
         const doneStep = k < next;
         return (
-          <button key={k} type="button" disabled={!kit.interactive} onClick={() => tap(k)} data-hint-from={k === next ? '' : undefined}
+          <button key={k} type="button" disabled={!kit.interactive} onClick={() => tap(k)} data-hint-from={k === next ? '' : undefined} data-hint-spot="corner"
             style={chip(doneStep ? '#16a34a' : '#64748b', {
               position: 'relative', minWidth: '36%', maxWidth: '47%', padding: '1.8cqh 2cqh 1.8cqh 6.5cqh', textAlign: 'left',
               background: doneStep ? '#f0fdf4' : '#fff', cursor: kit.interactive && !doneStep ? 'pointer' : 'default',
@@ -388,9 +398,25 @@ function Cards({ el, kit }: { el: ActivityElement; kit: Kit }) {
     kit.finnEvent({ type: 'applied', item: items[item].text, guess: m.guess });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [finnNonce]);
+  // A moment to guess before any card can flip, once, when the learner's turn starts (guessing first is the point)
+  const [thinking, setThinking] = useState(false);
+  const thinkFrom = useRef(0);   // when the moment started (a time, not a flag: an effect that runs twice picks it up again)
+  useEffect(() => {
+    if (!kit.turn || kit.solved) return;
+    if (!thinkFrom.current) {
+      if (flipped.size) return;   // already flipping (during the instructions): no wait
+      thinkFrom.current = Date.now();
+    }
+    const left = thinkFrom.current + THINK_MS - Date.now();
+    if (left <= 0) return;
+    setThinking(true);
+    const t = setTimeout(() => setThinking(false), left);
+    return () => { clearTimeout(t); setThinking(false); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [kit.turn]);
   const first = items.findIndex((_, i) => !flipped.has(i));
   const flip = (i: number) => {
-    if (!kit.interactive || flipped.has(i)) return;
+    if (!kit.interactive || flipped.has(i) || thinking) return;
     kit.touch();
     const next = new Set(flipped).add(i);
     setFlipped(next);
@@ -401,13 +427,24 @@ function Cards({ el, kit }: { el: ActivityElement; kit: Kit }) {
   const cols = items.length <= 3 ? items.length : items.length === 4 ? 2 : 3;
   return (
     <div style={{ position: 'absolute', inset: 0, display: 'grid', gridTemplateColumns: `repeat(${cols}, 1fr)`, gap: '1.6cqh', perspective: '120cqh' }}>
+      {thinking && (
+        <div role="status" data-think style={{ position: 'absolute', left: '50%', top: '50%', transform: 'translate(-50%, -50%)', zIndex: 8, padding: '1.4cqh 3cqh 1.8cqh',
+          borderRadius: '2cqh', background: 'rgba(15,23,42,0.88)', color: '#fff', fontSize: '3.6cqh', fontWeight: 800, textAlign: 'center', pointerEvents: 'none',
+          boxShadow: '0 1cqh 3cqh rgba(0,0,0,0.35)', animation: 'pop-in 300ms ease both' }}>
+          🤔 Think of your guesses first…
+          {/* the wait, running out */}
+          <div style={{ marginTop: '1cqh', height: '0.7cqh', borderRadius: '99cqh', background: 'rgba(255,255,255,0.2)', overflow: 'hidden' }}>
+            <div style={{ height: '100%', background: '#67e8f9', transformOrigin: 'left', animation: `think-bar ${THINK_MS}ms linear both` }} />
+          </div>
+        </div>
+      )}
       {items.map((it, i) => {
         const open = flipped.has(i);
         const face: CSSProperties = { position: 'absolute', inset: 0, backfaceVisibility: 'hidden', borderRadius: '1.6cqh', display: 'flex', alignItems: 'center',
           justifyContent: 'center', padding: '1.2cqh', textAlign: 'center', lineHeight: 1.2 };
         return (
           <button key={i} type="button" disabled={!kit.interactive} onClick={() => flip(i)} aria-label={open ? `${it.text}: ${it.back ?? ''}` : `${it.text} (tap to flip)`}
-            data-hint-from={i === first ? '' : undefined}
+            data-hint-from={i === first && !thinking ? '' : undefined} data-hint-spot="corner"
             style={{ position: 'relative', border: 0, padding: 0, background: 'none', cursor: kit.interactive && !open ? 'pointer' : 'default', borderRadius: '1.6cqh',
               ...(kit.hint && !open ? glow(true) : {}) }}>
             <div style={{ position: 'absolute', inset: 0, transformStyle: 'preserve-3d', transition: 'transform 600ms cubic-bezier(0.4, 0.2, 0.2, 1)', transform: open ? 'rotateY(180deg)' : 'none' }}>
@@ -443,10 +480,12 @@ function Hotspots({ el, kit }: { el: ActivityElement; kit: Kit }) {
   const [opened, setOpened] = useState<Set<number>>(() => new Set(kit.solved ? items.map((_, i) => i) : []));
   const [active, setActive] = useState<number | null>(null);
   const first = items.findIndex((_, i) => !opened.has(i));
+  const spots = useMemo(() => spreadSpots(items), [items]);
   useLayoutEffect(() => {
     const img = imgRef.current;
     if (!img) return;
-    const fit = () => { const b = img.getBoundingClientRect(); setRect(contentRect(b.width, b.height, img.naturalWidth, img.naturalHeight, 'contain')); };
+    // (a picture that didn't load has no size: the spots go on the whole box, not nowhere)
+    const fit = () => { const b = img.getBoundingClientRect(); setRect(img.naturalWidth && img.naturalHeight ? contentRect(b.width, b.height, img.naturalWidth, img.naturalHeight, 'contain') : { x: 0, y: 0, w: 100, h: 100 }); };
     if (img.complete) fit(); else img.addEventListener('load', fit, { once: true });
     const ro = new ResizeObserver(fit);
     ro.observe(img);
@@ -466,7 +505,7 @@ function Hotspots({ el, kit }: { el: ActivityElement; kit: Kit }) {
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img ref={imgRef} src={el.src} alt={el.alt ?? ''} draggable={false} style={{ width: '100%', height: '100%', objectFit: 'contain', pointerEvents: 'none' }} />
       {items.map((it, i) => {
-        const left = rect.x + ((it.x ?? 50) / 100) * rect.w, top = rect.y + ((it.y ?? 50) / 100) * rect.h;
+        const left = rect.x + (spots[i].x / 100) * rect.w, top = rect.y + (spots[i].y / 100) * rect.h;
         const seen = opened.has(i);
         return (
           <div key={i}>
@@ -491,12 +530,37 @@ function Hotspots({ el, kit }: { el: ActivityElement; kit: Kit }) {
   );
 }
 
+/**
+ * Where each spot goes (% of the picture). A spot never placed gets a place of its own along the
+ * middle, and a spot right on top of another is moved off it, so every spot can be tapped. Was: unplaced
+ * spots all sat at the centre, only the top one could be opened, and the box could never be finished.
+ */
+export function spreadSpots(items: { x?: number; y?: number }[]): { x: number; y: number }[] {
+  const unplaced = items.filter((it) => typeof it.x !== 'number' || typeof it.y !== 'number').length;
+  let k = 0;
+  const out = items.map((it) => (typeof it.x === 'number' && typeof it.y === 'number'
+    ? { x: it.x, y: it.y }
+    : { x: ((++k) / (unplaced + 1)) * 100, y: 50 + (k % 2 ? -8 : 8) }));
+  const MIN = 9;   // closer than this (% of the picture) and two spots overlap
+  for (let i = 1; i < out.length; i++) {
+    for (let tries = 0; tries < 12 && out.slice(0, i).some((o) => Math.hypot(o.x - out[i].x, o.y - out[i].y) < MIN); tries++) {
+      const a = (tries * 137.5 * Math.PI) / 180;   // around it, a little further each time
+      out[i] = { x: Math.min(95, Math.max(5, out[i].x + Math.cos(a) * MIN)), y: Math.min(95, Math.max(5, out[i].y + Math.sin(a) * MIN)) };
+    }
+  }
+  return out;
+}
+
 /* -------------------------------------------------------------- slider */
 
 function Slider({ el, kit }: { el: ActivityElement; kit: Kit }) {
   const s = el.slider!;
-  const [value, setValue] = useState(kit.solved ? s.stops[s.stops.length - 1].at : s.min);
-  const stops = s.stops;
+  const step = s.step ?? (s.max - s.min) / 100;
+  // The furthest the knob can go: a step that doesn't divide the range stops short of the max (0 to 20
+  // in 3s ends at 18). A stop past that counts as there. Was: a last stop out of reach, never finished
+  const end = step > 0 ? s.min + Math.floor((s.max - s.min) / step + 1e-9) * step : s.max;
+  const stops = s.stops.map((st) => ({ ...st, at: Math.min(st.at, end) }));
+  const [value, setValue] = useState(kit.solved ? stops[stops.length - 1].at : s.min);
   const stop = [...stops].reverse().find((st) => value >= st.at) ?? stops[0];
   // The picture's size follows the stops' scales, smoothly between them
   const scale = (() => {
@@ -512,7 +576,7 @@ function Slider({ el, kit }: { el: ActivityElement; kit: Kit }) {
     const stopAt = (x: number) => [...stops].reverse().findIndex((st) => x >= st.at);
     if (stopAt(v) !== stopAt(value)) kit.sound('tick');   // reached another stop
     setValue(v);
-    if (v >= stops[stops.length - 1].at) kit.finish();
+    if (v >= stops[stops.length - 1].at - 1e-9) kit.finish();
   };
   const fmt = (v: number) => `${v.toLocaleString('en-US', { maximumFractionDigits: 1 })}${s.unit ? ` ${s.unit}` : ''}`;
   return (
@@ -530,7 +594,7 @@ function Slider({ el, kit }: { el: ActivityElement; kit: Kit }) {
       </div>
       <div style={{ fontSize: '3.8cqh', fontWeight: 900, color: '#0891b2' }}>{s.label ? `${s.label}: ` : ''}{fmt(value)}</div>
       <div style={{ position: 'relative', width: '86%', borderRadius: '99cqh', ...(kit.hint ? glow(true) : {}) }}>
-        <input type="range" min={s.min} max={s.max} step={s.step ?? (s.max - s.min) / 100} value={value} disabled={!kit.interactive}
+        <input type="range" min={s.min} max={s.max} step={step} value={value} disabled={!kit.interactive}
           aria-label={s.label || 'slider'} onChange={(e) => change(Number(e.target.value))}
           style={{ width: '100%', height: '4cqh', accentColor: '#0891b2', cursor: kit.interactive ? 'pointer' : 'default', margin: 0, touchAction: 'none' }} />
         {/* where the example hand slides from and to */}
