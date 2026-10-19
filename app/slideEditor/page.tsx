@@ -12,7 +12,7 @@ import SlideCanvas from '@/components/canvas/SlideCanvas';
 import { answersToLookAt, claimKey, factBasis, lessonBasis, slideWarnings, slidesToFactCheck, type Warning } from '@/lib/canvas/checks';
 import { speakingOrder } from '@/lib/canvas/queue';
 import { deckFromAnyVersion } from '@/lib/canvas/fromLegacy';
-import { answerState, countTodo, quizBasis, todoTotal, type Patch } from '@/lib/canvas/aiFields';
+import { answerState, countTodo, needsBank, quizBasis, todoTotal, type Patch } from '@/lib/canvas/aiFields';
 import { startsTopic } from '@/lib/canvas/intro';
 import { applyRepeatFix, type RepeatSuggestion } from '@/lib/canvas/repeats';
 import RepeatsPanel from '@/components/editor/RepeatsPanel';
@@ -1107,6 +1107,9 @@ function Editor({
                   quiz={deck.quiz}
                   quizStale={!!deck.quiz && deck.quiz.from !== quizBasis(deck)}
                   onQuiz={(change) => ed.change((d) => { d.quiz = change(d.quiz ? structuredClone(d.quiz) : undefined); })}
+                  bank={deck.bank}
+                  bankPending={needsBank(deck)}
+                  onBank={(change) => ed.change((d) => { d.bank = change(d.bank ? structuredClone(d.bank) : undefined); }, 'deck:bank')}
                 />
               )
             ) : (

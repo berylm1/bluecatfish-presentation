@@ -1,4 +1,4 @@
-import type { ActivityElement, Deck, OrderMove, Pointer, QuizQuestion, Slide, SlideElement, SlideHelper } from './types';
+import type { ActivityElement, BankQuestion, Deck, OrderMove, Pointer, QuizQuestion, Slide, SlideElement, SlideHelper } from './types';
 import { activityReady, shownWords, spokenText } from './queue';
 import { introBasis, introText, startsTopic } from './intro';
 import { TTS_VOICE, VOICE_INSTRUCTIONS, SIMPLE_VOICE_INSTRUCTIONS } from '@/lib/voice';
@@ -192,6 +192,28 @@ export function needsAnswerCheck(el: SlideElement): boolean {
   return el.answerCheck?.from !== answerBasis(el);
 }
 
+/* The question bank (lib/canvas/bank.ts writes it, server side): what's needed, here so the editor sees it too */
+export const BANK_PER_TOPIC = 6;
+/** The deck's topics, in order (each name once) */
+export function bankTopics(deck: Deck): string[] {
+  return [...new Set(deck.slides.map((s) => s.topic?.trim()).filter((t): t is string => !!t))];
+}
+/** What a topic's bank questions are written from: its slides, what they show and say */
+export const bankBasis = (deck: Deck, topic: string) =>
+  fingerprint(deck.slides.filter((s) => s.topic?.trim() === topic).map((s) => `${slideBasis(s)}\n${s.elements.map(spokenText).join(' ')}`).join('||'));
+/**
+ * Topics whose questions need writing (none yet, or the topic's slides changed since), and topics
+ * no longer in the lesson that still have AI-written questions (to be cleared)
+ */
+export function needsBank(deck: Deck): string[] {
+  if (deck.bank?.off) return [];
+  const topics = bankTopics(deck);
+  const gone = [...new Set((deck.bank?.questions ?? []).filter((q) => q.byAI && !topics.includes(q.topic)).map((q) => q.topic))];
+  return [...topics.filter((t) => deck.bank?.from?.[t] !== bankBasis(deck, t)), ...gone];
+}
+/** The bank's answer slides' elements (they speak, so they need words and audio like any slide) */
+export const bankElements = (deck: Deck) => (deck.bank?.off ? [] : deck.bank?.questions ?? []).flatMap((q) => q.slide.elements.map((el) => ({ q, el })));
+
 export function needsTopic(slide: Slide): boolean {
   if (!slide.topic?.trim()) return true;
   return !!slide.topicByAI && slide.topicFrom !== fingerprint(slideBasis(slide));
@@ -205,6 +227,8 @@ export interface Todo {
   answers: number;
   quiz: number;
   order: number;
+  /** Topics whose question bank needs writing */
+  bank: number;
   topics: number;
   say: number;
   plain: number;
@@ -212,7 +236,12 @@ export interface Todo {
 }
 
 export function countTodo(deck: Deck): Todo {
-  const t: Todo = { helpers: 0, pointers: 0, intros: 0, captions: 0, answers: 0, quiz: needsQuiz(deck) ? 1 : 0, order: needsOrderCheck(deck) ? 1 : 0, topics: 0, say: 0, plain: 0, audio: 0 };
+  const t: Todo = { helpers: 0, pointers: 0, intros: 0, captions: 0, answers: 0, quiz: needsQuiz(deck) ? 1 : 0, order: needsOrderCheck(deck) ? 1 : 0, bank: needsBank(deck).length, topics: 0, say: 0, plain: 0, audio: 0 };
+  // The bank's answer slides speak (no plain versions: they're answers)
+  for (const { el } of bankElements(deck)) {
+    if (needsSay(el)) t.say++;
+    if (needsAudio(el)) t.audio++;
+  }
   deck.slides.forEach((_, i) => {
     if (needsIntro(deck.slides, i)) t.intros++;
     if (needsIntroAudio(deck.slides, i)) t.audio++;
@@ -240,12 +269,12 @@ export function countTodo(deck: Deck): Todo {
   return t;
 }
 
-export const todoTotal = (t: Todo) => t.helpers + t.pointers + t.intros + t.captions + t.answers + t.quiz + t.order + t.topics + t.say + t.plain + t.audio;
+export const todoTotal = (t: Todo) => t.helpers + t.pointers + t.intros + t.captions + t.answers + t.quiz + t.order + t.bank + t.topics + t.say + t.plain + t.audio;
 
 /* -------------------------------------------------------- applying */
 
-/** Element patches can be for the slide's elements or (helper: true) its helper's. */
-type At = { slideId: string; elId: string; helper?: boolean };
+/** Element patches can be for the slide's elements, (helper: true) its helper's, or (bank: a question's id) a bank answer slide's. */
+type At = { slideId: string; elId: string; helper?: boolean; bank?: string };
 export type Patch =
   | { slideId: string; kind: 'topic'; topic: string; topicFrom: string }
   | { slideId: string; kind: 'helper'; helper: SlideHelper }
@@ -258,6 +287,8 @@ export type Patch =
   | { slideId: ''; kind: 'quiz'; from: string; prev: string; questions: QuizQuestion[] }
   /** The story-order check's suggestions, for the lesson as it was (`from`, orderBasis) */
   | { slideId: ''; kind: 'order'; from: string; at: string; why?: string; moves: OrderMove[] }
+  /** A topic's bank questions, written from the topic as it was (`from`, bankBasis): they replace its AI-written ones */
+  | { slideId: ''; kind: 'bank'; topic: string; from: string; questions: BankQuestion[] }
   | (At & { kind: 'say'; say: string; sayFrom: string })
   | (At & { kind: 'plain'; plain: string; plainFrom: string })
   | (At & { kind: 'audio'; audioUrl: string; audioFor: string })
@@ -287,7 +318,22 @@ export function applyPatches(deck: Deck, patches: Patch[]): number {
       }
       continue;
     }
-    const slide = deck.slides.find((s) => s.id === p.slideId);
+    if (p.kind === 'bank') {
+      // the topic as it was written for; a person's questions stay, and so does a bank turned off
+      if (deck.bank?.off || bankBasis(deck, p.topic) !== p.from) continue;
+      const topics = new Set(bankTopics(deck));
+      const kept = (deck.bank?.questions ?? []).filter((q) => !(q.byAI && (q.topic === p.topic || !topics.has(q.topic))));
+      const from = Object.fromEntries(Object.entries(deck.bank?.from ?? {}).filter(([t]) => topics.has(t)));
+      // (a topic no longer in the lesson: its questions just go)
+      deck.bank = topics.has(p.topic)
+        ? { questions: [...kept, ...structuredClone(p.questions)], from: { ...from, [p.topic]: p.from } }
+        : { questions: kept, from };
+      applied++;
+      continue;
+    }
+    // (a bank answer slide's element: found by its question)
+    const bankId = 'bank' in p ? p.bank : undefined;
+    const slide = bankId ? deck.bank?.questions.find((q) => q.id === bankId)?.slide : deck.slides.find((s) => s.id === p.slideId);
     if (!slide) continue;
     if (p.kind === 'topic') {
       if ((!slide.topic?.trim() || slide.topicByAI) && fingerprint(slideBasis(slide)) === p.topicFrom) {

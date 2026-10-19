@@ -254,6 +254,28 @@ export function quiz(raw: any): Deck['quiz'] {
   return { questions, from: raw.from, off: bool(raw.off) };
 }
 
+/** The question bank: known fields only, capped; each question needs words, a known asker and an answer slide. */
+export function bank(raw: any): Deck['bank'] {
+  if (!raw || typeof raw !== 'object') return undefined;
+  const ASKERS = ['maya', 'finn', 'leo'];
+  const seen = new Set<string>();
+  const questions = (Array.isArray(raw.questions) ? raw.questions : []).slice(0, 80).flatMap((q: any, i: number) => {
+    const text = str(q?.q, 200);
+    const topic = str(q?.topic, 80);
+    if (!text || !topic || !q?.slide || typeof q.slide !== 'object') return [];
+    let qid = id(q?.id, `bq${i}`);
+    if (seen.has(qid)) qid = `${qid}-${i}`;
+    seen.add(qid);
+    const answer = slide({ ...q.slide, id: id(q.slide.id, `${qid}-s`) }, i);
+    return [{ id: qid, topic, q: text, asker: ASKERS.includes(q?.asker) ? q.asker : 'maya', slide: answer, byAI: bool(q?.byAI) }];
+  });
+  const from: Record<string, string> = {};
+  if (raw.from && typeof raw.from === 'object') {
+    for (const [k, v] of Object.entries(raw.from).slice(0, 40)) { const t = str(k, 80); if (t && tag(v)) from[t] = v as string; }
+  }
+  return { questions, from, off: bool(raw.off) };
+}
+
 export function sanitizeDeck(raw: any, lessonId: string, source: Deck['source']): Deck {
   if (!raw || typeof raw !== 'object' || !Array.isArray(raw.slides)) throw new Error('Not a deck: missing slides');
   if (raw.slides.length > MAX_SLIDES) throw new Error(`Too many slides (max ${MAX_SLIDES})`);
@@ -270,6 +292,7 @@ export function sanitizeDeck(raw: any, lessonId: string, source: Deck['source'])
     recap: str(raw.recap, 4000),
     recapByAI: bool(raw.recapByAI),
     quiz: quiz(raw.quiz),
+    bank: bank(raw.bank),
     checks: checks(raw.checks),
     editRev: typeof raw.editRev === 'string' && /^[a-z0-9]{1,24}$/.test(raw.editRev) ? raw.editRev : undefined,
     basedOn: typeof raw.basedOn === 'string' && /^(bluecatfish_|canvas_ai:)[\w:.-]{1,120}$/.test(raw.basedOn) ? raw.basedOn : undefined,

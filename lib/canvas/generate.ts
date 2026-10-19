@@ -130,7 +130,7 @@ async function writeTopicSlides(
 /* ---------------------------------------------------------- building */
 
 /** Model output → a Slide: image ids become library URLs + descriptions. */
-function toSlide(raw: any, topic: string, images: LibImage[], id: string): Slide {
+export function toSlide(raw: any, topic: string, images: LibImage[], id: string): Slide {
   const byId = new Map(images.map((i) => [i.id, i]));
   const elements = (Array.isArray(raw?.elements) ? raw.elements : []).flatMap((e: any, j: number) => {
     if (e?.type === 'image') {
@@ -189,7 +189,7 @@ export function autoFix(slide: Slide): void {
 }
 
 /** Marks everything as AI-written, with fingerprints, so the save-time AI keeps it until its source changes. */
-function markAi(slide: Slide): void {
+export function markAi(slide: Slide): void {
   for (const el of slide.elements as SlideElement[]) {
     if (el.say) Object.assign(el, { sayByAI: true, sayFrom: fingerprint(sayBasis(el)) });
     if (el.plain && el.say) Object.assign(el, { plainByAI: true, plainFrom: fingerprint(el.say) });

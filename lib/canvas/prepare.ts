@@ -4,7 +4,7 @@ import type { Deck, Pointer, Slide, SlideElement } from './types';
 import { spokenText } from './queue';
 import { introBasis, introText } from './intro';
 import {
-  answerBasis, applyPatches, needsOrderCheck, needsQuiz, orderBasis, quizBasis, quizKey, audioKey, fingerprint, helperElements, needsAnswerCheck, needsAudio, needsCaption, needsHelper, needsIntro, needsIntroAudio, needsPlain, needsPlainAudio, needsPointers, needsSay, needsTopic,
+  answerBasis, applyPatches, bankBasis, bankElements, needsBank, needsOrderCheck, needsQuiz, orderBasis, quizBasis, quizKey, audioKey, fingerprint, helperElements, needsAnswerCheck, needsAudio, needsCaption, needsHelper, needsIntro, needsIntroAudio, needsPlain, needsPlainAudio, needsPointers, needsSay, needsTopic,
   pointersBasis,
   plainText, sayBasis, slideBasis, type Patch,
 } from './aiFields';
@@ -20,6 +20,7 @@ const AUDIO_BUCKET = 'slide-audio';
 const AUDIO_FOLDER = 'canvas';
 const QUIZ_TIME_MS = 25_000;   // the quiz's check, write and check, roughly
 const ORDER_TIME_MS = 12_000;  // the story-order check, roughly
+const BANK_TIME_MS = 35_000;   // a topic's question bank (one long AI write, a fix or two), roughly
 
 // Shared AI helpers live in ai.ts (re-exported here: generate.ts imports them from this file)
 export { STYLE, chat, knowledge } from './ai';
@@ -29,6 +30,7 @@ import { checkActivityAnswers } from './activityCheck';
 import { refreshQuiz } from './quiz';
 import { askStoryOrder } from './storyOrder';
 import { movesFor } from './order';
+import { usedPictures, writeBankTopic } from './bank';
 
 const otherText = (slide: Slide, el: SlideElement) =>
   slide.elements.filter((e) => e.id !== el.id).map(sayBasis).filter(Boolean).join(' | ');
@@ -183,16 +185,21 @@ async function pool<T>(items: T[], deadline: number, work: (item: T) => Promise<
   await Promise.all(Array.from({ length: Math.min(CONCURRENCY, items.length) }, worker));
 }
 
-type Job = { slide: Slide; el: SlideElement; helper?: boolean };
-/** Elements that need something; withHelpers also looks at the helpers' elements (as their own slide, for context). */
-const jobs = (deck: Deck, need: (el: SlideElement, slide: Slide) => boolean, withHelpers = false): Job[] =>
-  deck.slides.flatMap((slide) => [
+type Job = { slide: Slide; el: SlideElement; helper?: boolean; bank?: string };
+/**
+ * Elements that need something; withHelpers also looks at the helpers' elements (as their own slide, for context),
+ * withBank at the question bank's answer slides.
+ */
+const jobs = (deck: Deck, need: (el: SlideElement, slide: Slide) => boolean, withHelpers = false, withBank = false): Job[] => [
+  ...(withBank ? bankElements(deck).filter(({ q, el }) => need(el, q.slide)).map(({ q, el }) => ({ slide: q.slide, el, bank: q.id })) : []),
+  ...deck.slides.flatMap((slide) => [
     ...slide.elements.filter((el) => need(el, slide)).map((el) => ({ slide, el })),
     ...(withHelpers ? (() => {
       const view = { id: `${slide.id}~helper`, topic: slide.topic, elements: helperElements(slide) } as Slide;
       return view.elements.filter((el) => need(el, view)).map((el) => ({ slide: view, el, helper: true }));
     })() : []),
-  ]);
+  ]),
+];
 // Patches address the real slide, not the helper view
 const baseId = (id: string) => id.split('~')[0];
 
@@ -229,10 +236,10 @@ export async function prepareDeck(
     : Promise.resolve();
   await Promise.all([
     topicTask,
-    pool(jobs(deck, needsSay, true), deadline, async ({ slide, el, helper }) => {
+    pool(jobs(deck, needsSay, true, true), deadline, async ({ slide, el, helper, bank }) => {
       try {
         const say = await writeSay(el, slide, deck);
-        keep({ slideId: baseId(slide.id), elId: el.id, helper, kind: 'say', say, sayFrom: fingerprint(sayBasis(el)) });
+        keep({ slideId: baseId(slide.id), elId: el.id, helper, bank, kind: 'say', say, sayFrom: fingerprint(sayBasis(el)) });
       } catch (e) { fail('Writing spoken words', e); }
     }),
     // Topic introductions (after the topics are named: an intro is written for its topic's name)
@@ -298,6 +305,22 @@ export async function prepareDeck(
     } catch (e) { fail('Checking the slide order', e); }
   })() : Promise.resolve();
 
+  // 1e. The question bank: a topic's questions and answer slides (each topic one long AI write, in parallel),
+  //     started only with time for it (else the next round). Its slides' audio is made with the rest below
+  const bankTopicsToDo = needsBank(deck);
+  const lessonTopics = new Set(deck.slides.map((sl) => sl.topic?.trim()));
+  // a topic no longer in the lesson: its questions are cleared (no AI needed)
+  for (const topic of bankTopicsToDo.filter((t) => !lessonTopics.has(t))) keep({ slideId: '', kind: 'bank', topic, from: bankBasis(deck, topic), questions: [] });
+  const toWrite = bankTopicsToDo.filter((t) => lessonTopics.has(t));
+  const taken = usedPictures(deck, toWrite);   // (shared: no two answers get the same picture)
+  const bankTask = toWrite.length && deadline - Date.now() > BANK_TIME_MS ? Promise.all(toWrite.map(async (topic) => {
+    const from = bankBasis(deck, topic);
+    try {
+      const questions = await writeBankTopic(structuredClone(deck), topic, taken);
+      if (questions.length) keep({ slideId: '', kind: 'bank', topic, from, questions });
+    } catch (e) { fail('Writing the question bank', e); }
+  })) : Promise.resolve();
+
   // 2. Plain versions (from the spoken words, including ones just written)
   await pool(jobs(deck, needsPlain), deadline, async ({ slide, el }) => {
     try {
@@ -313,18 +336,21 @@ export async function prepareDeck(
     } catch (e) { fail('Placing laser marks', e); }
   });
 
+  // (the bank's answer slides get their audio with the rest)
+  await bankTask;
+
   // 3. Audio for the spoken words and the plain versions
   const clips = [
-    ...jobs(deck, needsAudio, true).map((j) => ({ ...j, simple: false })),
+    ...jobs(deck, needsAudio, true, true).map((j) => ({ ...j, simple: false })),
     ...jobs(deck, needsPlainAudio).map((j) => ({ ...j, simple: true })),
   ];
-  await pool(clips, deadline, async ({ slide, el, simple, helper }) => {
+  await pool(clips, deadline, async ({ slide, el, simple, helper, bank }) => {
     try {
       const text = simple ? plainText(el) : spokenText(el);
       const { url, key } = await recordClip(text, simple);
       keep(simple
         ? { slideId: baseId(slide.id), elId: el.id, helper, kind: 'plainAudio', plainAudioUrl: url, plainAudioFor: key }
-        : { slideId: baseId(slide.id), elId: el.id, helper, kind: 'audio', audioUrl: url, audioFor: key });
+        : { slideId: baseId(slide.id), elId: el.id, helper, bank, kind: 'audio', audioUrl: url, audioFor: key });
     } catch (e) { fail('Making audio', e); }
   });
 

@@ -247,6 +247,34 @@ export interface DeckQuiz {
   off?: boolean;
 }
 
+/**
+ * A question learners (or the classmates) might ask about a topic, with its answer as a slide
+ * (lib/canvas/bank.ts). The AI writes about 6 per topic when the lesson is saved; the answer
+ * slide gets its spoken words' audio like any slide. When a learner asks something close, its
+ * answer slide plays; the classmates ask the related ones.
+ */
+export interface BankQuestion {
+  id: string;
+  /** The topic it's about (the topic name on its slides) */
+  topic: string;
+  /** The question, as a kid in class would ask it */
+  q: string;
+  /** The classmate who asks it when it comes up (lib/classmates.ts) */
+  asker: 'maya' | 'finn' | 'leo';
+  /** The answer, as a slide: shown and said like any slide */
+  slide: Slide;
+  /** Written by the AI (a person's edit makes it theirs: kept when the topic changes) */
+  byAI?: boolean;
+}
+
+export interface DeckBank {
+  questions: BankQuestion[];
+  /** Per topic, the bankBasis its AI questions were written from (a changed topic: written again) */
+  from: Record<string, string>;
+  /** No question bank in this lesson */
+  off?: boolean;
+}
+
 export interface Deck {
   lessonId: string;
   title: string;
@@ -261,6 +289,8 @@ export interface Deck {
   recapByAI?: boolean;
   /** The end-of-lesson quiz pool */
   quiz?: DeckQuiz;
+  /** Questions and answer slides per topic (the classmates ask them; a learner's close question gets its answer slide) */
+  bank?: DeckBank;
   /** The editor's fact and repeat checks (editor-only) */
   checks?: DeckChecks;
   updatedAt?: string;
