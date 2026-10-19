@@ -1,5 +1,6 @@
 import { NextRequest } from 'next/server';
-import { TTS_VOICE, VOICE_INSTRUCTIONS, SIMPLE_VOICE_INSTRUCTIONS, CLASSMATE_VOICE, CLASSMATE_INSTRUCTIONS } from '@/lib/voice';
+import { TTS_VOICE, VOICE_INSTRUCTIONS, SIMPLE_VOICE_INSTRUCTIONS } from '@/lib/voice';
+import { classmateOf } from '@/lib/classmates';
 import { MAX, rateLimit, tooLarge } from '@/lib/rateLimit';
 
 export async function POST(request: NextRequest) {
@@ -8,10 +9,10 @@ export async function POST(request: NextRequest) {
     if (limited) return limited;
     const body = await request.json();
     const text = (body.text as string)?.trim();
-    // Who speaks decides the voice (chosen here, not by the page): the professor, or Finn the classmate
+    // Who speaks decides the voice (chosen here, not by the page): the professor, or a classmate (lib/classmates.ts)
     // was: const voice = (body.voice as string) || TTS_VOICE;
-    const classmate = body.who === 'classmate';
-    const voice = classmate ? CLASSMATE_VOICE : TTS_VOICE;
+    const classmate = classmateOf(body.who);
+    const voice = classmate ? classmate.voice : TTS_VOICE;
 
     if (text && text.length > MAX.ttsText) return tooLarge('text');
     if (!text) {
@@ -40,7 +41,7 @@ export async function POST(request: NextRequest) {
         input: text,
         voice,
         // simple: the calm "simpler please" delivery
-        instructions: classmate ? CLASSMATE_INSTRUCTIONS : body.simple ? SIMPLE_VOICE_INSTRUCTIONS : VOICE_INSTRUCTIONS,
+        instructions: classmate ? classmate.voiceInstructions : body.simple ? SIMPLE_VOICE_INSTRUCTIONS : VOICE_INSTRUCTIONS,
         response_format: 'mp3',
       }),
     });

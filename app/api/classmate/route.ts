@@ -4,11 +4,13 @@ import { rateLimit } from '@/lib/rateLimit';
 import { getValue, setValue } from '@/src/redisClient';
 import { chat } from '@/lib/canvas/ai';
 import { CLASSMATE_NAME } from '@/lib/voice';
+import { CLASSMATES, classmateOf } from '@/lib/classmates';
 
 /*
- * Finn, the AI classmate: one short question for the professor about what
- * was just taught, the kind a kid who's a bit lost (or shy) would ask. The
- * professor then answers it like any question.
+ * The AI classmates (lib/classmates.ts): one short question for the professor about what
+ * was just taught, in the asker's own way (Maya curious, Leo practical, Finn quick), the kind
+ * a kid who's a bit lost (or shy) would ask. The professor then answers it like any question.
+ *   POST { ..., who?: 'maya' | 'finn' | 'leo' } (default Finn)
  * mistake: Finn gets something wrong on purpose ("So catfish breathe air, right?")
  * and the learner gets to catch it; `truth` is what's actually right, for the professor.
  *   POST { topic?, slideText, asked?: string[], mistake?: boolean } → { question, truth? } | { question: null }
@@ -19,10 +21,10 @@ import { CLASSMATE_NAME } from '@/lib/voice';
  * Kept per slide (and per question already asked), so it's instant next time.
  */
 
-const SYSTEM =
-  `You are ${CLASSMATE_NAME}, a curious, friendly 12 year old in a class about the blue catfish invasion of the Chesapeake Bay. ` +
-  'The teacher, Professor Marine, just taught the slide below. Ask ONE question out loud, the kind a classmate who is a bit lost ' +
-  'or curious would ask about it: what a word means, why something happens, how big or how many, what happens next. ' +
+const SYSTEM = (name: string, persona: string) =>
+  `You are ${name}, a friendly 12 year old in a class about the blue catfish invasion of the Chesapeake Bay. You are ${persona}. ` +
+  'The teacher, Professor Marine, just taught the slide below. Ask ONE question out loud about it, the kind a classmate like you ' +
+  'who is a bit lost or curious would ask. ' +
   'Start with "Professor Marine," and keep it under 20 words, in kid words. Never ask something already asked, never answer it yourself, ' +
   'nothing off topic or silly. Reply with only the question.';
 
@@ -122,11 +124,12 @@ export async function POST(req: Request) {
     }
   }
 
-  const key = `classmate:v1:${createHash('sha1').update(`${topic}|${slideText}|${asked.join('|')}`).digest('hex').slice(0, 16)}`;
+  const mate = classmateOf(body.who) ?? CLASSMATES.finn;
+  const key = `classmate:v1:${mate.id === 'finn' ? '' : `${mate.id}:`}${createHash('sha1').update(`${topic}|${slideText}|${asked.join('|')}`).digest('hex').slice(0, 16)}`;
   const cached = await getValue(key);
   if (cached) return NextResponse.json({ question: cached });
   try {
-    const q = (await chat(SYSTEM, `Topic: ${topic || '(none)'}\nSlide: ${slideText}\nAlready asked: ${asked.join(' | ') || '(nothing)'}`, false, 300))
+    const q = (await chat(SYSTEM(mate.name, mate.persona), `Topic: ${topic || '(none)'}\nSlide: ${slideText}\nAlready asked: ${asked.join(' | ') || '(nothing)'}`, false, 300))
       .replace(/^["']|["']$/g, '').trim().slice(0, 200);
     if (!q || !/\?$/.test(q)) return NextResponse.json({ question: null });   // not a question: skip rather than say something odd
     await setValue(key, q);

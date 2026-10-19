@@ -24,6 +24,7 @@ import { DEFAULT_LESSON } from '@/lib/canvas/lessons';
 import type { Deck } from '@/lib/canvas/types';
 import { learnerHeaders } from '@/lib/learnerSession';
 import { CLASSMATE_NAME } from '@/lib/voice';
+import { CLASSMATES, turnAt, type ClassmateId } from '@/lib/classmates';
 import type { ActivityMistake, FinnEvent, FinnMove } from '@/components/canvas/Activity';
 import { focusSlide, helperSlide, ownHelper } from '@/lib/canvas/morph';
 import { isIntroId } from '@/lib/canvas/intro';
@@ -135,8 +136,10 @@ const MORPH_BACK_MS = 950;   // a morph back finishes before the lesson moves to
 const HAND_RING_MS = 2500;   // how long the camera bubble stays yellow after a raised hand
 // Spotlight: while a box is being said, the rest of the slide fades to this (1 = off). Kept light on purpose.
 const SPOTLIGHT = 0.7;
-// How often Finn gets something wrong on purpose for the learner to catch (never his first turn; 0 = never)
-const FINN_MISTAKE_CHANCE = 0.5;
+// How often Finn's turn at a topic's end is a mistake for the learner to catch (else a question; 0 = never).
+// The classmates take turns there (lib/classmates.ts turnAt): Maya, Finn, Leo, Finn… so Maya shows how asking goes first.
+// was: 0.5 (only Finn, never his first turn)
+const FINN_MISTAKE_CHANCE = 1;
 const MIN_VISUAL_MS = 3000;
 // The slide as big as fits with the header and the controls under it (was 80% of the screen height,
 // so on a 1366×768 laptop the controls pushed the top of the slide off the screen)
@@ -190,8 +193,8 @@ function hardestTopic(deck: Deck, topicOf: number[], stateOf: (topic: number) =>
   return best?.name ?? null;
 }
 
-/** What Finn says at a topic's end: a question, or (truth set) a mistake for the learner to catch. */
-type FinnLine = { question: string; truth?: string };
+/** What a classmate says at a topic's end: a question, or (truth set: Finn) a mistake for the learner to catch. */
+type FinnLine = { question: string; truth?: string; who: ClassmateId };
 
 /** What Finn says when he has a go in a hands-on box */
 function finnHandsOnLine(e: { item: string; group?: string; guess?: string }): string {
@@ -278,8 +281,8 @@ function Player({ deck, preview, startAt = 0 }: { deck: Deck; preview: boolean; 
     window.addEventListener('keydown', esc);
     return () => { window.removeEventListener('pointerdown', close); window.removeEventListener('keydown', esc); };
   }, [optionsOpen]);
-  const [classmateOn, setClassmateOn] = useState(true);         // Finn, the AI classmate, asks questions at topic ends
-  const [classmateSaying, setClassmateSaying] = useState(false);
+  const [classmateOn, setClassmateOn] = useState(true);         // the AI classmates (Maya, Finn, Leo) ask at topic ends; Finn plays in hands-on boxes
+  const [classmateSaying, setClassmateSaying] = useState<ClassmateId | null>(null);   // who's talking now
   // Hands-on sounds (pop, bonk, chime): on unless turned off (remembered on this browser)
   const [soundsOn, setSoundsOn] = useState(true);
   const lessonStartedAt = useRef(0);   // for the end screen's "you stuck with it for N minutes"
@@ -654,10 +657,11 @@ function Player({ deck, preview, startAt = 0 }: { deck: Deck; preview: boolean; 
   const finnLine = useCallback((topic: number): Promise<FinnLine | null> => {
     if (!finnReady.current.has(topic)) {
       const slides = deck.slides.map((_, i) => i).filter((i) => topicOf[i] === topic);
-      // never his first turn: first he shows how to ask, then he sometimes gets it wrong
-      const mistake = classmateAsked.current.length > 0 && Math.random() < FINN_MISTAKE_CHANCE;
-      finnReady.current.set(topic, fetchClassmate(deck.slides[slides[0]]?.topic ?? '', slides.map(slideText).join(' | '), mistake)
-        .then((line) => { if (line) cuesRef.current.preload(line.question, 'classmate'); return line; }));
+      // whose turn it is (they take turns); Finn's turns are mix-ups to catch
+      const who = turnAt(classmateAsked.current.length);
+      const mistake = who === 'finn' && Math.random() < FINN_MISTAKE_CHANCE;
+      finnReady.current.set(topic, fetchClassmate(deck.slides[slides[0]]?.topic ?? '', slides.map(slideText).join(' | '), mistake, who)
+        .then((line) => { if (line) cuesRef.current.preload(line.question, line.who); return line; }));
     }
     return finnReady.current.get(topic)!;
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -675,7 +679,7 @@ function Player({ deck, preview, startAt = 0 }: { deck: Deck; preview: boolean; 
     if (!finnBusy.current) return;
     finnBusy.current = false;
     finnTurn.current++;
-    setClassmateSaying(false);
+    setClassmateSaying(null);
   }, []);
   // Finn said something wrong on purpose: waiting for the learner to say if he's right
   // null = called off (the learner moved on, or gave a command instead)
@@ -716,15 +720,16 @@ function Player({ deck, preview, startAt = 0 }: { deck: Deck; preview: boolean; 
       const line = await finnLine(topic);
       if (line && !selfCheckRef.current && !over()) {
         const q = line.question;
+        const mate = CLASSMATES[line.who];
         classmateAsked.current.push(q);
-        tracking.track('tutor_decision', { action: line.truth ? 'classmate_mistake' : 'classmate', question: q.slice(0, 300) });
+        tracking.track('tutor_decision', { action: line.truth ? 'classmate_mistake' : 'classmate', question: q.slice(0, 300), who: line.who });
         const name = learnerName.trim();
         const turnTo = name ? `Hmm. ${name}, what do you think? Is ${CLASSMATE_NAME} right?` : `Hmm. What do you think, is ${CLASSMATE_NAME} right?`;
         if (line.truth) cues.preload(turnTo);   // ready by the time Finn finishes
-        setClassmateSaying(true);
-        const said = await cues.play({ text: q, who: 'classmate' });
-        setClassmateSaying(false);
-        if (said && !over() && !line.truth) await answer(q, { asker: CLASSMATE_NAME, resume: false });
+        setClassmateSaying(line.who);
+        const said = await cues.play({ text: q, who: line.who });
+        setClassmateSaying(null);
+        if (said && !over() && !line.truth) await answer(q, { asker: mate.name, resume: false });
         else if (said && !over() && line.truth) {
           // The professor turns to the learner, and waits for their call (buttons, typing, or the mic)
           if (await cues.play({ text: turnTo }) && !over()) {
@@ -816,16 +821,17 @@ function Player({ deck, preview, startAt = 0 }: { deck: Deck; preview: boolean; 
   }, [player.slideIndex, finnVerdict, takeOverFromFinn, cancelAnswer]);
 
   /** Finn's line about what was just taught (a question, or a mistake to catch), or null (none, too slow, or rate-limited). */
-  const fetchClassmate = useCallback(async (topic: string, taught: string, mistake = false): Promise<FinnLine | null> => {
+  const fetchClassmate = useCallback(async (topic: string, taught: string, mistake: boolean, who: ClassmateId): Promise<FinnLine | null> => {
+    if (mistake) who = 'finn';   // (only Finn makes mix-ups)
     try {
       const res = await fetch('/api/classmate', {
         method: 'POST',
         headers: learnerHeaders({ 'Content-Type': 'application/json' }),
-        body: JSON.stringify({ topic, slideText: taught.slice(0, 2000), asked: classmateAsked.current, mistake }),
+        body: JSON.stringify({ topic, slideText: taught.slice(0, 2000), asked: classmateAsked.current, mistake, who }),
         signal: AbortSignal.timeout(10000),
       });
       const d = res.ok ? await res.json() : null;
-      return d?.question ? { question: d.question, truth: d.truth || undefined } : null;
+      return d?.question ? { question: d.question, truth: d.truth || undefined, who } : null;
     } catch {
       return null;
     }
@@ -1163,9 +1169,9 @@ function Player({ deck, preview, startAt = 0 }: { deck: Deck; preview: boolean; 
       cuesRef.current.preload(e.guess ? NICE_TRY : TAKE_ANOTHER_LOOK);
       queueLine(async () => {
         if (!onBox(id)) return;
-        setClassmateSaying(true);
-        await cuesRef.current.play({ text: finnHandsOnLine(e), who: 'classmate' });
-        setClassmateSaying(false);
+        setClassmateSaying('finn');
+        await cuesRef.current.play({ text: finnHandsOnLine(e), who: 'finn' });
+        setClassmateSaying(null);
       });
     } else if (e.type === 'fixed') {
       track('tutor_decision', { action: 'activity_finn_caught', item: e.item.slice(0, 80) });
@@ -1204,7 +1210,7 @@ function Player({ deck, preview, startAt = 0 }: { deck: Deck; preview: boolean; 
         const right = items[pick].group ?? 0;
         const group = (right + 1 + Math.floor(Math.random() * (groups.length - 1))) % groups.length;
         finnPlans.current.set(b.id, { item: pick, group });
-        cuesRef.current.preload(finnHandsOnLine({ item: items[pick].text, group: groups[group] }), 'classmate');
+        cuesRef.current.preload(finnHandsOnLine({ item: items[pick].text, group: groups[group] }), 'finn');
       } else if (b.kind === 'cards' && items.length >= 2 && items[pick].back) {
         fetch('/api/classmate', {
           method: 'POST', headers: learnerHeaders({ 'Content-Type': 'application/json' }),
@@ -1212,7 +1218,7 @@ function Player({ deck, preview, startAt = 0 }: { deck: Deck; preview: boolean; 
         }).then((r) => (r.ok ? r.json() : null)).then((d) => {
           if (!d?.guess) return;
           finnPlans.current.set(b.id, { item: pick, guess: d.guess });
-          cuesRef.current.preload(finnHandsOnLine({ item: items[pick].text, guess: d.guess }), 'classmate');
+          cuesRef.current.preload(finnHandsOnLine({ item: items[pick].text, guess: d.guess }), 'finn');
         }).catch(() => {});
       }
     }
@@ -1355,7 +1361,7 @@ function Player({ deck, preview, startAt = 0 }: { deck: Deck; preview: boolean; 
     finnTurn.current++;   // a Finn turn in progress sees it's over at its next step
     finnBusy.current = false;
     cancelAnswer();
-    setClassmateSaying(false);
+    setClassmateSaying(null);
     if (variant) { variantAfter.current = null; variantMode.current = 'answer'; setVariant(null); helperSeq.current++; setHelperActive(null); }
     checked.current.clear(); activitiesDone.current.clear(); activitiesSolved.current.clear(); activitiesRevealed.current.clear(); classmateTopics.current.clear(); classmateAsked.current = []; finnReady.current.clear(); finnResults.current.clear();
     finnSpoken.current.clear(); mistakeCounts.current.clear(); steppedIn.current.clear();
@@ -1474,7 +1480,7 @@ function Player({ deck, preview, startAt = 0 }: { deck: Deck; preview: boolean; 
     <main className="min-h-screen flex flex-col items-center justify-center gap-4 bg-gradient-to-br from-sky-950 via-slate-900 to-cyan-950 text-white px-4 py-4 max-sm:px-2 [@media(max-height:500px)]:gap-2 [@media(max-height:500px)]:py-2">
       {/* (a phone turned sideways: out of the way while it's the learner's turn, so the hands-on box has the screen, and on the end screen) */}
       {showTranscript && !(shortScreen && (yourTurn || player.status === 'finished')) && (cues.saying
-        ? <Transcript speaker={classmateSaying ? `${CLASSMATE_NAME} · classmate` : 'Professor Marine'} text={cues.saying} dialogue={tutor.history} />
+        ? <Transcript speaker={classmateSaying ? `${CLASSMATES[classmateSaying].name} · classmate` : 'Professor Marine'} text={cues.saying} dialogue={tutor.history} />
         : tutor.speaking || tutor.thinking
           ? <Transcript speaker="Professor Marine · answering" text={tutor.exchange?.answer || (tutor.thinking ? 'thinking…' : '')} dialogue={earlierDialogue}
               question={tutor.exchange ? { text: tutor.exchange.question, asker: tutor.exchange.asker } : undefined} />
@@ -1626,8 +1632,8 @@ function Player({ deck, preview, startAt = 0 }: { deck: Deck; preview: boolean; 
         {/* top-left: the bottom of the slide is where hands-on boxes have their controls (was: Finn's chip covered the slider) */}
         <div className="absolute top-3 left-3 z-20 flex flex-col items-start gap-1.5 pointer-events-none">
           {classmateSaying && (
-            <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-amber-300 text-slate-900 text-sm font-semibold shadow-lg animate-pulse" role="status">
-              <span aria-hidden>🙋</span> {CLASSMATE_NAME} {yourTurn ? 'is having a go…' : 'asks…'}
+            <div className="flex items-center gap-2 px-3 py-1.5 rounded-full text-white text-sm font-semibold shadow-lg animate-pulse" style={{ background: CLASSMATES[classmateSaying].color }} role="status">
+              <span aria-hidden>🙋</span> {CLASSMATES[classmateSaying].name} {yourTurn ? 'is having a go…' : 'asks…'}
             </div>
           )}
         </div>
@@ -1730,7 +1736,7 @@ function Player({ deck, preview, startAt = 0 }: { deck: Deck; preview: boolean; 
         {/* The on/off switches, in one menu (was: five more buttons, so the controls took two rows) */}
         <div className="relative" ref={optionsRef}>
           <button className={`${btn} ${optionsOpen ? 'bg-white/25' : ''}`} onClick={() => setOptionsOpen((o) => !o)} aria-expanded={optionsOpen}
-            title="Voice speed, interrupt, camera, Finn, sounds, transcript" aria-label="Options">
+            title="Voice speed, interrupt, camera, classmates, sounds, transcript" aria-label="Options">
             ⚙<span className={label}> Options</span>
             {/* what's on, at a glance */}
             <span className="ml-1.5 text-xs opacity-80">{[interruptOn && '🎙', cameraOn && '📷', classmateOn && '🙋', soundsOn && '🔔', showTranscript && '💬'].filter(Boolean).join('')}{voiceSpeed !== 1 && ` ${voiceSpeed}×`}</span>
@@ -1759,7 +1765,7 @@ function Player({ deck, preview, startAt = 0 }: { deck: Deck; preview: boolean; 
                   setCameraOn((on) => !on);
                   if (!cameraOn) say('Camera on: raise your hand to ask, and the professor notices if you look lost or step away. Nothing leaves your device.');
                 }],
-                ['🙋', CLASSMATE_NAME, 'Your AI classmate: asks questions, has a go at the hands-on activities', classmateOn, () => setClassmateOn((v) => !v)],
+                ['🙋', 'Classmates', 'Maya, Finn and Leo: they ask questions, and Finn has a go at the hands-on activities', classmateOn, () => setClassmateOn((v) => !v)],
                 ['🔔', 'Sounds', 'Little sounds in the hands-on activities', soundsOn, toggleSounds],
                 ['💬', 'Transcript', 'The words being said, top right', showTranscript, () => setShowTranscript((v) => !v)],
               ] as const).map(([icon, name, hint, on, toggle]) => (
