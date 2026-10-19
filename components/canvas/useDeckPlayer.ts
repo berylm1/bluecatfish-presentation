@@ -287,6 +287,27 @@ export function useDeckPlayer(
       audioRef.current?.pause();
       setStatus('paused');
     },
+    /**
+     * Like pause, but resume() doesn't pick up again: only a move does (nextClip, skipPast, a slide).
+     * A hands-on box finished before its turn: the professor stops while the praise is said.
+     */
+    hold: () => {
+      replayRef.current = null;
+      if (timerRef.current) clearTimeout(timerRef.current);
+      if (finishTimerRef.current) clearInterval(finishTimerRef.current);
+      holdRef.current = null;
+      pausedRef.current = true;
+      waitingRef.current = true;
+      audioRef.current?.pause();
+      setStatus('paused');
+    },
+    /** Where an element is said on this slide (its clip number), or -1 */
+    clipOf: (id: string) => order.findIndex((e) => e.id === id),
+    /** On to what comes after an element on this slide (its own clip and anything before it are skipped) */
+    skipPast: (id: string) => {
+      const at = order.findIndex((e) => e.id === id);
+      setPos((p) => ({ ...p, clip: Math.max(p.clip, at) + 1, mode: 'normal', token: p.token + 1 }));
+    },
     resume: () => {
       if (statusRef.current !== 'paused' && !pausedRef.current) return;
       // Still the learner's turn (after a question, or ▶): stay, it's the hands-on box that moves the lesson on

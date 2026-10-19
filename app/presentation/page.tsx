@@ -1185,6 +1185,7 @@ function Player({ deck, preview, startAt = 0 }: { deck: Deck; preview: boolean; 
     const s = deck.slides[player.slideIndex];
     const boxes = (s?.elements ?? []).filter((e): e is ActivityElement => e.type === 'activity' && activityReady(e));
     if (!boxes.length) return;
+    preloadCue(praise);   // (a box can be finished before its turn: the praise is ready then too)
     // a fresh visit: no move from last time, no guide, mistakes counted again
     setFinnMoves((m) => { const n = { ...m }; for (const b of boxes) delete n[b.id]; return n; });
     setActivityGuides((g) => { const n = { ...g }; for (const b of boxes) delete n[b.id]; return n; });
@@ -1224,7 +1225,20 @@ function Player({ deck, preview, startAt = 0 }: { deck: Deck; preview: boolean; 
     const began = turnStarted.current.get(id);
     turnStarted.current.delete(id);
     track('tutor_decision', { action: 'activity_done', ...(began ? { seconds: Math.round((Date.now() - began) / 1000) } : {}) });
-    if (yourTurnRef.current !== id) return;   // done while the professor was still explaining: the lesson just carries on
+    if (yourTurnRef.current !== id) {
+      // Done before its turn (while the professor says what to do, or before he gets to it): no sitting
+      // through instructions they no longer need. He stops, the praise, then on past the box.
+      // (was: the lesson just carried on, and the learner waited out the explanation)
+      const p = playerRef.current;
+      const at = p.clipOf(id);
+      if (at < 0 || at < p.clipIndex || p.status === 'finished') return;   // (its turn has been and gone)
+      track('tutor_decision', { action: 'activity_done_early' });
+      p.hold();
+      cuesRef.current.stop();
+      const slide = p.slideIndex;
+      queueLine(() => playCue({ text: praise })).then(() => { if (playerRef.current.slideIndex === slide) playerRef.current.skipPast(id); });
+      return;
+    }
     setYourTurn(null);
     // after the professor (an explanation, a reply to Finn) has finished, not over them
     queueLine(() => playCue({ text: praise })).then(() => { if (playerRef.current.activeId === id) playerRef.current.nextClip(); });
