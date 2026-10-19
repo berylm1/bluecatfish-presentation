@@ -6,6 +6,7 @@ import SlideCanvas from '@/components/canvas/SlideCanvas';
 import { useDeckPlayer } from '@/components/canvas/useDeckPlayer';
 import { useListener } from '@/components/canvas/useListener';
 import Transcript from '@/components/canvas/Transcript';
+import ClassChat, { ClassmatesPanel, speakerOf, Avatar, type ChatEntry, type Speaker } from '@/components/canvas/ClassChat';
 import { useTutor } from '@/components/canvas/useTutor';
 import MicMeter from '@/components/canvas/MicMeter';
 import { parseCanvasCommand, findSlide, searchByMeaning } from '@/lib/canvas/commands';
@@ -24,7 +25,7 @@ import { DEFAULT_LESSON } from '@/lib/canvas/lessons';
 import type { Deck } from '@/lib/canvas/types';
 import { learnerHeaders } from '@/lib/learnerSession';
 import { CLASSMATE_NAME } from '@/lib/voice';
-import { CLASSMATES, turnAt, type ClassmateId } from '@/lib/classmates';
+import { CLASSMATES, classmateNamed, turnAt, type ClassmateId } from '@/lib/classmates';
 import type { ActivityMistake, FinnEvent, FinnMove } from '@/components/canvas/Activity';
 import { focusSlide, helperSlide, ownHelper } from '@/lib/canvas/morph';
 import { isIntroId } from '@/lib/canvas/intro';
@@ -157,7 +158,17 @@ function useMedia(query: string): boolean {
 }
 
 // (the two sizes are set in globals.css: wider on a phone, taller on a phone turned sideways)
-const SLIDE_WIDTH = 'min(var(--slide-max-w, 88vw), calc((100vh - var(--slide-chrome, 190px)) * 16 / 9))';
+// (--slide-max-w is narrower with the class chat beside the slide; --peek-h is the chat's latest line under the slide)
+const SLIDE_WIDTH = 'min(var(--slide-max-w, 88vw), calc((100vh - var(--slide-chrome, 190px) - var(--peek-h, 0px)) * 16 / 9))';
+// The top-right transcript: off, the class chat (ClassChat) has everything that's said, as a conversation
+const SHOW_FLOATING_TRANSCRIPT = false;
+/** The chat's latest slide entry, skipping the professor's own lines after it (its index, or -1) */
+function slideEntryAt(c: ChatEntry[]): number {
+  let j = c.length - 1;
+  while (j >= 0 && c[j].kind === 'line' && (c[j] as { who: Speaker }).who === 'professor') j--;
+  return j >= 0 && c[j].kind === 'slide' ? j : -1;
+}
+const SELF_CHECK_SAID: Record<SelfCheckRating, string> = { got: '😀 Got it', kind: '😐 Kind of', lost: '😕 Lost me' };
 // The question + answer box under the slide: off, the transcript (top right) shows them instead
 // (was: it made the page taller than the screen, so it scrolled). Still shown with the transcript off.
 const ANSWER_BOX_UNDER_SLIDE = false;
@@ -270,7 +281,21 @@ function Player({ deck, preview, startAt = 0 }: { deck: Deck; preview: boolean; 
   const [typed, setTyped] = useState('');
   const [interruptOn, setInterruptOn] = useState(false);   // talk over the professor (opt-in: opens the mic)
   const [cameraOn, setCameraOn] = useState(false);         // emotion check-in, presence, hand raise (opt-in)
-  const [showTranscript, setShowTranscript] = useState(true);   // top-right text of what's being said
+  // The class chat: beside the slide on a computer (✕ hides it), a pull-out on a phone (the latest line shows under the slide)
+  const [chatOpen, setChatOpen] = useState(true);
+  const showTranscript = chatOpen;   // (the old top-right transcript's switch: SHOW_FLOATING_TRANSCRIPT)
+  const [pulled, setPulled] = useState<null | 'chat' | 'mates'>(null);   // a phone (or a small screen): the panel pulled out
+  const desk = useMedia('(min-width: 1024px)');    // room for the chat beside the slide
+  const wide = useMedia('(min-width: 1600px)');    // room for the chat on the left and the classmates on the right
+  const [chat, setChat] = useState<ChatEntry[]>([]);
+  const chatSeq = useRef(0);
+  const [chatSeenId, setChatSeenId] = useState(0);     // the last entry seen in the chat (newer ones: a dot on 💬)
+  const [matesSeenId, setMatesSeenId] = useState(0);
+  /** Something said (or typed, or clicked) goes into the class chat */
+  const addLine = useCallback((who: Speaker, text: string) => {
+    const t = text.trim();
+    if (t) setChat((c) => [...c.slice(-199), { id: ++chatSeq.current, kind: 'line', who, text: t }]);
+  }, []);
   const [optionsOpen, setOptionsOpen] = useState(false);          // the ⚙ Options menu
   const optionsRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -399,6 +424,71 @@ function Player({ deck, preview, startAt = 0 }: { deck: Deck; preview: boolean; 
     const t = setTimeout(() => clearExchangeRef.current(), EXCHANGE_HIDE_MS);
     return () => clearTimeout(t);
   }, [tutor.exchange, tutor.speaking]);
+
+  /* ------------------------------------------------ the class chat: what's said, as it's said */
+  // The slide's narration: one entry per slide (picked up after a question: a new entry), a line per clip
+  useEffect(() => {
+    // (when it's actually being said: a clip loading during the hello isn't said yet)
+    if (!started || player.status !== 'playing' || !player.activeId || !player.captionText || variant) return;
+    const key = `${player.activeId}|${player.mode}`;
+    const text = player.captionText;
+    const slide = player.slideIndex;
+    const s = deck.slides[slide];
+    const heading = s?.elements.find((e) => e.type === 'text' && e.style === 'title');
+    const title = (heading?.type === 'text' ? heading.text : s?.topic ?? '').replace(/\s+/g, ' ').trim().slice(0, 60);
+    setChat((c) => {
+      // the slide's entry, if only the professor's own short lines came after it ("Nice work!"); after a
+      // question or a classmate, a new entry, so the chat reads in order
+      const j = slideEntryAt(c);
+      const last = c[j];
+      if (last?.kind === 'slide' && last.slide === slide) {
+        if (last.lines.some((l) => l.key === key && l.text === text)) return c;
+        const n = c.slice();
+        n[j] = { ...last, lines: [...last.lines, { key, text }] };
+        return n;
+      }
+      return [...c.slice(-199), { id: ++chatSeq.current, kind: 'slide', slide, title, lines: [{ key, text }] }];
+    });
+  }, [started, player.status, player.activeId, player.mode, player.captionText, player.slideIndex, variant, deck]);
+  // The page's own lines (the professor's cues and replies, a classmate's question or mix-up)
+  const lastSaying = useRef('');
+  useEffect(() => {
+    const t = cues.saying;
+    if (t && t !== lastSaying.current) addLine(classmateSaying ?? 'professor', t);
+    lastSaying.current = t;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cues.saying]);
+  // A question to the professor and the answer, as it streams in. The question only if it isn't
+  // there already (typed or said by the learner, or a classmate's line just before); none for the
+  // professor's help in a hands-on box (no one asked)
+  useEffect(() => {
+    const x = tutor.exchange;
+    if (!x || x.id === undefined) return;
+    const id = x.id;
+    setChat((c) => {
+      const i = c.findIndex((e) => e.kind === 'answer' && e.exchange === id);
+      if (i >= 0) {
+        const e = c[i];
+        if (e.kind !== 'answer' || (e.text === x.answer && e.done === x.done)) return c;
+        const n = c.slice();
+        n[i] = { ...e, text: x.answer, done: x.done };
+        return n;
+      }
+      const out = c.slice(-198);
+      const mate = classmateNamed(x.asker);
+      const who: Speaker | null = x.asker && !mate ? null : mate ?? 'you';
+      const q = x.question.trim();
+      if (who && !out.slice(-12).some((e) => e.kind === 'line' && e.who === who && e.text === q)) out.push({ id: ++chatSeq.current, kind: 'line', who, text: q });
+      out.push({ id: ++chatSeq.current, kind: 'answer', exchange: id, text: x.answer, done: x.done });
+      return out;
+    });
+  }, [tutor.exchange]);
+  // What's on screen counts as seen (no dot on 💬 / 🙋 for it)
+  useEffect(() => {
+    const last = chat[chat.length - 1]?.id ?? 0;
+    if ((desk && chatOpen) || pulled === 'chat') setChatSeenId(last);
+    if ((wide && chatOpen) || pulled === 'mates') setMatesSeenId(last);
+  }, [chat, desk, wide, chatOpen, pulled]);
 
   const say = useCallback((text: string) => {
     setToast(text);
@@ -690,9 +780,10 @@ function Player({ deck, preview, startAt = 0 }: { deck: Deck; preview: boolean; 
   const [finnWaiting, setFinnWaiting] = useState<false | 'buttons' | 'open'>(false);
   const [finnReply, setFinnReply] = useState('');
   const finnHow = useRef<'voice' | 'button' | 'typed'>('button');   // how the last answer came (a button has no reasons in it)
-  const finnVerdict = useCallback((verdict: string | null, how: 'voice' | 'button' | 'typed') => {
+  const finnVerdict = useCallback((verdict: string | null, how: 'voice' | 'button' | 'typed', inChat = false) => {
     const done = finnCheck.current;
     if (!done) return false;
+    if (verdict && !inChat) addLine('you', verdict);   // (typed in the ask box: already in the chat)
     finnCheck.current = null;
     setFinnWaiting(false);
     setFinnReply('');
@@ -705,7 +796,7 @@ function Player({ deck, preview, startAt = 0 }: { deck: Deck; preview: boolean; 
     }
     done(verdict);
     return true;
-  }, []);
+  }, [addLine]);
 
   topicEndRef.current = async (from: number, to: number) => {
     const topic = topicOf[from];
@@ -838,9 +929,10 @@ function Player({ deck, preview, startAt = 0 }: { deck: Deck; preview: boolean; 
   }, []);
 
   /** The self-check answer: noted for the topic; "lost me" gets another way to see it first. */
-  const answerSelfCheck = useCallback((rating: SelfCheckRating) => {
+  const answerSelfCheck = useCallback((rating: SelfCheckRating, inChat = false) => {
     const sc = selfCheck;
     if (!sc) return;
+    if (!inChat) addLine('you', SELF_CHECK_SAID[rating]);
     tracking.track('self_check', { rating }, { self_check: rating });
     checked.current.add(sc.from);
     setSelfCheck(null);
@@ -851,7 +943,7 @@ function Player({ deck, preview, startAt = 0 }: { deck: Deck; preview: boolean; 
       setReplayOffer({ to: sc.to, mood: rating === 'lost' ? 'frustrated' : 'confused', rating });
       cues.play({ text: rating === 'lost' ? REPLAY_ASK_LOST : REPLAY_ASK_KIND });
     } else playerRef.current.goToSlide(sc.to);
-  }, [selfCheck, tracking, cues]);
+  }, [selfCheck, tracking, cues, addLine]);
 
   // "Want to see that part a different way?" after "kind of" / "lost me": a button, or said / typed
   const [replayOffer, setReplayOffer] = useState<{ to: number; mood: 'confused' | 'frustrated'; rating: SelfCheckRating } | null>(null);
@@ -859,11 +951,12 @@ function Player({ deck, preview, startAt = 0 }: { deck: Deck; preview: boolean; 
     const offer = replayOffer;
     if (!offer) return;
     tracking.track('tutor_decision', { action: 'replay_offer', rating: offer.rating, answer: yes ? 'yes' : 'no', how });
+    if (how === 'button') addLine('you', yes ? 'Yes, show me' : 'No, keep going');
     setReplayOffer(null);
     cues.stop();
     if (yes) confused(() => playerRef.current.goToSlide(offer.to), offer.mood);
     else playerRef.current.goToSlide(offer.to);
-  }, [replayOffer, tracking, cues, confused]);
+  }, [replayOffer, tracking, cues, confused, addLine]);
 
   // Paused on purpose before talking? Then a turn with nothing in it leaves it paused
   const resumeAfterTurn = useRef(true);
@@ -879,7 +972,8 @@ function Player({ deck, preview, startAt = 0 }: { deck: Deck; preview: boolean; 
 
   const handleText = useCallback((text: string) => {
     // Their call on Finn's mistake (a command, like "next", calls it off and is done instead)
-    if (finnCheck.current) { if (!parseCanvasCommand(text)) { finnVerdict(text, 'typed'); return; } finnVerdict(null, 'typed'); }
+    addLine('you', text);
+    if (finnCheck.current) { if (!parseCanvasCommand(text)) { finnVerdict(text, 'typed', true); return; } finnVerdict(null, 'typed'); }
     takeOverFromFinn();   // the learner's own question or command during Finn's turn: theirs goes first
     if (replayOffer) {
       // "yes" / "show me" or "no" / "keep going"; anything else (a question) is handled as usual, and the offer stays
@@ -889,9 +983,9 @@ function Player({ deck, preview, startAt = 0 }: { deck: Deck; preview: boolean; 
     }
     if (selfCheck) {
       const t = text.toLowerCase();
-      if (/\b(lost|confus|no\b|nope|didn'?t|don'?t)/.test(t)) return answerSelfCheck('lost');
-      if (/\b(kind of|kinda|sort of|sorta|a bit|a little|maybe|so so|okay-ish|meh)\b/.test(t)) return answerSelfCheck('kind');
-      if (/\b(got it|yes|yeah|yep|good|great|easy|fine|sure|understood|next|continue|go on)\b/.test(t)) return answerSelfCheck('got');
+      if (/\b(lost|confus|no\b|nope|didn'?t|don'?t)/.test(t)) return answerSelfCheck('lost', true);
+      if (/\b(kind of|kinda|sort of|sorta|a bit|a little|maybe|so so|okay-ish|meh)\b/.test(t)) return answerSelfCheck('kind', true);
+      if (/\b(got it|yes|yeah|yep|good|great|easy|fine|sure|understood|next|continue|go on)\b/.test(t)) return answerSelfCheck('got', true);
     }
     const cmd = parseCanvasCommand(text);
     if (variant && variantMode.current === 'narrated') { cues.stop(); setVariant(null); variantAfter.current = null; }
@@ -1034,6 +1128,7 @@ function Player({ deck, preview, startAt = 0 }: { deck: Deck; preview: boolean; 
     if (!asked) return;
     checkIn.current = null;
     checkInAnswered(asked, yes ? 'yes' : 'no', 'button');
+    addLine('you', yes ? 'Yes' : 'No thanks');
     resumeAfterTurn.current = false;   // the button decides what happens next, not the end of the mic turn
     // The mic is listening for the spoken answer: stop it, and ignore what it heard
     if (micStatus === 'listening' || micStatus === 'processing') {
@@ -1370,6 +1465,7 @@ function Player({ deck, preview, startAt = 0 }: { deck: Deck; preview: boolean; 
     lessonStartedAt.current = Date.now();
     setQuiz({ state: 'waiting', questions: [], right: 0 });
     setReplayOffer(null);
+    setChat([]);   // a fresh lesson: a fresh chat
   }
 
   function startLesson(from?: Progress & { index: number }) {
@@ -1476,16 +1572,53 @@ function Player({ deck, preview, startAt = 0 }: { deck: Deck; preview: boolean; 
     </button>
   );
 
+  // The class chat and the classmates: beside the slide when there's room (the chat on the right; on a wide
+  // screen the chat on the left and the classmates on the right), else pull-outs from the left and right
+  const chatDocked = desk && chatOpen;
+  const matesDocked = wide && chatOpen;
+  const chatShown = chatDocked || pulled === 'chat';
+  const matesShown = matesDocked || pulled === 'mates';
+  const talking: Speaker | null = classmateSaying ?? (cues.saying || tutor.speaking || ['playing', 'finishing'].includes(player.status) ? 'professor' : null);
+  const lastChat = chat[chat.length - 1];
+  const slideEntry = chat[slideEntryAt(chat)];
+  const liveSlide = slideEntry?.kind === 'slide' && slideEntry.slide === player.slideIndex && !variant ? slideEntry.id : null;
+  const chatUnread = !chatShown && chat.some((e) => e.id > chatSeenId && e.kind !== 'slide');
+  const matesUnread = !matesShown && chat.some((e) => e.id > matesSeenId && e.kind === 'line' && e.who !== 'professor' && e.who !== 'you');
+  // The chat's latest line under the slide, when the chat isn't showing (tap it for the whole chat)
+  const peekShown = !chatShown && (desk || chatOpen) && player.status !== 'finished' && !(shortScreen && yourTurn) && !!lastChat;
+  const openChat = () => { if (desk) setChatOpen(true); else setPulled('chat'); };
+  const mainStyle = {
+    ...(chatDocked ? { '--slide-max-w': wide ? 'calc(100vw - 40rem - 4.5rem)' : 'calc(100vw - 22rem - 3rem)' } : {}),
+    '--peek-h': peekShown ? '3.75rem' : '0px',
+    paddingLeft: chatDocked && wide ? 'calc(22rem + 1.5rem)' : undefined,
+    paddingRight: chatDocked ? (wide ? 'calc(18rem + 1.5rem)' : 'calc(22rem + 1.5rem)') : undefined,
+  } as React.CSSProperties;
+  const edgeBtn = 'relative px-2.5 py-1 max-sm:w-8 max-sm:h-8 max-sm:px-0 max-sm:text-base rounded-md text-xs text-white/60 hover:text-white hover:bg-white/10 transition-colors normal-case tracking-normal';
+  const dot = <span className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-amber-400 ring-2 ring-slate-900" aria-label="new" />;
+
   return (
-    <main className="min-h-screen flex flex-col items-center justify-center gap-4 bg-gradient-to-br from-sky-950 via-slate-900 to-cyan-950 text-white px-4 py-4 max-sm:px-2 [@media(max-height:500px)]:gap-2 [@media(max-height:500px)]:py-2">
+    <main className="min-h-screen flex flex-col items-center justify-center gap-4 bg-gradient-to-br from-sky-950 via-slate-900 to-cyan-950 text-white px-4 py-4 max-sm:px-2 [@media(max-height:500px)]:gap-2 [@media(max-height:500px)]:py-2" style={mainStyle}>
       {/* (a phone turned sideways: out of the way while it's the learner's turn, so the hands-on box has the screen, and on the end screen) */}
-      {showTranscript && !(shortScreen && (yourTurn || player.status === 'finished')) && (cues.saying
+      {SHOW_FLOATING_TRANSCRIPT && showTranscript && !(shortScreen && (yourTurn || player.status === 'finished')) && (cues.saying
         ? <Transcript speaker={classmateSaying ? `${CLASSMATES[classmateSaying].name} · classmate` : 'Professor Marine'} text={cues.saying} dialogue={tutor.history} />
         : tutor.speaking || tutor.thinking
           ? <Transcript speaker="Professor Marine · answering" text={tutor.exchange?.answer || (tutor.thinking ? 'thinking…' : '')} dialogue={earlierDialogue}
               question={tutor.exchange ? { text: tutor.exchange.question, asker: tutor.exchange.asker } : undefined} />
           : !selfCheck && <Transcript speaker={player.mode === 'plain' ? 'Professor Marine · plain version' : 'Professor Marine'} text={player.captionText} getAudio={player.getAudio} dialogue={tutor.history} />)}
-      <div className="text-xs uppercase tracking-widest text-cyan-200/70">
+      <div className="w-full max-w-5xl flex items-start gap-2">
+      {/* left: the chat (when it isn't showing) and start over; right: the classmates (when they aren't showing) */}
+      <div className="flex-1 flex items-center gap-1 min-w-0">
+        {!chatShown && (
+          <button className={edgeBtn} onClick={openChat} aria-label="Open the class chat" title="The class chat">💬<span className={label}> Chat</span>{chatUnread && dot}</button>
+        )}
+        {/* Start over from the first slide: small and out of the way (the lesson may have picked up where they left off).
+            (was: fixed at the top left, where the chat now goes on a wide screen) */}
+        {player.status !== 'finished' && (
+          <button onClick={() => { if (window.confirm('Start the lesson over from the first slide?')) startOver(); }} className={edgeBtn}
+            title="Start the lesson over from the first slide" aria-label="↺ Start over">↺<span className={label}> Start over</span></button>
+        )}
+      </div>
+      <div className="text-xs uppercase tracking-widest text-cyan-200/70 text-center">
         {preview && <span className="mr-2 text-amber-300">Preview ·</span>}
         Topic {player.topicIndex + 1} of {player.topicCount} · Slide {player.slideIndex + 1} of {deck.slides.length}
         {player.mode === 'plain' && <span className="ml-2 text-amber-300">· plain version</span>}
@@ -1496,17 +1629,12 @@ function Player({ deck, preview, startAt = 0 }: { deck: Deck; preview: boolean; 
             style={{ width: `${player.status === 'finished' ? 100 : ((player.slideIndex + (player.clipCount ? Math.min(player.clipIndex, player.clipCount) / player.clipCount : 0)) / deck.slides.length) * 100}%` }} />
         </div>
       </div>
-
-      {/* Start over from the first slide: small and out of the way (the lesson may have picked up where they left off) */}
-      {player.status !== 'finished' && (
-        <button
-          onClick={() => { if (window.confirm('Start the lesson over from the first slide?')) startOver(); }}
-          className="fixed top-3 left-3 z-30 px-2.5 py-1 rounded-md text-xs text-white/45 hover:text-white hover:bg-white/10 transition-colors"
-          title="Start the lesson over from the first slide"
-        >
-          ↺ Start over
-        </button>
-      )}
+      <div className="flex-1 flex items-center justify-end min-w-0">
+        {!matesShown && (
+          <button className={edgeBtn} onClick={() => setPulled('mates')} aria-label="Open the classmates" title="Your classmates: Maya, Finn and Leo">🙋<span className={label}> Classmates</span>{matesUnread && dot}</button>
+        )}
+      </div>
+      </div>
 
       {cameraOn && <CameraBubble sees={cameraSees} progress={handProgress} />}
 
@@ -1667,6 +1795,19 @@ function Player({ deck, preview, startAt = 0 }: { deck: Deck; preview: boolean; 
         )}
       </div>
 
+      {/* The chat's latest line (the chat itself is put away): tap for the whole conversation */}
+      {peekShown && lastChat && (() => {
+        const who: Speaker = lastChat.kind === 'line' ? lastChat.who : 'professor';
+        const text = lastChat.kind === 'slide' ? lastChat.lines[lastChat.lines.length - 1]?.text ?? '' : lastChat.text || 'thinking…';
+        return (
+          <button onClick={openChat} className="w-full max-w-3xl h-[3.25rem] flex items-center gap-2.5 px-3 rounded-xl bg-white/[0.06] hover:bg-white/10 border border-white/10 text-left text-sm" data-chat-peek aria-label="Open the class chat">
+            <Avatar who={who} learnerName={learnerName.trim()} size={26} speaking={talking === who} />
+            <span className="flex-1 min-w-0 line-clamp-2 leading-snug"><b className="font-semibold" style={{ color: who === 'professor' ? '#67e8f9' : speakerOf(who, learnerName.trim()).color }}>{speakerOf(who, learnerName.trim()).name}:</b> {text}</span>
+            <span className="shrink-0 text-xs text-white/50">💬{chatUnread && <span className="ml-1 inline-block w-2 h-2 rounded-full bg-amber-400" />}</span>
+          </button>
+        );
+      })()}
+
       {/* clip dots: one per spoken element on this slide */}
       <div className={`flex gap-1.5 h-2 ${yourTurn && !variant && !selfCheck ? 'invisible' : ''}`} aria-hidden>
         {Array.from({ length: player.clipCount }, (_, i) => (
@@ -1675,7 +1816,8 @@ function Player({ deck, preview, startAt = 0 }: { deck: Deck; preview: boolean; 
       </div>
 
       {/* The question and the professor's answer, while it's being answered */}
-      {tutor.exchange && (ANSWER_BOX_UNDER_SLIDE || !showTranscript) && (
+      {/* (the chat has it: beside the slide, or its latest line under the slide. Was: shown here with the transcript off) */}
+      {tutor.exchange && ANSWER_BOX_UNDER_SLIDE && (
         <div className="w-full max-w-3xl rounded-xl bg-white/10 border border-white/15 px-4 py-3 text-sm relative" role="status" data-bubble-avoid>
           <button className="absolute top-2 right-3 text-white/50 hover:text-white" onClick={tutor.clearExchange} aria-label="Close">✕</button>
           <p className={tutor.exchange.asker ? 'text-amber-200' : 'text-cyan-200/90'}><b>{tutor.exchange.asker ?? 'You'}:</b> {tutor.exchange.question}</p>
@@ -1713,7 +1855,8 @@ function Player({ deck, preview, startAt = 0 }: { deck: Deck; preview: boolean; 
           {micStatus === 'listening' ? <>●<span className={label}> Listening…</span></> : micStatus === 'processing' ? '…' : <>🎤<span className={label}> Talk</span></>}
         </button>
         {(interruptOn || micStatus === 'listening') && <MicMeter levelRef={levelRef} listening={micStatus === 'listening'} />}
-        <form
+        {/* (with the class chat beside the slide, its own box is where to type) */}
+        {!chatDocked && <form
           onSubmit={(e) => { e.preventDefault(); if (typed.trim()) handleText(typed); setTyped(''); }}
           className="flex"
         >
@@ -1725,7 +1868,7 @@ function Player({ deck, preview, startAt = 0 }: { deck: Deck; preview: boolean; 
             className="px-3 py-2 rounded-l-lg bg-white/10 placeholder:text-white/40 text-sm outline-none focus:bg-white/15 w-44 max-sm:w-36"
           />
           <button className="px-3 py-2 rounded-r-lg bg-cyan-500/80 hover:bg-cyan-500 text-sm font-medium">Send</button>
-        </form>
+        </form>}
         </div>
         {cameraOn && (
           <span className="text-xs text-white/70">
@@ -1736,10 +1879,10 @@ function Player({ deck, preview, startAt = 0 }: { deck: Deck; preview: boolean; 
         {/* The on/off switches, in one menu (was: five more buttons, so the controls took two rows) */}
         <div className="relative" ref={optionsRef}>
           <button className={`${btn} ${optionsOpen ? 'bg-white/25' : ''}`} onClick={() => setOptionsOpen((o) => !o)} aria-expanded={optionsOpen}
-            title="Voice speed, interrupt, camera, classmates, sounds, transcript" aria-label="Options">
+            title="Voice speed, interrupt, camera, classmates, sounds, class chat" aria-label="Options">
             ⚙<span className={label}> Options</span>
             {/* what's on, at a glance */}
-            <span className="ml-1.5 text-xs opacity-80">{[interruptOn && '🎙', cameraOn && '📷', classmateOn && '🙋', soundsOn && '🔔', showTranscript && '💬'].filter(Boolean).join('')}{voiceSpeed !== 1 && ` ${voiceSpeed}×`}</span>
+            <span className="ml-1.5 text-xs opacity-80">{[interruptOn && '🎙', cameraOn && '📷', classmateOn && '🙋', soundsOn && '🔔', chatOpen && '💬'].filter(Boolean).join('')}{voiceSpeed !== 1 && ` ${voiceSpeed}×`}</span>
           </button>
           {optionsOpen && (
             <div className="absolute bottom-full mb-2 right-0 z-30 w-72 rounded-xl bg-slate-900/95 border border-white/15 shadow-2xl p-2 flex flex-col gap-1" role="menu">
@@ -1767,7 +1910,7 @@ function Player({ deck, preview, startAt = 0 }: { deck: Deck; preview: boolean; 
                 }],
                 ['🙋', 'Classmates', 'Maya, Finn and Leo: they ask questions, and Finn has a go at the hands-on activities', classmateOn, () => setClassmateOn((v) => !v)],
                 ['🔔', 'Sounds', 'Little sounds in the hands-on activities', soundsOn, toggleSounds],
-                ['💬', 'Transcript', 'The words being said, top right', showTranscript, () => setShowTranscript((v) => !v)],
+                ['💬', 'Class chat', desk ? 'The conversation beside the slide' : 'The latest line under the slide (tap it for the whole chat)', chatOpen, () => setChatOpen((v) => !v)],
               ] as const).map(([icon, name, hint, on, toggle]) => (
                 <button key={name} role="menuitemcheckbox" aria-checked={on} onClick={toggle}
                   className="flex items-center gap-2 px-2.5 py-2 rounded-lg hover:bg-white/10 text-left">
@@ -1788,6 +1931,26 @@ function Player({ deck, preview, startAt = 0 }: { deck: Deck; preview: boolean; 
       <footer className="text-xs text-white/40 [@media(max-height:500px)]:hidden" data-bubble-avoid>
         <Link href="/sources" className="underline hover:text-white/70">View sources</Link>
       </footer>
+
+      {/* The class chat and the classmates (see chatDocked above) */}
+      {chatDocked ? (
+        <ClassChat className={`fixed top-3 bottom-3 z-30 w-[22rem] ${wide ? 'left-3' : 'right-3'}`} entries={chat} learnerName={learnerName.trim()} liveSlide={liveSlide}
+          getAudio={player.getAudio} thinking={tutor.thinking} speaking={talking} onSend={handleText} onClose={() => setChatOpen(false)} />
+      ) : (
+        <div className={`fixed inset-y-0 left-0 z-50 w-[min(22rem,90vw)] p-2 transition-transform duration-300 ${pulled === 'chat' ? 'translate-x-0' : '-translate-x-[105%]'}`}
+          inert={pulled !== 'chat'} data-pullout="chat">
+          <ClassChat className="h-full" solid entries={chat} learnerName={learnerName.trim()} liveSlide={liveSlide}
+            getAudio={player.getAudio} thinking={tutor.thinking} speaking={talking} onSend={handleText} onClose={() => setPulled(null)} closeLabel="Put the chat away" />
+        </div>
+      )}
+      {matesDocked ? (
+        <ClassmatesPanel className="fixed top-3 bottom-3 right-3 z-30 w-[18rem]" entries={chat} speaking={talking} />
+      ) : (
+        <div className={`fixed inset-y-0 right-0 z-50 w-[min(20rem,88vw)] p-2 transition-transform duration-300 ${pulled === 'mates' ? 'translate-x-0' : 'translate-x-[105%]'}`}
+          inert={pulled !== 'mates'} data-pullout="mates">
+          <ClassmatesPanel className="h-full" solid entries={chat} speaking={talking} onClose={() => setPulled(null)} />
+        </div>
+      )}
     </main>
   );
 }

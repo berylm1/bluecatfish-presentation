@@ -10,7 +10,8 @@ import { learnerHeaders } from '@/lib/learnerSession';
 
 export type TutorDecision = 'repeat' | 'simplify' | 'advance' | null;
 /** asker: who asked (a classmate's name); not set = the learner */
-export type Exchange = { question: string; answer: string; done: boolean; asker?: string };
+/** id: one per ask (a new question, or the same one asked again, gets a new id) */
+export type Exchange = { id?: number; question: string; answer: string; done: boolean; asker?: string };
 
 const HISTORY_TURNS = 6;   // earlier questions the tutor still remembers
 
@@ -42,7 +43,7 @@ export function useTutor() {
   } = {}): Promise<{ decision: TutorDecision; superseded: boolean }> => {
     const seq = ++askSeq.current;
     speech.stopSpeaking();
-    setExchange({ question, asker: opts.asker, answer: '', done: false });
+    setExchange({ id: seq, question, asker: opts.asker, answer: '', done: false });
     setThinking(true);
     let decision: TutorDecision = null;
     try {
@@ -70,7 +71,7 @@ export function useTutor() {
         speech.beginStream();
         speech.enqueue(line);
         speech.endStream();
-        setExchange({ question, asker: opts.asker, answer: line, done: true });
+        setExchange({ id: seq, question, asker: opts.asker, answer: line, done: true });
         setThinking(false);
         await new Promise((r) => setTimeout(r, 2500));
         return { decision: null, superseded: seq !== askSeq.current };
@@ -91,7 +92,7 @@ export function useTutor() {
         full += chunk;
         pending += chunk;
         setThinking(false);
-        setExchange({ question, asker: opts.asker, answer: full, done: false });
+        setExchange({ id: seq, question, asker: opts.asker, answer: full, done: false });
         // Speak each finished sentence right away
         let m;
         while ((m = pending.match(/^([\s\S]*?[.!?])(\s+)([\s\S]*)$/))) {
@@ -103,11 +104,11 @@ export function useTutor() {
       speech.endStream();
       // A classmate's line is remembered as theirs, not as something the learner said
       historyRef.current.push({ role: 'user', content: opts.remember ?? (opts.asker ? `(${opts.asker}, a classmate, said: ${question})` : question) }, { role: 'assistant', content: full });
-      setExchange({ question, asker: opts.asker, answer: full, done: true });
-      setHistory((h) => [...h.slice(-19), { question, asker: opts.asker, answer: full, done: true }]);
+      setExchange({ id: seq, question, asker: opts.asker, answer: full, done: true });
+      setHistory((h) => [...h.slice(-19), { id: seq, question, asker: opts.asker, answer: full, done: true }]);
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
-      setExchange({ question, asker: opts.asker, answer: msg, done: true });
+      setExchange({ id: seq, question, asker: opts.asker, answer: msg, done: true });
       decision = null;
     } finally {
       if (seq === askSeq.current) setThinking(false);
