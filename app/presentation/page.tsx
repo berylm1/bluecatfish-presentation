@@ -36,6 +36,7 @@ import type { ActivityElement, BankQuestion, Pointer, QuizQuestion, Slide } from
 import { VOICE_SPEEDS, loadVoiceSpeed, setVoiceSpeed, type VoiceSpeed } from '@/lib/voiceSpeed';
 import { lessonLength } from '@/lib/canvas/lessonLength';
 import Quiz, { pickQuiz } from '@/components/canvas/Quiz';
+import { lessonParts } from '@/lib/canvas/parts';
 
 /*
  * The canvas presentation (see docs/customization-plan.md).
@@ -564,6 +565,22 @@ function Player({ deck, preview, startAt = 0 }: { deck: Deck; preview: boolean; 
     }
   }, []);
 
+  // The lesson's ready-made parts (texts, pictures, charts, numbered), for a slide made on the spot
+  const parts = useMemo(() => lessonParts(deck), [deck]);
+  /** A slide for the question from the lesson's own parts (/api/tutor/compose), or null (nothing fits, too slow, or rate-limited) */
+  const composeSlide = useCallback(async (question: string): Promise<Slide | null> => {
+    if (parts.length < 2) return null;
+    try {
+      const res = await fetch('/api/tutor/compose', {
+        method: 'POST', headers: learnerHeaders({ 'Content-Type': 'application/json' }),
+        body: JSON.stringify({ question, parts }), signal: AbortSignal.timeout(12000),
+      });
+      return res.ok ? ((await res.json()).slide ?? null) : null;
+    } catch {
+      return null;
+    }
+  }, [parts]);
+
   /** A question (not a command): the professor answers, then the lesson carries on. Resolves false if it was talked over. */
   const answer = useCallback(async (question: string, opts: {
     /** A classmate asked it (their name): not counted as the learner's question */
@@ -592,7 +609,8 @@ function Player({ deck, preview, startAt = 0 }: { deck: Deck; preview: boolean; 
     if (MORPH_HELPERS && base && !handsOn) {
       const wantBoard = question.trim().split(/\s+/).length >= 3;
       Promise.all([
-        wantBoard ? fetchBoard(question, base.topic ?? '', slideText(playerRef.current.slideIndex)) : Promise.resolve(null),
+        // a slide from the lesson's own parts (quick: the AI only picks and places them), else a board drawn from scratch
+        wantBoard ? composeSlide(question).then((made) => made ?? fetchBoard(question, base.topic ?? '', slideText(playerRef.current.slideIndex))) : Promise.resolve(null),
         // Not for Finn's questions: the authored slide is the "I'm lost" help slide, and the
         // learner isn't lost when a classmate asks (was: Finn spoke, the help slide came up)
         opts.asker ? Promise.resolve(null) : findVariant('confused', question, question),
@@ -602,8 +620,8 @@ function Player({ deck, preview, startAt = 0 }: { deck: Deck; preview: boolean; 
         if (board || slide) shownAt = Date.now();
         if (board) {
           tracking.track('tutor_decision', { action: 'board', title: String(board.elements[0]?.type === 'text' ? board.elements[0].text : '') });
-          // keeps the slide's background, so it's the slide turning into the board
-          setVariant({ title: '', body: '', narration: '', variant: 'board', slide: { ...board, id: `${base.id}~board`, background: base.background } });
+          // keeps the slide's background, so it's the slide turning into the board (a slide from parts keeps its own: its text is dark)
+          setVariant({ title: '', body: '', narration: '', variant: 'board', slide: { ...board, id: `${base.id}~board`, background: board.id === 'spot' ? board.background : base.background } });
         } else if (slide) {
           tracking.track('tutor_decision', { action: 'slide_with_answer', title: slide.title });
           setVariant(slide);
@@ -631,7 +649,7 @@ function Player({ deck, preview, startAt = 0 }: { deck: Deck; preview: boolean; 
     else if (decision === 'repeat') now.repeat();
     else now.resume();
     return true;
-  }, [tutor, slideContext, tracking, findVariant, finishThenPause, deck, slideText, learnerName]);
+  }, [tutor, slideContext, tracking, findVariant, finishThenPause, deck, slideText, learnerName, composeSlide]);
 
   /**
    * The learner is lost: show a reviewed variant slide for this topic if there
@@ -1831,9 +1849,9 @@ function Player({ deck, preview, startAt = 0 }: { deck: Deck; preview: boolean; 
           <button
             onClick={closeVariant}
             className="absolute bottom-3 right-3 z-20 px-4 py-2 rounded-full bg-cyan-500 hover:bg-cyan-400 text-slate-900 text-sm font-semibold shadow-lg"
-            aria-label={variant.variant === 'answer' ? 'Back to the lesson' : 'Another way to see it: back to the lesson'}
+            aria-label={variant.variant === 'answer' || variant.variant === 'board' ? 'Back to the lesson' : 'Another way to see it: back to the lesson'}
           >
-            {variant.variant === 'answer' ? 'Back to the lesson →' : 'Got it, back to the lesson →'}
+            {variant.variant === 'answer' || variant.variant === 'board' ? 'Back to the lesson →' : 'Got it, back to the lesson →'}
           </button>
         )}
         {selfCheck && !variant && (
