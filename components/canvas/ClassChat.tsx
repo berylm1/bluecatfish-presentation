@@ -17,7 +17,7 @@ export type ChatEntry =
   /** A slide's narration: the lines said so far (a slide visited again, or picked up after a question, gets a new entry) */
   | { id: number; kind: 'slide'; slide: number; title: string; lines: { key: string; text: string }[] }
   /** Something said: a line from the professor or a classmate, or what the learner typed, said or clicked */
-  | { id: number; kind: 'line'; who: Speaker; text: string }
+  | { id: number; kind: 'line'; who: Speaker; text: string; to?: string }
   /** The professor's answer to a question (written as it streams in) */
   | { id: number; kind: 'answer'; exchange: number; text: string; done: boolean };
 
@@ -145,7 +145,7 @@ export default function ClassChat({ entries, learnerName, liveSlide, getAudio, t
             <div key={e.id} className={`flex items-end gap-2 ${mine ? 'flex-row-reverse' : ''}`} data-chat-line={who}>
               <Avatar who={who} learnerName={learnerName} size={26} />
               <div className={`max-w-[85%] rounded-2xl px-3 py-2 ${mine ? 'bg-cyan-500/90 text-slate-950 rounded-br-md' : 'bg-white/10 rounded-bl-md'}`}>
-                {!mine && <div className="text-[11px] font-semibold mb-0.5" style={{ color: who === 'professor' ? '#67e8f9' : s.color }}>{s.name}</div>}
+                {!mine && <div className="text-[11px] font-semibold mb-0.5" style={{ color: who === 'professor' ? '#67e8f9' : s.color }}>{s.name}{e.kind === 'line' && e.to && <span className="font-normal text-white/50"> → {e.to}</span>}</div>}
                 {text || <span className="inline-flex gap-1 py-1" aria-label="thinking"><Dot /><Dot d={150} /><Dot d={300} /></span>}
               </div>
             </div>

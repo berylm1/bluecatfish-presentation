@@ -301,6 +301,8 @@ export function useDeckPlayer(
       audioRef.current?.pause();
       setStatus('paused');
     },
+    /** On past the rest of this slide (what comes after it decides: the next slide, or a topic's end) */
+    endSlide: () => setPos((p) => ({ ...p, clip: order.length, mode: 'normal', token: p.token + 1 })),
     /** Where an element is said on this slide (its clip number), or -1 */
     clipOf: (id: string) => order.findIndex((e) => e.id === id),
     /** On to what comes after an element on this slide (its own clip and anything before it are skipped) */

@@ -14,13 +14,16 @@ import type { Slide } from '@/lib/canvas/types';
  * numbered T1, P1, V1…). The AI only picks parts by number and places them (plus a short title), so
  * the reply is short and quick, and every fact on the slide is one the lesson already shows. Then the
  * quick automatic fixes (no retry). The professor's live answer is said while it's up.
- *   POST { question, parts: [{ id, kind, about, el }] } → { slide } | { slide: null }
+ *   POST { question, parts: [{ id, kind, about, el }], questions?: string[] } → { slide } | { slide: null }
+ * questions: several questions answered together on the one slide (the learner's and the classmates'),
+ * one after another: something shown for each.
  * Kept per question and parts (the same question in the same lesson = the same slide).
  */
 
 export const maxDuration = 20;
 
 const PICK_MAX = 14;   // parts the AI chooses from (the closest to the question)
+const PICK_MAX_TOGETHER = 24;   // (several questions: more to choose from)
 
 const SYSTEM = `You build ONE slide that helps answer a learner's question (10-14 year olds), from READY-MADE PARTS of the lesson.
 Each part has an id (T = text box, P = picture, V = chart or diagram) and says what it is.
@@ -32,6 +35,11 @@ If no part helps answer the question, reply {"slide": null}.
 ${formatGuide()}
 
 Reply as JSON: {"slide": {"title": "...", "place": [{"part": "P2", "x": 0, "y": 0, "w": 0, "h": 0}]}}`;
+
+const TOGETHER = `
+SEVERAL QUESTIONS are answered on this ONE slide, one after another (the professor answers each in turn while it's up).
+Show something for EACH question: 3 to 6 parts in all, arranged so each answer has its own area, in the questions' order
+(left to right, then top to bottom). The title names what they have in common.`;
 
 const cache = new Map<string, number[]>();
 async function embedMany(inputs: string[]): Promise<number[][]> {
@@ -61,24 +69,27 @@ export async function POST(req: Request) {
     .filter((p: any) => /^[TPV]\d{1,3}$/.test(String(p?.id)) && typeof p?.about === 'string' && p?.el && typeof p.el === 'object')
     .map((p: any) => ({ id: p.id, kind: String(p.kind), about: p.about.replace(/\s+/g, ' ').slice(0, 300), el: p.el }));
   if (!question || parts.length < 2) return NextResponse.json({ slide: null });
+  const questions: string[] = (Array.isArray(body.questions) ? body.questions : []).slice(0, 5).map((q: unknown) => String(q).replace(/\s+/g, ' ').trim().slice(0, 200)).filter(Boolean);
+  const together = questions.length > 1;
 
-  const key = `compose:v1:${createHash('sha1').update(`${question.toLowerCase()}|${parts.map((p) => `${p.id}:${p.about}`).join('|')}`).digest('hex').slice(0, 16)}`;
+  const key = `compose:v1:${createHash('sha1').update(`${question.toLowerCase()}|${questions.join('|')}|${parts.map((p) => `${p.id}:${p.about}`).join('|')}`).digest('hex').slice(0, 16)}`;
   const cached = await getValue(key);
   if (cached) return NextResponse.json({ slide: JSON.parse(cached) });
 
   try {
     // The parts closest to the question (by meaning), so the AI reads a short list
     let pick = parts;
-    if (parts.length > PICK_MAX) {
+    const most = together ? PICK_MAX_TOGETHER : PICK_MAX;
+    if (parts.length > most) {
       if (cache.size > 4000) cache.clear();
       const missing = [...new Set(parts.map((p) => p.about).filter((a) => !cache.has(a)))];
       const vectors = await embedMany([question, ...missing]);
       missing.forEach((a, i) => cache.set(a, vectors[i + 1]));
-      pick = parts.map((p) => ({ p, s: cosine(vectors[0], cache.get(p.about)!) })).sort((a, b) => b.s - a.s).slice(0, PICK_MAX).map((x) => x.p);
+      pick = parts.map((p) => ({ p, s: cosine(vectors[0], cache.get(p.about)!) })).sort((a, b) => b.s - a.s).slice(0, most).map((x) => x.p);
     }
-    const out = JSON.parse(await chat(SYSTEM,
-      `Question: ${question}\n\nPARTS:\n${pick.map((p) => `${p.id} (${p.kind === 'text' ? 'text box' : p.kind}): ${p.about}`).join('\n')}`, true, 700));
-    const slide = build(out?.slide, pick);
+    const out = JSON.parse(await chat(together ? SYSTEM + TOGETHER : SYSTEM,
+      `${together ? `Questions, in order:\n${questions.map((q, i) => `${i + 1}. ${q}`).join('\n')}` : `Question: ${question}`}\n\nPARTS:\n${pick.map((p) => `${p.id} (${p.kind === 'text' ? 'text box' : p.kind}): ${p.about}`).join('\n')}`, true, 700));
+    const slide = build(out?.slide, pick, together ? 6 : 4);
     await setValue(key, JSON.stringify(slide));   // ("nothing helps" is kept too)
     return NextResponse.json({ slide });
   } catch (e) {
@@ -88,14 +99,14 @@ export async function POST(req: Request) {
 }
 
 /** The AI's picks → a clean, silent slide (the parts as they are in the lesson, where it put them), or null */
-function build(raw: any, parts: Part[]): Slide | null {
+function build(raw: any, parts: Part[], most: number): Slide | null {
   if (!raw || !Array.isArray(raw.place)) return null;
   const byId = new Map(parts.map((p) => [p.id, p]));
   const used = new Set<string>();
   const elements: any[] = [];
   const title = typeof raw.title === 'string' ? raw.title.replace(/\s+/g, ' ').trim().slice(0, 60) : '';
   if (title) elements.push({ id: 'spot-title', type: 'text', text: title, style: 'title', x: 5, y: 4, w: 90, h: 13, color: '#0f172a', bold: true, silent: true });
-  for (const pl of raw.place.slice(0, 4)) {
+  for (const pl of raw.place.slice(0, most)) {
     const p = byId.get(String(pl?.part));
     if (!p || used.has(p.id)) continue;
     used.add(p.id);
