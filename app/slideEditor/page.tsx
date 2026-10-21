@@ -12,7 +12,7 @@ import SlideCanvas from '@/components/canvas/SlideCanvas';
 import { answersToLookAt, claimKey, factBasis, lessonBasis, slideWarnings, slidesToFactCheck, type Warning } from '@/lib/canvas/checks';
 import { speakingOrder } from '@/lib/canvas/queue';
 import { deckFromAnyVersion } from '@/lib/canvas/fromLegacy';
-import { answerState, countTodo, needsBank, quizBasis, todoTotal, type Patch } from '@/lib/canvas/aiFields';
+import { answerState, countTodo, needsBank, openPictureIdeas, pictureBasis, pictureSkipKey, quizBasis, todoTotal, type Patch } from '@/lib/canvas/aiFields';
 import { startsTopic } from '@/lib/canvas/intro';
 import { applyRepeatFix, type RepeatSuggestion } from '@/lib/canvas/repeats';
 import RepeatsPanel from '@/components/editor/RepeatsPanel';
@@ -688,7 +688,7 @@ function Editor({
   // The Check tab's count: open ❌ / ⚠️ facts on up-to-date checks, and pictures without a description
   const checkBadge = useMemo(() => {
     const fine = new Set(deck.checks?.factsOk ?? []);
-    let n = picturesWithoutDescription(deck).length + openMoves(deck).length;
+    let n = picturesWithoutDescription(deck).length + openMoves(deck).length + openPictureIdeas(deck).length;
     for (const sl of deck.slides) {
       const f = deck.checks?.facts?.[sl.id];
       if (f && f.from === factBasis(sl)) n += f.claims.filter((c) => c.verdict !== 'supported' && !fine.has(claimKey(sl.id, c.claim))).length;
@@ -710,6 +710,22 @@ function Editor({
     flash(`${made === 1 ? 'Moved' : `Made ${made} moves`} (Ctrl+Z undoes it).${theirs.length ? ` Check your words on “${theirs.join('”, “')}”: they may not fit the new order.` : ''}`, theirs.length ? 'warn' : 'ok');
   };
   const skipMove = (m: OrderMove) => ed.change((d) => { d.checks = { ...d.checks, orderSkips: [...(d.checks?.orderSkips ?? []), moveKey(m)].slice(-200) }; });
+  // Pictures to add (the Check tab): the slide laid out with them, if it's still as it was checked (one undo step), or skip them
+  const addPictures = (slideId: string) => {
+    let added = 0;
+    ed.change((d) => {
+      const sl = d.slides.find((x) => x.id === slideId);
+      const c = d.checks?.pictures?.[slideId];
+      if (!sl || !c?.idea || c.from !== pictureBasis(sl)) return;
+      sl.elements = structuredClone(c.idea.elements);
+      added = c.idea.pictures.length;
+    });
+    flash(added ? `Added ${added === 1 ? 'a picture' : `${added} pictures`} (Ctrl+Z undoes it)` : 'The slide has changed since: it’s checked again on save', added ? 'ok' : 'warn');
+  };
+  const skipPictures = (slideId: string) => ed.change((d) => {
+    const c = d.checks?.pictures?.[slideId];
+    if (c) d.checks = { ...d.checks, pictureSkips: [...(d.checks?.pictureSkips ?? []), pictureSkipKey(slideId, c.from)].slice(-300) };
+  });
 
   // Pictures with no description (the chip in the top row, More ▾): the Check tab's ✨ Describe all, started from here
   const missingDescriptions = useMemo(() => picturesWithoutDescription(deck).length, [deck]);
@@ -1078,7 +1094,7 @@ function Editor({
               <CheckPanel deck={deck} slideIndex={slideIdx} lessonTitle={deck.title} active={panel === 'check'} runSignal={factRun} describeSignal={describeRun}
                 onRecord={recordFacts} onFine={markFine} onUseThis={applyFix} onDescribed={fillDescriptions}
                 onGoTo={(id) => { if (ed.layer !== 'main') ed.setLayer('main'); ed.setSelected(id); }} onGoToSlide={(i) => goToRepeat(i)}
-                onMoves={makeMoves} onSkipMove={skipMove} />
+                onMoves={makeMoves} onSkipMove={skipMove} onAddPictures={addPictures} onSkipPictures={skipPictures} />
             </div>
             {panel === 'repeats' || panel === 'check' ? null : panel === 'props' ? (
               element ? (

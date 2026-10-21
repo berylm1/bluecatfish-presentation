@@ -11,10 +11,13 @@ import { writeRecap } from './prepare';
 import { removeRepeats } from './repeats';
 import { checkActivityAnswers } from './activityCheck';
 import { fixStoryOrder } from './storyOrder';
+import { pictureCandidates, pictureIdea } from './pictures';
+import { pictureCheckable } from './aiFields';
 
 const GENERATE_BUDGET_MS = 270_000;   // the ai-deck route's maxDuration is 300 s
 const ANSWER_CHECK_MS = 30_000;        // a hands-on box's answer check, roughly, with room to spare
 const STORY_ORDER_MS = 40_000;         // the story-order read and the recap after it
+const PICTURES_MS = 30_000;            // the picture pass (in parallel over the slides), and the recap after it
 
 // Step 5: the AI makes a whole deck in the canvas format.
 //   1. plan the lesson's topics from the knowledge base
@@ -25,6 +28,7 @@ const STORY_ORDER_MS = 40_000;         // the story-order read and the recap aft
 //   4. read the whole deck for repeated content (up to 3 times) and rewrite repeats
 //   5. check the hands-on boxes' answer keys against the knowledge base
 //   6. put the whole lesson in story order (storyOrder.ts): the right first and last topics
+//   7. add library pictures it doesn't use yet where a slide talks about what one shows (pictures.ts)
 // Audio is made afterwards by the save-time AI (prepare.ts).
 
 const supabase = lazySupabaseAdmin();
@@ -260,6 +264,22 @@ export async function generateAiDeck(lesson: LessonInfo): Promise<{ deck: Deck; 
       notes.push(...(await fixStoryOrder(deck, lesson.title)));
     } catch (e) {
       notes.push(`Checking the slide order failed: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
+  // Pictures: the library's pictures the lesson doesn't use yet (no words in them), added where a slide talks
+  // about what one shows, the slide laid out again with them (with room left for it: else the save-time AI suggests them)
+  if (Date.now() < started + GENERATE_BUDGET_MS - PICTURES_MS) {
+    try {
+      const slides = deck.slides.filter(pictureCheckable);
+      const candidates = await pictureCandidates(deck, slides);
+      let added = 0;
+      await Promise.all(slides.map(async (s) => {
+        const idea = await pictureIdea(deck, s, candidates.get(s.id) ?? []).catch(() => null);
+        if (idea) { s.elements = idea.elements; added += idea.pictures.length; }
+      }));
+      if (added) notes.push(`Added ${added} picture${added === 1 ? '' : 's'} from the library where slides talk about what they show`);
+    } catch (e) {
+      notes.push(`Adding pictures failed: ${e instanceof Error ? e.message : String(e)}`);
     }
   }
   deck.slides.forEach(markAi);

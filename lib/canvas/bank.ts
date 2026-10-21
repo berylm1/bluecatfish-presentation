@@ -1,6 +1,7 @@
 import type { BankQuestion, Deck, Slide } from './types';
 import { chat, knowledge, STYLE } from './ai';
 import { autoFix, formatGuide, imagesFor, markAi, problems, toSlide, type LibImage } from './generate';
+import { hasWords } from './pictures';
 import { BANK_PER_TOPIC, fingerprint, slideBasis } from './aiFields';
 import { spokenText } from './queue';
 
@@ -83,7 +84,7 @@ export async function writeBankTopic(deck: Deck, topic: string,
   // Pictures per question, each picture to one answer only, and none the lesson already uses
   const found: LibImage[][] = await Promise.all(asks.map((a: { q: string }) => imagesFor(`${topic}: ${a.q}`, 6)));
   const offered = found.map((list) => {
-    const mine = list.filter((i) => !used.has(i.url)).slice(0, PICTURES_EACH);
+    const mine = list.filter((i) => !used.has(i.url) && !hasWords(i.description ?? '')).slice(0, PICTURES_EACH);   // (just visuals: no words in them)
     for (const i of mine) used.add(i.url);
     return mine.map((i, n) => ({ ...i, id: `img${n + 1}` }));
   });

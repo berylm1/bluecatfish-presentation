@@ -213,6 +213,18 @@ export interface DeckChecks {
   order?: { from: string; at: string; why?: string; moves: OrderMove[] };
   /** Order moves a person skipped (moveKey) */
   orderSkips?: string[];
+  /** The picture check (pictures.ts), per slide id: the slide it looked at (pictureBasis) and the pictures it suggests (null: none) */
+  pictures?: Record<string, { from: string; at: string; idea: PictureIdea | null }>;
+  /** Picture ideas a person skipped (pictureSkipKey) */
+  pictureSkips?: string[];
+}
+
+/** Pictures the check suggests adding to a slide, and the slide laid out again with them */
+export interface PictureIdea {
+  /** The pictures added: address, description, and why it fits the slide */
+  pictures: { src: string; alt: string; why: string }[];
+  /** The slide's elements laid out with them (the slide's own keep their content; the pictures are new elements) */
+  elements: SlideElement[];
 }
 
 /** A suggested move: these slides (a topic, or one slide), put right after `after` (null: at the start). */

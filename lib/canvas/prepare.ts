@@ -4,7 +4,7 @@ import type { Deck, Pointer, Slide, SlideElement } from './types';
 import { spokenText } from './queue';
 import { introBasis, introText } from './intro';
 import {
-  answerBasis, applyPatches, bankBasis, bankElements, needsBank, needsOrderCheck, needsQuiz, orderBasis, quizBasis, quizKey, audioKey, fingerprint, helperElements, needsAnswerCheck, needsAudio, needsCaption, needsHelper, needsIntro, needsIntroAudio, needsPlain, needsPlainAudio, needsPointers, needsSay, needsTopic,
+  answerBasis, applyPatches, bankBasis, bankElements, needsBank, needsOrderCheck, needsPictureCheck, pictureBasis, needsQuiz, orderBasis, quizBasis, quizKey, audioKey, fingerprint, helperElements, needsAnswerCheck, needsAudio, needsCaption, needsHelper, needsIntro, needsIntroAudio, needsPlain, needsPlainAudio, needsPointers, needsSay, needsTopic,
   pointersBasis,
   plainText, sayBasis, slideBasis, type Patch,
 } from './aiFields';
@@ -20,7 +20,8 @@ const AUDIO_BUCKET = 'slide-audio';
 const AUDIO_FOLDER = 'canvas';
 const QUIZ_TIME_MS = 25_000;   // the quiz's check, write and check, roughly
 const ORDER_TIME_MS = 12_000;  // the story-order check, roughly
-const BANK_TIME_MS = 35_000;   // a topic's question bank (one long AI write, a fix or two), roughly
+const BANK_TIME_MS = 35_000;
+const PICTURE_TIME_MS = 15_000;   // a slide's picture check (a search, one AI read, maybe a fix), roughly   // a topic's question bank (one long AI write, a fix or two), roughly
 
 // Shared AI helpers live in ai.ts (re-exported here: generate.ts imports them from this file)
 export { STYLE, chat, knowledge } from './ai';
@@ -31,6 +32,7 @@ import { refreshQuiz } from './quiz';
 import { askStoryOrder } from './storyOrder';
 import { movesFor } from './order';
 import { usedPictures, writeBankTopic } from './bank';
+import { lessonPictures, pictureCandidates, pictureIdea } from './pictures';
 
 const otherText = (slide: Slide, el: SlideElement) =>
   slide.elements.filter((e) => e.id !== el.id).map(sayBasis).filter(Boolean).join(' | ');
@@ -336,8 +338,27 @@ export async function prepareDeck(
     } catch (e) { fail('Placing laser marks', e); }
   });
 
+  // 1f. The picture check: library pictures not used yet, where a slide talks about what one shows. Suggestions for the
+  //     editor's Check tab (a person adds them); pictures already suggested for other slides aren't suggested again
+  const toCheck = deck.slides.filter((sl) => needsPictureCheck(deck, sl));
+  const pictureTask = toCheck.length && deadline - Date.now() > PICTURE_TIME_MS ? (async () => {
+    const taken = lessonPictures(deck);
+    for (const c of Object.values(deck.checks?.pictures ?? {})) for (const pic of c.idea?.pictures ?? []) taken.add(pic.src);
+    try {
+      const candidates = await pictureCandidates(deck, toCheck, taken);
+      await pool(toCheck, deadline, async (sl) => {
+        const from = pictureBasis(sl);
+        try {
+          const idea = await pictureIdea(deck, sl, candidates.get(sl.id) ?? []);
+          keep({ slideId: sl.id, kind: 'pictures', from, at: new Date().toISOString(), idea });
+        } catch (e) { fail('Checking for pictures', e); }
+      });
+    } catch (e) { fail('Checking for pictures', e); }
+  })() : Promise.resolve();
+
   // (the bank's answer slides get their audio with the rest)
   await bankTask;
+  await pictureTask;
 
   // 3. Audio for the spoken words and the plain versions
   const clips = [

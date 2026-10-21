@@ -1,4 +1,4 @@
-import type { ActivityElement, BankQuestion, Deck, OrderMove, Pointer, QuizQuestion, Slide, SlideElement, SlideHelper } from './types';
+import type { ActivityElement, BankQuestion, Deck, OrderMove, PictureIdea, Pointer, QuizQuestion, Slide, SlideElement, SlideHelper } from './types';
 import { activityReady, shownWords, spokenText } from './queue';
 import { introBasis, introText, startsTopic } from './intro';
 import { TTS_VOICE, VOICE_INSTRUCTIONS, SIMPLE_VOICE_INSTRUCTIONS } from '@/lib/voice';
@@ -218,6 +218,29 @@ export function needsBank(deck: Deck): string[] {
 /** The bank's answer slides' elements (they speak, so they need words and audio like any slide) */
 export const bankElements = (deck: Deck) => (deck.bank?.off ? [] : deck.bank?.questions ?? []).flatMap((q) => q.slide.elements.map((el) => ({ q, el })));
 
+/* The picture check (lib/canvas/pictures.ts, server side): library pictures the lesson doesn't use yet, added where a slide talks
+   about something a picture would show. Here so the editor sees what's needed too. */
+/** What the picture check looked at: the slide's boxes, where they are, what they say and show */
+export const pictureBasis = (slide: Slide) =>
+  fingerprint(JSON.stringify(slide.elements.map((e) => [e.id, e.type, e.x, e.y, e.w, e.h, shownWords(e), e.type === 'image' ? e.src : ''])));
+/** Pictures that count (not a background one) */
+export const slidePictures = (slide: Slide) => slide.elements.filter((e) => e.type === 'image' && (e.z ?? 1) > 0).length;
+/** Slides worth a picture check: they teach something (they speak), no hands-on box, fewer than 2 pictures already */
+export const pictureCheckable = (slide: Slide) =>
+  slide.elements.some((e) => speaksAtAll(e) && !!spokenText(e)) && !slide.elements.some((e) => e.type === 'activity') && slidePictures(slide) < 2;
+export function needsPictureCheck(deck: Deck, slide: Slide): boolean {
+  return pictureCheckable(slide) && deck.checks?.pictures?.[slide.id]?.from !== pictureBasis(slide);
+}
+export const pictureSkipKey = (slideId: string, from: string) => fingerprint(`${slideId}|${from}`);
+/** Picture ideas still open: for the slide as it is now, not skipped (slide id → idea) */
+export function openPictureIdeas(deck: Deck): { slideId: string; from: string; idea: PictureIdea }[] {
+  const skips = new Set(deck.checks?.pictureSkips ?? []);
+  return deck.slides.flatMap((s) => {
+    const c = deck.checks?.pictures?.[s.id];
+    return c?.idea && c.from === pictureBasis(s) && !skips.has(pictureSkipKey(s.id, c.from)) ? [{ slideId: s.id, from: c.from, idea: c.idea }] : [];
+  });
+}
+
 export function needsTopic(slide: Slide): boolean {
   if (!slide.topic?.trim()) return true;
   return !!slide.topicByAI && slide.topicFrom !== fingerprint(slideBasis(slide));
@@ -233,6 +256,8 @@ export interface Todo {
   order: number;
   /** Topics whose question bank needs writing */
   bank: number;
+  /** Slides whose picture check needs doing */
+  pictures: number;
   topics: number;
   say: number;
   plain: number;
@@ -240,7 +265,7 @@ export interface Todo {
 }
 
 export function countTodo(deck: Deck): Todo {
-  const t: Todo = { helpers: 0, pointers: 0, intros: 0, captions: 0, answers: 0, quiz: needsQuiz(deck) ? 1 : 0, order: needsOrderCheck(deck) ? 1 : 0, bank: needsBank(deck).length, topics: 0, say: 0, plain: 0, audio: 0 };
+  const t: Todo = { helpers: 0, pointers: 0, intros: 0, captions: 0, answers: 0, quiz: needsQuiz(deck) ? 1 : 0, order: needsOrderCheck(deck) ? 1 : 0, bank: needsBank(deck).length, pictures: deck.slides.filter((sl) => needsPictureCheck(deck, sl)).length, topics: 0, say: 0, plain: 0, audio: 0 };
   // The bank's answer slides speak (no plain versions: they're answers)
   for (const { el } of bankElements(deck)) {
     if (needsSay(el)) t.say++;
@@ -273,7 +298,7 @@ export function countTodo(deck: Deck): Todo {
   return t;
 }
 
-export const todoTotal = (t: Todo) => t.helpers + t.pointers + t.intros + t.captions + t.answers + t.quiz + t.order + t.bank + t.topics + t.say + t.plain + t.audio;
+export const todoTotal = (t: Todo) => t.helpers + t.pointers + t.intros + t.captions + t.answers + t.quiz + t.order + t.bank + t.pictures + t.topics + t.say + t.plain + t.audio;
 
 /* -------------------------------------------------------- applying */
 
@@ -291,6 +316,8 @@ export type Patch =
   | { slideId: ''; kind: 'quiz'; from: string; prev: string; questions: QuizQuestion[] }
   /** The story-order check's suggestions, for the lesson as it was (`from`, orderBasis) */
   | { slideId: ''; kind: 'order'; from: string; at: string; why?: string; moves: OrderMove[] }
+  /** The picture check of a slide as it was (`from`, pictureBasis): the pictures it suggests, or none */
+  | { slideId: string; kind: 'pictures'; from: string; at: string; idea: PictureIdea | null }
   /** A topic's bank questions, written from the topic as it was (`from`, bankBasis): they replace its AI-written ones */
   | { slideId: ''; kind: 'bank'; topic: string; from: string; questions: BankQuestion[] }
   | (At & { kind: 'say'; say: string; sayFrom: string })
@@ -318,6 +345,14 @@ export function applyPatches(deck: Deck, patches: Patch[]): number {
     if (p.kind === 'order') {
       if (orderBasis(deck) === p.from) {
         deck.checks = { ...deck.checks, order: { from: p.from, at: p.at, why: p.why, moves: structuredClone(p.moves) } };
+        applied++;
+      }
+      continue;
+    }
+    if (p.kind === 'pictures') {
+      const sl = deck.slides.find((x) => x.id === p.slideId);
+      if (sl && pictureBasis(sl) === p.from) {
+        deck.checks = { ...deck.checks, pictures: { ...deck.checks?.pictures, [p.slideId]: { from: p.from, at: p.at, idea: p.idea ? structuredClone(p.idea) : null } } };
         applied++;
       }
       continue;
