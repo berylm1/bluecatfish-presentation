@@ -221,7 +221,9 @@ function checks(raw: any): DeckChecks | undefined {
     }
   }
   const repeats = raw.repeats && typeof raw.repeats === 'object' && tag(raw.repeats.from)
-    ? { from: raw.repeats.from, at: str(raw.repeats.at, 40) ?? '', found: num(raw.repeats.found, 0, 1000, 0) } : undefined;
+    ? { from: raw.repeats.from, at: str(raw.repeats.at, 40) ?? '', found: num(raw.repeats.found, 0, 1000, 0),
+      ...(raw.repeats.slides && typeof raw.repeats.slides === 'object'
+        ? { slides: Object.fromEntries(Object.entries(raw.repeats.slides).filter(([k, v]) => /^[\w-]{1,64}$/.test(k) && tag(v)).slice(0, MAX_SLIDES)) as Record<string, string> } : {}) } : undefined;
   // the story-order suggestions: moves of slide ids (checked again against the deck when made)
   const o = raw.order;
   const ids = (v: unknown, max: number) => (Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string' && /^[\w~-]{1,64}$/.test(x)).slice(0, max) : []);

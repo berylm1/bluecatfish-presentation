@@ -11,8 +11,24 @@ export const STYLE =
   'of the Chesapeake Bay. Upbeat and conversational, like telling a story. A little goofy, with light, dry, ' +
   'playful sarcasm aimed at the fish, never at the learner. Facts must be exactly right.';
 
+/**
+ * A call to OpenAI that waits out a busy moment: "too many requests" (429) or a brief outage (500, 502, 503)
+ * is tried again at most twice, after its Retry-After or 2 s then 6 s (a little random, so calls made
+ * together don't come back together). Anything else, or a third failure, is returned as it is.
+ */
+export async function openai(path: string, init: RequestInit): Promise<Response> {
+  for (let attempt = 0; ; attempt++) {
+    const res = await fetch(`https://api.openai.com/v1/${path}`, init);
+    if (attempt >= 2 || ![429, 500, 502, 503].includes(res.status)) return res;
+    const after = Number(res.headers.get('retry-after'));
+    const wait = Math.min(15_000, Number.isFinite(after) && after > 0 ? after * 1000 : attempt ? 6000 : 2000) + Math.random() * 1000;
+    await res.body?.cancel().catch(() => {});
+    await new Promise((r) => setTimeout(r, wait));
+  }
+}
+
 export async function chat(system: string, user: string, json = false, maxTokens = 2000): Promise<string> {
-  const res = await fetch('https://api.openai.com/v1/chat/completions', {
+  const res = await openai('chat/completions', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${process.env.OPENAI_API_KEY}` },
     body: JSON.stringify({
@@ -77,7 +93,7 @@ export async function imageForVision(url: string): Promise<string | null> {
 }
 
 export async function chatVision(system: string, user: string, imageUrl: string): Promise<string> {
-  const res = await fetch('https://api.openai.com/v1/chat/completions', {
+  const res = await openai('chat/completions', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${process.env.OPENAI_API_KEY}` },
     body: JSON.stringify({
@@ -99,7 +115,7 @@ export async function chatVision(system: string, user: string, imageUrl: string)
 
 export async function knowledge(query: string, count = 6): Promise<string> {
   try {
-    const emb = await fetch('https://api.openai.com/v1/embeddings', {
+    const emb = await openai('embeddings', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${process.env.OPENAI_API_KEY}` },
       body: JSON.stringify({ model: 'text-embedding-3-small', input: query.slice(0, 2000) }),
@@ -123,22 +139,35 @@ export type Excerpt = { content: string; source: string };
  * search fails, so a failed search isn't mistaken for "not in the sources".
  */
 export async function knowledgeExcerpts(query: string, count = 4): Promise<Excerpt[]> {
-  const emb = await fetch('https://api.openai.com/v1/embeddings', {
+  return (await knowledgeExcerptsMany([query], count))[0];
+}
+
+/**
+ * knowledgeExcerpts for several searches at once (the fact check: one per box on the slide): every search still its
+ * own, but the searches' embeddings in one request (was: one request each), and the sources looked up together.
+ */
+export async function knowledgeExcerptsMany(queries: string[], count = 4): Promise<Excerpt[][]> {
+  if (!queries.length) return [];
+  const emb = await openai('embeddings', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${process.env.OPENAI_API_KEY}` },
-    body: JSON.stringify({ model: 'text-embedding-3-small', input: query.slice(0, 2000) }),
+    body: JSON.stringify({ model: 'text-embedding-3-small', input: queries.map((q) => q.slice(0, 2000)) }),
   }).then((r) => r.json());
-  if (!emb?.data?.[0]?.embedding) throw new Error(emb?.error?.message || 'The search could not be made');
-  const { data, error } = await supabase.rpc('match_documents3', { query_embedding: emb.data[0].embedding, match_count: count });
-  if (error) throw new Error(error.message);
-  const rows = (data ?? []) as { id?: number | string; content?: string; source?: string; metadata?: { source?: string } }[];
+  const vectors: number[][] = queries.map((_, i) => emb?.data?.find((d: { index: number }) => d.index === i)?.embedding);
+  if (vectors.some((v) => !v)) throw new Error(emb?.error?.message || 'The search could not be made');
+  type Row = { id?: number | string; content?: string; source?: string; metadata?: { source?: string } };
+  const results: Row[][] = await Promise.all(vectors.map(async (v) => {
+    const { data, error } = await supabase.rpc('match_documents3', { query_embedding: v, match_count: count });
+    if (error) throw new Error(error.message);
+    return (data ?? []) as Row[];
+  }));
   const byId = new Map<string, string>();
-  const missing = rows.filter((r) => !r.source && !r.metadata?.source && r.id != null).map((r) => r.id!);
+  const missing = [...new Set(results.flat().filter((r) => !r.source && !r.metadata?.source && r.id != null).map((r) => String(r.id)))];
   if (missing.length) {
     const { data: found } = await supabase.from('documents3').select('id, source').in('id', missing);
     for (const d of (found ?? []) as { id: number | string; source?: string }[]) if (d.source) byId.set(String(d.id), d.source);
   }
-  return rows
+  return results.map((rows) => rows
     .map((r) => ({ content: String(r.content ?? '').trim(), source: String(r.source || r.metadata?.source || (r.id != null && byId.get(String(r.id))) || 'knowledge base').slice(0, 200) }))
-    .filter((e) => e.content);
+    .filter((e) => e.content));
 }

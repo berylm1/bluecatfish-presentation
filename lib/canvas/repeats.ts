@@ -42,15 +42,16 @@ function candidates(deck: Deck): { key: string; slideIndex: number; el: SlideEle
   }));
 }
 
-/** What the AI reads: one line per element, as many whole lines as fit (and the last slide they reach). */
-function repeatInput(deck: Deck) {
+/** What the AI reads: one line per element, as many whole lines as fit (and the last slide they reach). `changed`: those slides' lines are marked */
+function repeatInput(deck: Deck, changed?: Set<string>) {
   const items = candidates(deck);
   const lines: string[] = [];
   let size = 0, lastSlide = 0, partial = false;
   for (const { key, slideIndex, el } of items) {
     const shown = el.type === 'text' ? el.text : '';
     const said = spokenText(el);
-    const line = `[${key}] (slide ${slideIndex + 1}, ${deck.slides[slideIndex].topic ?? ''})${shown ? ` SHOWN: ${shown}` : ''}${said && said !== shown.trim() ? ` SAID: ${said}` : ''}`;
+    const mark = changed?.has(deck.slides[slideIndex].id) ? ' CHANGED' : '';
+    const line = `[${key}]${mark} (slide ${slideIndex + 1}, ${deck.slides[slideIndex].topic ?? ''})${shown ? ` SHOWN: ${shown}` : ''}${said && said !== shown.trim() ? ` SAID: ${said}` : ''}`;
     if (size + line.length > INPUT_LIMIT) { partial = true; break; }
     lines.push(line);
     size += line.length + 1;
@@ -62,9 +63,14 @@ function repeatInput(deck: Deck) {
 /** How far a very long lesson is read in one check (slide number), or undefined when it's read in full. */
 export const repeatCoverage = (deck: Deck) => repeatInput(deck).partial;
 
-/** The AI's suggestions for the deck as it is (nothing is changed). */
-export async function findRepeats(deck: Deck): Promise<RepeatSuggestion[]> {
-  const { items, lines } = repeatInput(deck);
+/**
+ * The AI's suggestions for the deck as it is (nothing is changed). `changed`: only the slides changed since the last check
+ * (the editor's usual check): the whole lesson is still read, as what they're compared with, but only repeats that involve a
+ * changed slide are looked for (the rest were checked against each other last time). Was: the whole lesson checked every time.
+ */
+export async function findRepeats(deck: Deck, changed?: Set<string>): Promise<RepeatSuggestion[]> {
+  if (changed && !changed.size) return [];
+  const { items, lines } = repeatInput(deck, changed);
   if (lines.length < 2) return [];
   const out = await chat(
     'You edit a lesson for 10-14 year olds to remove REPEATED content. Below is every element of the lesson in order: what it SHOWS and what the professor SAYS. ' +
@@ -73,6 +79,8 @@ export async function findRepeats(deck: Deck): Promise<RepeatSuggestion[]> {
       '"say" = the spoken words with the repeated part removed or replaced by something new from the same element, still 2+ sentences that read naturally ' +
       '(or a one-sentence link back if nothing else is left); "text" = the shown text, only if the SHOWN text itself repeats an earlier slide, kept as short as it was. ' +
       'Don\'t change anything that isn\'t a repeat, and don\'t add facts that aren\'t already in the lesson. ' +
+      (changed ? 'Only the elements marked CHANGED have changed since the lesson was last checked: report only repeats that involve one of them ' +
+        '(a CHANGED element that repeats something earlier, or a later element that repeats something a CHANGED one now says). The others were checked already. ' : '') +
       'Reply as JSON: {"fixes":[{"id":"3.2","say":"...","text":"...","why":"repeats slide 1: ..."}]} (id = the [number] of the element; an empty list when there are no repeats).',
     `Lesson: ${deck.title}\n\n${lines.join('\n')}`,
     true,

@@ -205,8 +205,8 @@ export interface DeckChecks {
   facts?: Record<string, { from: string; at: string; excerpts: number; claims: CheckedClaim[] }>;
   /** Facts a person marked "It's fine" (claimKey) */
   factsOk?: string[];
-  /** The last AI repeat check: what the lesson was then, and how many it found */
-  repeats?: { from: string; at: string; found: number };
+  /** The last AI repeat check: what the lesson was then, how many it found, and each slide as it was (factBasis: the next check reads what changed) */
+  repeats?: { from: string; at: string; found: number; slides?: Record<string, string> };
   /** Repeat suggestions a person skipped (repeatKey) */
   repeatSkips?: string[];
   /** The story-order check (storyOrder.ts): the lesson it looked at (orderBasis), and the moves it suggests */

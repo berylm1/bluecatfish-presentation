@@ -96,6 +96,16 @@ export const factBasis = (slide: Slide) =>
 /** What the AI repeat check looked at: the whole lesson's shown and spoken words. */
 export const lessonBasis = (deck: Deck) => fingerprint(deck.slides.map(factBasis).join('|'));
 
+/** Each slide's words as the repeat check sees them (the next check reads only the slides that changed) */
+export const repeatSlides = (deck: Deck): Record<string, string> => Object.fromEntries(deck.slides.map((s) => [s.id, factBasis(s)]));
+
+/** The slides changed (or new) since the last repeat check; null: no record of the slides (check the whole lesson) */
+export function changedSinceRepeats(deck: Deck): string[] | null {
+  const was = deck.checks?.repeats?.slides;
+  if (!was) return null;
+  return deck.slides.filter((s) => was[s.id] !== factBasis(s)).map((s) => s.id);
+}
+
 /** A fact a person marked "It's fine": per slide and claim. */
 export const claimKey = (slideId: string, claim: string) => fingerprint(`${slideId}|${claim.trim().toLowerCase()}`);
 

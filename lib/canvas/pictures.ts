@@ -1,14 +1,17 @@
 import type { Deck, PictureIdea, Slide, SlideElement } from './types';
 import { chat, STYLE } from './ai';
 import { autoFix, formatGuide, imagesFor, problems, type LibImage } from './generate';
-import { slideBasis } from './aiFields';
+import { pictureBasis, slideBasis } from './aiFields';
 import { spokenText } from './queue';
 
 /*
  * The picture check: library pictures the lesson doesn't use yet, added where a slide talks about
  * something a picture would show (it mentions shad and eggs: a picture of shad). Only pictures that
- * are just a visual, no words in them. The AI picks 1 or 2 and lays the slide out again with them
- * (every box of the slide kept), then the layout checks: one fix, then the automatic fixes.
+ * are just a visual, no words in them. Two steps: one AI read picks the pictures for every slide being
+ * checked at once (a few slides per read), then only the slides that got some are laid out again with
+ * them (every box of the slide kept), each with the layout checks: one fix, then the automatic fixes.
+ * (Was: one read per slide that picked and laid out together, a full layout paid for even when the
+ * answer was "nothing to add".)
  *   - an AI slideshow: added when it's made (generate.ts, after the story order)
  *   - the editor: suggested when the lesson is saved (prepare.ts), Add / Show / Skip in the Check tab
  */
@@ -29,25 +32,36 @@ export function lessonPictures(deck: Deck, withBank = true): Set<string> {
   return used;
 }
 
-const SYSTEM = `${STYLE}
-You add PICTURES to one lesson slide. Below are pictures from the lesson's library that it doesn't use yet.
-- Add a picture for each thing the slide names that a picture would show: an animal, a food, a place, a thing (the slide lists
+const RULES = `- Add a picture for each thing the slide names that a picture would show: an animal, a food, a place, a thing (the slide lists
   fish, crabs, mussels and frogs: a picture of each that's in the list). Up to 5; a list of things makes a row of small pictures.
 - If the slide has NO picture yet, add at least one that fits its main idea (a river, the fish, a catch), if any does.
 - Only pictures that are just a visual: never one whose description mentions words, titles, labels, text or a slide in it.
 - Never two pictures of the same thing (two people holding a catfish), and never one of something the slide's pictures already show.
-- Prefer pictures not used yet. One marked "already used in the lesson" only when no other picture shows that thing.
-- If none fits, reply {"add": []}.
+- Prefer pictures not used yet. One marked "already used in the lesson" only when no other picture shows that thing.`;
 
-Then lay the slide out again so everything fits: return EVERY element of the slide by its "id" with new x, y, w, h, plus each new picture
-as {"type": "image", "image": "img2", "x": .., "y": .., "w": .., "h": ..}.
+// Step 1: which pictures, for several slides in one read
+const CHOOSE = `${STYLE}
+You pick PICTURES for slides of a lesson. For each slide below: what it says, the pictures it already shows, and pictures from the
+lesson's library it could use (ids like s2-img3: only that slide's own).
+${RULES}
+- A slide that nothing fits: "add": [].
+
+Reply as JSON: {"slides": [{"slide": "s1", "add": [{"image": "s1-img2", "why": "the slide talks about shad"}]}]}`;
+
+// Step 2: one slide, laid out again with the pictures picked for it
+const LAYOUT = `${STYLE}
+You add PICTURES to one lesson slide: the ones listed under PICTURES TO ADD were picked for it. Lay the slide out again so everything
+fits: return EVERY element of the slide by its "id" with new x, y, w, h, plus each picture as {"type": "image", "image": "img2", "x": .., "y": .., "w": .., "h": ..}.
 - Charts, diagrams and hands-on boxes keep EXACTLY their place and size (never squeezed): pictures go in free space or below them.
 - Text boxes may move or get narrower but must stay big enough for their words.
 - NOTHING overlaps: no box touches another. Nothing goes off the slide.
+- A list of things (fish, crabs, mussels): a row of small pictures.
 
 ${formatGuide()}
 
-Reply as JSON: {"add": [{"image": "img2", "why": "the slide talks about shad"}], "elements": [{"id": "...", "x": 0, "y": 0, "w": 0, "h": 0}, {"type": "image", "image": "img2", "x": 0, "y": 0, "w": 0, "h": 0}]}`;
+Reply as JSON: {"elements": [{"id": "...", "x": 0, "y": 0, "w": 0, "h": 0}, {"type": "image", "image": "img2", "x": 0, "y": 0, "w": 0, "h": 0}]}`;
+
+const CHOOSE_PER_READ = 8;   // slides per picking read (they're read in parallel)
 
 const describe = (slide: Slide) => JSON.stringify(slide.elements.map((e) => ({
   id: e.id, type: e.type, x: e.x, y: e.y, w: e.w, h: e.h,
@@ -93,27 +107,48 @@ function build(raw: any, slide: Slide, images: LibImage[]): { elements: SlideEle
   return { elements, added: added.slice(0, MAX_ADDED).map((a) => a.img) };
 }
 
-/**
- * Pictures for one slide, from candidates no other slide is getting (the caller hands out the
- * candidates, so two slides never get the same picture). null: nothing fits, or it couldn't be laid out.
- */
-export async function pictureIdea(deck: Deck, slide: Slide, candidates: LibImage[]): Promise<PictureIdea | null> {
-  return (await pictureCheck(deck, slide, candidates)).idea;
+type Checked = { slide: Slide; from: string; idea: PictureIdea | null; note: string };
+const looked = (candidates: LibImage[]) => candidates.map((c) => c.description).filter(Boolean).slice(0, 8).join('; ');
+const said = (slide: Slide) => slide.elements.map(spokenText).filter(Boolean).join(' ');
+
+/** Step 1: the pictures picked for each slide (by its candidates), for a few slides in one read */
+async function choose(deck: Deck, slides: Slide[], candidates: Map<string, LibImage[]>): Promise<Map<string, { img: LibImage; why: string }[]>> {
+  const ids = new Map<string, { slide: Slide; img: LibImage }>();
+  const blocks = slides.map((slide, n) => {
+    const list = (candidates.get(slide.id) ?? []).map((img, m) => {
+      const id = `s${n + 1}-img${m + 1}`;
+      ids.set(id, { slide, img });
+      return `  ${id}: ${img.description}${img.used ? ' (already used in the lesson)' : ''}`;
+    });
+    const shows = slide.elements.flatMap((e) => (e.type === 'image' && (e.z ?? 1) > 0 && e.alt ? [e.alt] : []));
+    return `SLIDE s${n + 1} (topic: ${slide.topic ?? ''})\nShows: ${slideBasis(slide).slice(0, 600)}\nThe professor says: ${said(slide).slice(0, 900)}\n` +
+      `Pictures on it now: ${shows.join('; ') || '(none)'}\nLibrary pictures it could use:\n${list.join('\n')}`;
+  });
+  const raw = JSON.parse(await chat(CHOOSE, `Lesson: ${deck.title}\n\n${blocks.join('\n\n')}`, true, 1500));
+  const out = new Map<string, { img: LibImage; why: string }[]>();
+  for (const sl of Array.isArray(raw?.slides) ? raw.slides : []) {
+    for (const a of Array.isArray(sl?.add) ? sl.add : []) {
+      const hit = ids.get(String(a?.image));
+      // (a picture only for the slide it was offered to)
+      if (!hit || `s${slides.indexOf(hit.slide) + 1}` !== String(sl?.slide)) continue;
+      const mine = out.get(hit.slide.id) ?? [];
+      if (mine.length < MAX_ADDED && !mine.some((x) => x.img.url === hit.img.url)) mine.push({ img: hit.img, why: String(a?.why ?? '').slice(0, 200) });
+      out.set(hit.slide.id, mine);
+    }
+  }
+  return out;
 }
 
-/** The picture check of one slide: the idea, or none and why (shown in the editor's Check tab) */
-export async function pictureCheck(deck: Deck, slide: Slide, candidates: LibImage[]): Promise<{ idea: PictureIdea | null; note: string }> {
+/** Step 2: one slide laid out again with its picked pictures, and the checks (or none, and why) */
+async function layOut(deck: Deck, slide: Slide, picked: { img: LibImage; why: string }[], candidates: LibImage[]): Promise<{ idea: PictureIdea | null; note: string }> {
   const none = (note: string) => ({ idea: null, note });
-  const looked = candidates.map((c) => c.description).filter(Boolean).slice(0, 8).join('; ');
-  if (!candidates.length) return none('No picture in the library that the lesson doesn’t use yet matched what this slide says');
-  const images = candidates.map((c, n) => ({ ...c, id: `img${n + 1}` }));
-  const list = images.map((i) => `${i.id}: ${i.description}${i.used ? ' (already used in the lesson)' : ''}`).join('\n');
-  const user = `Lesson: ${deck.title}\nTopic: ${slide.topic ?? ''}\nWhat the professor says on it: ${slide.elements.map(spokenText).filter(Boolean).join(' ').slice(0, 1500)}\n\n` +
-    `SLIDE (background ${slide.background?.color ?? '#ffffff'}): ${describe(slide)}\n\nAVAILABLE PICTURES:\n${list}`;
-  let raw = JSON.parse(await chat(SYSTEM, user, true, 3000));
-  if (!Array.isArray(raw?.add) || !raw.add.length) return none(`The AI found none of the matching pictures fit (it looked at: ${looked})`);
+  const images = picked.map((p, n) => ({ ...p.img, id: `img${n + 1}` }));
+  const list = images.map((i) => `${i.id}: ${i.description}`).join('\n');
+  const user = `Lesson: ${deck.title}\nTopic: ${slide.topic ?? ''}\nWhat the professor says on it: ${said(slide).slice(0, 1500)}\n\n` +
+    `SLIDE (background ${slide.background?.color ?? '#ffffff'}): ${describe(slide)}\n\nPICTURES TO ADD:\n${list}`;
+  let raw = JSON.parse(await chat(LAYOUT, user, true, 3000));
   let made = build(raw, slide, images);
-  if (!made) return none(`The pictures the AI picked were look-alikes of ones already on the slide (it looked at: ${looked})`);
+  if (!made) return none(`The pictures the AI picked were look-alikes of ones already on the slide (it looked at: ${looked(candidates)})`);
   const view = (els: SlideElement[]): Slide => ({ ...slide, elements: els });
   const toRaw = (r: any) => ({ elements: (r?.elements ?? []).map((e: any) => (e?.type === 'image' && e.image ? e : { ...e, type: 'text-placed' })) });
   // (the layout checks, and boxes on top of each other: any two that touch now and didn't on the slide as it was, a new picture
@@ -130,7 +165,7 @@ export async function pictureCheck(deck: Deck, slide: Slide, candidates: LibImag
   const issues = [...problems(toRaw(raw), view(made.elements), images).filter((x) => !/AVAILABLE IMAGES/.test(x)), ...covers(made.elements)];
   if (issues.length) {
     try {
-      const again = JSON.parse(await chat(SYSTEM, `${user}\n\nYour layout had problems, fix them:\n- ${issues.join('\n- ')}\nPrevious answer: ${JSON.stringify(raw).slice(0, 3000)}`, true, 3000));
+      const again = JSON.parse(await chat(LAYOUT, `${user}\n\nYour layout had problems, fix them:\n- ${issues.join('\n- ')}\nPrevious answer: ${JSON.stringify(raw).slice(0, 3000)}`, true, 3000));
       const remade = build(again, slide, images);
       if (remade) { raw = again; made = remade; }
     } catch { /* kept as it was */ }
@@ -138,11 +173,57 @@ export async function pictureCheck(deck: Deck, slide: Slide, candidates: LibImag
   const out = view(made.elements);
   autoFix(out);
   if (covers(out.elements).length) return none('The pictures didn’t fit without covering something on the slide');   // (no suggestion rather than a broken slide)
-  const why = new Map((raw.add as any[]).map((a) => [String(a?.image), String(a?.why ?? '').slice(0, 200)]));
+  const why = new Map(picked.map((p) => [p.img.url, p.why]));
   return { note: '', idea: {
-    pictures: made.added.map((i) => ({ src: i.url, alt: i.description, why: why.get(i.id) || `It shows what the slide talks about` })),
+    pictures: made.added.map((i) => ({ src: i.url, alt: i.description, why: why.get(i.url) || `It shows what the slide talks about` })),
     elements: out.elements,
   } };
+}
+
+/**
+ * The picture check of several slides, from candidates no two slides share (pictureCandidates): the picking reads in
+ * parallel, then the layouts of the slides that got pictures, in parallel (none started after `deadline`: those slides
+ * are checked next time). Each slide checked: its idea, or none and why (shown in the editor's Check tab).
+ */
+export async function checkPictures(deck: Deck, slides: Slide[], candidates: Map<string, LibImage[]>, deadline = Infinity): Promise<Checked[]> {
+  const from = new Map(slides.map((s) => [s.id, pictureBasis(s)]));
+  const out: Checked[] = [];
+  const result = (slide: Slide, idea: PictureIdea | null, note: string) => out.push({ slide, from: from.get(slide.id)!, idea, note });
+  const withSome = slides.filter((s) => candidates.get(s.id)?.length);
+  for (const s of slides) if (!candidates.get(s.id)?.length) result(s, null, 'No picture in the library that the lesson doesn’t use yet matched what this slide says');
+  const reads: Slide[][] = [];
+  for (let i = 0; i < withSome.length; i += CHOOSE_PER_READ) reads.push(withSome.slice(i, i + CHOOSE_PER_READ));
+  const picks = new Map<string, { img: LibImage; why: string }[]>();
+  // (a read that fails: its slides get no record, so they're checked again next time)
+  const read = await Promise.allSettled(reads.map((group) => choose(deck, group, candidates)));
+  read.forEach((r, n) => {
+    if (r.status === 'rejected') { console.warn('Picking pictures failed:', r.reason); return; }
+    for (const s of reads[n]) {
+      const mine = r.value.get(s.id);
+      if (mine?.length) picks.set(s.id, mine);
+      else result(s, null, `The AI found none of the matching pictures fit (it looked at: ${looked(candidates.get(s.id) ?? [])})`);
+    }
+  });
+  await Promise.all(withSome.filter((s) => picks.has(s.id)).map(async (s) => {
+    if (Date.now() >= deadline) return;
+    try {
+      const { idea, note } = await layOut(deck, s, picks.get(s.id)!, candidates.get(s.id) ?? []);
+      result(s, idea, note);
+    } catch (e) { console.warn('Laying out pictures failed:', e); }
+  }));
+  return out;
+}
+
+/** The picture check of one slide (checkPictures for just it) */
+export async function pictureCheck(deck: Deck, slide: Slide, candidates: LibImage[]): Promise<{ idea: PictureIdea | null; note: string }> {
+  const [r] = await checkPictures(deck, [slide], new Map([[slide.id, candidates]]));
+  if (!r) throw new Error('The picture check failed');
+  return { idea: r.idea, note: r.note };
+}
+
+/** Pictures for one slide (checkPictures for just it), or null */
+export async function pictureIdea(deck: Deck, slide: Slide, candidates: LibImage[]): Promise<PictureIdea | null> {
+  return (await pictureCheck(deck, slide, candidates)).idea;
 }
 
 /** What to search the library for on a slide: each thing it names (its bullets, split at "and" and commas), its title, and the slide as a whole */
