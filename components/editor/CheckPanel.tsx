@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { CheckedClaim, Deck, DeckChecks, OrderMove, Slide } from '@/lib/canvas/types';
-import { needsOrderCheck } from '@/lib/canvas/aiFields';
+import { needsOrderCheck, openPictureIdeas, pictureBasis, pictureCheckable } from '@/lib/canvas/aiFields';
 import { openMoves } from '@/lib/canvas/order';
 import { claimKey, factBasis, slidesToFactCheck } from '@/lib/canvas/checks';
 
@@ -50,7 +50,7 @@ export function picturesWithoutDescription(deck: Deck): (Omit<Described, 'alt'> 
       ? [{ slideIndex, slideId: s.id, elId: e.id, helper, src: e.src }] : []));
 }
 
-export default function CheckPanel({ deck, slideIndex, lessonTitle, active, runSignal = 0, describeSignal = 0, onRecord, onFine, onUseThis, onDescribed, onGoTo, onGoToSlide, onMoves, onSkipMove }: {
+export default function CheckPanel({ deck, slideIndex, lessonTitle, active, runSignal = 0, describeSignal = 0, onRecord, onFine, onUseThis, onDescribed, onGoTo, onGoToSlide, onMoves, onSkipMove, onAddPictures, onSkipPictures, onRecheckPictures }: {
   deck: Deck;
   slideIndex: number;
   lessonTitle: string;
@@ -73,6 +73,11 @@ export default function CheckPanel({ deck, slideIndex, lessonTitle, active, runS
   /** Story order: make these suggested moves (one undo step), or skip one */
   onMoves: (moves: OrderMove[]) => void;
   onSkipMove: (move: OrderMove) => void;
+  /** Pictures to add: put a slide's suggested pictures in (one undo step), or skip them */
+  onAddPictures?: (slideId: string) => void;
+  onSkipPictures?: (slideId: string) => void;
+  /** The slide's picture check is done again on the next save */
+  onRecheckPictures?: (slideId: string) => void;
 }) {
   const slide = deck.slides[Math.min(slideIndex, deck.slides.length - 1)];
   const facts = deck.checks?.facts ?? {};
@@ -258,6 +263,7 @@ export default function CheckPanel({ deck, slideIndex, lessonTitle, active, runS
       )}
 
       <StoryOrder deck={deck} onMoves={onMoves} onSkipMove={onSkipMove} onGoToSlide={onGoToSlide} />
+      {onAddPictures && onSkipPictures && <PictureIdeas deck={deck} slide={slide} onAdd={onAddPictures} onSkip={onSkipPictures} onRecheck={onRecheckPictures} onGoToSlide={onGoToSlide} />}
 
       {/* gaps in the knowledge base */}
       {gaps.length > 0 && (
@@ -352,6 +358,68 @@ export default function CheckPanel({ deck, slideIndex, lessonTitle, active, runS
       </ul>
       {result && result.claims.some((c) => c.verdict !== 'supported' && !isFine(slide.id, c)) && (
         <p className="text-xs text-slate-500">“Not found” doesn&apos;t mean wrong: the knowledge base may just not cover it. Add a source in Text upload, reword it, or mark it fine.</p>
+      )}
+    </div>
+  );
+}
+
+/** The picture check's suggestions (made on save): library pictures not used yet, where a slide talks about what they show. */
+function PictureIdeas({ deck, slide, onAdd, onSkip, onRecheck, onGoToSlide }: {
+  deck: Deck; slide?: Slide; onAdd: (slideId: string) => void; onSkip: (slideId: string) => void; onRecheck?: (slideId: string) => void; onGoToSlide: (index: number) => void;
+}) {
+  const ideas = openPictureIdeas(deck);
+  const checked = Object.keys(deck.checks?.pictures ?? {}).length;
+  // The slide being edited: what its check found, and why not when it found nothing
+  const rec = slide ? deck.checks?.pictures?.[slide.id] : undefined;
+  const current = !!rec && !!slide && rec.from === pictureBasis(slide);
+  const here = !slide ? null
+    : !pictureCheckable(slide) ? 'This slide isn’t checked (a hands-on slide, nothing said on it, or 3 pictures already).'
+      : !current ? 'This slide is checked when you save.'
+        : rec!.idea && ideas.some((i) => i.slideId === slide.id) ? null
+          : rec!.idea ? 'This slide: you skipped its pictures.'
+            : `This slide: nothing to add. ${rec!.note ?? ''}`;
+  return (
+    <div className="rounded-md border border-slate-200 p-2 text-xs flex flex-col gap-1.5" data-picture-ideas>
+      <div className="flex items-center gap-2">
+        <span className="font-semibold text-slate-800 flex-1">🖼 Pictures to add</span>
+        {ideas.length > 1 && <button className="text-cyan-700 underline" onClick={() => ideas.forEach((i) => onAdd(i.slideId))}>Add them all ({ideas.length})</button>}
+      </div>
+      {here && (
+        <p className="text-slate-600 bg-slate-50 border border-slate-200 rounded px-2 py-1.5" data-picture-here>
+          {here}
+          {current && onRecheck && slide && <button className="ml-1.5 underline text-cyan-700" onClick={() => onRecheck(slide.id)}>Check again on save</button>}
+        </p>
+      )}
+      {!ideas.length ? (
+        <p className={checked ? 'text-emerald-700' : 'text-slate-500'}>
+          {checked ? '✓ No pictures to add right now.' : 'Checked when you save: library pictures the lesson doesn’t use yet (no words in them), where a slide talks about what they show.'}
+        </p>
+      ) : (
+        <ul className="flex flex-col gap-1.5">
+          {ideas.map(({ slideId, idea }) => {
+            const at = deck.slides.findIndex((s) => s.id === slideId);
+            const sl = deck.slides[at];
+            return (
+              <li key={slideId} className="rounded border border-cyan-200 bg-cyan-50/60 px-2 py-1.5" data-picture-idea>
+                <p className="text-slate-800 font-semibold">Slide {at + 1}{sl?.topic ? ` · ${sl.topic}` : ''}</p>
+                <div className="mt-1 flex gap-2">
+                  {idea.pictures.map((p) => (
+                    <div key={p.src} className="flex-1 min-w-0">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img src={p.src} alt={p.alt} className="w-full h-20 object-contain rounded border border-slate-200 bg-white" />
+                      <p className="mt-0.5 text-slate-600 leading-tight">{p.why}</p>
+                    </div>
+                  ))}
+                </div>
+                <div className="mt-1 flex items-center gap-3">
+                  <button className="px-2 py-0.5 rounded border border-cyan-600 text-cyan-800 bg-white hover:bg-cyan-50" onClick={() => onAdd(slideId)}>Add</button>
+                  {at >= 0 && <button className="underline text-slate-600" onClick={() => onGoToSlide(at)}>Show</button>}
+                  <button className="underline text-slate-600 ml-auto" onClick={() => onSkip(slideId)}>Skip</button>
+                </div>
+              </li>
+            );
+          })}
+        </ul>
       )}
     </div>
   );

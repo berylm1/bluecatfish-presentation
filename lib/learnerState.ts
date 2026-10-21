@@ -15,6 +15,8 @@ export interface SectionCounters {
   jumps: number;              // "go to <part>" landing in this section
   questions: number;          // free-form questions to the tutor
   barge_ins: number;          // talked over the narration
+  classmate_turns: number;    // times a classmate (Maya, Finn, Leo) spoke up: at a topic's end, or asking after the learner
+  bank_answers: number;       // the learner's questions answered at once from the question bank (no waiting for the AI)
   quiz_misses: number;
   quiz_passed: boolean | null;
   self_check: SelfCheckRating | null;
@@ -27,7 +29,7 @@ export interface SectionState extends SectionCounters {
 
 export const EMPTY_COUNTERS: SectionCounters = {
   visits: 0, repeats: 0, simplify_requests: 0, confusion_marks: 0, skips: 0, jumps: 0,
-  questions: 0, barge_ins: 0, quiz_misses: 0, quiz_passed: null, self_check: null, dwell_ms_total: 0,
+  questions: 0, barge_ins: 0, classmate_turns: 0, bank_answers: 0, quiz_misses: 0, quiz_passed: null, self_check: null, dwell_ms_total: 0,
 };
 
 /**

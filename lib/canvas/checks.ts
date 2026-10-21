@@ -2,6 +2,7 @@ import type { ActivityElement, Deck, Slide, SlideElement } from './types';
 import { shownWords, spokenText } from './queue';
 import { answerBasis, answerState, fingerprint } from './aiFields';
 import { activityReady } from './queue';
+import { hasEmptySpace } from './fillSpace';
 
 // Editor warnings that can be worked out from the slide alone. "Text doesn't
 // fit" needs the rendered page, so the editor adds that one itself.
@@ -10,8 +11,9 @@ export interface Warning {
   elementId?: string;
   level: 'warn' | 'info';
   message: string;
-  /** 'answers': the answer check's ⚠ (the hands-on box's own panel and the Publish checklist show it in full) */
-  kind?: 'answers';
+  /** 'answers': the answer check's ⚠ (the hands-on box's own panel and the Publish checklist show it in full);
+   *  'space': lots of empty space (the slide's own panel offers to grow the pictures) */
+  kind?: 'answers' | 'space';
 }
 
 export const isDecorative = (el: SlideElement) => el.type === 'image' && !!el.silent;
@@ -30,6 +32,9 @@ const label = (el: SlideElement) =>
 export function slideWarnings(slide: Slide): Warning[] {
   const out: Warning[] = [];
   const els = slide.elements;
+  if (hasEmptySpace(slide)) {
+    out.push({ level: 'info', kind: 'space', message: 'Lots of empty space on this slide: the pictures could be bigger' });
+  }
 
   for (const el of els) {
     if (el.x < 0 || el.y < 0 || el.x + el.w > 100.01 || el.y + el.h > 100.01) {

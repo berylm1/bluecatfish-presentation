@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { CUE_TEXT, type CueKey } from '@/lib/canvas/cues';
 import { learnerHeaders } from '@/lib/learnerSession';
 import { voiced } from '@/lib/voiceSpeed';
+import type { ClassmateId } from '@/lib/classmates';
 
 /** A live clip: its URL and where the sound starts and ends (the silence around it is skipped). */
 type Live = { url: string; start: number; end: number | null };
@@ -31,7 +32,7 @@ async function soundBounds(blob: Blob): Promise<{ start: number; end: number } |
   }
 }
 
-async function liveClip(text: string, who?: 'classmate'): Promise<Live | null> {
+async function liveClip(text: string, who?: ClassmateId): Promise<Live | null> {
   try {
     const res = await fetch('/api/tts', { method: 'POST', headers: learnerHeaders({ 'Content-Type': 'application/json' }), body: JSON.stringify({ text, who }) });
     if (!res.ok) return null;
@@ -72,7 +73,7 @@ export function useCues(enabled: boolean) {
   }, []);
 
   /** Starts making a live line now (e.g. while something else is said), so play() can start it at once. */
-  const livePromise = useCallback((text: string, who?: 'classmate') => {
+  const livePromise = useCallback((text: string, who?: ClassmateId) => {
     const key = `${who ?? ''}|${text}`;
     if (!live.current.has(key)) {
       const made = liveClip(text, who);
@@ -81,11 +82,11 @@ export function useCues(enabled: boolean) {
     }
     return live.current.get(key)!;
   }, []);
-  const preload = useCallback((text: string, who?: 'classmate') => { void livePromise(text, who); }, [livePromise]);
+  const preload = useCallback((text: string, who?: ClassmateId) => { void livePromise(text, who); }, [livePromise]);
 
   /** Plays a cue by key, or any text (spoken live, cached per text). */
-  /** who: 'classmate' = Finn's voice instead of the professor's */
-  const play = useCallback((what: CueKey | { text: string; url?: string | null; who?: 'classmate' }): Promise<boolean> => {
+  /** who: a classmate's voice instead of the professor's */
+  const play = useCallback((what: CueKey | { text: string; url?: string | null; who?: ClassmateId }): Promise<boolean> => {
     stop();
     const my = ++seq.current;
     const text = typeof what === 'string' ? CUE_TEXT[what] : what.text;

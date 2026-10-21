@@ -34,6 +34,8 @@ export const LIMITS = {
   events: { perSession: 60, perAddress: 1000, windowSec: 60, label: 'updates' },
   classmate: { perSession: 10, perAddress: 80, windowSec: 60, perDay: 3000, label: 'classmate questions' },   // (a Finn turn can be 3: his line, and up to 2 follow-ups)
   board: { perSession: 10, perAddress: 60, windowSec: 60, perDay: 3000, label: 'drawings' },
+  // The question bank (/api/bank/match): one lookup per question asked (an embedding, cheap)
+  bank: { perSession: 20, perAddress: 120, windowSec: 60, perDay: 5000, label: 'question lookups' },
   slides: { perSession: 15, perAddress: 120, windowSec: 60, perDay: 5000, label: 'slide lookups' },
   // Making the whole /presentationv2 lesson (only when it isn't cached yet): many paid calls
   lesson: { perSession: 2, perAddress: 4, windowSec: 3600, perDay: 20, label: 'lesson builds' },

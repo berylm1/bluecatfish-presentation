@@ -127,6 +127,8 @@ export function useDeckPlayer(
   const waitingRef = useRef(false);
   // Slides whose topic introduction has played (this run of the lesson)
   const introsHeard = useRef(new Set<string>());
+  // The position (by token) jumpTo asked to start without saying it: straight to the learner's turn
+  const quietToken = useRef(-1);
 
   // A topic's first slide opens with its introduction (lib/canvas/intro.ts), played like the slide's first clip
   const orders = useMemo(() => deck.slides.map((s, i) => {
@@ -202,6 +204,14 @@ export function useDeckPlayer(
     }
 
     const el = order[pos.clip];
+    // A hands-on box jumped to quietly (the learner already gets it): no instructions, their turn at once
+    if (quietToken.current === pos.token && optsRef.current.waitAfter?.(el)) {
+      waitingRef.current = true;
+      pausedRef.current = true;
+      setStatus('paused');
+      optsRef.current.onWait?.(el);
+      return () => { cancelled = true; clear(); };
+    }
     if (isIntroId(el.id)) introsHeard.current.add(deck.slides[pos.slide].id);
     setStatus('loading');
     textRef.current = pos.mode === 'plain' ? el.plain?.trim() || spokenText(el) : spokenText(el);
@@ -286,6 +296,38 @@ export function useDeckPlayer(
       pausedRef.current = true;
       audioRef.current?.pause();
       setStatus('paused');
+    },
+    /**
+     * Like pause, but resume() doesn't pick up again: only a move does (nextClip, skipPast, a slide).
+     * A hands-on box finished before its turn: the professor stops while the praise is said.
+     */
+    hold: () => {
+      replayRef.current = null;
+      if (timerRef.current) clearTimeout(timerRef.current);
+      if (finishTimerRef.current) clearInterval(finishTimerRef.current);
+      holdRef.current = null;
+      pausedRef.current = true;
+      waitingRef.current = true;
+      audioRef.current?.pause();
+      setStatus('paused');
+    },
+    /** On past the rest of this slide (what comes after it decides: the next slide, or a topic's end) */
+    endSlide: () => setPos((p) => ({ ...p, clip: order.length, mode: 'normal', token: p.token + 1 })),
+    /** To an element on this slide; quiet: a hands-on box without its instructions (straight to the learner's turn) */
+    jumpTo: (id: string, quiet = false) => {
+      const at = order.findIndex((e) => e.id === id);
+      if (at < 0) return;
+      setPos((p) => {
+        if (quiet) quietToken.current = p.token + 1;
+        return { ...p, clip: at, mode: 'normal', token: p.token + 1 };
+      });
+    },
+    /** Where an element is said on this slide (its clip number), or -1 */
+    clipOf: (id: string) => order.findIndex((e) => e.id === id),
+    /** On to what comes after an element on this slide (its own clip and anything before it are skipped) */
+    skipPast: (id: string) => {
+      const at = order.findIndex((e) => e.id === id);
+      setPos((p) => ({ ...p, clip: Math.max(p.clip, at) + 1, mode: 'normal', token: p.token + 1 }));
     },
     resume: () => {
       if (statusRef.current !== 'paused' && !pausedRef.current) return;

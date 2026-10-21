@@ -5,16 +5,20 @@ import type { Deck, Slide, SlideElement, TextElement } from './types';
 import type { LessonInfo } from './lessons';
 import { sanitizeDeck } from './sanitize';
 import { fitStatus, neededHeight, textMetrics } from './fitEstimate';
+import { growMedia } from './fillSpace';
 import { fingerprint, needsAnswerCheck, sayBasis, slideBasis } from './aiFields';
 import { chat, knowledge, STYLE } from './ai';
 import { writeRecap } from './prepare';
 import { removeRepeats } from './repeats';
 import { checkActivityAnswers } from './activityCheck';
 import { fixStoryOrder } from './storyOrder';
+import { lessonPictures, pictureCandidates, pictureIdea } from './pictures';
+import { pictureCheckable } from './aiFields';
 
 const GENERATE_BUDGET_MS = 270_000;   // the ai-deck route's maxDuration is 300 s
 const ANSWER_CHECK_MS = 30_000;        // a hands-on box's answer check, roughly, with room to spare
 const STORY_ORDER_MS = 40_000;         // the story-order read and the recap after it
+const PICTURES_MS = 30_000;            // the picture pass (in parallel over the slides), and the recap after it
 
 // Step 5: the AI makes a whole deck in the canvas format.
 //   1. plan the lesson's topics from the knowledge base
@@ -25,11 +29,13 @@ const STORY_ORDER_MS = 40_000;         // the story-order read and the recap aft
 //   4. read the whole deck for repeated content (up to 3 times) and rewrite repeats
 //   5. check the hands-on boxes' answer keys against the knowledge base
 //   6. put the whole lesson in story order (storyOrder.ts): the right first and last topics
+//   7. add library pictures it doesn't use yet where a slide talks about what one shows (pictures.ts)
 // Audio is made afterwards by the save-time AI (prepare.ts).
 
 const supabase = lazySupabaseAdmin();
 
-export type LibImage = { id: string; url: string; description: string };
+/** score: how close it is to the search (0-1), when the library search gives it; used: the lesson already shows it (the picture check) */
+export type LibImage = { id: string; url: string; description: string; score?: number; used?: boolean };
 type TopicPlan = { title: string; query: string; covers: string[] };
 
 export async function imagesFor(query: string, count: number): Promise<LibImage[]> {
@@ -41,7 +47,7 @@ export async function imagesFor(query: string, count: number): Promise<LibImage[
     }).then((r) => r.json());
     const { data, error } = await supabase.rpc('match_images2', { query_embedding: emb.data[0].embedding, match_count: count });
     if (error) throw new Error(error.message);
-    return (data ?? []).map((r: any, i: number) => ({ id: `img${i + 1}`, url: r.url, description: r.description ?? '' }));
+    return (data ?? []).map((r: any, i: number) => ({ id: `img${i + 1}`, url: r.url, description: r.description ?? '', ...(typeof r.similarity === 'number' ? { score: r.similarity } : {}) }));
   } catch (e) {
     console.warn('Image lookup failed:', e);
     return [];
@@ -130,7 +136,7 @@ async function writeTopicSlides(
 /* ---------------------------------------------------------- building */
 
 /** Model output → a Slide: image ids become library URLs + descriptions. */
-function toSlide(raw: any, topic: string, images: LibImage[], id: string): Slide {
+export function toSlide(raw: any, topic: string, images: LibImage[], id: string): Slide {
   const byId = new Map(images.map((i) => [i.id, i]));
   const elements = (Array.isArray(raw?.elements) ? raw.elements : []).flatMap((e: any, j: number) => {
     if (e?.type === 'image') {
@@ -175,7 +181,10 @@ export function problems(raw: any, slide: Slide, images: LibImage[]): string[] {
   return out;
 }
 
-/** Last resort for what the retry didn't fix: grow boxes that overflow, as far as the slide allows. */
+/**
+ * Last resort for what the retry didn't fix: grow boxes that overflow, as far as the slide allows. Then a slide
+ * that's mostly empty gets its pictures, charts and diagrams grown into the space (fillSpace.ts).
+ */
 export function autoFix(slide: Slide): void {
   for (const e of slide.elements) {
     if (e.type !== 'text' || fitStatus(e) !== 'overflows') continue;
@@ -186,10 +195,11 @@ export function autoFix(slide: Slide): void {
       e.h = Math.min(100 - e.y, Math.max(e.h, want));
     }
   }
+  slide.elements = growMedia(slide).elements;
 }
 
 /** Marks everything as AI-written, with fingerprints, so the save-time AI keeps it until its source changes. */
-function markAi(slide: Slide): void {
+export function markAi(slide: Slide): void {
   for (const el of slide.elements as SlideElement[]) {
     if (el.say) Object.assign(el, { sayByAI: true, sayFrom: fingerprint(sayBasis(el)) });
     if (el.plain && el.say) Object.assign(el, { plainByAI: true, plainFrom: fingerprint(el.say) });
@@ -260,6 +270,22 @@ export async function generateAiDeck(lesson: LessonInfo): Promise<{ deck: Deck; 
       notes.push(...(await fixStoryOrder(deck, lesson.title)));
     } catch (e) {
       notes.push(`Checking the slide order failed: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
+  // Pictures: the library's pictures the lesson doesn't use yet (no words in them), added where a slide talks
+  // about what one shows, the slide laid out again with them (with room left for it: else the save-time AI suggests them)
+  if (Date.now() < started + GENERATE_BUDGET_MS - PICTURES_MS) {
+    try {
+      const slides = deck.slides.filter(pictureCheckable);
+      const candidates = await pictureCandidates(deck, slides, lessonPictures(deck, false));
+      let added = 0;
+      await Promise.all(slides.map(async (s) => {
+        const idea = await pictureIdea(deck, s, candidates.get(s.id) ?? []).catch(() => null);
+        if (idea) { s.elements = idea.elements; added += idea.pictures.length; }
+      }));
+      if (added) notes.push(`Added ${added} picture${added === 1 ? '' : 's'} from the library where slides talk about what they show`);
+    } catch (e) {
+      notes.push(`Adding pictures failed: ${e instanceof Error ? e.message : String(e)}`);
     }
   }
   deck.slides.forEach(markAi);

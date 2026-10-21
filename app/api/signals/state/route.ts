@@ -49,7 +49,8 @@ export async function POST(request: NextRequest) {
     const lastState = deriveMood(c);
     const supabase = getSupabase() as any;
 
-    const { data: written, error } = await supabase.rpc('put_learner_state', {
+    // v3 (migration 010): the classmates' counters too. Not applied yet: v2, as before
+    const v2 = {
       p_session_id: sessionId,
       p_section: section,
       p_seq: int(body.seq),
@@ -66,7 +67,9 @@ export async function POST(request: NextRequest) {
       p_self_check: c.self_check,
       p_dwell_ms_total: c.dwell_ms_total,
       p_last_state: lastState,
-    });
+    };
+    let { data: written, error } = await supabase.rpc('put_learner_state_v3', { ...v2, p_classmate_turns: c.classmate_turns, p_bank_answers: c.bank_answers });
+    if (error && /put_learner_state_v3|function|schema cache/i.test(error.message)) ({ data: written, error } = await supabase.rpc('put_learner_state', v2));
 
     if (error) {
       // Migration 003 not applied yet: keep writing the original columns

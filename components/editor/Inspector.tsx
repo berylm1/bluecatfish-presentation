@@ -1,9 +1,11 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import type { ActivityElement, ChartElement, DeckQuiz, DiagramElement, Slide, SlideElement, TextStyle } from '@/lib/canvas/types';
+import type { ActivityElement, ChartElement, DeckBank, DeckQuiz, DiagramElement, Slide, SlideElement, TextStyle } from '@/lib/canvas/types';
+import SlideCanvas from '@/components/canvas/SlideCanvas';
+import { CLASSMATES } from '@/lib/classmates';
 import type { Warning } from '@/lib/canvas/checks';
-import { answerBasis, QUIZ_ASKED, QUIZ_POOL } from '@/lib/canvas/aiFields';
+import { answerBasis, BANK_PER_TOPIC, QUIZ_ASKED, QUIZ_POOL } from '@/lib/canvas/aiFields';
 import { activityReady } from '@/lib/canvas/queue';
 
 // Right-hand panel: everything about the selected element, or the slide when
@@ -276,6 +278,10 @@ export function SlideInspector({
   quiz,
   quizStale,
   onQuiz,
+  bank,
+  bankPending,
+  onBank,
+  onGrowMedia,
 }: {
   slide: Slide;
   /** The first slide of its topic: it has the topic's introduction */
@@ -290,6 +296,12 @@ export function SlideInspector({
   /** The end-of-lesson quiz pool; stale: the lesson changed since it was checked */
   quiz?: DeckQuiz;
   quizStale?: boolean;
+  /** The question bank, the topics it still has to write (on save), and a change to it */
+  bank?: DeckBank;
+  bankPending?: string[];
+  onBank?: (change: (bank: DeckBank | undefined) => DeckBank | undefined) => void;
+  /** Grow the slide's pictures into its empty space (on the layer being edited) */
+  onGrowMedia?: () => void;
   /** Change the quiz (undefined: write a new pool on the next save) */
   onQuiz: (change: (quiz: DeckQuiz | undefined) => DeckQuiz | undefined) => void;
 }) {
@@ -345,6 +357,9 @@ export function SlideInspector({
           {warnings.map((w, i) => (
             <p key={i} className={`text-xs rounded-md px-2 py-1.5 border ${w.level === 'warn' ? 'text-amber-800 bg-amber-50 border-amber-200' : 'text-slate-600 bg-slate-50 border-slate-200'}`}>
               {w.level === 'warn' ? '⚠' : 'ℹ'} {w.message}
+              {w.kind === 'space' && (
+                onGrowMedia && <button className="ml-1.5 underline text-cyan-700 hover:text-cyan-600" onClick={onGrowMedia}>⤢ Make them bigger</button>
+              )}
             </p>
           ))}
         </div>
@@ -366,7 +381,76 @@ export function SlideInspector({
           {recapByAI ? 'Written by the AI: it is rewritten on each publish until you edit it.' : recap?.trim() ? 'Yours: publishing keeps it as it is.' : ''}
         </p>
         <QuizSection quiz={quiz} stale={quizStale} onQuiz={onQuiz} />
+        {onBank && <BankSection bank={bank} topic={slide.topic?.trim() ?? ''} pending={bankPending ?? []} onBank={onBank} />}
       </div>
+    </div>
+  );
+}
+
+/**
+ * The question bank for the topic of the slide being edited: the questions the classmates ask (and a
+ * learner's close question gets), each with its answer slide. Edit a question's words, take one out,
+ * or have the topic's written again. On or off for the lesson.
+ */
+function BankSection({ bank, topic, pending, onBank }: {
+  bank?: DeckBank; topic: string; pending: string[];
+  onBank: (change: (bank: DeckBank | undefined) => DeckBank | undefined) => void;
+}) {
+  const off = !!bank?.off;
+  const mine = (bank?.questions ?? []).filter((q) => q.topic === topic);
+  const total = bank?.questions.length ?? 0;
+  const edit = (id: string, change: (q: DeckBank['questions'][number]) => DeckBank['questions'][number] | null) =>
+    onBank((b) => b && { ...b, questions: b.questions.flatMap((q) => (q.id === id ? (change(q) ? [change(q)!] : []) : [q])) });
+  return (
+    <div className="mt-4" data-bank-section>
+      <label className={label}>Class questions</label>
+      <label className="flex items-center gap-2 text-sm text-slate-700">
+        <input type="checkbox" checked={!off}
+          onChange={(e) => onBank((b) => ({ questions: b?.questions ?? [], from: b?.from ?? {}, off: !e.target.checked || undefined }))} />
+        About {BANK_PER_TOPIC} questions per topic, each with its answer slide
+      </label>
+      {!off && (
+        <>
+          <p className="text-xs text-slate-500 mt-1">
+            The classmates ask these, and a learner who asks something close gets the answer slide at once. Written by the AI when you save
+            ({total} in the lesson{pending.length ? `; ${pending.length} topic${pending.length === 1 ? '' : 's'} still to write` : ''}).
+          </p>
+          {!topic ? <p className="text-xs text-slate-500 mt-1">This slide has no topic yet.</p> : (
+            <details className="mt-1.5 rounded-md border border-slate-200" open={mine.length > 0 && mine.length <= 3}>
+              <summary className="cursor-pointer px-2 py-1.5 text-xs font-semibold text-slate-700">
+                “{topic}”: {mine.length ? `${mine.length} question${mine.length === 1 ? '' : 's'}` : pending.includes(topic) ? 'written when you save' : 'none'}
+              </summary>
+              <ol className="flex flex-col divide-y divide-slate-100">
+                {mine.map((q) => {
+                  const c = CLASSMATES[q.asker];
+                  return (
+                    <li key={q.id} className="px-2 py-2 text-xs text-slate-700 flex flex-col gap-1.5" data-bank-question>
+                      <div className="flex items-center gap-1.5">
+                        <span className="shrink-0 w-5 h-5 rounded-full text-white text-[10px] font-bold flex items-center justify-center" style={{ background: c.color }} title={`${c.name} asks it`}>{c.name[0]}</span>
+                        <input className="flex-1 min-w-0 px-1.5 py-1 rounded border border-slate-200 text-xs" value={q.q} maxLength={200} aria-label="The question"
+                          onChange={(e) => edit(q.id, (x) => ({ ...x, q: e.target.value, byAI: undefined }))} />
+                        <button className="shrink-0 text-slate-400 hover:text-red-600" title="Take this question out" aria-label="Take this question out"
+                          onClick={() => edit(q.id, () => null)}>✕</button>
+                      </div>
+                      <details>
+                        <summary className="cursor-pointer text-slate-500">Answer slide {q.byAI ? '(✨ AI)' : ''}</summary>
+                        <div className="mt-1 rounded border border-slate-200 overflow-hidden pointer-events-none"><SlideCanvas slide={q.slide} width="100%" /></div>
+                        <p className="mt-1 text-slate-500">{q.slide.elements.map((e) => e.say?.trim()).filter(Boolean).join(' ')}</p>
+                      </details>
+                    </li>
+                  );
+                })}
+              </ol>
+              {mine.some((q) => q.byAI) && (
+                <button className={`${small} m-2`}
+                  onClick={() => { if (window.confirm(`Write “${topic}”'s questions again? The AI's are replaced when you save; ones you edited stay.`)) onBank((b) => b && { ...b, from: Object.fromEntries(Object.entries(b.from).filter(([t]) => t !== topic)) }); }}>
+                  Write them again
+                </button>
+              )}
+            </details>
+          )}
+        </>
+      )}
     </div>
   );
 }

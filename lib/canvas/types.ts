@@ -213,6 +213,18 @@ export interface DeckChecks {
   order?: { from: string; at: string; why?: string; moves: OrderMove[] };
   /** Order moves a person skipped (moveKey) */
   orderSkips?: string[];
+  /** The picture check (pictures.ts), per slide id: the slide it looked at (pictureBasis) and the pictures it suggests (null: none) */
+  pictures?: Record<string, { from: string; at: string; idea: PictureIdea | null; note?: string }>;
+  /** Picture ideas a person skipped (pictureSkipKey) */
+  pictureSkips?: string[];
+}
+
+/** Pictures the check suggests adding to a slide, and the slide laid out again with them */
+export interface PictureIdea {
+  /** The pictures added: address, description, and why it fits the slide */
+  pictures: { src: string; alt: string; why: string }[];
+  /** The slide's elements laid out with them (the slide's own keep their content; the pictures are new elements) */
+  elements: SlideElement[];
 }
 
 /** A suggested move: these slides (a topic, or one slide), put right after `after` (null: at the start). */
@@ -247,6 +259,34 @@ export interface DeckQuiz {
   off?: boolean;
 }
 
+/**
+ * A question learners (or the classmates) might ask about a topic, with its answer as a slide
+ * (lib/canvas/bank.ts). The AI writes about 6 per topic when the lesson is saved; the answer
+ * slide gets its spoken words' audio like any slide. When a learner asks something close, its
+ * answer slide plays; the classmates ask the related ones.
+ */
+export interface BankQuestion {
+  id: string;
+  /** The topic it's about (the topic name on its slides) */
+  topic: string;
+  /** The question, as a kid in class would ask it */
+  q: string;
+  /** The classmate who asks it when it comes up (lib/classmates.ts) */
+  asker: 'maya' | 'finn' | 'leo';
+  /** The answer, as a slide: shown and said like any slide */
+  slide: Slide;
+  /** Written by the AI (a person's edit makes it theirs: kept when the topic changes) */
+  byAI?: boolean;
+}
+
+export interface DeckBank {
+  questions: BankQuestion[];
+  /** Per topic, the bankBasis its AI questions were written from (a changed topic: written again) */
+  from: Record<string, string>;
+  /** No question bank in this lesson */
+  off?: boolean;
+}
+
 export interface Deck {
   lessonId: string;
   title: string;
@@ -261,6 +301,8 @@ export interface Deck {
   recapByAI?: boolean;
   /** The end-of-lesson quiz pool */
   quiz?: DeckQuiz;
+  /** Questions and answer slides per topic (the classmates ask them; a learner's close question gets its answer slide) */
+  bank?: DeckBank;
   /** The editor's fact and repeat checks (editor-only) */
   checks?: DeckChecks;
   updatedAt?: string;

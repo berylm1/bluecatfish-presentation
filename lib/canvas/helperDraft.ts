@@ -84,6 +84,12 @@ export function toHelper(raw: any, slide: Slide, images: LibImage[]): SlideEleme
     el.x = Math.min(100 - el.w, Math.max(0, el.x)); el.y = Math.min(100 - el.h, Math.max(0, el.y));
     if (el.say) Object.assign(el, { sayByAI: true, sayFrom: fingerprint(sayBasis(el)) });
   }
+  // It has to say something (a helper of silent boxes sat there quiet in the lesson): no speaking box, so the
+  // first text that isn't the title speaks (else the picture); the save-time AI writes its words
+  if (out.length && !out.some((e) => !e.silent && (e.say || sayBasis(e)))) {
+    const speaker = out.find((e) => e.type === 'text' && e.style !== 'title') ?? out.find((e) => e.type === 'image' && e.alt) ?? null;
+    if (speaker) speaker.silent = undefined;
+  }
   return out;
 }
 
