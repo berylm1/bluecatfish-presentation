@@ -38,6 +38,8 @@ export const LIMITS = {
   bank: { perSession: 20, perAddress: 120, windowSec: 60, perDay: 5000, label: 'question lookups' },
   // The online study (/api/study): a few saves per step, each writes the person's row
   study: { perSession: 30, perAddress: 300, windowSec: 60, perDay: 20000, label: 'study saves' },
+  // Starting the study (a new row each time): a household or a dorm shares an address, a script doesn't get far
+  studyJoin: { perSession: 5, perAddress: 30, windowSec: 3600, perDay: 1000, label: 'new study sign-ups' },
   slides: { perSession: 15, perAddress: 120, windowSec: 60, perDay: 5000, label: 'slide lookups' },
   // Making the whole /presentationv2 lesson (only when it isn't cached yet): many paid calls
   lesson: { perSession: 2, perAddress: 4, windowSec: 3600, perDay: 20, label: 'lesson builds' },

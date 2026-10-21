@@ -15,6 +15,8 @@ import { ANSWERS, score } from '@/lib/study/key';
  *   post    the post-quiz (once)
  *   survey  the questionnaire (once): the end, and how they did on the quizzes
  * The id is a random uuid: knowing it is what lets a browser write to that row.
+ * Each step needs the one before it (so the answers can't be had early: the right answers come back
+ * only once the post-quiz and the questionnaire are in), and a save can only move a person one step on.
  */
 let client: ReturnType<typeof createClient> | null = null;
 function db() {
@@ -28,6 +30,9 @@ const str = (v: unknown, max: number) => (typeof v === 'string' ? v.trim().slice
 const bool = (v: unknown) => (typeof v === 'boolean' ? v : null);
 const ms = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) && v >= 0 ? Math.min(Math.round(v), 6 * 3600_000) : null);
 const fail = (error: string, status = 400) => NextResponse.json({ error }, { status });
+const at = (step: string) => STEPS.indexOf(step);
+// What a save may move someone on to, from where (the rest move on with their own action)
+const SAVE_STEPS: Record<string, string[]> = { pre: ['about'], lesson: ['checks'], post: ['lesson'] };
 
 /** Only answers to these questions, in their form (a choice's letter, or text up to 2000) */
 function cleanAnswers(questions: QuizQuestion[], raw: any) {
@@ -61,6 +66,9 @@ export async function POST(request: NextRequest) {
 
   try {
     if (action === 'join') {
+      // (a new row each time: tighter, so a script can't fill the table with fake people)
+      const joinLimited = await rateLimit(request, 'studyJoin');
+      if (joinLimited) return joinLimited;
       const { data, error } = await supabase.from('study_participants').insert({
         is_test: body.test === true,
         step: 'about',
@@ -89,7 +97,7 @@ export async function POST(request: NextRequest) {
     if (action === 'get') return NextResponse.json({ step: row.step, group: row.study_group, test: row.is_test });
 
     if (action === 'save') {
-      const fields: Record<string, unknown> = { ...forward(body.step) };
+      const fields: Record<string, unknown> = SAVE_STEPS[body.step]?.includes(row.step) ? { step: body.step } : {};
       if (body.about && typeof body.about === 'object') {
         for (const d of DEMOGRAPHICS) {
           const v = str(body.about[d.id], d.text ? 200 : 60);
@@ -111,12 +119,14 @@ export async function POST(request: NextRequest) {
 
     if (action === 'pre') {
       if (row.pre_quiz) return NextResponse.json({ ok: true });   // (once)
+      if (row.step !== 'pre') return fail('Answer the questions about you first');
       const pre = cleanAnswers(PRE_QUIZ, body);
       await update({ pre_quiz: pre, pre_score: score(PRE_QUIZ, pre.answers).right, ...forward('start') });
       return NextResponse.json({ ok: true });
     }
 
     if (action === 'assign') {
+      if (!row.pre_quiz) return fail('Do the first quiz first');
       let group: string | null = row.study_group;
       // a test run can choose (to try both); everyone else gets the group with fewer people
       if (!group && row.is_test && GROUPS.includes(body.group)) {
@@ -125,8 +135,15 @@ export async function POST(request: NextRequest) {
       }
       if (!group) {
         const { data, error } = await supabase.rpc('study_assign', { p_id: id });
-        if (error) throw error;
-        group = data;
+        if (!error && GROUPS.includes(data)) group = data;
+        else {
+          // (the function can't be reached, e.g. no permission to run it: the same choice here, without its lock)
+          console.error('study_assign:', error?.message ?? data);
+          const count = async (g: string) => (await supabase.from('study_participants').select('id', { count: 'exact', head: true }).eq('is_test', false).eq('study_group', g)).count ?? 0;
+          const [withMates, without] = await Promise.all([count('classmates'), count('no_classmates')]);
+          group = withMates < without ? 'classmates' : without < withMates ? 'no_classmates' : Math.random() < 0.5 ? 'classmates' : 'no_classmates';
+          await update({ study_group: group });
+        }
       }
       await update(forward('checks'));
       return NextResponse.json({ group });
@@ -134,6 +151,7 @@ export async function POST(request: NextRequest) {
 
     if (action === 'post') {
       if (row.post_quiz) return NextResponse.json({ ok: true });
+      if (!row.study_group || at(row.step) < at('lesson')) return fail('Do the lesson first');
       const post = cleanAnswers(POST_QUIZ, body);
       const s = score(POST_QUIZ, post.answers);
       await update({ post_quiz: post, post_score: s.right, post_same_score: s.same, ...forward('survey') });
@@ -141,6 +159,8 @@ export async function POST(request: NextRequest) {
     }
 
     if (action === 'survey') {
+      // (the right answers come back below: only once the post-quiz is in)
+      if (!row.post_quiz) return fail('Do the second quiz first');
       if (!row.survey) {
         const items = surveyFor(row.study_group);
         const answers: Record<string, string | number> = {};

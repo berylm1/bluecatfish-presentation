@@ -60,13 +60,19 @@ export default function CanvasPresentation() {
   const [error, setError] = useState<string | null>(null);
   const [startAt, setStartAt] = useState(0);   // &slide=N (1-based): start there (the editor's "▶ From this slide")
   const [study, setStudy] = useState<StudyRecord | null>(null);   // in the online study (app/study): ?study=<their id>
+  const [studyReady, setStudyReady] = useState(true);   // (in the study: the lesson waits for the group from the server)
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     if (params.get('study')) {
       const s = studyLesson();
       if (!s) { setError('This lesson link is part of the study: start it from the study page (/study) on this browser.'); return; }
-      setStudy(s);
+      // the group the server gave them (not what this browser says: it could be edited); offline: the browser's
+      setStudyReady(false);
+      studyPost<{ group?: StudyRecord['group'] }>('get', { id: s.id })
+        .then((d) => setStudy(d.group ? { ...s, group: d.group } : s))
+        .catch(() => setStudy(s))
+        .finally(() => setStudyReady(true));
     }
     const lesson = params.get('lesson') || DEFAULT_LESSON.id;
     const pv = params.get('preview');
@@ -77,7 +83,7 @@ export default function CanvasPresentation() {
       .catch((e) => setError(e instanceof Error ? e.message : String(e)));
   }, []);
 
-  if (error || !loaded) {
+  if (error || !loaded || !studyReady) {
     return (
       <main className="min-h-screen flex flex-col items-center justify-center gap-4 bg-gradient-to-br from-sky-950 via-slate-900 to-cyan-950 text-white p-6 text-center">
         {error ? (

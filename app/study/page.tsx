@@ -39,6 +39,7 @@ export default function Study() {
   const [error, setError] = useState<string | null>(null);
   const [results, setResults] = useState<Results | null>(null);
   const startedAt = useRef(Date.now());
+  const inFlight = useRef(false);   // (a double click sends one save, not two: two "I agree" would be two people)
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -62,6 +63,8 @@ export default function Study() {
 
   /** Run a save; on success go to the next step */
   const go = useCallback(async (next: Step, work: () => Promise<Partial<StudyRecord> | void>) => {
+    if (inFlight.current) return;
+    inFlight.current = true;
     setBusy(true); setError(null);
     try {
       const more = (await work()) || {};
@@ -75,15 +78,25 @@ export default function Study() {
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
+      inFlight.current = false;
       setBusy(false);
     }
   }, []);
 
-  const resetTest = () => {
-    if (!window.confirm('Forget this test run on this browser and start again?')) return;
+  const forget = () => {
     writeStudy(null);
     try { for (const k of Object.keys(localStorage)) if (k.startsWith('lessonProgress:')) localStorage.removeItem(k); } catch { /* fine */ }
+  };
+  const resetTest = () => {
+    if (!window.confirm('Forget this test run on this browser and start again?')) return;
+    forget();
     window.location.href = '/study?test=1';
+  };
+  // Family sharing one computer: the next person starts fresh (this browser has seen the lesson: noted with their answers)
+  const nextPerson = () => {
+    if (!window.confirm('Start the study for someone else on this computer? (Your answers are already saved.)')) return;
+    forget();
+    window.location.href = '/study';
   };
 
   if (!ready) return <Shell><div className="w-10 h-10 rounded-full border-4 border-cyan-300/30 border-t-cyan-300 animate-spin" /></Shell>;
@@ -170,7 +183,7 @@ export default function Study() {
         })} />
       )}
 
-      {step === 'done' && rec && <Done rec={rec} results={results} setResults={setResults} />}
+      {step === 'done' && rec && <Done rec={rec} results={results} setResults={setResults} onNextPerson={rec.test ? undefined : nextPerson} />}
     </Shell>
   );
 }
@@ -511,7 +524,7 @@ function Survey({ group, busy, onDone }: { group: StudyGroup | null; busy: boole
   );
 }
 
-function Done({ rec, results, setResults }: { rec: StudyRecord; results: Results | null; setResults: (r: Results) => void }) {
+function Done({ rec, results, setResults, onNextPerson }: { rec: StudyRecord; results: Results | null; setResults: (r: Results) => void; onNextPerson?: () => void }) {
   const [failed, setFailed] = useState(false);
   // (came back later: the survey's saved already, asking again just gives the results)
   useEffect(() => {
@@ -545,6 +558,7 @@ function Done({ rec, results, setResults }: { rec: StudyRecord; results: Results
         <p className="mt-4 text-sm text-slate-500">Loading how you did…</p>
       )}
       <p className="mt-4 text-sm text-slate-500">You can close this page now.</p>
+      {onNextPerson && <button className={`${quiet} mt-2 underline`} onClick={onNextPerson}>Someone else wants to take part on this computer</button>}
     </div>
   );
 }

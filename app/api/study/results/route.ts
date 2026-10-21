@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { DEMOGRAPHICS, POST_QUIZ, PRE_QUIZ, SURVEY } from '@/lib/study/content';
 import { ANSWERS } from '@/lib/study/key';
+import { AUTH_COOKIE, verifyToken } from '@/lib/editorAuth';
 
 /*
  * The study's results, for /studyResults (editors only: under PROTECTED_APIS in lib/editorAuth.ts).
@@ -17,6 +18,16 @@ function db() {
 }
 
 type Row = Record<string, string | number | boolean | null>;
+/** Every row of a query, a page at a time (Supabase sends at most 1000 per request) */
+async function all(query: () => any): Promise<any[]> {
+  const out: any[] = [];
+  for (let from = 0; ; from += 1000) {
+    const { data, error } = await query().range(from, from + 999);
+    if (error) throw error;
+    out.push(...(data ?? []));
+    if (!data || data.length < 1000) return out;
+  }
+}
 const minutes = (from?: string | null, to?: string | null) => (from && to ? Math.round((Date.parse(to) - Date.parse(from)) / 6000) / 10 : null);
 
 // The lesson's own decisions worth counting (tutor_decision events, app/presentation/page.tsx)
@@ -33,33 +44,46 @@ async function lessonStats(sessions: string[]) {
     out.set(s, m);
   };
   const cols = ['questions', 'classmate_turns', 'bank_answers', 'confusion_marks', 'repeats', 'simplify_requests', 'skips', 'barge_ins', 'dwell_ms_total'];
-  let { data: states, error } = await db().from('learner_state').select(['session_id', ...cols].join(', ')).in('session_id', sessions);
-  // (migration 010 not run: no classmate columns)
-  if (error) ({ data: states } = await db().from('learner_state').select(['session_id', ...cols.filter((c) => c !== 'classmate_turns' && c !== 'bank_answers')].join(', ')).in('session_id', sessions));
-  for (const st of states ?? []) for (const c of cols) if (typeof st[c] === 'number') add(st.session_id, c, st[c]);
-  const { data: events } = await db().from('events').select('session_id, event_type, value')
-    .in('session_id', sessions).in('event_type', ['emotion_state', 'hand_raise', 'presence_away', 'tutor_decision']).limit(50000);
-  for (const e of events ?? []) {
+  // (a few hundred sessions at a time: they go in the address)
+  const batches: string[][] = [];
+  for (let i = 0; i < sessions.length; i += 200) batches.push(sessions.slice(i, i + 200));
+  for (const batch of batches) {
+    let states: any[];
+    try { states = await all(() => db().from('learner_state').select(['session_id', ...cols].join(', ')).in('session_id', batch).order('session_id').order('section')); }
+    // (migration 010 not run: no classmate columns)
+    catch { states = await all(() => db().from('learner_state').select(['session_id', ...cols.filter((c) => c !== 'classmate_turns' && c !== 'bank_answers')].join(', ')).in('session_id', batch).order('session_id').order('section')); }
+    for (const st of states) for (const c of cols) if (typeof st[c] === 'number') add(st.session_id, c, st[c]);
+    const events = await all(() => db().from('events').select('id, session_id, event_type, value')
+      .in('session_id', batch).in('event_type', ['emotion_state', 'hand_raise', 'presence_away', 'tutor_decision']).order('id'));
+    for (const e of events) countEvent(e);
+  }
+  return out;
+  function countEvent(e: any) {
     if (e.event_type === 'emotion_state') add(e.session_id, `face_${e.value?.state ?? 'other'}`, 1);
     else if (e.event_type === 'tutor_decision') { if (ACTIONS.includes(e.value?.action)) add(e.session_id, e.value.action, 1); }
     else add(e.session_id, e.event_type, 1);
   }
-  return out;
 }
 
 export async function GET(request: NextRequest) {
+  // (the editor gate in proxy.ts covers this too; checked here as well, so these answers never depend on one place)
+  if (!(await verifyToken(request.cookies.get(AUTH_COOKIE)?.value))) return NextResponse.json({ error: 'Locked: unlock the editor first (/unlock).' }, { status: 401 });
   const url = new URL(request.url);
   const tests = url.searchParams.get('tests') === '1';
-  let q = db().from('study_participants').select('*').order('created_at', { ascending: true });
-  if (!tests) q = q.eq('is_test', false);
-  const { data: people, error } = await q;
-  if (error) {
-    const missing = /study_participants|schema cache|does not exist/i.test(error.message);
-    return NextResponse.json({ error: missing ? 'Run migration 011 in Supabase first.' : error.message }, { status: missing ? 503 : 500 });
+  let people: any[];
+  try {
+    people = await all(() => {
+      const q = db().from('study_participants').select('*').order('created_at', { ascending: true }).order('id');
+      return tests ? q : q.eq('is_test', false);
+    });
+  } catch (error: any) {
+    const missing = /study_participants|schema cache|does not exist/i.test(error?.message ?? '');
+    return NextResponse.json({ error: missing ? 'Run migration 011 in Supabase first.' : 'Could not read the results.' }, { status: missing ? 503 : 500 });
   }
 
   const sessionsOf = (p: any): string[] => (p.lesson_session ? String(p.lesson_session).split(' ').filter(Boolean) : []);
-  const stats = await lessonStats(people.flatMap(sessionsOf));
+  // (the lesson's counts can't be read: the answers still come, with those columns empty)
+  const stats = await lessonStats(people.flatMap(sessionsOf)).catch((e) => { console.error('study results:', e); return new Map<string, Record<string, number>>(); });
   const LESSON_COLS = ['questions', 'classmate_turns', 'bank_answers', 'confusion_marks', 'repeats', 'simplify_requests', 'skips', 'barge_ins', 'dwell_ms_total', 'face_confused', 'face_bored', 'hand_raise', 'presence_away', ...ACTIONS];
 
   const rows: Row[] = people.map((p: any) => {
@@ -97,7 +121,9 @@ export async function GET(request: NextRequest) {
     const cols = Object.keys(rows[0] ?? { id: '' });
     const cell = (v: unknown) => {
       if (v == null) return '';
-      const s = String(v);
+      let s = String(v);
+      // (typed answers that start like a formula, "=HYPERLINK(…)", would run in Excel: kept as text)
+      if (typeof v === 'string' && /^[=+\-@\t\r]/.test(s)) s = `'${s}`;
       return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
     };
     const csv = [cols.join(','), ...rows.map((r) => cols.map((c) => cell(r[c])).join(','))].join('\r\n');
