@@ -7,7 +7,7 @@ import { ANSWERS, score } from '@/lib/study/key';
 /*
  * The online study (app/study): one row per person in study_participants (migration 011), saved
  * step by step so someone who stops halfway is still counted where they stopped.
- *   join    consent given: a new row, its id back (the browser keeps it)
+ *   join    consent given: a new row, its id back (the browser keeps it); next, the sound/mic/camera checks
  *   get     where they are (coming back after a refresh), and their group
  *   save    a step's answers (demographics, the checks, the lesson's session, timings)
  *   pre     the pre-quiz (once: it can't be answered again after the lesson)
@@ -25,14 +25,14 @@ function db() {
 }
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const STEPS = ['consent', 'about', 'pre', 'start', 'checks', 'lesson', 'post', 'survey', 'done'];
+const STEPS = ['consent', 'checks', 'about', 'pre', 'start', 'lesson', 'post', 'survey', 'done'];
 const str = (v: unknown, max: number) => (typeof v === 'string' ? v.trim().slice(0, max) : null);
 const bool = (v: unknown) => (typeof v === 'boolean' ? v : null);
 const ms = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) && v >= 0 ? Math.min(Math.round(v), 6 * 3600_000) : null);
 const fail = (error: string, status = 400) => NextResponse.json({ error }, { status });
 const at = (step: string) => STEPS.indexOf(step);
 // What a save may move someone on to, from where (the rest move on with their own action)
-const SAVE_STEPS: Record<string, string[]> = { pre: ['about'], lesson: ['checks'], post: ['lesson'] };
+const SAVE_STEPS: Record<string, string[]> = { about: ['checks'], pre: ['about'], post: ['lesson'] };
 
 /** Only answers to these questions, in their form (a choice's letter, or text up to 2000) */
 function cleanAnswers(questions: QuizQuestion[], raw: any) {
@@ -71,7 +71,7 @@ export async function POST(request: NextRequest) {
       if (joinLimited) return joinLimited;
       const { data, error } = await supabase.from('study_participants').insert({
         is_test: body.test === true,
-        step: 'about',
+        step: 'checks',
         consent_at: new Date().toISOString(),
         seen_before_browser: bool(body.seenBefore),
         device: str(body.device, 300),
@@ -145,7 +145,7 @@ export async function POST(request: NextRequest) {
           await update({ study_group: group });
         }
       }
-      await update(forward('checks'));
+      await update(forward('lesson'));
       return NextResponse.json({ group });
     }
 

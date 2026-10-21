@@ -23,7 +23,7 @@ export const CONSENT = {
   heading: 'Before you start',
   paragraphs: [
     'We are graduate students studying how people learn from an interactive, AI-narrated lesson. In this study you will go through a short lesson about blue catfish in the Chesapeake Bay, taught by an AI professor. Some people will also have AI classmates in the lesson and some won’t. Which one you get is picked at random.',
-    `It takes about ${STUDY_MINUTES} minutes: a few questions about you, a 5-question quiz, the lesson, a second quiz, and a short questionnaire about how it went. You’ll see how you did on the quizzes at the end.`,
+    `It takes about ${STUDY_MINUTES} minutes: a quick sound and microphone check, a few questions about you, a 5-question quiz, the lesson, a second quiz, and a short questionnaire about how it went. You’ll see how you did on the quizzes at the end.`,
     'You need a laptop or desktop computer with sound. The lesson can use your microphone, so you can ask the professor questions out loud, and your camera if you allow it. You can also type, and the camera is optional.',
     'If the camera is on, it is used only inside your browser to notice things like a raised hand or a puzzled look. No video or picture is ever recorded or sent anywhere. Only short labels, such as "looked confused on slide 4", are saved. What you say to the professor is turned into text so it can answer you, and those questions are saved as text.',
     'We don’t ask for your name or email, and nothing you answer is linked to who you are. Your answers are stored securely and used only for this research project. Results may appear in our thesis, only as group totals or without anything that could identify you.',

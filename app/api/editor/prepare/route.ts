@@ -5,12 +5,14 @@ import { prepareDeck } from '@/lib/canvas/prepare';
 import { applyPatches, countTodo, todoTotal, type Patch } from '@/lib/canvas/aiFields';
 
 export const dynamic = 'force-dynamic';
-export const maxDuration = 60;
+// (was 60 and a 50 s hard stop: the bigger model (lib/canvas/ai.ts) takes longer per call, and a call
+// still going at the hard stop is thrown away and made again next round)
+export const maxDuration = 120;
 const BUDGET_MS = 40_000;   // stop starting new work after this, leaving time to save
 // ...and stop waiting for work still going (a helper draft, the quiz) after this: what's done is
-// saved, the rest is done next round. Was: work started near the budget ran past the 60 s limit,
+// saved, the rest is done next round. Was: work started near the budget ran past the time limit,
 // the platform cut the request off (504), and everything the round had made was lost.
-const HARD_STOP_MS = 50_000;
+const HARD_STOP_MS = 100_000;
 
 // POST { lesson, kind? } → fills in the saved draft's (or the AI deck's) blanks (spoken words, plain
 // versions, topics, audio) for up to ~40s. The editor calls again while

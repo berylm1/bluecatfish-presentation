@@ -17,7 +17,7 @@ type Summary = {
 type Data = { summary: Summary[]; steps: Record<string, number>; rows: Record<string, unknown>[] };
 
 const GROUP_NAME: Record<string, string> = { classmates: 'With classmates', no_classmates: 'Without classmates', null: 'Not started yet' };
-const STEPS = ['about', 'pre', 'start', 'checks', 'lesson', 'post', 'survey', 'done'];
+const STEPS = ['checks', 'about', 'pre', 'start', 'lesson', 'post', 'survey', 'done'];
 const show = (v: unknown) => (v == null ? '–' : String(v));
 
 export default function StudyResults() {

@@ -4,7 +4,7 @@ import { deleteDeck, isLessonId, readDeck, writeDeck } from '@/lib/canvas/store'
 import { writeRecap } from '@/lib/canvas/prepare';
 import { cleanName, MAX_NAME, nameTaken, saveVersion } from '@/lib/canvas/saved';
 
-export const maxDuration = 60;
+export const maxDuration = 120;   // (was 60: the bigger model takes longer per call)
 
 export const dynamic = 'force-dynamic';
 

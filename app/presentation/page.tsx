@@ -38,7 +38,7 @@ import { lessonLength } from '@/lib/canvas/lessonLength';
 import Quiz, { pickQuiz } from '@/components/canvas/Quiz';
 import { lessonParts } from '@/lib/canvas/parts';
 import { answerGist, areaIds, setAreaText, togetherSlide, TOGETHER_ID } from '@/lib/canvas/together';
-import { studyLesson, studyPost, writeStudy, type StudyRecord } from '@/lib/study/client';
+import { preloadedDeck, studyLesson, studyPost, writeStudy, type StudyRecord } from '@/lib/study/client';
 import { signals } from '@/lib/signals';
 
 /*
@@ -78,7 +78,9 @@ export default function CanvasPresentation() {
     const pv = params.get('preview');
     const at = Number(params.get('slide'));
     if (Number.isInteger(at) && at > 1) setStartAt(at - 1);
-    loadDeck(lesson, pv === 'ai' ? 'ai' : pv ? 'draft' : null)
+    // (the study: the deck was loaded during the checks and quiz 1, app/study)
+    const ahead = params.get('study') && !pv ? preloadedDeck(lesson) : null;
+    (ahead ? Promise.resolve({ deck: ahead, preview: false }) : loadDeck(lesson, pv === 'ai' ? 'ai' : pv ? 'draft' : null))
       .then(setLoaded)
       .catch((e) => setError(e instanceof Error ? e.message : String(e)));
   }, []);

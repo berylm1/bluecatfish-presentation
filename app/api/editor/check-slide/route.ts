@@ -3,7 +3,7 @@ import { sanitizeDeck } from '@/lib/canvas/sanitize';
 import { checkSlide } from '@/lib/canvas/checkSlide';
 
 export const dynamic = 'force-dynamic';
-export const maxDuration = 60;
+export const maxDuration = 120;   // (was 60: the bigger model takes longer per call)
 
 // POST { slide, lessonTitle? } → { claims, excerpts }: the slide's facts
 // checked against the knowledge base, with where each came from (the

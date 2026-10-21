@@ -5,18 +5,20 @@ import {
   CONSENT, DEMOGRAPHICS, POST_QUIZ, PRE_QUIZ, SCALE, STUDY_LESSON, STUDY_MINUTES, STUDY_TITLE, surveyFor,
   type DemographicId, type QuizQuestion, type StudyGroup,
 } from '@/lib/study/content';
-import { isComputer, readStudy, seenBefore, studyPost, writeStudy, type StudyRecord } from '@/lib/study/client';
+import { forgetPreloaded, isComputer, preloadCamera, preloadLesson, readStudy, seenBefore, studyPost, writeStudy, type StudyRecord } from '@/lib/study/client';
+import { learnerHeaders } from '@/lib/learnerSession';
 
 /*
- * The online study: consent → about you → pre-quiz → Start (the group is picked) → sound, mic and
- * camera checks → the lesson (/presentation?study=…, with or without the classmates) → post-quiz →
- * questionnaire → how you did. Each step is saved as it's done (/api/study), and this browser
+ * The online study: consent → sound, mic and camera checks → about you → pre-quiz → Start (the group
+ * is picked) → the lesson (/presentation?study=…, with or without the classmates) → post-quiz →
+ * questionnaire → how you did. The checks come first, so someone whose sound doesn't work stops before
+ * they're in a group (the groups stay even), and the lesson loads in the background meanwhile. Each step is saved as it's done (/api/study), and this browser
  * remembers where they are, so a refresh picks up there. ?test=1: a test run (not in the results,
  * and the group can be chosen).
  */
 
-type Step = 'consent' | 'about' | 'pre' | 'start' | 'checks' | 'lesson' | 'post' | 'survey' | 'done';
-const ORDER: Step[] = ['consent', 'about', 'pre', 'start', 'checks', 'lesson', 'post', 'survey', 'done'];
+type Step = 'consent' | 'checks' | 'about' | 'pre' | 'start' | 'lesson' | 'post' | 'survey' | 'done';
+const ORDER: Step[] = ['consent', 'checks', 'about', 'pre', 'start', 'lesson', 'post', 'survey', 'done'];
 type Results = {
   pre: { right: number; of: number };
   post: { right: number; of: number };
@@ -27,7 +29,7 @@ type Review = { id: string; q: string; yours: string | null; right: string; corr
 const card = 'w-full max-w-2xl rounded-2xl bg-white text-slate-900 shadow-2xl p-6 sm:p-8';
 const primary = 'px-6 py-3 rounded-xl bg-cyan-500 hover:bg-cyan-400 disabled:opacity-40 disabled:cursor-not-allowed text-slate-950 font-semibold';
 const quiet = 'px-4 py-2 rounded-lg text-slate-600 hover:bg-slate-100 text-sm';
-const STEP_LABELS: [Step[], string][] = [[['consent', 'about'], 'About you'], [['pre'], 'Quiz 1'], [['start', 'checks', 'lesson'], 'Lesson'], [['post'], 'Quiz 2'], [['survey', 'done'], 'Questions']];
+const STEP_LABELS: [Step[], string][] = [[['consent', 'checks'], 'Setup'], [['about'], 'About you'], [['pre'], 'Quiz 1'], [['start', 'lesson'], 'Lesson'], [['post'], 'Quiz 2'], [['survey', 'done'], 'Questions']];
 
 export default function Study() {
   const [ready, setReady] = useState(false);
@@ -61,6 +63,10 @@ export default function Study() {
     setReady(true);
   }, []);
 
+  // The lesson loads while they do the checks, the questions about them and quiz 1 (and the camera's files, once it's allowed)
+  useEffect(() => { if (['checks', 'about', 'pre', 'start'].includes(step)) preloadLesson(STUDY_LESSON); }, [step]);
+  useEffect(() => { if (rec?.camera && step !== 'done') preloadCamera(); }, [rec?.camera, step]);
+
   /** Run a save; on success go to the next step */
   const go = useCallback(async (next: Step, work: () => Promise<Partial<StudyRecord> | void>) => {
     if (inFlight.current) return;
@@ -85,6 +91,7 @@ export default function Study() {
 
   const forget = () => {
     writeStudy(null);
+    forgetPreloaded(STUDY_LESSON);
     try { for (const k of Object.keys(localStorage)) if (k.startsWith('lessonProgress:')) localStorage.removeItem(k); } catch { /* fine */ }
   };
   const resetTest = () => {
@@ -125,11 +132,18 @@ export default function Study() {
             {CONSENT.paragraphs.map((p, i) => <p key={i}>{p}</p>)}
             <p className="text-sm text-slate-500">{CONSENT.contact}</p>
           </div>
-          <Consent busy={busy} onAgree={() => go('about', async () => {
+          <Consent busy={busy} onAgree={() => go('checks', async () => {
             const d = await studyPost('join', { test, seenBefore: seenBefore(), device: navigator.userAgent, screen: `${window.screen.width}x${window.screen.height}` });
             return { id: d.id, test };
           })} />
         </div>
+      )}
+
+      {step === 'checks' && rec && (
+        <Checks busy={busy} onDone={(checks) => go('about', async () => {
+          await studyPost('save', { id: rec.id, checks, step: 'about' });
+          return { camera: checks.camera_ok };
+        })} />
       )}
 
       {step === 'about' && rec && (
@@ -145,28 +159,21 @@ export default function Study() {
       {step === 'start' && rec && (
         <div className={card}>
           <h1 className="text-2xl font-bold">Ready for the lesson</h1>
-          <p className="mt-3 text-slate-700">Next you’ll check your sound, microphone and camera, then the lesson starts. It takes about 15–20 minutes. Find a quiet spot and turn your sound on.</p>
+          <p className="mt-3 text-slate-700">The lesson starts next. It takes about 15–20 minutes. Find a quiet spot and keep your sound on.</p>
           <p className="mt-2 text-slate-700">In the lesson you can ask Professor Marine questions out loud, or type them in the chat.</p>
           {test ? (
             <div className="mt-5 flex flex-wrap gap-3">
               <span className="w-full text-sm text-amber-700">Test run: pick the group to try.</span>
               {([['classmates', 'With classmates'], ['no_classmates', 'Without classmates'], [null, 'Random']] as const).map(([g, label]) => (
                 <button key={label} className={primary} disabled={busy}
-                  onClick={() => go('checks', async () => ({ group: (await studyPost('assign', { id: rec.id, group: g })).group }))}>{label}</button>
+                  onClick={() => go('lesson', async () => ({ group: (await studyPost('assign', { id: rec.id, group: g })).group }))}>{label}</button>
               ))}
             </div>
           ) : (
             <button className={`${primary} mt-5`} disabled={busy}
-              onClick={() => go('checks', async () => ({ group: (await studyPost('assign', { id: rec.id })).group }))}>Start</button>
+              onClick={() => go('lesson', async () => ({ group: (await studyPost('assign', { id: rec.id })).group }))}>Start the lesson</button>
           )}
         </div>
-      )}
-
-      {step === 'checks' && rec && (
-        <Checks busy={busy} onDone={(checks) => go('lesson', async () => {
-          await studyPost('save', { id: rec.id, checks, step: 'lesson' });
-          return { camera: checks.camera_ok };
-        })} />
       )}
 
       {step === 'lesson' && rec && <LessonStep rec={rec} />}
@@ -317,119 +324,164 @@ function Quiz({ title, intro, questions, busy, onDone }: {
 
 const WORDS = ['river', 'crab', 'boat', 'island', 'shell', 'storm'];
 
-/** Sound (pick the word the professor says), microphone (a level that moves), camera (optional, a preview) */
+/** Sound and microphone together (hear the word, say it back), then the camera (optional, a preview) */
 function Checks({ busy, onDone }: { busy: boolean; onDone: (c: { sound_ok: boolean; mic_ok: boolean; camera_ok: boolean }) => void }) {
-  const [part, setPart] = useState<'sound' | 'mic' | 'camera'>('sound');
-  const [result, setResult] = useState({ sound_ok: false, mic_ok: false, camera_ok: false });
-  const done = (k: keyof typeof result, ok: boolean, next?: 'mic' | 'camera') => {
-    const r = { ...result, [k]: ok };
-    setResult(r);
-    if (next) setPart(next);
-    else onDone(r);
-  };
+  const [part, setPart] = useState<'soundmic' | 'camera'>('soundmic');
+  const [result, setResult] = useState({ sound_ok: false, mic_ok: false });
   return (
     <div className={card}>
       <div className="flex gap-2 text-sm">
-        {(['sound', 'mic', 'camera'] as const).map((p) => (
-          <span key={p} className={`px-3 py-1 rounded-full ${p === part ? 'bg-cyan-600 text-white' : 'bg-slate-100 text-slate-500'}`}>{p === 'sound' ? '🔊 Sound' : p === 'mic' ? '🎙 Microphone' : '📷 Camera'}</span>
+        {(['soundmic', 'camera'] as const).map((p) => (
+          <span key={p} className={`px-3 py-1 rounded-full ${p === part ? 'bg-cyan-600 text-white' : 'bg-slate-100 text-slate-500'}`}>{p === 'soundmic' ? '🔊 Sound and 🎙 microphone' : '📷 Camera'}</span>
         ))}
       </div>
-      {part === 'sound' && <SoundCheck onDone={(ok) => done('sound_ok', ok, 'mic')} />}
-      {part === 'mic' && <MicCheck onDone={(ok) => done('mic_ok', ok, 'camera')} />}
-      {part === 'camera' && <CameraCheck busy={busy} onDone={(ok) => done('camera_ok', ok)} />}
+      {part === 'soundmic' && <SoundMicCheck onDone={(r) => { setResult(r); setPart('camera'); }} />}
+      {part === 'camera' && <CameraCheck busy={busy} onDone={(ok) => onDone({ ...result, camera_ok: ok })} />}
     </div>
   );
 }
 
-function SoundCheck({ onDone }: { onDone: (ok: boolean) => void }) {
+/**
+ * The professor says a word; they say it back. What they said goes through the same speech-to-text
+ * the lesson uses, so one go checks the speakers, the microphone and hearing them. No microphone (or
+ * it can't make out the word twice): they tap the word they heard instead.
+ */
+function SoundMicCheck({ onDone }: { onDone: (r: { sound_ok: boolean; mic_ok: boolean }) => void }) {
   const [word] = useState(() => WORDS[Math.floor(Math.random() * WORDS.length)]);
   const [choices] = useState(() => [word, ...WORDS.filter((w) => w !== word).sort(() => Math.random() - 0.5).slice(0, 2)].sort(() => Math.random() - 0.5));
-  const [state, setState] = useState<'idle' | 'playing' | 'played' | 'wrong'>('idle');
-  const audio = useRef<HTMLAudioElement | null>(null);
-  const play = async () => {
-    setState('playing');
-    try {
-      if (!audio.current) {
-        const res = await fetch('/api/tts', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text: `Hi! I'm Professor Marine. The word is: ${word}.` }) });
-        if (!res.ok) throw new Error('no voice');
-        audio.current = new Audio(URL.createObjectURL(await res.blob()));
-      }
-      audio.current.currentTime = 0;
-      audio.current.onended = () => setState('played');
-      await audio.current.play();
-    } catch {
-      // (no voice from the server: the browser's own)
-      const u = new SpeechSynthesisUtterance(`The word is: ${word}.`);
-      u.onend = () => setState('played');
-      speechSynthesis.speak(u);
-    }
-  };
-  return (
-    <div className="mt-5">
-      <h2 className="text-xl font-semibold">Can you hear the lesson?</h2>
-      <p className="mt-1 text-slate-600">Turn your sound on, press play, and pick the word Professor Marine says.</p>
-      <button className={`${primary} mt-4`} onClick={play} disabled={state === 'playing'}>{state === 'idle' ? '▶ Play' : state === 'playing' ? 'Playing…' : '↺ Play again'}</button>
-      {state !== 'idle' && (
-        <div className="mt-4 flex gap-2">
-          {choices.map((c) => (
-            <button key={c} className="px-4 py-2 rounded-lg border-2 border-slate-200 hover:border-cyan-500 font-medium"
-              onClick={() => (c === word ? onDone(true) : setState('wrong'))}>{c}</button>
-          ))}
-        </div>
-      )}
-      {state === 'wrong' && <p className="mt-2 text-sm text-red-700">Not quite. Check your volume and play it again.</p>}
-      <button className={`${quiet} mt-4 block`} onClick={() => onDone(false)}>I can’t get sound to work, continue anyway</button>
-    </div>
-  );
-}
-
-function MicCheck({ onDone }: { onDone: (ok: boolean) => void }) {
-  const [state, setState] = useState<'idle' | 'listening' | 'heard' | 'denied'>('idle');
+  const [state, setState] = useState<'idle' | 'playing' | 'listening' | 'checking' | 'heard' | 'again' | 'silent'>('idle');
   const [level, setLevel] = useState(0);
-  const stop = useRef<() => void>(() => {});
-  useEffect(() => () => stop.current(), []);
-  const start = async () => {
+  const [said, setSaid] = useState('');
+  const [tries, setTries] = useState(0);
+  const [noMic, setNoMic] = useState(false);
+  const [wrongTap, setWrongTap] = useState(false);
+  const spoke = useRef(false);    // the mic picked up speech at some point (it works, even if the word was missed)
+  const audio = useRef<Promise<HTMLAudioElement | null> | null>(null);
+  const stream = useRef<MediaStream | null>(null);
+  const cleanup = useRef<() => void>(() => {});
+  useEffect(() => () => { cleanup.current(); stream.current?.getTracks().forEach((t) => t.stop()); }, []);
+
+  // The word's clip is made as soon as this shows, so Play is instant
+  const clip = () => (audio.current ??= fetch('/api/tts', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text: `Hi! I'm Professor Marine. The word is: ${word}.` }) })
+    .then(async (res) => (res.ok ? new Audio(URL.createObjectURL(await res.blob())) : null))
+    .catch(() => null));
+  useEffect(() => { clip(); }, []);   // eslint-disable-line react-hooks/exhaustive-deps
+
+  const say = () => new Promise<void>((resolve) => {
+    clip().then((a) => {
+      if (a) {
+        a.currentTime = 0;
+        a.onended = () => resolve();
+        a.play().catch(() => resolve());
+      } else {
+        // (no voice from the server: the browser's own)
+        const u = new SpeechSynthesisUtterance(`The word is: ${word}.`);
+        u.onend = () => resolve();
+        speechSynthesis.speak(u);
+      }
+    });
+  });
+
+  /** Record until they've said something and gone quiet (or 7 s of nothing) */
+  const listen = (s: MediaStream): Promise<Blob | null> => new Promise((resolve) => {
+    const ctx = new AudioContext();
+    const analyser = ctx.createAnalyser();
+    ctx.createMediaStreamSource(s).connect(analyser);
+    const rec = new MediaRecorder(s);
+    const parts: Blob[] = [];
+    rec.ondataavailable = (e) => { if (e.data.size) parts.push(e.data); };
+    rec.onstop = () => { ctx.close().catch(() => {}); resolve(loud >= 10 ? new Blob(parts, { type: rec.mimeType || 'audio/webm' }) : null); };
+    rec.start();
+    const buf = new Uint8Array(analyser.fftSize);
+    const began = Date.now();
+    let loud = 0, quietSince = 0, raf = 0;
+    const tick = () => {
+      analyser.getByteTimeDomainData(buf);
+      let sum = 0;
+      for (const v of buf) sum += ((v - 128) / 128) ** 2;
+      const rms = Math.sqrt(sum / buf.length);
+      setLevel(Math.min(1, rms * 6));
+      if (rms > 0.05) { loud++; quietSince = 0; } else if (!quietSince) quietSince = Date.now();
+      const done = (loud >= 10 && quietSince && Date.now() - quietSince > 900) || (loud >= 10 && Date.now() - began > 6000) || Date.now() - began > 7000;
+      if (done) { cancelAnimationFrame(raf); if (rec.state !== 'inactive') rec.stop(); return; }
+      raf = requestAnimationFrame(tick);
+    };
+    cleanup.current = () => { cancelAnimationFrame(raf); if (rec.state !== 'inactive') rec.stop(); };
+    tick();
+  });
+
+  const go = async () => {
+    setState('playing'); setSaid('');
+    // the microphone first (its permission popup), then the word, then their turn
+    if (!stream.current && !noMic) {
+      try { stream.current = await navigator.mediaDevices.getUserMedia({ audio: true }); }
+      catch { setNoMic(true); }
+    }
+    await say();
+    if (!stream.current) { setState('again'); return; }
+    setState('listening');
+    const blob = await listen(stream.current);
+    if (!blob) { setState('silent'); return; }
+    spoke.current = true;
+    setState('checking');
+    let text = '';
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const ctx = new AudioContext();
-      const analyser = ctx.createAnalyser();
-      ctx.createMediaStreamSource(stream).connect(analyser);
-      const buf = new Uint8Array(analyser.fftSize);
-      let loud = 0, raf = 0;
-      const tick = () => {
-        analyser.getByteTimeDomainData(buf);
-        let sum = 0;
-        for (const v of buf) sum += ((v - 128) / 128) ** 2;
-        const rms = Math.sqrt(sum / buf.length);
-        setLevel(Math.min(1, rms * 6));
-        // (a moment of real sound, not one click: about a sixth of a second of it in all)
-        if (rms > 0.05) loud++;
-        if (loud >= 10) setState('heard');
-        raf = requestAnimationFrame(tick);
-      };
-      stop.current = () => { cancelAnimationFrame(raf); stream.getTracks().forEach((t) => t.stop()); ctx.close().catch(() => {}); };
-      setState('listening');
-      tick();
-    } catch {
-      setState('denied');
+      const form = new FormData();
+      form.append('file', blob, 'check.webm');
+      const res = await fetch('/api/transcribe', { method: 'POST', headers: learnerHeaders(), body: form });
+      text = res.ok ? String((await res.json()).text ?? '') : '';
+    } catch { /* couldn't check: they tap the word */ }
+    setSaid(text.trim());
+    if (text.toLowerCase().replace(/[^a-z ]/g, ' ').split(/\s+/).some((w) => w === word || w === `${word}s`)) {
+      setState('heard');
+      stream.current.getTracks().forEach((t) => t.stop());
+      stream.current = null;
+      setTimeout(() => onDone({ sound_ok: true, mic_ok: true }), 900);
+    } else {
+      setTries((n) => n + 1);
+      setState('again');
     }
   };
+  const finish = (sound: boolean) => {
+    cleanup.current();
+    stream.current?.getTracks().forEach((t) => t.stop());
+    stream.current = null;
+    onDone({ sound_ok: sound, mic_ok: spoke.current });
+  };
+  // Tap the word instead: no microphone, or it couldn't make out the word twice
+  const tapping = state === 'again' && (noMic || tries >= 2);
+
   return (
     <div className="mt-5">
-      <h2 className="text-xl font-semibold">Can the professor hear you?</h2>
-      <p className="mt-1 text-slate-600">You can ask questions out loud in the lesson. Allow the microphone, then say something like “Hello, Professor Marine!”</p>
-      {state === 'idle' && <button className={`${primary} mt-4`} onClick={start}>🎙 Test my microphone</button>}
-      {(state === 'listening' || state === 'heard') && (
+      <h2 className="text-xl font-semibold">Can you hear the professor, and can the professor hear you?</h2>
+      <p className="mt-1 text-slate-600">Turn your sound on and press play. Professor Marine says a word: <b>say it back out loud.</b> Allow the microphone when your browser asks.</p>
+      {state === 'idle' && <button className={`${primary} mt-4`} onClick={go}>▶ Play</button>}
+      {state === 'playing' && <p className="mt-4 text-slate-600">🔊 Listen…</p>}
+      {state === 'listening' && (
         <div className="mt-4">
-          <div className="h-4 rounded-full bg-slate-100 overflow-hidden"><div className="h-full bg-emerald-500 transition-[width] duration-75" style={{ width: `${level * 100}%` }} /></div>
-          <p className="mt-2 text-sm text-slate-600">{state === 'heard' ? '✓ We can hear you.' : 'Listening… say something.'}</p>
+          <p className="font-medium">🎙 Now say the word!</p>
+          <div className="mt-2 h-4 rounded-full bg-slate-100 overflow-hidden"><div className="h-full bg-emerald-500 transition-[width] duration-75" style={{ width: `${level * 100}%` }} /></div>
         </div>
       )}
-      {state === 'denied' && <p className="mt-3 text-sm text-red-700">The microphone was blocked. You can allow it in the browser’s address bar and try again, or continue: you can type your questions instead.</p>}
+      {state === 'checking' && <p className="mt-4 text-slate-600">Checking what you said…</p>}
+      {state === 'heard' && <p className="mt-4 font-medium text-emerald-700">✓ We heard you say “{word}”. Sound and microphone work.</p>}
+      {state === 'silent' && <p className="mt-4 text-sm text-red-700">We didn’t hear anything. Check that the right microphone is on and not muted, then try again.</p>}
+      {state === 'again' && !tapping && <p className="mt-4 text-sm text-amber-800">{said ? <>We heard “{said}”. </> : <>We couldn’t make that out. </>}Listen again and say the word clearly.</p>}
+      {tapping && (
+        <div className="mt-4">
+          <p className="font-medium">{noMic ? 'No microphone: that’s OK, you can type your questions in the lesson.' : 'Let’s skip the microphone part.'} Which word did you hear?</p>
+          <div className="mt-2 flex gap-2">
+            {choices.map((c) => (
+              <button key={c} className="px-4 py-2 rounded-lg border-2 border-slate-200 hover:border-cyan-500 font-medium" onClick={() => (c === word ? finish(true) : setWrongTap(true))}>{c}</button>
+            ))}
+          </div>
+          {wrongTap && <p className="mt-2 text-sm text-red-700">Not quite. Check your volume and play it again.</p>}
+        </div>
+      )}
       <div className="mt-4 flex flex-wrap gap-3 items-center">
-        {state === 'heard' && <button className={primary} onClick={() => { stop.current(); onDone(true); }}>Continue</button>}
-        {state === 'denied' && <button className={primary} onClick={start}>Try again</button>}
-        <button className={quiet} onClick={() => { stop.current(); onDone(false); }}>Continue without the microphone</button>
+        {(state === 'again' || state === 'silent') && <button className={primary} onClick={go}>↺ Play again</button>}
+        {(state === 'again' || state === 'silent') && !tapping && <button className={quiet} onClick={() => { setNoMic(true); setTries(2); setState('again'); }}>My microphone isn’t working</button>}
+        {state !== 'heard' && state !== 'idle' && <button className={quiet} onClick={() => finish(false)}>I can’t get sound to work, continue anyway</button>}
       </div>
     </div>
   );
@@ -458,8 +510,8 @@ function CameraCheck({ busy, onDone }: { busy: boolean; onDone: (ok: boolean) =>
       {state === 'denied' && <p className="mt-3 text-sm text-red-700">The camera was blocked or isn’t there. That’s fine: you can do the lesson without it.</p>}
       <div className="mt-4 flex flex-wrap gap-3 items-center">
         {state === 'idle' && <button className={primary} onClick={start}>📷 Turn on the camera</button>}
-        {state === 'on' && <button className={primary} disabled={busy} onClick={() => { stop(); onDone(true); }}>I can see myself, start the lesson</button>}
-        <button className={quiet} disabled={busy} onClick={() => { stop(); onDone(false); }}>{state === 'on' ? 'Turn it off and start the lesson' : 'Skip the camera and start the lesson'}</button>
+        {state === 'on' && <button className={primary} disabled={busy} onClick={() => { stop(); onDone(true); }}>I can see myself, continue</button>}
+        <button className={quiet} disabled={busy} onClick={() => { stop(); onDone(false); }}>{state === 'on' ? 'Turn it off and continue' : 'Skip the camera'}</button>
       </div>
     </div>
   );

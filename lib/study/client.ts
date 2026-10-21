@@ -77,3 +77,59 @@ export async function studyPost<T = any>(action: string, body: Record<string, un
   }
   throw last instanceof Error ? last : new Error('Could not reach the server');
 }
+
+/* ---------------------------------------------------- loading the lesson ahead */
+// While people do the checks, the questions about them and quiz 1, the lesson gets ready in the
+// background: the deck (kept for this tab: the lesson opens in it), the first clips, and, with the
+// camera allowed, the camera's face and hand models. The lesson then starts at once.
+
+const deckKey = (lesson: string) => `studyDeck:${lesson}`;
+const DECK_FRESH_MS = 3 * 3600_000;
+let deckLoading = false;
+let cameraLoading = false;
+
+export function preloadLesson(lesson: string) {
+  if (deckLoading) return;
+  try { if (preloadedDeck(lesson)) return; } catch { /* fine */ }
+  deckLoading = true;
+  fetch(`/api/deck?lesson=${encodeURIComponent(lesson)}`)
+    .then((r) => (r.ok ? r.json() : null))
+    .then((d) => {
+      const deck = d?.deck;
+      if (!deck?.slides?.length) return;
+      try { sessionStorage.setItem(deckKey(lesson), JSON.stringify({ at: Date.now(), deck })); } catch { /* too big or private mode: the lesson loads it itself */ }
+      // the first slide's clips, into the browser's cache
+      const first = deck.slides[0];
+      const urls = [first?.intro?.audioUrl, ...(first?.elements ?? []).map((e: { audioUrl?: string }) => e.audioUrl)].filter(Boolean).slice(0, 5);
+      for (const u of urls) fetch(u).catch(() => {});
+    })
+    .catch(() => {})
+    .finally(() => { deckLoading = false; });
+}
+
+/** The deck loaded ahead (this tab, the last few hours), or null */
+export function preloadedDeck(lesson: string): any | null {
+  try {
+    const d = JSON.parse(sessionStorage.getItem(deckKey(lesson)) ?? 'null');
+    return d && Date.now() - d.at < DECK_FRESH_MS && d.deck?.slides?.length ? d.deck : null;
+  } catch {
+    return null;
+  }
+}
+
+export function forgetPreloaded(lesson: string) {
+  try { sessionStorage.removeItem(deckKey(lesson)); } catch { /* fine */ }
+}
+
+/** The camera's files (the same addresses the lesson's camera hooks load), into the browser's cache */
+export function preloadCamera() {
+  if (cameraLoading) return;
+  cameraLoading = true;
+  const wasm = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision/wasm';
+  for (const u of [
+    `${wasm}/vision_wasm_internal.js`, `${wasm}/vision_wasm_internal.wasm`,
+    'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task',
+    'https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task',
+    'https://storage.googleapis.com/mediapipe-models/face_detector/blaze_face_short_range/float16/1/blaze_face_short_range.tflite',
+  ]) fetch(u).catch(() => {});
+}
