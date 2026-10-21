@@ -15,7 +15,7 @@ async function describe(url: string): Promise<string> {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${process.env.OPENAI_API_KEY}` },
     body: JSON.stringify({
-      model: 'gpt-6-luna',
+      model: 'gpt-6.1-sol',
       reasoning_effort: 'low',
       messages: [
         { role: 'system', content: 'Describe this presentation slide from a lesson about the blue catfish invasion of the Chesapeake Bay: its title, what the text and pictures show, and which lesson theme it belongs to. 2-4 sentences, only what is visible, in words someone would search with.' },

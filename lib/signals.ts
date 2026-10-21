@@ -57,6 +57,11 @@ class SignalTracker {
     return `s_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 9)}`;
   }
 
+  /** This session's id (the study keeps it, to join what someone did in the lesson) */
+  get session(): string {
+    return this.sessionId;
+  }
+
   /** Start a new session — call on Start Lesson and Restart. */
   newSession(): void {
     this.flush();

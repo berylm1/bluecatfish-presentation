@@ -4,7 +4,7 @@ import { lazySupabaseAdmin } from '@/lib/supabase/admin';
 // helper drafts (helperDraft.ts): the house style, chat and the knowledge base.
 
 const supabase = lazySupabaseAdmin();
-const MODEL = 'gpt-6-luna';
+const MODEL = 'gpt-6.1-sol';
 
 export const STYLE =
   'You are Professor Marine, a fun science teacher talking to 10 to 14 year olds about the blue catfish invasion ' +

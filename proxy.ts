@@ -5,7 +5,7 @@ import { AUTH_COOKIE, isProtected, verifyToken } from "@/lib/editorAuth";
 
 // Routes that DON'T require login — everything else is protected by default
 // (the editor password gate is separate: lib/editorAuth.ts, e.g. /lessonReview, /textIngest, /imageIngest)
-const PUBLIC_PATHS = ["/login", "/auth/callback", "/presentation", "/presentationv2"];
+const PUBLIC_PATHS = ["/login", "/auth/callback", "/presentation", "/presentationv2", "/study"];
 
 export async function proxy(request: NextRequest) {
   const pathname = request.nextUrl.pathname;

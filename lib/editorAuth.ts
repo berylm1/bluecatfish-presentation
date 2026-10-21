@@ -13,7 +13,7 @@ export const NAME_COOKIE = 'editor_name';   // readable by the page, for "Unlock
 export const AUTH_DAYS = 30;
 
 /** Pages and APIs that need the password. */
-export const PROTECTED_PAGES = ['/slideEditor', '/imageIngest', '/textIngest', '/instructor-view', '/lessonReview'];
+export const PROTECTED_PAGES = ['/slideEditor', '/imageIngest', '/textIngest', '/instructor-view', '/lessonReview', '/studyResults'];
 export const PROTECTED_APIS = [
   '/api/editor',        // deck save / publish / upload (step 3)
   '/api/image-Ingest',  // /imageIngest uploads
@@ -22,6 +22,7 @@ export const PROTECTED_APIS = [
   '/api/reanimate',     // starts a (paid) Manim render
   '/api/instructor',    // learner data for /instructor-view (was readable by anyone)
   '/api/chat',          // relay to the OpenClaw agent; no page uses it now, and it was open to anyone
+  '/api/study/results', // the study's answers (/studyResults); /api/study itself is open (people taking part)
 ];
 // Open even under /api/editor: the unlock endpoint itself
 const OPEN_APIS = ['/api/editor/unlock', '/api/editor/lock'];
