@@ -109,8 +109,10 @@ function ElementView({ el, active, laser, dim = 1, interactive = false, onActivi
 }) {
   const imgRef = useRef<HTMLImageElement>(null);
   const decorative = el.type === 'image' && el.silent && !el.alt;
-  // Spotlight: the rest of the slide steps back a little (never a background picture)
-  const faded = !active && !decorative && dim < 1;
+  // Spotlight: the other boxes that speak step back a little while one is said. Not a silent box (a title, a
+  // picture with nothing said about it): it never gets a turn, so it looked faded for no reason
+  // (was: everything but the box being said, and background pictures)
+  const faded = !active && !decorative && !el.silent && dim < 1;
   const style: CSSProperties = {
     position: 'absolute',
     left: `${el.x}%`,

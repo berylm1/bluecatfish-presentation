@@ -143,9 +143,11 @@ async function nameTopics(deck: Deck): Promise<Map<number, string>> {
 
 export async function writeRecap(deck: Deck): Promise<string> {
   const outline = deck.slides.map((s) => `[${s.topic ?? ''}] ${s.elements.map((e) => spokenText(e)).filter(Boolean).join(' ')}`).join('\n').slice(0, 12000);
+  // was: 3 to 5 sentences (60-100 words) on the main ideas; the ending now goes on to the learner's own achievements, so this is one quick line
   return chat(
-    `${STYLE}\nWrite the professor's end-of-lesson recap: 3 to 5 spoken sentences (60-100 words) pulling together the main ideas ` +
-      'in order, ending on an upbeat note. Only facts from the lesson.',
+    `${STYLE}\nWrite the professor's end-of-lesson recap: ONE spoken sentence, under 40 words, that runs through what the learner did in each ` +
+      'part of the lesson, in order, starting with "You", like: "You met the blue catfish, learned how they spread, found out why they matter, ' +
+      'saw what they eat, and how people can help." One short phrase per part, from the lesson. No other sentences, no quotation marks.',
     outline,
   );
 }

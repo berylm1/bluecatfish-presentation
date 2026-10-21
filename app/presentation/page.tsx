@@ -198,6 +198,35 @@ const SELF_CHECK_SAID: Record<SelfCheckRating, string> = { got: '😀 Got it', k
 const ANSWER_BOX_UNDER_SLIDE = false;
 // The recap's text on the end screen: off, the achievements are there instead (the professor says the recap, and the transcript shows it)
 const SHOW_RECAP_ON_END = false;
+// The spoken ending: false = the quick one (what they covered, their achievements, "Marine out!"); true = the old long recap
+const SPOKEN_FULL_RECAP = false;
+
+/** What the learner covered, in one quick line: the lesson's recap if it's the short kind, else its parts by name */
+function shortRecap(deck: Deck): string {
+  const r = deck.recap?.replace(/\s+/g, ' ').trim() ?? '';
+  if (r && r.length <= 260 && /^you\b/i.test(r)) return /[.!?]$/.test(r) ? r : `${r}.`;
+  const parts = [...new Set(deck.slides.map((s) => s.topic?.trim()).filter((t): t is string => !!t))];
+  if (!parts.length) return '';
+  return `You covered ${parts.length > 1 ? `${parts.slice(0, -1).join(', ')} and ${parts[parts.length - 1]}` : parts[0]}.`;
+}
+const listed = (items: string[]) => (items.length > 1 ? `${items.slice(0, -1).join(', ')} and ${items[items.length - 1]}` : items[0] ?? '');
+
+/** The ending, said once: what they covered, what they did, how long, and a sign-off */
+function endingLine(a: { name: string; covered: string; solved: number; quiz: { right: number; of: number } | null; finn: boolean[]; questions: number; minutes: number }): string {
+  const did: string[] = [];
+  if (a.solved) did.push(a.solved === 1 ? 'solved a hands-on activity' : `solved ${a.solved} hands-on activities`);
+  if (a.quiz) did.push(a.quiz.right === a.quiz.of ? 'got the entire quiz right' : `got ${a.quiz.right} of ${a.quiz.of} on the quiz`);
+  const caught = a.finn.filter(Boolean).length;
+  if (caught) did.push(caught === a.finn.length ? (caught === 1 ? `caught ${CLASSMATE_NAME}'s mix-up` : `caught all ${caught} of ${CLASSMATE_NAME}'s mix-ups`) : `caught ${caught} of ${CLASSMATE_NAME}'s ${a.finn.length} mix-ups`);
+  if (a.questions) did.push(a.questions === 1 ? 'asked a great question' : `asked ${a.questions} great questions`);
+  return [
+    a.name ? `Great work, ${a.name}!` : 'Great work!',
+    a.covered,
+    did.length ? `You ${listed(did)}.` : '',
+    a.minutes ? `You stayed locked in for ${a.minutes === 1 ? 'a whole minute' : `a big ${a.minutes} minutes`}.` : '',
+    'Marine out!',
+  ].filter(Boolean).join(' ');
+}
 // After "kind of" / "lost me" at the end of a part
 const REPLAY_ASK_KIND = 'No problem. Want to see that part a different way?';
 const REPLAY_ASK_LOST = "That's okay, it happens. Want me to show you that part a different way?";
@@ -1184,8 +1213,10 @@ function Player({ deck, preview, startAt = 0 }: { deck: Deck; preview: boolean; 
             const helper = kind === 'fooled' || kind === 'unsure' ? (MORPH_HELPERS ? helperFor(from) : null) : null;
             const you = name ? `, ${name}` : '';
             const how = kind === 'caught'
-              ? `The learner CAUGHT the mistake. Start with "Good catch${you}!" and say ${CLASSMATE_NAME} wasn't right, and why, in a sentence, using what's actually right. ` +
-                `Then a kind word to ${CLASSMATE_NAME} (it's an easy mix-up). 2 to 4 short sentences.`
+              ? `The learner CAUGHT the mistake. Start with "Good catch${you}!". If the learner already said what's actually right, tell them they're ` +
+                `exactly right in a few words and DON'T repeat the facts they just said (they know them: repeating sounds like you didn't hear them); ` +
+                `at most one small new detail. If they didn't say what's right, say it in one short sentence. ` +
+                `Then a kind word to ${CLASSMATE_NAME} (it's an easy mix-up). 2 or 3 short sentences.`
               : kind === 'fooled'
                 ? `The learner AGREED with ${CLASSMATE_NAME}, so they believe the mistake too. Start with "Actually${you}, that isn't true." Kindly explain what's right and why, ` +
                   `and say it's an easy mix-up, kindly to ${CLASSMATE_NAME} too. 3 or 4 short sentences.`
@@ -1400,7 +1431,9 @@ function Player({ deck, preview, startAt = 0 }: { deck: Deck; preview: boolean; 
     setQuiz((q) => ({ ...q, state: how, right }));
   };
 
-  // The end: "Let's look back…", the recap (with a word for the learner), and a goodbye
+  // The end, quick and about the learner: one line on what they covered, what they did (hands-on, the quiz, Finn's
+  // mix-ups, questions, minutes), "Marine out!". One clip. (was: "Let's look back…", a 60-100 word recap of the facts,
+  // the trickiest part and a reminder, and a goodbye: SPOKEN_FULL_RECAP)
   const { play: playCue, stop: stopCue, preload: preloadCue } = cues;   // stable, unlike `cues` (which changes as lines start and stop)
   const { stateOf } = tracking;
   useEffect(() => {
@@ -1408,6 +1441,19 @@ function Player({ deck, preview, startAt = 0 }: { deck: Deck; preview: boolean; 
     let cancelled = false;
     // The recap and the personal line are ONE clip (no gap around the name),
     // made while "Let's look back…" is playing
+    if (!SPOKEN_FULL_RECAP) {
+      const solved = [...activitiesSolved.current].filter((id) => !activitiesRevealed.current.has(id)).length;
+      const minutes = lessonStartedAt.current ? Math.max(1, Math.round((Date.now() - lessonStartedAt.current) / 60000)) : 0;
+      const line = endingLine({
+        name: learnerName.trim(), covered: shortRecap(deck), solved,
+        quiz: quiz.state === 'done' ? { right: quiz.right, of: quiz.questions.length } : null,
+        finn: [...finnResults.current.values()].filter((r) => r.kind !== 'other').map((r) => r.kind === 'caught'),
+        questions: learnerQuestions.current, minutes,
+      });
+      preloadCue(line);
+      playCue({ text: line });
+      return () => { cancelled = true; stopCue(); };
+    }
     const recap = [deck.recap?.trim(), personalRecap(learnerName.trim(), hardestTopic(deck, topicOf, stateOf, finnResults.current), finnResults.current)].filter(Boolean).join(' ');
     if (recap) preloadCue(recap);
     (async () => {
