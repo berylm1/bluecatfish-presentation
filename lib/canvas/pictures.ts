@@ -31,11 +31,13 @@ const SYSTEM = `${STYLE}
 You add PICTURES to one lesson slide. Below are pictures from the lesson's library that it doesn't use yet.
 Add 1 or 2 of them ONLY where the slide talks about something a picture would show: an animal, a food, a place, a thing it names
 (the slide mentions shad and fish eggs: a picture of shad). Only pictures that are just a visual: never one whose description mentions
-words, titles, labels, text or a slide in it. If none fits what this slide says, reply {"add": []}.
+words, titles, labels, text or a slide in it. Never a second picture of something the slide's pictures already show (the slide has a
+blue catfish: no other blue catfish picture). If none fits what this slide says, reply {"add": []}.
 
 Then lay the slide out again so everything fits with the new pictures: return EVERY element of the slide by its "id" with new x, y, w, h
 (keep them all; text boxes may get narrower or smaller but must stay big enough for their words), plus each new picture as
-{"type": "image", "image": "img2", "x": .., "y": .., "w": .., "h": ..}. Nothing overlaps (a picture never covers text), nothing goes off the slide.
+{"type": "image", "image": "img2", "x": .., "y": .., "w": .., "h": ..}. NOTHING overlaps: no box touches another (a new picture never sits on
+text, on another picture, a chart or a diagram); shrink or move the slide's pictures to make room. Nothing goes off the slide.
 
 ${formatGuide()}
 
@@ -87,10 +89,17 @@ export async function pictureIdea(deck: Deck, slide: Slide, candidates: LibImage
   if (!made) return null;
   const view = (els: SlideElement[]): Slide => ({ ...slide, elements: els });
   const toRaw = (r: any) => ({ elements: (r?.elements ?? []).map((e: any) => (e?.type === 'image' && e.image ? e : { ...e, type: 'text-placed' })) });
-  // (the layout checks, and a new picture covering text)
-  const covers = (els: SlideElement[]) => els.filter((e) => e.type === 'image' && !slide.elements.some((x) => x.id === e.id)).flatMap((pic) =>
-    els.filter((t) => t.type === 'text' && Math.min(t.x + t.w, pic.x + pic.w) - Math.max(t.x, pic.x) > 0.5 && Math.min(t.y + t.h, pic.y + pic.h) - Math.max(t.y, pic.y) > 0.5)
-      .map((t) => `the new picture covers the text "${t.type === 'text' ? t.text.slice(0, 30) : ''}"`));
+  // (the layout checks, and boxes on top of each other: any two that touch now and didn't on the slide as it was, a new picture
+  // on anything. Was: only a new picture over text, so one landed on the slide's own picture)
+  const visible = (e: SlideElement) => !(e.type === 'image' && (e.z ?? 1) <= 0);
+  const touch = (a: SlideElement, b: SlideElement) => Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x) > 0.5 && Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y) > 0.5;
+  const before = new Set<string>();
+  slide.elements.forEach((a, i) => slide.elements.slice(i + 1).forEach((b) => { if (touch(a, b)) before.add(`${a.id}|${b.id}`).add(`${b.id}|${a.id}`); }));
+  const name = (e: SlideElement) => (e.type === 'text' ? `the text "${e.text.slice(0, 30)}"` : slide.elements.some((x) => x.id === e.id) ? `the slide's ${e.type === 'image' ? 'picture' : e.type}` : 'the new picture');
+  const covers = (els: SlideElement[]) => {
+    const vis = els.filter(visible);
+    return vis.flatMap((a, i) => vis.slice(i + 1).filter((b) => touch(a, b) && !before.has(`${a.id}|${b.id}`)).map((b) => `${name(a)} and ${name(b)} overlap`));
+  };
   const issues = [...problems(toRaw(raw), view(made.elements), images).filter((x) => !/AVAILABLE IMAGES/.test(x)), ...covers(made.elements)];
   if (issues.length) {
     try {
@@ -101,7 +110,7 @@ export async function pictureIdea(deck: Deck, slide: Slide, candidates: LibImage
   }
   const out = view(made.elements);
   autoFix(out);
-  if (covers(out.elements).length) return null;   // still covering text after the fix: no suggestion rather than a broken slide
+  if (covers(out.elements).length) return null;   // still on top of each other after the fix: no suggestion rather than a broken slide
   const why = new Map((raw.add as any[]).map((a) => [String(a?.image), String(a?.why ?? '').slice(0, 200)]));
   return {
     pictures: made.added.map((i) => ({ src: i.url, alt: i.description, why: why.get(i.id) || `It shows what the slide talks about` })),
