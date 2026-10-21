@@ -64,7 +64,7 @@ function LiveText({ text, getAudio }: { text: string; getAudio?: () => HTMLAudio
   return <>{sentences.map((s, i) => <span key={i} className={i === current ? 'text-white' : i < current ? 'text-white/50' : 'text-white/65'}>{s}</span>)}</>;
 }
 
-export default function ClassChat({ entries, learnerName, liveSlide, getAudio, thinking, speaking, onSend, onClose, closeLabel = 'Hide the chat', className = '', solid = false }: {
+export default function ClassChat({ entries, learnerName, liveSlide, getAudio, thinking, speaking, onSend, onClose, closeLabel = 'Hide the chat', className = '', solid = false, mates = true }: {
   entries: ChatEntry[];
   learnerName: string;
   /** The slide entry whose last line is being said now (its id), or null */
@@ -82,6 +82,8 @@ export default function ClassChat({ entries, learnerName, liveSlide, getAudio, t
   className?: string;
   /** Over the slide (a pull-out): not see-through */
   solid?: boolean;
+  /** The classmates are in the class (false: the study's group without them; just the professor and you) */
+  mates?: boolean;
 }) {
   const [typed, setTyped] = useState('');
   const [open, setOpen] = useState<ReadonlySet<number>>(new Set());   // folded slide entries opened
@@ -100,8 +102,8 @@ export default function ClassChat({ entries, learnerName, liveSlide, getAudio, t
       <header className="flex items-center gap-2 px-3 py-2.5 border-b border-white/10">
         <h2 className="font-semibold text-sm flex-1">Class chat</h2>
         {/* who's in the class (a ring on whoever is talking) */}
-        <div className="flex -space-x-1.5" aria-label="In the class: Professor Marine, you, Maya, Finn and Leo">
-          {(['professor', 'you', ...CLASSMATE_IDS] as Speaker[]).map((w) => <Avatar key={w} who={w} learnerName={learnerName} size={22} speaking={speaking === w} />)}
+        <div className="flex -space-x-1.5" aria-label={mates ? 'In the class: Professor Marine, you, Maya, Finn and Leo' : 'In the class: Professor Marine and you'}>
+          {(['professor', 'you', ...(mates ? CLASSMATE_IDS : [])] as Speaker[]).map((w) => <Avatar key={w} who={w} learnerName={learnerName} size={22} speaking={speaking === w} />)}
         </div>
         {onClose && <button className="ml-1 w-7 h-7 rounded-full hover:bg-white/10 text-white/60 hover:text-white" onClick={onClose} aria-label={closeLabel} title={closeLabel}>✕</button>}
       </header>

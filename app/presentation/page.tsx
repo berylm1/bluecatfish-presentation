@@ -38,6 +38,8 @@ import { lessonLength } from '@/lib/canvas/lessonLength';
 import Quiz, { pickQuiz } from '@/components/canvas/Quiz';
 import { lessonParts } from '@/lib/canvas/parts';
 import { answerGist, areaIds, setAreaText, togetherSlide, TOGETHER_ID } from '@/lib/canvas/together';
+import { studyLesson, studyPost, writeStudy, type StudyRecord } from '@/lib/study/client';
+import { signals } from '@/lib/signals';
 
 /*
  * The canvas presentation (see docs/customization-plan.md).
@@ -57,9 +59,15 @@ export default function CanvasPresentation() {
   const [loaded, setLoaded] = useState<Loaded | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [startAt, setStartAt] = useState(0);   // &slide=N (1-based): start there (the editor's "▶ From this slide")
+  const [study, setStudy] = useState<StudyRecord | null>(null);   // in the online study (app/study): ?study=<their id>
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
+    if (params.get('study')) {
+      const s = studyLesson();
+      if (!s) { setError('This lesson link is part of the study: start it from the study page (/study) on this browser.'); return; }
+      setStudy(s);
+    }
     const lesson = params.get('lesson') || DEFAULT_LESSON.id;
     const pv = params.get('preview');
     const at = Number(params.get('slide'));
@@ -73,7 +81,10 @@ export default function CanvasPresentation() {
     return (
       <main className="min-h-screen flex flex-col items-center justify-center gap-4 bg-gradient-to-br from-sky-950 via-slate-900 to-cyan-950 text-white p-6 text-center">
         {error ? (
-          <p className="text-lg text-red-200 max-w-md">{error}</p>
+          <>
+            <p className="text-lg text-red-200 max-w-md">{error}</p>
+            {/study/.test(error) && <Link href="/study" className="px-6 py-3 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-slate-900 font-semibold">Go to the study</Link>}
+          </>
         ) : (
           <>
             <div className="w-10 h-10 rounded-full border-4 border-cyan-300/30 border-t-cyan-300 animate-spin" />
@@ -83,7 +94,7 @@ export default function CanvasPresentation() {
       </main>
     );
   }
-  return <Player deck={loaded.deck} preview={loaded.preview} startAt={Math.min(startAt, loaded.deck.slides.length - 1)} />;
+  return <Player deck={loaded.deck} preview={loaded.preview} startAt={Math.min(startAt, loaded.deck.slides.length - 1)} study={study} />;
 }
 
 // "You lost me" and friends: the learner is confused, not just asking for simpler words
@@ -308,7 +319,8 @@ function personalRecap(name: string, hardest: string | null, finn: ReadonlyMap<n
  */
 const PROGRESS_DAYS = 14;   // older than this: start fresh
 type Progress = { slideId: string; at: number; finn: [number, FinnResult][]; asked: number[] };
-const progressKey = (lessonId: string) => `lessonProgress:${lessonId}`;
+// (in the study: its own, so a lesson someone went through before isn't picked up again)
+const progressKey = (lessonId: string) => { const s = studyLesson(); return `lessonProgress:${lessonId}${s ? `:study:${s.id}` : ''}`; };
 function readProgress(deck: Deck): (Progress & { index: number }) | null {
   try {
     const p = JSON.parse(localStorage.getItem(progressKey(deck.lessonId)) ?? 'null') as Progress | null;
@@ -328,18 +340,20 @@ function readProgress(deck: Deck): (Progress & { index: number }) | null {
 }
 const welcomeBack = (name: string) => `Welcome back${name ? `, ${name}` : ''}! Let's pick up where we left off.`;
 
-function Player({ deck, preview, startAt = 0 }: { deck: Deck; preview: boolean; startAt?: number }) {
+function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; preview: boolean; startAt?: number; study?: StudyRecord | null }) {
+  // The study's group without the classmates: no Maya, Finn or Leo anywhere (and no switch to bring them in)
+  const matesAllowed = !study || study.group === 'classmates';
   const [started, setStarted] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const [typed, setTyped] = useState('');
   const [interruptOn, setInterruptOn] = useState(false);   // talk over the professor (opt-in: opens the mic)
-  const [cameraOn, setCameraOn] = useState(false);         // emotion check-in, presence, hand raise (opt-in)
+  const [cameraOn, setCameraOn] = useState(!!study?.camera);   // emotion check-in, presence, hand raise (opt-in; on in the study when they allowed it in the check)
   // The class chat: beside the slide on a computer (✕ hides it), a pull-out on a phone (the latest line shows under the slide)
   const [chatOpen, setChatOpen] = useState(true);
   const showTranscript = chatOpen;   // (the old top-right transcript's switch: SHOW_FLOATING_TRANSCRIPT)
   const [pulled, setPulled] = useState<null | 'chat' | 'mates'>(null);   // a phone (or a small screen): the panel pulled out
   const desk = useMedia('(min-width: 1024px)');    // room for the chat beside the slide
-  const wide = useMedia('(min-width: 1600px)');    // room for the chat on the left and the classmates on the right
+  const wide = useMedia('(min-width: 1600px)') && matesAllowed;    // room for the chat on the left and the classmates on the right
   const [chat, setChat] = useState<ChatEntry[]>([]);
   const chatSeq = useRef(0);
   const [chatSeenId, setChatSeenId] = useState(0);     // the last entry seen in the chat (newer ones: a dot on 💬)
@@ -361,7 +375,7 @@ function Player({ deck, preview, startAt = 0 }: { deck: Deck; preview: boolean; 
     window.addEventListener('keydown', esc);
     return () => { window.removeEventListener('pointerdown', close); window.removeEventListener('keydown', esc); };
   }, [optionsOpen]);
-  const [classmateOn, setClassmateOn] = useState(true);         // the AI classmates (Maya, Finn, Leo) ask at topic ends; Finn plays in hands-on boxes
+  const [classmateOn, setClassmateOn] = useState(matesAllowed);         // the AI classmates (Maya, Finn, Leo) ask at topic ends; Finn plays in hands-on boxes
   const [classmateSaying, setClassmateSaying] = useState<ClassmateId | null>(null);   // who's talking now
   // Hands-on sounds (pop, bonk, chime): on unless turned off (remembered on this browser)
   const [soundsOn, setSoundsOn] = useState(true);
@@ -383,7 +397,7 @@ function Player({ deck, preview, startAt = 0 }: { deck: Deck; preview: boolean; 
   });
   // What to call the learner (optional, asked on the start screen; remembered on this browser)
   const [learnerName, setLearnerName] = useState('');
-  useEffect(() => { try { setLearnerName(localStorage.getItem('learnerName') ?? ''); } catch { /* private mode */ } }, []);
+  useEffect(() => { if (study) return; try { setLearnerName(localStorage.getItem('learnerName') ?? ''); } catch { /* private mode */ } }, [study]);   // (the study is anonymous: no name)
   // Where they left off last time (not for previews, or a link to a given slide)
   const [resume, setResume] = useState<(Progress & { index: number }) | null>(null);
   useEffect(() => { if (!preview && !startAt) setResume(readProgress(deck)); }, [deck, preview, startAt]);
@@ -455,6 +469,17 @@ function Player({ deck, preview, startAt = 0 }: { deck: Deck; preview: boolean; 
   const cuesRef = useRef(cues);
   cuesRef.current = cues;
   const tracking = useLessonTracking(deck, started, player.slideIndex, player.status === 'finished');
+  // The study: when the lesson started (and this start's session, to join what they did), and when it ended
+  useEffect(() => {
+    if (!study || !started) return;
+    studyPost('save', { id: study.id, lessonStarted: true, lessonSession: signals.session }).catch(() => { /* not worth stopping the lesson */ });
+  }, [study, started]);
+  const studyFinished = !!study && started && player.status === 'finished';
+  useEffect(() => {
+    if (!studyFinished || !study) return;
+    writeStudy({ ...study, step: 'post' });
+    studyPost('save', { id: study.id, lessonFinished: true, step: 'post' }).catch(() => { /* the study page carries on from the browser's step */ });
+  }, [studyFinished, study]);
   // Async steps (an answer or a cue finished) must act on the latest player, not the one from when they began
   const playerRef = useRef(player);
   playerRef.current = player;
@@ -1419,7 +1444,8 @@ function Player({ deck, preview, startAt = 0 }: { deck: Deck; preview: boolean; 
   micRef.current = { status: micStatus, talk };
 
   // The end, first: the quiz (if the lesson has one, and it hasn't been done or skipped this time through)
-  const quizPool = deck.quiz && !deck.quiz.off && deck.quiz.questions.length >= QUIZ_ASKED ? deck.quiz.questions : null;
+  // (not in the study: its own quizzes come after the lesson, and this one would show answers to them)
+  const quizPool = !study && deck.quiz && !deck.quiz.off && deck.quiz.questions.length >= QUIZ_ASKED ? deck.quiz.questions : null;
   useEffect(() => {
     if (player.status !== 'finished' || !quizPool) return;
     setQuiz((q) => (q.state === 'waiting' ? { state: 'asking', questions: pickQuiz(quizPool, QUIZ_ASKED), right: 0 } : q));
@@ -1861,7 +1887,7 @@ function Player({ deck, preview, startAt = 0 }: { deck: Deck; preview: boolean; 
     setStarted(true);
     lessonStartedAt.current = Date.now();
     const name = learnerName.trim();
-    try { localStorage.setItem('learnerName', name); } catch { /* private mode */ }
+    if (!study) try { localStorage.setItem('learnerName', name); } catch { /* private mode */ }
     // A name: a personal hello (spoken live); otherwise the recorded intro. Coming back: "Welcome back"
     (from ? cues.play({ text: welcomeBack(name) }) : name ? cues.play({ text: greeting(name) }) : cues.play('cue_intro')).finally(() => setIntroDone(true));
   }
@@ -1891,7 +1917,8 @@ function Player({ deck, preview, startAt = 0 }: { deck: Deck; preview: boolean; 
           </div>
         )}
         <p className="text-slate-300 text-center max-w-md">🔊 Turn your sound on. Ask the professor anything, or say &quot;next&quot;, &quot;next slide&quot;, &quot;repeat&quot; or &quot;simpler please&quot; at any time.</p>
-        <label className="flex flex-col items-center gap-1 text-sm text-slate-300">
+        {/* (the study is anonymous: no name) */}
+        {!study && <label className="flex flex-col items-center gap-1 text-sm text-slate-300">
           What should Professor Marine call you? (optional)
           <input
             value={learnerName}
@@ -1902,7 +1929,7 @@ function Player({ deck, preview, startAt = 0 }: { deck: Deck; preview: boolean; 
             maxLength={24}
             className="px-3 py-2 rounded-lg bg-white/10 text-white text-center placeholder:text-white/40 outline-none focus:bg-white/15 w-56"
           />
-        </label>
+        </label>}
         {resume ? (
           <div className="flex flex-col items-center gap-3">
             <button
@@ -1996,7 +2023,7 @@ function Player({ deck, preview, startAt = 0 }: { deck: Deck; preview: boolean; 
         )}
         {/* Start over from the first slide: small and out of the way (the lesson may have picked up where they left off).
             (was: fixed at the top left, where the chat now goes on a wide screen) */}
-        {player.status !== 'finished' && (
+        {player.status !== 'finished' && !study && (
           <button onClick={() => { if (window.confirm('Start the lesson over from the first slide?')) startOver(); }} className={edgeBtn}
             title="Start the lesson over from the first slide" aria-label="↺ Start over">↺<span className={label}> Start over</span></button>
         )}
@@ -2013,7 +2040,7 @@ function Player({ deck, preview, startAt = 0 }: { deck: Deck; preview: boolean; 
         </div>
       </div>
       <div className="flex-1 flex items-center justify-end min-w-0">
-        {!matesShown && (
+        {!matesShown && matesAllowed && (
           <button className={edgeBtn} onClick={() => setPulled('mates')} aria-label="Open the classmates" title="Your classmates: Maya, Finn and Leo">🙋<span className={label}> Classmates</span>{matesUnread && dot}</button>
         )}
       </div>
@@ -2056,17 +2083,22 @@ function Player({ deck, preview, startAt = 0 }: { deck: Deck; preview: boolean; 
                 </li>
               ))}
             </ul>
-            {finishedHardest && (
+            {finishedHardest && !study && (
               <p className="text-sm sm:text-base text-slate-600 max-w-xl">
                 <b>{finishedHardest.name}</b> was the trickiest part.{' '}
                 <button className="underline text-cyan-700 hover:text-cyan-600 font-semibold"
                   onClick={() => { cues.stop(); player.goToSlide(finishedHardest.index); }}>Go over it again →</button>
               </p>
             )}
+            {study ? (
+              // the study: on to the second quiz
+              <Link href="/study" onClick={() => cues.stop()} className="px-6 py-3 rounded-xl bg-cyan-500 hover:bg-cyan-400 font-semibold" data-study-next>Continue to Quiz 2 →</Link>
+            ) : (
             <div className="flex flex-wrap gap-3 justify-center">
               <button onClick={startOver} className="px-6 py-3 rounded-xl bg-cyan-500 hover:bg-cyan-400 font-semibold">↺ Start over</button>
               <Link href="/" onClick={() => cues.stop()} className="px-6 py-3 rounded-xl bg-slate-200 hover:bg-slate-300 font-semibold">⌂ Back to home</Link>
             </div>
+            )}
           </div>
         ) : (
           <SlideCanvas slide={shownSlide} width={SLIDE_WIDTH} activeId={variant ? helperActive : player.activeId} morph={MORPH_HELPERS} laser={laser} spotlight={SPOTLIGHT}
@@ -2291,7 +2323,8 @@ function Player({ deck, preview, startAt = 0 }: { deck: Deck; preview: boolean; 
                   setCameraOn((on) => !on);
                   if (!cameraOn) say('Camera on: raise your hand to ask, and the professor notices if you look lost or step away. Nothing leaves your device.');
                 }],
-                ['🙋', 'Classmates', 'Maya, Finn and Leo: they ask questions, and Finn has a go at the hands-on activities', classmateOn, () => setClassmateOn((v) => !v)],
+                // (not in the study: the group decides)
+                ...(study ? [] : [['🙋', 'Classmates', 'Maya, Finn and Leo: they ask questions, and Finn has a go at the hands-on activities', classmateOn, () => setClassmateOn((v) => !v)] as const]),
                 ['🔔', 'Sounds', 'Little sounds in the hands-on activities', soundsOn, toggleSounds],
                 ['💬', 'Class chat', desk ? 'The conversation beside the slide' : 'The latest line under the slide (tap it for the whole chat)', chatOpen, () => setChatOpen((v) => !v)],
               ] as const).map(([icon, name, hint, on, toggle]) => (
@@ -2318,15 +2351,15 @@ function Player({ deck, preview, startAt = 0 }: { deck: Deck; preview: boolean; 
       {/* The class chat and the classmates (see chatDocked above) */}
       {chatDocked ? (
         <ClassChat className={`fixed top-3 bottom-3 z-30 w-[22rem] ${wide ? 'left-3' : 'right-3'}`} entries={chat} learnerName={learnerName.trim()} liveSlide={liveSlide}
-          getAudio={player.getAudio} thinking={tutor.thinking} speaking={talking} onSend={handleText} onClose={() => setChatOpen(false)} />
+          getAudio={player.getAudio} thinking={tutor.thinking} speaking={talking} onSend={handleText} mates={matesAllowed} onClose={() => setChatOpen(false)} />
       ) : (
         <div className={`fixed inset-y-0 left-0 z-50 w-[min(22rem,90vw)] p-2 transition-transform duration-300 ${pulled === 'chat' ? 'translate-x-0' : '-translate-x-[105%]'}`}
           inert={pulled !== 'chat'} data-pullout="chat">
           <ClassChat className="h-full" solid entries={chat} learnerName={learnerName.trim()} liveSlide={liveSlide}
-            getAudio={player.getAudio} thinking={tutor.thinking} speaking={talking} onSend={handleText} onClose={() => setPulled(null)} closeLabel="Put the chat away" />
+            getAudio={player.getAudio} thinking={tutor.thinking} speaking={talking} onSend={handleText} mates={matesAllowed} onClose={() => setPulled(null)} closeLabel="Put the chat away" />
         </div>
       )}
-      {matesDocked ? (
+      {!matesAllowed ? null : matesDocked ? (
         <ClassmatesPanel className="fixed top-3 bottom-3 right-3 z-30 w-[18rem]" entries={chat} speaking={talking} />
       ) : (
         <div className={`fixed inset-y-0 right-0 z-50 w-[min(20rem,88vw)] p-2 transition-transform duration-300 ${pulled === 'mates' ? 'translate-x-0' : 'translate-x-[105%]'}`}

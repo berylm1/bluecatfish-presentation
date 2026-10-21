@@ -36,6 +36,8 @@ export const LIMITS = {
   board: { perSession: 10, perAddress: 60, windowSec: 60, perDay: 3000, label: 'drawings' },
   // The question bank (/api/bank/match): one lookup per question asked (an embedding, cheap)
   bank: { perSession: 20, perAddress: 120, windowSec: 60, perDay: 5000, label: 'question lookups' },
+  // The online study (/api/study): a few saves per step, each writes the person's row
+  study: { perSession: 30, perAddress: 300, windowSec: 60, perDay: 20000, label: 'study saves' },
   slides: { perSession: 15, perAddress: 120, windowSec: 60, perDay: 5000, label: 'slide lookups' },
   // Making the whole /presentationv2 lesson (only when it isn't cached yet): many paid calls
   lesson: { perSession: 2, perAddress: 4, windowSec: 3600, perDay: 20, label: 'lesson builds' },
