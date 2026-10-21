@@ -30,7 +30,7 @@ export function lessonPictures(deck: Deck): Set<string> {
 const SYSTEM = `${STYLE}
 You add PICTURES to one lesson slide. Below are pictures from the lesson's library that it doesn't use yet.
 - Add a picture for each thing the slide names that a picture would show: an animal, a food, a place, a thing (the slide lists
-  fish, crabs, mussels and frogs: a picture of each that's in the list). Up to 4; a list of things makes a row of small pictures.
+  fish, crabs, mussels and frogs: a picture of each that's in the list). Up to 5; a list of things makes a row of small pictures.
 - If the slide has NO picture yet, add at least one that fits its main idea (a river, the fish, a catch), if any does.
 - Only pictures that are just a visual: never one whose description mentions words, titles, labels, text or a slide in it.
 - Never two pictures of the same thing (two people holding a catfish), and never one of something the slide's pictures already show.
@@ -52,7 +52,7 @@ const describe = (slide: Slide) => JSON.stringify(slide.elements.map((e) => ({
 })));
 
 /** The slide's own boxes in their new places, and the new pictures (or null: unusable) */
-const MAX_ADDED = 4;
+const MAX_ADDED = 5;
 /** Charts, diagrams and hands-on boxes: kept exactly where they are (a picture never squeezes them) */
 const locked = (e: SlideElement) => e.type === 'chart' || e.type === 'diagram' || e.type === 'activity';
 /** Two descriptions of much the same picture ("A man holding a large blue catfish" / "A person holding a big blue catfish") */

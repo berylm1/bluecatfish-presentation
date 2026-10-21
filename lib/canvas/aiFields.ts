@@ -221,9 +221,9 @@ export const bankElements = (deck: Deck) => (deck.bank?.off ? [] : deck.bank?.qu
 /* The picture check (lib/canvas/pictures.ts, server side): library pictures the lesson doesn't use yet, added where a slide talks
    about something a picture would show. Here so the editor sees what's needed too. */
 /** What the picture check looked at: the slide's boxes, where they are, what they say and show */
-// (v3: searched per thing the slide names, up to 4 pictures, charts and diagrams kept as they are: suggestions made again)
+// (v4: searched per thing the slide names, up to 5 pictures, charts and diagrams kept as they are: suggestions made again)
 export const pictureBasis = (slide: Slide) =>
-  fingerprint('v3' + JSON.stringify(slide.elements.map((e) => [e.id, e.type, e.x, e.y, e.w, e.h, shownWords(e), e.type === 'image' ? e.src : ''])));
+  fingerprint('v4' + JSON.stringify(slide.elements.map((e) => [e.id, e.type, e.x, e.y, e.w, e.h, shownWords(e), e.type === 'image' ? e.src : ''])));
 /** Pictures that count (not a background one) */
 export const slidePictures = (slide: Slide) => slide.elements.filter((e) => e.type === 'image' && (e.z ?? 1) > 0).length;
 /** Slides worth a picture check: they teach something (they speak), no hands-on box, fewer than 3 pictures already */
