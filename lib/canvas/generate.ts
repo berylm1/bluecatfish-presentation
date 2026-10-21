@@ -5,6 +5,7 @@ import type { Deck, Slide, SlideElement, TextElement } from './types';
 import type { LessonInfo } from './lessons';
 import { sanitizeDeck } from './sanitize';
 import { fitStatus, neededHeight, textMetrics } from './fitEstimate';
+import { growMedia } from './fillSpace';
 import { fingerprint, needsAnswerCheck, sayBasis, slideBasis } from './aiFields';
 import { chat, knowledge, STYLE } from './ai';
 import { writeRecap } from './prepare';
@@ -179,7 +180,10 @@ export function problems(raw: any, slide: Slide, images: LibImage[]): string[] {
   return out;
 }
 
-/** Last resort for what the retry didn't fix: grow boxes that overflow, as far as the slide allows. */
+/**
+ * Last resort for what the retry didn't fix: grow boxes that overflow, as far as the slide allows. Then a slide
+ * that's mostly empty gets its pictures, charts and diagrams grown into the space (fillSpace.ts).
+ */
 export function autoFix(slide: Slide): void {
   for (const e of slide.elements) {
     if (e.type !== 'text' || fitStatus(e) !== 'overflows') continue;
@@ -190,6 +194,7 @@ export function autoFix(slide: Slide): void {
       e.h = Math.min(100 - e.y, Math.max(e.h, want));
     }
   }
+  slide.elements = growMedia(slide).elements;
 }
 
 /** Marks everything as AI-written, with fingerprints, so the save-time AI keeps it until its source changes. */

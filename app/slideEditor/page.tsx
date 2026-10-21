@@ -12,6 +12,7 @@ import SlideCanvas from '@/components/canvas/SlideCanvas';
 import { answersToLookAt, claimKey, factBasis, lessonBasis, slideWarnings, slidesToFactCheck, type Warning } from '@/lib/canvas/checks';
 import { speakingOrder } from '@/lib/canvas/queue';
 import { deckFromAnyVersion } from '@/lib/canvas/fromLegacy';
+import { growMedia } from '@/lib/canvas/fillSpace';
 import { answerState, countTodo, needsBank, openPictureIdeas, pictureBasis, pictureSkipKey, quizBasis, todoTotal, type Patch } from '@/lib/canvas/aiFields';
 import { startsTopic } from '@/lib/canvas/intro';
 import { applyRepeatFix, type RepeatSuggestion } from '@/lib/canvas/repeats';
@@ -1126,6 +1127,17 @@ function Editor({
                   bank={deck.bank}
                   bankPending={needsBank(deck)}
                   onBank={(change) => ed.change((d) => { d.bank = change(d.bank ? structuredClone(d.bank) : undefined); }, 'deck:bank')}
+                  onGrowMedia={() => {
+                    // the layer being edited (the slide, or its helper): each box takes its grown place
+                    const grown = new Map(growMedia(slide).elements.map((e) => [e.id, e]));
+                    ed.change((d) => {
+                      const s = d.slides[slideIdx];
+                      for (const el of (ed.layer === 'helper' ? s?.helper?.elements : s?.elements) ?? []) {
+                        const g = grown.get(el.id);
+                        if (g) Object.assign(el, { x: g.x, y: g.y, w: g.w, h: g.h });
+                      }
+                    });
+                  }}
                 />
               )
             ) : (

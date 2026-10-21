@@ -281,6 +281,7 @@ export function SlideInspector({
   bank,
   bankPending,
   onBank,
+  onGrowMedia,
 }: {
   slide: Slide;
   /** The first slide of its topic: it has the topic's introduction */
@@ -299,6 +300,8 @@ export function SlideInspector({
   bank?: DeckBank;
   bankPending?: string[];
   onBank?: (change: (bank: DeckBank | undefined) => DeckBank | undefined) => void;
+  /** Grow the slide's pictures into its empty space (on the layer being edited) */
+  onGrowMedia?: () => void;
   /** Change the quiz (undefined: write a new pool on the next save) */
   onQuiz: (change: (quiz: DeckQuiz | undefined) => DeckQuiz | undefined) => void;
 }) {
@@ -354,6 +357,9 @@ export function SlideInspector({
           {warnings.map((w, i) => (
             <p key={i} className={`text-xs rounded-md px-2 py-1.5 border ${w.level === 'warn' ? 'text-amber-800 bg-amber-50 border-amber-200' : 'text-slate-600 bg-slate-50 border-slate-200'}`}>
               {w.level === 'warn' ? '⚠' : 'ℹ'} {w.message}
+              {w.kind === 'space' && (
+                onGrowMedia && <button className="ml-1.5 underline text-cyan-700 hover:text-cyan-600" onClick={onGrowMedia}>⤢ Make them bigger</button>
+              )}
             </p>
           ))}
         </div>
