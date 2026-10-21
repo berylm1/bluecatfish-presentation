@@ -244,7 +244,7 @@ function checks(raw: any): DeckChecks | undefined {
       if (!/^[\w-]{1,64}$/.test(slideId) || !c || typeof c !== 'object' || !tag(c.from)) continue;
       const i = c.idea;
       const els = i && Array.isArray(i.elements) ? i.elements.slice(0, MAX_ELEMENTS).map((e: any, n: number) => element(e, `${slideId}-p${n}`)).filter(Boolean) as SlideElement[] : [];
-      const pics = i && Array.isArray(i.pictures) ? i.pictures.slice(0, 3).flatMap((x: any) => { const src = safeUrl(x?.src); return src ? [{ src, alt: str(x?.alt, 300) ?? '', why: str(x?.why, 200) ?? '' }] : []; }) : [];
+      const pics = i && Array.isArray(i.pictures) ? i.pictures.slice(0, 4).flatMap((x: any) => { const src = safeUrl(x?.src); return src ? [{ src, alt: str(x?.alt, 300) ?? '', why: str(x?.why, 200) ?? '' }] : []; }) : [];
       pictures[slideId] = { from: c.from, at: str(c.at, 40) ?? '', idea: els.length && pics.length ? { pictures: pics, elements: els } : null };
     }
   }

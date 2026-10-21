@@ -29,15 +29,18 @@ export function lessonPictures(deck: Deck): Set<string> {
 
 const SYSTEM = `${STYLE}
 You add PICTURES to one lesson slide. Below are pictures from the lesson's library that it doesn't use yet.
-Add 1 or 2 of them ONLY where the slide talks about something a picture would show: an animal, a food, a place, a thing it names
-(the slide mentions shad and fish eggs: a picture of shad). Only pictures that are just a visual: never one whose description mentions
-words, titles, labels, text or a slide in it. Never a second picture of something the slide's pictures already show (the slide has a
-blue catfish: no other blue catfish picture). If none fits what this slide says, reply {"add": []}.
+- Add a picture for each thing the slide names that a picture would show: an animal, a food, a place, a thing (the slide lists
+  fish, crabs, mussels and frogs: a picture of each that's in the list). Up to 4; a list of things makes a row of small pictures.
+- If the slide has NO picture yet, add at least one that fits its main idea (a river, the fish, a catch), if any does.
+- Only pictures that are just a visual: never one whose description mentions words, titles, labels, text or a slide in it.
+- Never two pictures of the same thing (two people holding a catfish), and never one of something the slide's pictures already show.
+- If none fits, reply {"add": []}.
 
-Then lay the slide out again so everything fits with the new pictures: return EVERY element of the slide by its "id" with new x, y, w, h
-(keep them all; text boxes may get narrower or smaller but must stay big enough for their words), plus each new picture as
-{"type": "image", "image": "img2", "x": .., "y": .., "w": .., "h": ..}. NOTHING overlaps: no box touches another (a new picture never sits on
-text, on another picture, a chart or a diagram); shrink or move the slide's pictures to make room. Nothing goes off the slide.
+Then lay the slide out again so everything fits: return EVERY element of the slide by its "id" with new x, y, w, h, plus each new picture
+as {"type": "image", "image": "img2", "x": .., "y": .., "w": .., "h": ..}.
+- Charts, diagrams and hands-on boxes keep EXACTLY their place and size (never squeezed): pictures go in free space or below them.
+- Text boxes may move or get narrower but must stay big enough for their words.
+- NOTHING overlaps: no box touches another. Nothing goes off the slide.
 
 ${formatGuide()}
 
@@ -49,14 +52,28 @@ const describe = (slide: Slide) => JSON.stringify(slide.elements.map((e) => ({
 })));
 
 /** The slide's own boxes in their new places, and the new pictures (or null: unusable) */
+const MAX_ADDED = 4;
+/** Charts, diagrams and hands-on boxes: kept exactly where they are (a picture never squeezes them) */
+const locked = (e: SlideElement) => e.type === 'chart' || e.type === 'diagram' || e.type === 'activity';
+/** Two descriptions of much the same picture ("A man holding a large blue catfish" / "A person holding a big blue catfish") */
+export function samePicture(a: string, b: string): boolean {
+  const words = (t: string) => new Set(t.toLowerCase().replace(/[^a-z\s]/g, ' ').split(/\s+/).filter((w) => w.length > 3 && !['with', 'that', 'this', 'from', 'large', 'small', 'photo', 'picture', 'image'].includes(w)));
+  const x = words(a), y = words(b);
+  if (!x.size || !y.size) return false;
+  const both = [...x].filter((w) => y.has(w)).length;
+  return both / Math.min(x.size, y.size) >= 0.75;
+}
+
 function build(raw: any, slide: Slide, images: LibImage[]): { elements: SlideElement[]; added: LibImage[] } | null {
   const lib = new Map(images.map((i) => [i.id, i]));
+  const shown = slide.elements.flatMap((e) => (e.type === 'image' && e.alt ? [e.alt] : []));
   const placed = new Map<string, any>();
   const added: { img: LibImage; at: any }[] = [];
   for (const e of Array.isArray(raw?.elements) ? raw.elements : []) {
     if (e?.type === 'image' && e.image && !slide.elements.some((x) => x.id === e.id)) {
       const img = lib.get(String(e.image));
-      if (img && !added.some((a) => a.img.id === img.id)) added.push({ img, at: e });
+      // (not one already added, and not much the same picture as one added or already on the slide)
+      if (img && !added.some((a) => a.img.id === img.id || samePicture(a.img.description, img.description)) && !shown.some((d) => samePicture(d, img.description))) added.push({ img, at: e });
     } else if (typeof e?.id === 'string') placed.set(e.id, e);
   }
   if (!added.length) return null;
@@ -66,11 +83,11 @@ function build(raw: any, slide: Slide, images: LibImage[]): { elements: SlideEle
     const h = Math.min(100, Math.max(4, num(at?.h, el?.h ?? 30)));
     return { w, h, x: Math.min(100 - w, Math.max(0, num(at?.x, el?.x ?? 0))), y: Math.min(100 - h, Math.max(0, num(at?.y, el?.y ?? 0))) };
   };
-  const elements: SlideElement[] = slide.elements.map((el) => (placed.has(el.id) ? { ...el, ...box(placed.get(el.id), el) } : { ...el }));
-  added.slice(0, 2).forEach(({ img, at }, n) => {
+  const elements: SlideElement[] = slide.elements.map((el) => (placed.has(el.id) && !locked(el) ? { ...el, ...box(placed.get(el.id), el) } : { ...el }));
+  added.slice(0, MAX_ADDED).forEach(({ img, at }, n) => {
     elements.push({ id: `${slide.id}-pic${n + 1}-${Date.now().toString(36).slice(-4)}`, type: 'image', src: img.url, alt: img.description, fit: 'contain', silent: true, ...box(at) } as SlideElement);
   });
-  return { elements, added: added.slice(0, 2).map((a) => a.img) };
+  return { elements, added: added.slice(0, MAX_ADDED).map((a) => a.img) };
 }
 
 /**
@@ -118,17 +135,42 @@ export async function pictureIdea(deck: Deck, slide: Slide, candidates: LibImage
   };
 }
 
+/** What to search the library for on a slide: each thing it names (its bullets, split at "and" and commas), its title, and the slide as a whole */
+export function searchPhrases(slide: Slide): string[] {
+  const out: string[] = [];
+  for (const e of slide.elements) {
+    if (e.type !== 'text') continue;
+    for (const line of e.text.split('\n')) {
+      for (const bit of line.replace(/^[•\-*\s]+/, '').split(/,|\band\b|&|\//i)) {
+        const t = bit.replace(/[^\p{L}\p{N}\s'-]/gu, ' ').replace(/\s+/g, ' ').trim();
+        if (t.length >= 3 && t.split(' ').length <= 6) out.push(t);
+      }
+    }
+  }
+  out.push(`${slide.topic ?? ''}: ${slideBasis(slide)}`.slice(0, 600));
+  return [...new Set(out.map((t) => t.toLowerCase()))].slice(0, 10);
+}
+
 /**
- * Candidate pictures for several slides at once: each slide's closest library pictures that the lesson
- * doesn't use and that have no words, every picture handed to one slide only (in slide order).
+ * Candidate pictures for several slides at once: for each thing a slide names (and the slide as a whole), the closest library
+ * pictures that the lesson doesn't use and that have no words. Each picture goes to the one slide it matches best, so no two
+ * slides get the same one; up to 8 per slide.
  */
 export async function pictureCandidates(deck: Deck, slides: Slide[], taken: Set<string> = lessonPictures(deck)): Promise<Map<string, LibImage[]>> {
-  const found = await Promise.all(slides.map((s) => imagesFor(`${s.topic ?? ''}: ${slideBasis(s)} ${s.elements.map(spokenText).join(' ')}`.slice(0, 1000), 8)));
-  const out = new Map<string, LibImage[]>();
-  slides.forEach((s, i) => {
-    const mine = found[i].filter((img) => typeof img.url === 'string' && !taken.has(img.url) && !hasWords(img.description ?? '')).slice(0, 4);
-    for (const img of mine) taken.add(img.url);
-    out.set(s.id, mine);
-  });
+  const searches = slides.flatMap((s) => searchPhrases(s).map((q) => ({ slide: s.id, q })));
+  const found = await Promise.all(searches.map((x) => imagesFor(x.q, 3)));
+  // every (slide, picture) match with how close it is (the search's score, else by its place in the results)
+  const matches = searches.flatMap((x, i) => found[i].map((img, rank) => ({ slide: x.slide, img, score: img.score ?? 1 - rank * 0.1 })))
+    .filter((m) => typeof m.img.url === 'string' && !taken.has(m.img.url) && !hasWords(m.img.description ?? ''))
+    .sort((a, b) => b.score - a.score);
+  const out = new Map<string, LibImage[]>(slides.map((s) => [s.id, []]));
+  const given = new Set<string>();
+  for (const m of matches) {
+    const mine = out.get(m.slide)!;
+    if (given.has(m.img.url) || mine.length >= 8) continue;
+    given.add(m.img.url);
+    taken.add(m.img.url);
+    mine.push(m.img);
+  }
   return out;
 }

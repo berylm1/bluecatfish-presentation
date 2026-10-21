@@ -221,14 +221,14 @@ export const bankElements = (deck: Deck) => (deck.bank?.off ? [] : deck.bank?.qu
 /* The picture check (lib/canvas/pictures.ts, server side): library pictures the lesson doesn't use yet, added where a slide talks
    about something a picture would show. Here so the editor sees what's needed too. */
 /** What the picture check looked at: the slide's boxes, where they are, what they say and show */
-// (v2: the overlap check got stricter, so the suggestions made before are made again)
+// (v3: searched per thing the slide names, up to 4 pictures, charts and diagrams kept as they are: suggestions made again)
 export const pictureBasis = (slide: Slide) =>
-  fingerprint('v2' + JSON.stringify(slide.elements.map((e) => [e.id, e.type, e.x, e.y, e.w, e.h, shownWords(e), e.type === 'image' ? e.src : ''])));
+  fingerprint('v3' + JSON.stringify(slide.elements.map((e) => [e.id, e.type, e.x, e.y, e.w, e.h, shownWords(e), e.type === 'image' ? e.src : ''])));
 /** Pictures that count (not a background one) */
 export const slidePictures = (slide: Slide) => slide.elements.filter((e) => e.type === 'image' && (e.z ?? 1) > 0).length;
-/** Slides worth a picture check: they teach something (they speak), no hands-on box, fewer than 2 pictures already */
+/** Slides worth a picture check: they teach something (they speak), no hands-on box, fewer than 3 pictures already */
 export const pictureCheckable = (slide: Slide) =>
-  slide.elements.some((e) => speaksAtAll(e) && !!spokenText(e)) && !slide.elements.some((e) => e.type === 'activity') && slidePictures(slide) < 2;
+  slide.elements.some((e) => speaksAtAll(e) && !!spokenText(e)) && !slide.elements.some((e) => e.type === 'activity') && slidePictures(slide) < 3;
 export function needsPictureCheck(deck: Deck, slide: Slide): boolean {
   return pictureCheckable(slide) && deck.checks?.pictures?.[slide.id]?.from !== pictureBasis(slide);
 }

@@ -34,7 +34,8 @@ const PICTURES_MS = 30_000;            // the picture pass (in parallel over the
 
 const supabase = lazySupabaseAdmin();
 
-export type LibImage = { id: string; url: string; description: string };
+/** score: how close it is to the search (0-1), when the library search gives it */
+export type LibImage = { id: string; url: string; description: string; score?: number };
 type TopicPlan = { title: string; query: string; covers: string[] };
 
 export async function imagesFor(query: string, count: number): Promise<LibImage[]> {
@@ -46,7 +47,7 @@ export async function imagesFor(query: string, count: number): Promise<LibImage[
     }).then((r) => r.json());
     const { data, error } = await supabase.rpc('match_images2', { query_embedding: emb.data[0].embedding, match_count: count });
     if (error) throw new Error(error.message);
-    return (data ?? []).map((r: any, i: number) => ({ id: `img${i + 1}`, url: r.url, description: r.description ?? '' }));
+    return (data ?? []).map((r: any, i: number) => ({ id: `img${i + 1}`, url: r.url, description: r.description ?? '', ...(typeof r.similarity === 'number' ? { score: r.similarity } : {}) }));
   } catch (e) {
     console.warn('Image lookup failed:', e);
     return [];
