@@ -90,6 +90,10 @@ export function needsHelper(slide: Slide): boolean {
   if (!slide.elements.some(speaksAtAll)) return false;   // nothing taught here (a title card): no helper
   if (slide.elements.some((e) => e.type === 'activity')) return false;   // a hands-on slide is already the other way to see it
   if (!h || !h.elements.length) return true;
+  // an AI draft with nothing to say (only silent boxes): drafted again (it sat silent in the lesson)
+  // (only while it has a box that could speak, so it isn't drafted again and again)
+  if (h.byAI && !h.elements.some((e) => speaksAtAll(e) && (e.say?.trim() || sayBasis(e)))
+    && h.elements.some((e) => (e.type === 'text' && e.style !== 'title') || (e.type === 'image' && !!e.alt))) return true;
   return !!h.byAI && h.from !== fingerprint(slideBasis(slide));
 }
 

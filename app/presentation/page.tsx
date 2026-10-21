@@ -377,6 +377,8 @@ function Player({ deck, preview, startAt = 0 }: { deck: Deck; preview: boolean; 
   const [finnMoves, setFinnMoves] = useState<Record<string, FinnMove>>({});
   const [activityGuides, setActivityGuides] = useState<Record<string, string>>({});   // bumped when a box is done or skipped (redraws it without its hand)   // bumped: the hands-on box shows its example hand again
   const [variant, setVariant] = useState<Variant | null>(null);
+  const variantNow = useRef<Variant | null>(null);
+  variantNow.current = variant;
   const [mood, setMood] = useState<LearnerEmotion | null>(null);
   const [introDone, setIntroDone] = useState(false);
   // Between topics: "How did that section go?" (from = last slide of the topic, to = where next)
@@ -441,6 +443,7 @@ function Player({ deck, preview, startAt = 0 }: { deck: Deck; preview: boolean; 
   }, [started, introDone, preview, lessonOver, player.slideIndex, deck, forgetProgress]);
   const exchangeRef = useRef(tutor.exchange);
   exchangeRef.current = tutor.exchange;
+  const detourBusy = useRef(false);   // answers to questions in class are being given (runTogether / runDetour)
   const tutorBusyRef = useRef(tutorBusy);
   tutorBusyRef.current = tutorBusy;
   // The question + answer box under the slide goes away a while after the answer (the transcript keeps it)
@@ -710,10 +713,12 @@ function Player({ deck, preview, startAt = 0 }: { deck: Deck; preview: boolean; 
   /** The helper for slide i: its own, or for a hands-on slide the nearest earlier slide's in the same topic. */
   const helperFor = useCallback((i: number): Slide | null => {
     const s = deck.slides[i];
-    const own = s ? ownHelper(s) : null;
+    // (a helper that says nothing isn't used: it sat there silent until "Got it". The other ways to see it come next)
+    const speaks = (h: Slide | null) => (h && speakingOrder(h).length ? h : null);
+    const own = s ? speaks(ownHelper(s)) : null;
     if (own || !s?.elements.some((e) => e.type === 'activity')) return own;
     for (let j = i - 1; j >= 0 && topicOf[j] === topicOf[i]; j--) {
-      const h = ownHelper(deck.slides[j]);
+      const h = speaks(ownHelper(deck.slides[j]));
       if (h) return h;
     }
     return null;
@@ -844,6 +849,11 @@ function Player({ deck, preview, startAt = 0 }: { deck: Deck; preview: boolean; 
    * ("Back to the lesson", a question, a command). The caller ends it (endDetour) and says what's next.
    */
   const runDetour = useCallback(async (steps: { q: BankQuestion; ask: boolean }[]): Promise<boolean> => {
+    detourBusy.current = true;
+    try { return await detourSteps(steps); } finally { detourBusy.current = false; }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cues, tracking]);
+  const detourSteps = async (steps: { q: BankQuestion; ask: boolean }[]): Promise<boolean> => {
     const seq = ++helperSeq.current;
     const live = () => seq === helperSeq.current;
     for (const { q, ask } of steps) {
@@ -869,7 +879,7 @@ function Player({ deck, preview, startAt = 0 }: { deck: Deck; preview: boolean; 
       setHelperActive(null);
     }
     return live();
-  }, [cues, tracking]);
+  };
   /** The answer slides go (the slide morphs back); resolves once it has */
   const endDetour = useCallback(() => {
     helperSeq.current++;
@@ -935,6 +945,8 @@ function Player({ deck, preview, startAt = 0 }: { deck: Deck; preview: boolean; 
     const gate = new Promise<void>((r) => { release = r; });
     const liveAnswer = best ? null : tutor.ask(question, slideContext() + (related.length ? '\nAnswer in 2 or 3 short sentences: classmates asked questions too, and you answer theirs next.' : ''), { holdUntil: gate });
     together.current = { question, live: !best };
+    detourBusy.current = true;
+    const turn = askTurn.current;
     let finished = false;
     try {
       for (const q of related) {
@@ -974,7 +986,11 @@ function Player({ deck, preview, startAt = 0 }: { deck: Deck; preview: boolean; 
         answerTo.current = you;
         setHelperActive(lit(0));
         release();
-        const { superseded } = await liveAnswer!;
+        let { superseded } = await liveAnswer!;
+        // cut off, but nothing took over (no new question, not "Back to the lesson"): asked again, once
+        if (superseded && live() && turn === askTurn.current) {
+          ({ superseded } = await tutor.ask(question, slideContext() + (related.length ? '\nAnswer in 2 or 3 short sentences: classmates asked questions too, and you answer theirs next.' : '')));
+        }
         if (superseded || !live()) return false;
       }
       for (const [i, q] of related.entries()) if (!(await say(q, i + 1, CLASSMATES[q.asker].name))) return false;
@@ -986,6 +1002,7 @@ function Player({ deck, preview, startAt = 0 }: { deck: Deck; preview: boolean; 
       if (!finished && liveAnswer && exchangeRef.current?.question === question) tutor.cancel();
       together.current = null;
       answerTo.current = null;
+      detourBusy.current = false;
       setHelperActive(null);
     }
   }, [cues, tutor, slideContext, tracking, learnerName]);
@@ -1011,7 +1028,13 @@ function Player({ deck, preview, startAt = 0 }: { deck: Deck; preview: boolean; 
     await quiet;
     if (my !== askTurn.current) return;
     const done = best && !related.length ? await runDetour([{ q: best, ask: false }]) : await runTogether(question, best, related, picture);
-    if (!done || my !== askTurn.current) return;
+    if (my !== askTurn.current) return;
+    if (!done) {
+      // cut short by something that didn't take over (no new question, not "Back to the lesson"): the answer
+      // slide doesn't stay up on its own (was: left there, "…", with the lesson stopped)
+      if (variantNow.current?.variant === 'answer') { await endDetour(); if (my === askTurn.current) playerRef.current.resume(); }
+      return;
+    }
     await endDetour();
     if (my === askTurn.current) moveOn();
   }, [bankList, answer, tracking, finishThenPause, matchBank, runDetour, runTogether, endDetour, moveOn, pictureFor, deck]);
@@ -1336,7 +1359,9 @@ function Player({ deck, preview, startAt = 0 }: { deck: Deck; preview: boolean; 
     bargeActive: speakingNow,
     onListenStart: () => {
       resumeAfterTurn.current = playerRef.current.status !== 'paused' || checkIn.current !== null;
-      if (tutor.speaking || tutor.thinking) tutor.finishSentence();
+      // (while answers to class questions are being given, a noise as the answer is still being written doesn't
+      // cancel it: was the answer slide left up on "…". Words they actually say still take over, as a new question)
+      if (tutor.speaking || (tutor.thinking && !detourBusy.current)) tutor.finishSentence();
       else if (SPEAKING.includes(playerRef.current.status)) {
         tracking.track('barge_in', {}, { barge_ins: 1 });
         playerRef.current.interrupt();
@@ -1356,7 +1381,8 @@ function Player({ deck, preview, startAt = 0 }: { deck: Deck; preview: boolean; 
       }
       if (text) handleText(text);
       // nothing usable (a cough, silence, no answer to a check-in): carry on
-      else if (resumeAfterTurn.current && !tutor.thinking) playerRef.current.resume();
+      // (not under answer slides, or a helper: the lesson would play over them)
+      else if (resumeAfterTurn.current && !tutor.thinking && !detourBusy.current && !variantNow.current) playerRef.current.resume();
     },
   });
   micRef.current = { status: micStatus, talk };
@@ -1542,12 +1568,15 @@ function Player({ deck, preview, startAt = 0 }: { deck: Deck; preview: boolean; 
     setActivityGuides((g) => ({ ...g, [id]: order ? m.correct : m.item }));
     setActivityHint((h) => h + 1);
     cuesRef.current.stop();   // (a line still going, like Finn's)
+    stepInFor.current = id;
     tutor.ask(order ? `${m.item} first? (${n} tries)` : `${m.item} → ${m.chosen}? (${n} tries)`,
       slideContext() + (order
         ? `\nThe learner is doing the hands-on activity and has tapped "${m.item}" too early ${n} times; what comes next is "${m.correct}". They're stuck, so this time it's fine to say it: in 1-2 short, kind sentences, explain why "${m.correct}" has to happen before "${m.item}". No question at the end.`
         : `\nThe learner is doing the hands-on activity and has put "${m.item}" in "${m.chosen}" ${n} times; it belongs in "${m.correct}". They're stuck, so this time it's fine to say where it goes: in 1-2 short, kind sentences, explain WHY "${m.item}" belongs in "${m.correct}" (the reason, from the lesson). No question at the end.`),
-      { asker: '🖐 Hands-on', remember: `(The learner kept getting "${m.item}" wrong in the hands-on activity; the professor explained it.)` });
+      { asker: '🖐 Hands-on', remember: `(The learner kept getting "${m.item}" wrong in the hands-on activity; the professor explained it.)` })
+      .finally(() => { if (stepInFor.current === id) stepInFor.current = null; });
   }, [track, deck, tutor, slideContext]);
+  const stepInFor = useRef<string | null>(null);   // the box the professor is explaining right now (after repeated mistakes)
 
   // Finn's go in a hands-on box: he says what he did; the professor reacts when the learner sorts it out
   const finnMovesRef = useRef(finnMoves);
@@ -1621,6 +1650,9 @@ function Player({ deck, preview, startAt = 0 }: { deck: Deck; preview: boolean; 
   }, [player.slideIndex, deck]);
 
   const onActivityDone = useCallback((id: string) => {
+    // Solved while the professor explains the item they kept getting wrong: the explanation stops (they've got
+    // it), so it doesn't carry on over the praise and what comes next (was: the two overlapped)
+    if (stepInFor.current === id) { stepInFor.current = null; tutor.cancel(); }
     activitiesDone.current.add(id);
     activitiesSolved.current.add(id);
     setSettledTick((n) => n + 1);
@@ -1644,7 +1676,7 @@ function Player({ deck, preview, startAt = 0 }: { deck: Deck; preview: boolean; 
     setYourTurn(null);
     // after the professor (an explanation, a reply to Finn) has finished, not over them
     queueLine(() => playCue({ text: praise })).then(() => { if (playerRef.current.activeId === id) playerRef.current.nextClip(); });
-  }, [track, playCue, praise, queueLine]);
+  }, [track, playCue, praise, queueLine, tutor]);
   /** Skip: the box fills in its answers (so the learner still sees how it goes), a word from the professor, then on. */
   const skipActivity = () => {
     const id = yourTurnRef.current;
