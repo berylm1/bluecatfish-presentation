@@ -214,7 +214,7 @@ export interface DeckChecks {
   /** Order moves a person skipped (moveKey) */
   orderSkips?: string[];
   /** The picture check (pictures.ts), per slide id: the slide it looked at (pictureBasis) and the pictures it suggests (null: none) */
-  pictures?: Record<string, { from: string; at: string; idea: PictureIdea | null }>;
+  pictures?: Record<string, { from: string; at: string; idea: PictureIdea | null; note?: string }>;
   /** Picture ideas a person skipped (pictureSkipKey) */
   pictureSkips?: string[];
 }

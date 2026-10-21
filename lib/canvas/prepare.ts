@@ -32,7 +32,7 @@ import { refreshQuiz } from './quiz';
 import { askStoryOrder } from './storyOrder';
 import { movesFor } from './order';
 import { usedPictures, writeBankTopic } from './bank';
-import { lessonPictures, pictureCandidates, pictureIdea } from './pictures';
+import { lessonPictures, pictureCandidates, pictureCheck } from './pictures';
 
 const otherText = (slide: Slide, el: SlideElement) =>
   slide.elements.filter((e) => e.id !== el.id).map(sayBasis).filter(Boolean).join(' | ');
@@ -344,15 +344,15 @@ export async function prepareDeck(
   //     editor's Check tab (a person adds them); pictures already suggested for other slides aren't suggested again
   const toCheck = deck.slides.filter((sl) => needsPictureCheck(deck, sl));
   const pictureTask = toCheck.length && deadline - Date.now() > PICTURE_TIME_MS ? (async () => {
-    const taken = lessonPictures(deck);
+    const taken = lessonPictures(deck, false);
     for (const c of Object.values(deck.checks?.pictures ?? {})) for (const pic of c.idea?.pictures ?? []) taken.add(pic.src);
     try {
       const candidates = await pictureCandidates(deck, toCheck, taken);
       await pool(toCheck, deadline, async (sl) => {
         const from = pictureBasis(sl);
         try {
-          const idea = await pictureIdea(deck, sl, candidates.get(sl.id) ?? []);
-          keep({ slideId: sl.id, kind: 'pictures', from, at: new Date().toISOString(), idea });
+          const { idea, note } = await pictureCheck(deck, sl, candidates.get(sl.id) ?? []);
+          keep({ slideId: sl.id, kind: 'pictures', from, at: new Date().toISOString(), idea, ...(note ? { note } : {}) });
         } catch (e) { fail('Checking for pictures', e); }
       });
     } catch (e) { fail('Checking for pictures', e); }

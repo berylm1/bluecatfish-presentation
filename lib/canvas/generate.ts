@@ -12,7 +12,7 @@ import { writeRecap } from './prepare';
 import { removeRepeats } from './repeats';
 import { checkActivityAnswers } from './activityCheck';
 import { fixStoryOrder } from './storyOrder';
-import { pictureCandidates, pictureIdea } from './pictures';
+import { lessonPictures, pictureCandidates, pictureIdea } from './pictures';
 import { pictureCheckable } from './aiFields';
 
 const GENERATE_BUDGET_MS = 270_000;   // the ai-deck route's maxDuration is 300 s
@@ -34,8 +34,8 @@ const PICTURES_MS = 30_000;            // the picture pass (in parallel over the
 
 const supabase = lazySupabaseAdmin();
 
-/** score: how close it is to the search (0-1), when the library search gives it */
-export type LibImage = { id: string; url: string; description: string; score?: number };
+/** score: how close it is to the search (0-1), when the library search gives it; used: the lesson already shows it (the picture check) */
+export type LibImage = { id: string; url: string; description: string; score?: number; used?: boolean };
 type TopicPlan = { title: string; query: string; covers: string[] };
 
 export async function imagesFor(query: string, count: number): Promise<LibImage[]> {
@@ -277,7 +277,7 @@ export async function generateAiDeck(lesson: LessonInfo): Promise<{ deck: Deck; 
   if (Date.now() < started + GENERATE_BUDGET_MS - PICTURES_MS) {
     try {
       const slides = deck.slides.filter(pictureCheckable);
-      const candidates = await pictureCandidates(deck, slides);
+      const candidates = await pictureCandidates(deck, slides, lessonPictures(deck, false));
       let added = 0;
       await Promise.all(slides.map(async (s) => {
         const idea = await pictureIdea(deck, s, candidates.get(s.id) ?? []).catch(() => null);

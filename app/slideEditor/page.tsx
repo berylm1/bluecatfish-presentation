@@ -1095,7 +1095,12 @@ function Editor({
               <CheckPanel deck={deck} slideIndex={slideIdx} lessonTitle={deck.title} active={panel === 'check'} runSignal={factRun} describeSignal={describeRun}
                 onRecord={recordFacts} onFine={markFine} onUseThis={applyFix} onDescribed={fillDescriptions}
                 onGoTo={(id) => { if (ed.layer !== 'main') ed.setLayer('main'); ed.setSelected(id); }} onGoToSlide={(i) => goToRepeat(i)}
-                onMoves={makeMoves} onSkipMove={skipMove} onAddPictures={addPictures} onSkipPictures={skipPictures} />
+                onMoves={makeMoves} onSkipMove={skipMove} onAddPictures={addPictures} onSkipPictures={skipPictures}
+                onRecheckPictures={(slideId) => { ed.change((d) => {
+                  const rest = { ...d.checks?.pictures };
+                  delete rest[slideId];
+                  d.checks = { ...d.checks, pictures: rest };
+                }); flash('This slide’s pictures are checked again when you save'); }} />
             </div>
             {panel === 'repeats' || panel === 'check' ? null : panel === 'props' ? (
               element ? (

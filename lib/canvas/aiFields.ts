@@ -223,7 +223,7 @@ export const bankElements = (deck: Deck) => (deck.bank?.off ? [] : deck.bank?.qu
 /** What the picture check looked at: the slide's boxes, where they are, what they say and show */
 // (v4: searched per thing the slide names, up to 5 pictures, charts and diagrams kept as they are: suggestions made again)
 export const pictureBasis = (slide: Slide) =>
-  fingerprint('v4' + JSON.stringify(slide.elements.map((e) => [e.id, e.type, e.x, e.y, e.w, e.h, shownWords(e), e.type === 'image' ? e.src : ''])));
+  fingerprint('v5' + JSON.stringify(slide.elements.map((e) => [e.id, e.type, e.x, e.y, e.w, e.h, shownWords(e), e.type === 'image' ? e.src : ''])));
 /** Pictures that count (not a background one) */
 export const slidePictures = (slide: Slide) => slide.elements.filter((e) => e.type === 'image' && (e.z ?? 1) > 0).length;
 /** Slides worth a picture check: they teach something (they speak), no hands-on box, fewer than 3 pictures already */
@@ -318,7 +318,7 @@ export type Patch =
   /** The story-order check's suggestions, for the lesson as it was (`from`, orderBasis) */
   | { slideId: ''; kind: 'order'; from: string; at: string; why?: string; moves: OrderMove[] }
   /** The picture check of a slide as it was (`from`, pictureBasis): the pictures it suggests, or none */
-  | { slideId: string; kind: 'pictures'; from: string; at: string; idea: PictureIdea | null }
+  | { slideId: string; kind: 'pictures'; from: string; at: string; idea: PictureIdea | null; note?: string }
   /** A topic's bank questions, written from the topic as it was (`from`, bankBasis): they replace its AI-written ones */
   | { slideId: ''; kind: 'bank'; topic: string; from: string; questions: BankQuestion[] }
   | (At & { kind: 'say'; say: string; sayFrom: string })
@@ -353,7 +353,7 @@ export function applyPatches(deck: Deck, patches: Patch[]): number {
     if (p.kind === 'pictures') {
       const sl = deck.slides.find((x) => x.id === p.slideId);
       if (sl && pictureBasis(sl) === p.from) {
-        deck.checks = { ...deck.checks, pictures: { ...deck.checks?.pictures, [p.slideId]: { from: p.from, at: p.at, idea: p.idea ? structuredClone(p.idea) : null } } };
+        deck.checks = { ...deck.checks, pictures: { ...deck.checks?.pictures, [p.slideId]: { from: p.from, at: p.at, idea: p.idea ? structuredClone(p.idea) : null, ...(p.note ? { note: p.note } : {}) } } };
         applied++;
       }
       continue;

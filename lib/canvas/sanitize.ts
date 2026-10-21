@@ -245,7 +245,7 @@ function checks(raw: any): DeckChecks | undefined {
       const i = c.idea;
       const els = i && Array.isArray(i.elements) ? i.elements.slice(0, MAX_ELEMENTS).map((e: any, n: number) => element(e, `${slideId}-p${n}`)).filter(Boolean) as SlideElement[] : [];
       const pics = i && Array.isArray(i.pictures) ? i.pictures.slice(0, 5).flatMap((x: any) => { const src = safeUrl(x?.src); return src ? [{ src, alt: str(x?.alt, 300) ?? '', why: str(x?.why, 200) ?? '' }] : []; }) : [];
-      pictures[slideId] = { from: c.from, at: str(c.at, 40) ?? '', idea: els.length && pics.length ? { pictures: pics, elements: els } : null };
+      pictures[slideId] = { from: c.from, at: str(c.at, 40) ?? '', idea: els.length && pics.length ? { pictures: pics, elements: els } : null, note: str(c.note, 600) };
     }
   }
   const out: DeckChecks = { facts, factsOk: tags(raw.factsOk, 500), repeats, repeatSkips: tags(raw.repeatSkips, 500), order, orderSkips: tags(raw.orderSkips, 200), pictures, pictureSkips: tags(raw.pictureSkips, 300) };

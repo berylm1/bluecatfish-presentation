@@ -19,11 +19,13 @@ export function hasWords(description: string): boolean {
 }
 
 /** Picture addresses the lesson already uses: its slides, helpers and answer slides */
-export function lessonPictures(deck: Deck): Set<string> {
+export function lessonPictures(deck: Deck, withBank = true): Set<string> {
   const used = new Set<string>();
   const add = (els: SlideElement[]) => { for (const e of els) if ((e.type === 'image' || e.type === 'activity') && e.src) used.add(e.src); };
   for (const s of deck.slides) { add(s.elements); add(s.helper?.elements ?? []); }
-  for (const q of deck.bank?.questions ?? []) add(q.slide.elements);
+  // (the picture check leaves the bank's answer slides out: the lesson's own slides come first. Was: an answer slide
+  // written earlier had taken the new pictures, so the slide that names them got none)
+  if (withBank) for (const q of deck.bank?.questions ?? []) add(q.slide.elements);
   return used;
 }
 
@@ -34,6 +36,7 @@ You add PICTURES to one lesson slide. Below are pictures from the lesson's libra
 - If the slide has NO picture yet, add at least one that fits its main idea (a river, the fish, a catch), if any does.
 - Only pictures that are just a visual: never one whose description mentions words, titles, labels, text or a slide in it.
 - Never two pictures of the same thing (two people holding a catfish), and never one of something the slide's pictures already show.
+- Prefer pictures not used yet. One marked "already used in the lesson" only when no other picture shows that thing.
 - If none fits, reply {"add": []}.
 
 Then lay the slide out again so everything fits: return EVERY element of the slide by its "id" with new x, y, w, h, plus each new picture
@@ -95,15 +98,22 @@ function build(raw: any, slide: Slide, images: LibImage[]): { elements: SlideEle
  * candidates, so two slides never get the same picture). null: nothing fits, or it couldn't be laid out.
  */
 export async function pictureIdea(deck: Deck, slide: Slide, candidates: LibImage[]): Promise<PictureIdea | null> {
-  if (!candidates.length) return null;
+  return (await pictureCheck(deck, slide, candidates)).idea;
+}
+
+/** The picture check of one slide: the idea, or none and why (shown in the editor's Check tab) */
+export async function pictureCheck(deck: Deck, slide: Slide, candidates: LibImage[]): Promise<{ idea: PictureIdea | null; note: string }> {
+  const none = (note: string) => ({ idea: null, note });
+  const looked = candidates.map((c) => c.description).filter(Boolean).slice(0, 8).join('; ');
+  if (!candidates.length) return none('No picture in the library that the lesson doesn’t use yet matched what this slide says');
   const images = candidates.map((c, n) => ({ ...c, id: `img${n + 1}` }));
-  const list = images.map((i) => `${i.id}: ${i.description}`).join('\n');
+  const list = images.map((i) => `${i.id}: ${i.description}${i.used ? ' (already used in the lesson)' : ''}`).join('\n');
   const user = `Lesson: ${deck.title}\nTopic: ${slide.topic ?? ''}\nWhat the professor says on it: ${slide.elements.map(spokenText).filter(Boolean).join(' ').slice(0, 1500)}\n\n` +
     `SLIDE (background ${slide.background?.color ?? '#ffffff'}): ${describe(slide)}\n\nAVAILABLE PICTURES:\n${list}`;
   let raw = JSON.parse(await chat(SYSTEM, user, true, 3000));
-  if (!Array.isArray(raw?.add) || !raw.add.length) return null;
+  if (!Array.isArray(raw?.add) || !raw.add.length) return none(`The AI found none of the matching pictures fit (it looked at: ${looked})`);
   let made = build(raw, slide, images);
-  if (!made) return null;
+  if (!made) return none(`The pictures the AI picked were look-alikes of ones already on the slide (it looked at: ${looked})`);
   const view = (els: SlideElement[]): Slide => ({ ...slide, elements: els });
   const toRaw = (r: any) => ({ elements: (r?.elements ?? []).map((e: any) => (e?.type === 'image' && e.image ? e : { ...e, type: 'text-placed' })) });
   // (the layout checks, and boxes on top of each other: any two that touch now and didn't on the slide as it was, a new picture
@@ -127,12 +137,12 @@ export async function pictureIdea(deck: Deck, slide: Slide, candidates: LibImage
   }
   const out = view(made.elements);
   autoFix(out);
-  if (covers(out.elements).length) return null;   // still on top of each other after the fix: no suggestion rather than a broken slide
+  if (covers(out.elements).length) return none('The pictures didn’t fit without covering something on the slide');   // (no suggestion rather than a broken slide)
   const why = new Map((raw.add as any[]).map((a) => [String(a?.image), String(a?.why ?? '').slice(0, 200)]));
-  return {
+  return { note: '', idea: {
     pictures: made.added.map((i) => ({ src: i.url, alt: i.description, why: why.get(i.id) || `It shows what the slide talks about` })),
     elements: out.elements,
-  };
+  } };
 }
 
 /** What to search the library for on a slide: each thing it names (its bullets, split at "and" and commas), its title, and the slide as a whole */
@@ -153,24 +163,32 @@ export function searchPhrases(slide: Slide): string[] {
 
 /**
  * Candidate pictures for several slides at once: for each thing a slide names (and the slide as a whole), the closest library
- * pictures that the lesson doesn't use and that have no words. Each picture goes to the one slide it matches best, so no two
- * slides get the same one; up to 8 per slide.
+ * pictures with no words in them. Pictures the lesson doesn't use yet come first, and each goes to the one slide it matches
+ * best. A picture already used elsewhere is offered (marked used) only when nothing unused turned up for that thing: then
+ * the slide may show it again. Up to 8 per slide; never one already on the slide.
  */
 export async function pictureCandidates(deck: Deck, slides: Slide[], taken: Set<string> = lessonPictures(deck)): Promise<Map<string, LibImage[]>> {
-  const searches = slides.flatMap((s) => searchPhrases(s).map((q) => ({ slide: s.id, q })));
-  const found = await Promise.all(searches.map((x) => imagesFor(x.q, 3)));
-  // every (slide, picture) match with how close it is (the search's score, else by its place in the results)
-  const matches = searches.flatMap((x, i) => found[i].map((img, rank) => ({ slide: x.slide, img, score: img.score ?? 1 - rank * 0.1 })))
-    .filter((m) => typeof m.img.url === 'string' && !taken.has(m.img.url) && !hasWords(m.img.description ?? ''))
-    .sort((a, b) => b.score - a.score);
+  const searches = slides.flatMap((s) => searchPhrases(s).map((q) => ({ slide: s, q })));
+  const found = await Promise.all(searches.map((x) => imagesFor(x.q, 4)));
+  const onSlide = (s: Slide, url: string) => s.elements.some((e) => (e.type === 'image' || e.type === 'activity') && e.src === url);
+  // every (slide, picture) match with how close it is (the search's score, else by its place in the results); for each thing
+  // searched, an already-used picture only if no unused one showed up for it
+  const matches = searches.flatMap((x, i) => {
+    const ok = found[i].filter((img) => typeof img.url === 'string' && !hasWords(img.description ?? '') && !onSlide(x.slide, img.url));
+    const fresh = ok.filter((img) => !taken.has(img.url));
+    return (fresh.length ? fresh : ok).map((img, rank) => ({ slide: x.slide.id, img: { ...img, used: taken.has(img.url) }, score: (img.score ?? 1 - rank * 0.1) - (taken.has(img.url) ? 0.5 : 0) }));
+  }).sort((a, b) => b.score - a.score);
   const out = new Map<string, LibImage[]>(slides.map((s) => [s.id, []]));
   const given = new Set<string>();
   for (const m of matches) {
     const mine = out.get(m.slide)!;
-    if (given.has(m.img.url) || mine.length >= 8) continue;
-    given.add(m.img.url);
-    taken.add(m.img.url);
+    if (mine.length >= 8 || mine.some((x) => x.url === m.img.url)) continue;
+    if (!m.img.used) {
+      if (given.has(m.img.url)) continue;   // (an unused picture: one slide only)
+      given.add(m.img.url);
+    }
     mine.push(m.img);
   }
+  for (const url of given) taken.add(url);
   return out;
 }
