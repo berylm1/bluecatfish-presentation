@@ -1,5 +1,5 @@
 import type { Deck, Slide } from './types';
-import { chat } from './ai';
+import { chat, SOL } from './ai';
 import { shownWords, spokenText, topicIndexes } from './queue';
 import { movesFor } from './order';
 
@@ -59,6 +59,7 @@ export async function askStoryOrder(deck: Deck, lessonTitle: string): Promise<{ 
     `Lesson: ${lessonTitle}\n\n${outline}`,
     true,
     1500,
+    SOL,   // (the story order: Sol, lib/canvas/ai.ts)
   ));
   const topicOrder = permutation(out?.topics, topics.length) ?? topics.map((_, i) => i);
   const order: string[] = [];

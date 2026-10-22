@@ -25,7 +25,7 @@ const PICTURE_TIME_MS = 15_000;   // a slide's picture check (a search, one AI r
 
 // Shared AI helpers live in ai.ts (re-exported here: generate.ts imports them from this file)
 export { STYLE, chat, knowledge } from './ai';
-import { STYLE, chat, chatVision, imageForVision, knowledge, openai } from './ai';
+import { SOL, STYLE, chat, chatVision, imageForVision, knowledge, openai } from './ai';
 import { draftHelper } from './helperDraft';
 import { checkActivityAnswers } from './activityCheck';
 import { refreshQuiz } from './quiz';
@@ -102,6 +102,7 @@ async function placePointers(el: SlideElement): Promise<Pointer[]> {
       'Only point at things you can clearly see. None is fine. Reply as JSON: {"points": [{"word": "...", "x": 0, "y": 0}]}',
     `What the teacher says: "${spoken}"\nPicture description: ${el.alt ?? '(none)'}`,
     picture,
+    SOL,   // (laser marks: Sol, lib/canvas/ai.ts)
   ));
   const lower = spoken.toLowerCase();
   return (Array.isArray(out.points) ? out.points : [])

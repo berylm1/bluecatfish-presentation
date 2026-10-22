@@ -4,7 +4,14 @@ import { lazySupabaseAdmin } from '@/lib/supabase/admin';
 // helper drafts (helperDraft.ts): the house style, chat and the knowledge base.
 
 const supabase = lazySupabaseAdmin();
-const MODEL = 'gpt-6.1-sol';
+// Two models (per million tokens, input / output):
+//   LUNA  gpt-6-luna   $0.10 / $0.50: the default and the bulk (spoken words, plain versions, captions, introductions,
+//         the question bank, helpers, the quiz, the fact and hands-on answer checks, repeats, the classmates in the lesson…)
+//   SOL   gpt-6.1-sol  $2 / $10, 20× Luna: only where it's worth it and the calls are few (laser marks, the picture
+//         check's picking and layouts, the story order). Was: Sol for everything, and a save cost 2-3× as much
+export const LUNA = 'gpt-6-luna';
+export const SOL = 'gpt-6.1-sol';
+const MODEL = LUNA;
 
 export const STYLE =
   'You are Professor Marine, a fun science teacher talking to 10 to 14 year olds about the blue catfish invasion ' +
@@ -27,12 +34,12 @@ export async function openai(path: string, init: RequestInit): Promise<Response>
   }
 }
 
-export async function chat(system: string, user: string, json = false, maxTokens = 2000): Promise<string> {
+export async function chat(system: string, user: string, json = false, maxTokens = 2000, model = MODEL): Promise<string> {
   const res = await openai('chat/completions', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${process.env.OPENAI_API_KEY}` },
     body: JSON.stringify({
-      model: MODEL,
+      model,
       reasoning_effort: 'low',
       ...(json ? { response_format: { type: 'json_object' } } : {}),
       messages: [{ role: 'system', content: system }, { role: 'user', content: user }],
@@ -92,12 +99,12 @@ export async function imageForVision(url: string): Promise<string | null> {
   }
 }
 
-export async function chatVision(system: string, user: string, imageUrl: string): Promise<string> {
+export async function chatVision(system: string, user: string, imageUrl: string, model = MODEL): Promise<string> {
   const res = await openai('chat/completions', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${process.env.OPENAI_API_KEY}` },
     body: JSON.stringify({
-      model: MODEL,
+      model,
       reasoning_effort: 'low',
       response_format: { type: 'json_object' },
       messages: [

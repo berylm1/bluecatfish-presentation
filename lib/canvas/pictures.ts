@@ -1,5 +1,5 @@
 import type { Deck, PictureIdea, Slide, SlideElement } from './types';
-import { chat, STYLE } from './ai';
+import { chat, SOL, STYLE } from './ai';
 import { autoFix, formatGuide, imagesFor, problems, type LibImage } from './generate';
 import { pictureBasis, slideBasis } from './aiFields';
 import { spokenText } from './queue';
@@ -11,7 +11,7 @@ import { spokenText } from './queue';
  * checked at once (a few slides per read), then only the slides that got some are laid out again with
  * them (every box of the slide kept), each with the layout checks: one fix, then the automatic fixes.
  * (Was: one read per slide that picked and laid out together, a full layout paid for even when the
- * answer was "nothing to add".)
+ * answer was "nothing to add".) Both steps on Sol (lib/canvas/ai.ts).
  *   - an AI slideshow: added when it's made (generate.ts, after the story order)
  *   - the editor: suggested when the lesson is saved (prepare.ts), Add / Show / Skip in the Check tab
  */
@@ -124,7 +124,7 @@ async function choose(deck: Deck, slides: Slide[], candidates: Map<string, LibIm
     return `SLIDE s${n + 1} (topic: ${slide.topic ?? ''})\nShows: ${slideBasis(slide).slice(0, 600)}\nThe professor says: ${said(slide).slice(0, 900)}\n` +
       `Pictures on it now: ${shows.join('; ') || '(none)'}\nLibrary pictures it could use:\n${list.join('\n')}`;
   });
-  const raw = JSON.parse(await chat(CHOOSE, `Lesson: ${deck.title}\n\n${blocks.join('\n\n')}`, true, 1500));
+  const raw = JSON.parse(await chat(CHOOSE, `Lesson: ${deck.title}\n\n${blocks.join('\n\n')}`, true, 1500, SOL));
   const out = new Map<string, { img: LibImage; why: string }[]>();
   for (const sl of Array.isArray(raw?.slides) ? raw.slides : []) {
     for (const a of Array.isArray(sl?.add) ? sl.add : []) {
@@ -146,7 +146,7 @@ async function layOut(deck: Deck, slide: Slide, picked: { img: LibImage; why: st
   const list = images.map((i) => `${i.id}: ${i.description}`).join('\n');
   const user = `Lesson: ${deck.title}\nTopic: ${slide.topic ?? ''}\nWhat the professor says on it: ${said(slide).slice(0, 1500)}\n\n` +
     `SLIDE (background ${slide.background?.color ?? '#ffffff'}): ${describe(slide)}\n\nPICTURES TO ADD:\n${list}`;
-  let raw = JSON.parse(await chat(LAYOUT, user, true, 3000));
+  let raw = JSON.parse(await chat(LAYOUT, user, true, 3000, SOL));
   let made = build(raw, slide, images);
   if (!made) return none(`The pictures the AI picked were look-alikes of ones already on the slide (it looked at: ${looked(candidates)})`);
   const view = (els: SlideElement[]): Slide => ({ ...slide, elements: els });
@@ -165,7 +165,7 @@ async function layOut(deck: Deck, slide: Slide, picked: { img: LibImage; why: st
   const issues = [...problems(toRaw(raw), view(made.elements), images).filter((x) => !/AVAILABLE IMAGES/.test(x)), ...covers(made.elements)];
   if (issues.length) {
     try {
-      const again = JSON.parse(await chat(LAYOUT, `${user}\n\nYour layout had problems, fix them:\n- ${issues.join('\n- ')}\nPrevious answer: ${JSON.stringify(raw).slice(0, 3000)}`, true, 3000));
+      const again = JSON.parse(await chat(LAYOUT, `${user}\n\nYour layout had problems, fix them:\n- ${issues.join('\n- ')}\nPrevious answer: ${JSON.stringify(raw).slice(0, 3000)}`, true, 3000, SOL));
       const remade = build(again, slide, images);
       if (remade) { raw = again; made = remade; }
     } catch { /* kept as it was */ }
