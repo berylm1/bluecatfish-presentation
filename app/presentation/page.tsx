@@ -130,9 +130,16 @@ const FINN_ASK: Record<FinnKind, string[]> = {
   unsure: ["That's okay! What's your best guess?", 'No problem. Which part are you not sure about?'],
 };
 const pickOne = <T,>(list: T[]): T => list[Math.floor(Math.random() * list.length)];
+// The learner caught Finn AND said what's right: the professor confirms it, without saying it all again (was: the AI was
+// told not to repeat them, and still did: "Good catch! Actually, blue catfish are native to the Mississippi, Missouri…")
+const FINN_CAUGHT_RIGHT = (you: string) => pickOne([
+  `Good catch${you}! That's exactly right.`,
+  `Good catch${you}! You've got it exactly right.`,
+  `Spot on${you}! Good catch.`,
+]) + ' ' + pickOne([`Easy mix-up, ${CLASSMATE_NAME}!`, `Nice try, ${CLASSMATE_NAME}. That one trips people up.`, `Don't worry, ${CLASSMATE_NAME}, easy one to mix up.`]);
 
 /** Is the learner's answer on Finn's mistake complete, or is there a follow-up to ask? (On any failure: complete.) */
-async function judgeFinn(mistake: string, truth: string, turns: { who: 'professor' | 'learner'; text: string }[]): Promise<{ kind: FinnKind | null; complete: boolean; ask?: string }> {
+async function judgeFinn(mistake: string, truth: string, turns: { who: 'professor' | 'learner'; text: string }[]): Promise<{ kind: FinnKind | null; complete: boolean; said?: boolean; ask?: string }> {
   try {
     const res = await fetch('/api/classmate', {
       method: 'POST',
@@ -141,7 +148,7 @@ async function judgeFinn(mistake: string, truth: string, turns: { who: 'professo
       signal: AbortSignal.timeout(8000),
     });
     const d = res.ok ? await res.json() : null;
-    return d ? { kind: d.kind ?? null, complete: d.complete !== false, ask: d.ask } : { kind: null, complete: true };
+    return d ? { kind: d.kind ?? null, complete: d.complete !== false, said: d.said === true, ask: d.ask } : { kind: null, complete: true };
   } catch {
     return { kind: null, complete: true };
   }
@@ -1313,6 +1320,7 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
             // that?"; the learner's words then decide if there's more to ask (up to FINN_FOLLOWUPS times)
             const turns: { who: 'professor' | 'learner'; text: string }[] = [{ who: 'learner', text: first }];
             let judged: FinnKind | null = null;
+            let saidRight = false;   // they've already said what's actually right (the judge's read)
             for (let round = 0; round < FINN_FOLLOWUPS && !over(); round++) {
               let ask: string | undefined;
               if (round === 0 && finnHow.current === 'button') {
@@ -1320,6 +1328,7 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
               } else {
                 const j = await judgeFinn(q, line.truth, turns);
                 if (j.kind) judged = j.kind;
+                saidRight = !!j.said;
                 if (j.complete || !j.ask) break;
                 ask = j.ask;
               }
@@ -1350,7 +1359,10 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
                   ? `The learner WASN'T SURE. Start with "That's a tricky one${you}." Say ${CLASSMATE_NAME} wasn't right, then explain what's right and why. 3 or 4 short sentences.`
                   : `Decide from the answer whether the learner caught the mistake. If they did, start with "Good catch${you}!" and say why in a sentence. ` +
                     `If not, start with "Actually${you}, that isn't true." and kindly explain what's right. Kindly to ${CLASSMATE_NAME} too. 2 to 4 short sentences.`;
-            const { superseded } = await tutor.ask(q, slideContext() +
+            // Caught it and said what's right: a quick "exactly right", no explanation they already gave
+            const confirmOnly = kind === 'caught' && saidRight;
+            if (confirmOnly) tracking.track('tutor_decision', { action: 'classmate_caught_confirmed' });
+            const { superseded } = confirmOnly ? { superseded: !(await cues.play({ text: FINN_CAUGHT_RIGHT(you) })) } : await tutor.ask(q, slideContext() +
               `\n${CLASSMATE_NAME}, a classmate, just said this, and it is WRONG on purpose, to see if the learner catches it. What's actually right: ${line.truth}` +
               `\nYou asked the learner if ${CLASSMATE_NAME} was right. ${turns.length > 1
                 ? `You talked it through:\n${turns.map((t) => `${t.who === 'professor' ? 'You' : 'Learner'}: ${t.text}`).join('\n')}\nRespond to what they said, building on their reasons.`
@@ -2285,12 +2297,26 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
             </div>
           )}
         </div>
+        {/* "Is Finn right?": a quick answer, or their own words (typed, or the mic). Was: only the three buttons */}
         {finnWaiting === 'buttons' && (
-          <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-20 flex items-center gap-2 px-4 py-2 rounded-full bg-slate-900/90 text-white text-sm shadow-lg" role="dialog" aria-label={`Is ${CLASSMATE_NAME} right?`}>
-            <span>Is {CLASSMATE_NAME} right?</span>
-            <button className="px-3 py-1 rounded-full bg-amber-400 hover:bg-amber-300 text-slate-900 font-semibold" onClick={() => finnVerdict(`Not quite, ${CLASSMATE_NAME} is wrong.`, 'button')}>Not quite!</button>
-            <button className="px-3 py-1 rounded-full bg-white/15 hover:bg-white/25" onClick={() => finnVerdict(`Yes, ${CLASSMATE_NAME} is right.`, 'button')}>He&apos;s right</button>
-            <button className="px-3 py-1 rounded-full bg-white/15 hover:bg-white/25" onClick={() => finnVerdict("I'm not sure.", 'button')}>Not sure</button>
+          <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-20 w-[min(36rem,92%)] flex flex-col gap-2 px-3 py-2.5 rounded-2xl bg-slate-900/90 text-white text-sm shadow-lg" role="dialog" aria-label={`Is ${CLASSMATE_NAME} right?`}>
+            <div className="flex flex-wrap items-center justify-center gap-2">
+              <span>Is {CLASSMATE_NAME} right?</span>
+              <button className="px-3 py-1 rounded-full bg-amber-400 hover:bg-amber-300 text-slate-900 font-semibold" onClick={() => finnVerdict(`Not quite, ${CLASSMATE_NAME} is wrong.`, 'button')}>Not quite!</button>
+              <button className="px-3 py-1 rounded-full bg-white/15 hover:bg-white/25" onClick={() => finnVerdict(`Yes, ${CLASSMATE_NAME} is right.`, 'button')}>He&apos;s right</button>
+              <button className="px-3 py-1 rounded-full bg-white/15 hover:bg-white/25" onClick={() => finnVerdict("I'm not sure.", 'button')}>Not sure</button>
+            </div>
+            <form className="flex items-center gap-2 pl-3 pr-1 py-1 rounded-full bg-white/10"
+              onSubmit={(e) => { e.preventDefault(); if (finnReply.trim()) finnVerdict(finnReply.trim().slice(0, 400), 'typed'); }}>
+              <input value={finnReply} onChange={(e) => setFinnReply(e.target.value)} maxLength={400}
+                placeholder="Or say what you think, and why…" aria-label="Your answer"
+                className="flex-1 min-w-0 bg-transparent outline-none placeholder:text-white/45" />
+              <button type="button" className={`w-8 h-8 shrink-0 rounded-full ${micStatus === 'listening' ? 'bg-red-500 animate-pulse' : 'bg-white/15 hover:bg-white/25'}`}
+                onClick={talk} disabled={micStatus === 'processing'} aria-label={micStatus === 'listening' ? 'Listening' : 'Say it'} title="Say it instead">
+                {micStatus === 'listening' ? '●' : '🎤'}
+              </button>
+              <button className="px-3 py-1.5 shrink-0 rounded-full bg-cyan-500 hover:bg-cyan-400 text-slate-900 font-semibold disabled:opacity-40" disabled={!finnReply.trim()}>Send</button>
+            </form>
           </div>
         )}
         {/* The professor asked them to say more: their own words now (typed, or the mic; talking over works too) */}
