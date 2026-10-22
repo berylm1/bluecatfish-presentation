@@ -455,7 +455,7 @@ export async function POST(req: Request) {
   } catch (err: any) {
     console.error("Audio generation error:", err);
     return NextResponse.json(
-      { error: err.message || "Failed to generate audio" },
+      { error: "Failed to generate audio" },   // (was err.message: the details are in the log above)
       { status: 500 }
     );
   }

@@ -48,8 +48,10 @@ export async function POST(request: NextRequest) {
 
     if (!response.ok) {
       const errorText = await response.text();
+      // (the details stay in the server's log: OpenAI's error text isn't for the page)
+      console.error('TTS request failed:', response.status, errorText.slice(0, 500));
       return new Response(
-        JSON.stringify({ error: 'TTS request failed', details: errorText }),
+        JSON.stringify({ error: 'TTS request failed' }),
         { status: response.status, headers: { 'Content-Type': 'application/json' } }
       );
     }
