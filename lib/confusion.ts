@@ -2,6 +2,7 @@
 /*
  * The confusion meter: one meter, read at three levels (the "Confusion Meter Plan" doc).
  *   point    a box on a slide (or the slide itself, when no box was playing): what's unclear right now
+ *            (its "now" score holds 20 s, then fades by half every 30 s; its total doesn't fade)
  *   topic    how this part went: the worst box, a quarter of the rest, the section check and Finn's result
  *   overall  how the learner is doing in general: a moving average of the finished topics
  * Every learner action adds (or, for good signs, takes away) points at the box where it happened.
@@ -52,7 +53,8 @@ export const SIGNAL_NAMES = Object.keys(SIGNALS) as ConfusionSignal[];
 
 export const POINT_MAX = 10;
 export const TOPIC_MAX = 20;
-export const NOW_HALF_LIFE_MS = 30_000;   // a box's "now" score fades by half every 30 s
+export const NOW_HOLD_MS = 20_000;        // a box's "now" score holds this long (past the sentence it came during),
+export const NOW_HALF_LIFE_MS = 30_000;   // then fades by half every 30 s (gone in about a minute)
 export const SAME_WITHIN_MS = 10_000;     // the same action at the same box within 10 s counts once
 export const OVERALL_WEIGHT = 0.5;        // the latest finished topic's weight in the overall average
 // Where each level starts (unsure, confused)
@@ -156,7 +158,7 @@ export class ConfusionMeter {
   }
 
   private faded(p: PointState, at: number) {
-    return p.now * Math.pow(0.5, Math.max(0, at - p.nowAt) / NOW_HALF_LIFE_MS);
+    return p.now * Math.pow(0.5, Math.max(0, at - p.nowAt - NOW_HOLD_MS) / NOW_HALF_LIFE_MS);
   }
 
   private read(p: PointState, at: number): PointReading {
