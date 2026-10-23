@@ -78,9 +78,9 @@ type PointState = {
   total: number;             // doesn't fade
   sure: boolean;             // some high- or medium-sureness evidence here (a camera guess alone never is)
   signals: Partial<Record<ConfusionSignal, number>>;
-  last: Partial<Record<ConfusionSignal, number>>;   // when each signal last counted here
+  last: Record<string, number>;   // when each action last counted here
 };
-type TopicExtra = { points: number; check?: ConfusionSignal; signals: Partial<Record<ConfusionSignal, number>>; last: Partial<Record<ConfusionSignal, number>> };
+type TopicExtra = { points: number; check?: ConfusionSignal; signals: Partial<Record<ConfusionSignal, number>>; last: Record<string, number> };
 
 export type PointReading = { topic: number; slide: number; box: string; now: number; total: number; level: ConfusionLevel; sure: boolean };
 export type TopicReading = {
@@ -119,13 +119,15 @@ export class ConfusionMeter {
    * An action at a place. Returns whether it counted (the same action at the same box within
    * SAME_WITHIN_MS counts once) and the points it added.
    */
-  record(signal: ConfusionSignal, where: Where, at = Date.now()): { counted: boolean; points: number } {
+  record(signal: ConfusionSignal, where: Where, at = Date.now(), same = ''): { counted: boolean; points: number } {
+    // (`same`: what makes two of these the same action, e.g. which hands-on item: wrong moves on two items both count)
+    const once = same ? `${signal}|${same}` : signal;
     const def: SignalDef = SIGNALS[signal];
     if (!def) return { counted: false, points: 0 };
     if (def.topicOnly) {
       const t = this.extra.get(where.topic) ?? { points: 0, signals: {}, last: {} };
-      if (at - (t.last[signal] ?? -Infinity) < SAME_WITHIN_MS) return { counted: false, points: 0 };
-      t.last[signal] = at;
+      if (at - (t.last[once] ?? -Infinity) < SAME_WITHIN_MS) return { counted: false, points: 0 };
+      t.last[once] = at;
       t.signals[signal] = (t.signals[signal] ?? 0) + 1;
       // (asked again after coming back to the topic: the new answer replaces the old)
       if (signal.startsWith('check_')) t.check = signal;
@@ -135,8 +137,8 @@ export class ConfusionMeter {
     }
     const key = keyOf(where);
     const p = this.points.get(key) ?? { topic: where.topic, slide: where.slide, box: where.box ?? '', now: 0, nowAt: at, total: 0, sure: false, signals: {}, last: {} };
-    if (at - (p.last[signal] ?? -Infinity) < SAME_WITHIN_MS) return { counted: false, points: 0 };
-    p.last[signal] = at;
+    if (at - (p.last[once] ?? -Infinity) < SAME_WITHIN_MS) return { counted: false, points: 0 };
+    p.last[once] = at;
     p.signals[signal] = (p.signals[signal] ?? 0) + 1;
     p.now = clamp(this.faded(p, at) + def.points, 0, POINT_MAX);
     p.nowAt = at;

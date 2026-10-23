@@ -40,6 +40,7 @@ import { lessonParts } from '@/lib/canvas/parts';
 import { answerGist, areaIds, setAreaText, togetherSlide, TOGETHER_ID } from '@/lib/canvas/together';
 import { preloadedDeck, studyLesson, studyPost, writeStudy, type StudyRecord } from '@/lib/study/client';
 import { signals } from '@/lib/signals';
+import { ConfusionMeter, questionSignal, snapshotPoints, type ConfusionLevel, type ConfusionSignal, type SavedMeter } from '@/lib/confusion';
 
 /*
  * The canvas presentation (see docs/customization-plan.md).
@@ -367,7 +368,7 @@ function personalRecap(name: string, hardest: string | null, finn: ReadonlyMap<n
  * already asked about. Never for editor previews; cleared at the end.
  */
 const PROGRESS_DAYS = 14;   // older than this: start fresh
-type Progress = { slideId: string; at: number; finn: [number, FinnResult][]; asked: number[]; mates?: MatesMemory };
+type Progress = { slideId: string; at: number; finn: [number, FinnResult][]; asked: number[]; mates?: MatesMemory; meter?: SavedMeter };
 /** What the classmates remember (picked up with "Continue where you left off"; was: forgotten, so who spoke and what was hard started over) */
 type MatesMemory = { who: ClassmateId[]; mixUp: number; struggles: [number, string[]][]; mid: number[]; shaky: number[]; carried: number[]; used?: number[] };
 // (in the study: its own, so a lesson someone went through before isn't picked up again)
@@ -393,7 +394,8 @@ function readProgress(deck: Deck): (Progress & { index: number }) | null {
         .slice(0, 100).map(([t, l]) => [t, l.filter((x) => typeof x === 'string').slice(0, 6).map((x) => x.slice(0, 200))]),
       mid: ints(m.mid), shaky: ints(m.shaky), carried: ints(m.carried), used: ints(m.used),
     } : undefined;
-    return index > 0 ? { slideId: p.slideId, at: p.at, finn, asked, index, mates } : null;
+    // (the confusion meter checks its own: ConfusionMeter.restore)
+    return index > 0 ? { slideId: p.slideId, at: p.at, finn, asked, index, mates, meter: p.meter } : null;
   } catch {
     return null;
   }
@@ -567,6 +569,69 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
     const list = struggles.current.get(topic) ?? [];
     if (!list.includes(text)) struggles.current.set(topic, [...list, text].slice(-6));
   }, [deck, topicOf]);
+  /*
+   * The confusion meter (lib/confusion.ts): every learner action adds points at the box where it happened.
+   * The reactions read its levels (point, topic, overall); its level changes and each topic's snapshot are
+   * logged for the study (confusion_level, confusion_topic). Never shown to the learner.
+   */
+  const meter = useRef(new ConfusionMeter());
+  const liveLevel = useRef<ConfusionLevel>('clear');
+  /** The level right now changed (a box got confusing, or faded): logged, for "minutes spent confused" */
+  const checkLive = useCallback(() => {
+    const i = playerRef.current.slideIndex;
+    if (i < 0 || i >= deck.slides.length) return;
+    const topic = topicOf[i] ?? 0;
+    const level = meter.current.live(topic);
+    if (level === liveLevel.current) return;
+    const from = liveLevel.current;
+    liveLevel.current = level;
+    const hot = meter.current.hotPoint(topic);
+    tracking.track('confusion_level', { level, from, topicScore: meter.current.topic(topic).score, box: hot?.box || null, now: hot?.now ?? 0, overall: meter.current.overall().score });
+  }, [deck, topicOf, tracking]);
+  /**
+   * An action into the meter: at the box being said now (or `box`; null: the slide itself), on this slide
+   * (or `slide`). `same`: what makes two of them the same action (a hands-on item), else one per 10 s.
+   */
+  const feel = useCallback((signal: ConfusionSignal, at: { box?: string | null; slide?: number; same?: string } = {}) => {
+    const p = playerRef.current;
+    const slide = at.slide ?? p.slideIndex;
+    if (!started || slide < 0 || slide >= deck.slides.length) return;
+    const box = 'box' in at ? at.box ?? null : p.activeId && !isIntroId(p.activeId) ? p.activeId : null;
+    meter.current.record(signal, { topic: topicOf[slide] ?? 0, slide, box }, Date.now(), at.same);
+    checkLive();
+  }, [started, deck, topicOf, checkLive]);
+  // (a confusing moment fades: the level is checked now and then too)
+  useEffect(() => {
+    if (!started) return;
+    const t = setInterval(checkLive, 5000);
+    return () => clearInterval(t);
+  }, [started, checkLive]);
+  // A topic is left (on to another, or the lesson's end): it joins the overall level, and its snapshot is logged
+  // (left before its end, the tab hidden: a snapshot marked partial; the latest per topic is the one that counts)
+  const topicLeft = useRef<number | null>(null);   // the topic being taught now
+  const topicSnapshot = useCallback((topic: number, partial: boolean) => {
+    const r = partial ? meter.current.topic(topic) : meter.current.endTopic(topic);
+    const o = meter.current.overall();
+    const slideId = (i: number) => deck.slides[i]?.id;
+    signals.track('confusion_topic', { section: topic, value: {
+      lesson: deck.lessonId, topic, name: deck.slides[topicOf.indexOf(topic)]?.topic?.trim().slice(0, 80) ?? '', partial,
+      score: r.score, level: r.level, overall: o.score, overallLevel: o.level,
+      hardest: r.hardest ? { slide: slideId(r.hardest.slide) ?? null, box: r.hardest.box || null, total: r.hardest.total } : null,
+      signals: r.signals, points: snapshotPoints(meter.current.pointsOf(topic), slideId),
+    } });
+  }, [deck, topicOf]);
+  useEffect(() => {
+    if (!started) return;
+    const topic = player.status === 'finished' ? null : topicOf[player.slideIndex] ?? 0;
+    if (topicLeft.current !== null && topicLeft.current !== topic) topicSnapshot(topicLeft.current, false);
+    topicLeft.current = topic;
+  }, [started, player.slideIndex, player.status, topicOf, topicSnapshot]);
+  useEffect(() => {
+    if (!started) return;
+    const onHide = () => { if (document.visibilityState === 'hidden' && topicLeft.current !== null) topicSnapshot(topicLeft.current, true); };
+    document.addEventListener('visibilitychange', onHide);
+    return () => document.removeEventListener('visibilitychange', onHide);
+  }, [started, topicSnapshot]);
   const tutorBusy = tutor.thinking || tutor.speaking;
   // The conversation for the transcript, minus the answer being spoken right now
   const lastTalk = tutor.history[tutor.history.length - 1];
@@ -577,7 +642,8 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
     if (!started || !introDone || preview) return;
     if (lessonOver) { forgetProgress(); return; }
     const progress: Progress = { slideId: deck.slides[player.slideIndex]?.id ?? '', at: Date.now(), finn: [...finnResults.current], asked: [...classmateTopics.current],
-      mates: { who: classmateWho.current, mixUp: lastMixUp.current, struggles: [...struggles.current], mid: [...midTopics.current], shaky: [...shaky.current], carried: [...carried.current], used: [...helperUsed.current] } };
+      mates: { who: classmateWho.current, mixUp: lastMixUp.current, struggles: [...struggles.current], mid: [...midTopics.current], shaky: [...shaky.current], carried: [...carried.current], used: [...helperUsed.current] },
+      meter: meter.current.save() };
     try { localStorage.setItem(progressKey(deck.lessonId), JSON.stringify(progress)); } catch { /* private mode: nothing kept */ }
   }, [started, introDone, preview, lessonOver, player.slideIndex, deck, forgetProgress]);
   const exchangeRef = useRef(tutor.exchange);
@@ -863,8 +929,10 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
     return null;
   }, [deck, topicOf]);
 
-  const confused = useCallback(async (after?: () => void, mood?: 'confused' | 'frustrated') => {
+  /** count: false when the learner already said so another way (the section check's "another way?" offer) */
+  const confused = useCallback(async (after?: () => void, mood?: 'confused' | 'frustrated', count = true) => {
     tracking.track('confusion_click', {}, { confusion_marks: 1 });
+    if (count) feel('lost');
     noteStruggle(undefined, false);   // ("I'm lost": another way to see it now; a classmate's question at the topic's end, not right after it)
     if (finnBusy.current) { finnVerdict(null, 'button'); takeOverFromFinn(); if (tutorBusyRef.current) tutor.cancel(); }
     // Stuck on a hands-on box: the professor says what to do again and the hand shows how (what's done stays done)
@@ -894,7 +962,7 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
     }
     tracking.track('tutor_decision', { action: 'plain' });
     act('cmd_simplify', () => playerRef.current.simplify());
-  }, [deck, slideText, tracking, act, findVariant, presentVariant, helperFor, noteStruggle]);
+  }, [deck, slideText, tracking, act, findVariant, presentVariant, helperFor, noteStruggle, feel]);
 
   /** "show me the slide (on X)": the authored slide for X (or this topic), narrated, then back to the lesson. */
   const showSlide = useCallback(async (query: string) => {
@@ -1487,6 +1555,7 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
             const kind = judged ?? finnVerdictKind(first);
             tracking.track('tutor_decision', { action: 'classmate_mistake_answer', answer: verdict.slice(0, 200), kind });
             finnResults.current.set(topic, { kind, truth: line.truth });   // for the ending
+            if (kind !== 'other') feel(kind === 'caught' ? 'finn_caught' : kind === 'fooled' ? 'finn_fooled' : 'finn_unsure', { slide: from, box: null });
             // Fooled or unsure: after the explanation, the topic's helper ("another way to see it")
             const helper = kind === 'fooled' || kind === 'unsure' ? (MORPH_HELPERS ? helperFor(from) : null) : null;
             const you = name ? `, ${name}` : '';
@@ -1572,12 +1641,13 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
       const used = !closedByLearner.current || ms >= HELPER_USED_MS;
       closedByLearner.current = false;
       tracking.track('tutor_decision', { action: used ? 'helper_used' : 'helper_left_quickly', ms, slide: deck.slides[slide]?.id });
+      feel(used ? 'helper_watched' : 'helper_left', { slide, box: null });
       if (used) {
         helperUsed.current.add(topicOf[slide] ?? 0);
         noteStruggle(deck.slides[slide]?.elements.map(shownWords).join(' '), false);
       }
     }
-  }, [variant, tracking, deck, topicOf, noteStruggle]);
+  }, [variant, tracking, deck, topicOf, noteStruggle, feel]);
   // "How did that section go?" is up: nobody is still talking (an answer, answer slides) under it
   useEffect(() => {
     if (!selfCheck) return;
@@ -1625,6 +1695,7 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
     if (!sc) return;
     if (!inChat) addLine('you', SELF_CHECK_SAID[rating]);
     tracking.track('self_check', { rating }, { self_check: rating });
+    feel(rating === 'got' ? 'check_got' : rating === 'kind' ? 'check_kind' : 'check_lost', { slide: sc.from, box: null });
     checked.current.add(sc.from);
     if (rating === 'lost' || rating === 'kind') shaky.current.add(topicOf[sc.from] ?? 0);   // (the next topic: its classmates go gently, and bring this one's leftover question up)
     setSelfCheck(null);
@@ -1635,7 +1706,7 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
       setReplayOffer({ to: sc.to, from: sc.from, mood: rating === 'lost' ? 'frustrated' : 'confused', rating });
       cues.play({ text: rating === 'lost' ? REPLAY_ASK_LOST : REPLAY_ASK_KIND });
     } else playerRef.current.goToSlide(sc.to);
-  }, [selfCheck, tracking, cues, addLine]);
+  }, [selfCheck, tracking, cues, addLine, feel]);
 
   // "Want to see that part a different way?" after "kind of" / "lost me": a button, or said / typed
   const [replayOffer, setReplayOffer] = useState<{ to: number; from: number; mood: 'confused' | 'frustrated'; rating: SelfCheckRating } | null>(null);
@@ -1649,7 +1720,7 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
     // then (another way to see it, or not) a classmate asks the topic's leftover question closest to what was hard, before
     // moving on: about this topic, here (was: in the middle of the next topic, where it didn't fit the slide)
     const next = () => { void lostQuestion(offer.from).then(() => { if (playerRef.current.slideIndex === offer.from) playerRef.current.goToSlide(offer.to); }); };
-    if (yes) confused(next, offer.mood);
+    if (yes) confused(next, offer.mood, false);   // (the section check counted it)
     else next();
   }, [replayOffer, tracking, cues, confused, addLine, lostQuestion]);
 
@@ -1685,10 +1756,12 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
     const cmd = parseCanvasCommand(text);
     if (variant && variantMode.current === 'narrated') { cues.stop(); setVariant(null); variantAfter.current = null; }
     askTurn.current++;   // (a newer turn: an older question's follow-ups stop)
-    if (!cmd) { askClass(text); return; }
+    if (!cmd) { feel(questionSignal(text)); askClass(text); return; }   // (a question: curiosity, unless it asks what something means)
     if (tutorBusy) tutor.cancel();   // a command ends the answer
-    const command = (kind: string, patch?: Parameters<typeof tracking.track>[2]) =>
-      tracking.track(kind === 'repeat' ? 'repeat_request' : kind === 'simplify' ? 'simplify_request' : 'deck_command', { kind }, patch);
+    const command = (kind: string, patch?: Parameters<typeof tracking.track>[2]) => {
+      if (kind.startsWith('next')) feel('skip');   // (skipping ahead: disengagement, not confusion)
+      return tracking.track(kind === 'repeat' ? 'repeat_request' : kind === 'simplify' ? 'simplify_request' : 'deck_command', { kind }, patch);
+    };
     const p = player;
     switch (cmd.kind) {
       case 'nextClip': command('nextClip', { skips: 1 }); act('cmd_nextClip', () => playerRef.current.nextClip()); break;
@@ -1696,17 +1769,18 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
       case 'prevSlide':
         command('prevSlide');
         if (p.slideIndex === 0) act('cmd_atStart', () => playerRef.current.repeat());
-        else act('cmd_prevSlide', () => playerRef.current.prevSlide());
+        else { feel('went_back', { slide: p.slideIndex - 1, box: null }); act('cmd_prevSlide', () => playerRef.current.prevSlide()); }
         break;
       case 'nextTopic':
         command('nextTopic', { skips: 1 });
         act(p.topicIndex >= p.topicCount - 1 ? 'cmd_wrapUp' : 'cmd_nextTopic', () => playerRef.current.nextTopic());
         break;
-      case 'repeat': command('repeat', { repeats: 1 }); noteStruggle(); act('cmd_repeat', () => playerRef.current.repeat()); break;
+      case 'repeat': command('repeat', { repeats: 1 }); noteStruggle(); feel('again'); act('cmd_repeat', () => playerRef.current.repeat()); break;
       case 'simplify':
         if (CONFUSED.test(text)) { confused(); break; }   // "you lost me": another way to see it
         command('simplify', { simplify_requests: 1 });
         noteStruggle();
+        feel('simpler');
         act('cmd_simplify', () => playerRef.current.simplify());
         break;
       case 'showSlide': showSlide(cmd.query); break;
@@ -1722,7 +1796,7 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
         break;
       }
     }
-  }, [deck, player, act, askClass, confused, showSlide, tutor, tutorBusy, tracking, variant, cues, selfCheck, answerSelfCheck, finnVerdict, replayOffer, answerReplay, noteStruggle]);
+  }, [deck, player, act, askClass, confused, showSlide, tutor, tutorBusy, tracking, variant, cues, selfCheck, answerSelfCheck, finnVerdict, replayOffer, answerReplay, noteStruggle, feel]);
 
   // Barge-in: with interruptions on, starting to talk over the professor (or
   // over an answer) makes them finish the sentence, then stop and listen.
@@ -1817,6 +1891,8 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
   // Emotion check-in: sustained confusion or boredom on camera → the professor
   // finishes the sentence, asks, and listens; "yes" helps, silence carries on.
   const onEmotion = useCallback((state: LearnerEmotion) => {
+    // (into the meter whatever's going on: a camera guess, low weight; a bored face counts apart)
+    if (state === 'confused' || state === 'bored') feel(state === 'confused' ? 'puzzled' : 'bored');
     // Puzzled while doing a hands-on box: no interruption, just the hand showing how again
     if (state === 'confused' && yourTurnRef.current) {
       tracking.track('emotion_state', { state, during: 'activity' }, { confusion_marks: 1 });
@@ -1838,7 +1914,7 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
         talk();
       });
     });
-  }, [started, tutorBusy, variant, micStatus, tracking, cues, talk, noteStruggle]);
+  }, [started, tutorBusy, variant, micStatus, tracking, cues, talk, noteStruggle, feel]);
   /** The Yes / No buttons under a check-in (for learners without a working mic, or who'd rather click). */
   const answerCheckInButton = (yes: boolean) => {
     const asked = checkIn.current;
@@ -1949,6 +2025,7 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
     const key = `${id}|${m.item}`;
     const n = (mistakeCounts.current.get(key) ?? 0) + 1;
     mistakeCounts.current.set(key, n);
+    feel(n >= 2 ? 'wrong_again' : 'wrong_move', { box: id, same: m.item });
     const done = steppedIn.current.get(id) ?? new Set<string>();
     if (n < STEP_IN_AFTER || done.has(m.item) || done.size >= STEP_IN_MAX || yourTurnRef.current !== id || tutorBusyRef.current) return;
     done.add(m.item);
@@ -1956,6 +2033,7 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
     const box = deck.slides[playerRef.current.slideIndex]?.elements.find((e) => e.id === id);
     const order = box?.type === 'activity' && box.kind === 'order';
     track('tutor_decision', { action: 'activity_help', item: m.item.slice(0, 80) }, { confusion_marks: 1 });
+    feel('stepped_in', { box: id, same: m.item });
     setActivityGuides((g) => ({ ...g, [id]: order ? m.correct : m.item }));
     setActivityHint((h) => h + 1);
     cuesRef.current.stop();   // (a line still going, like Finn's)
@@ -1966,7 +2044,7 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
         : `\nThe learner is doing the hands-on activity and has put "${m.item}" in "${m.chosen}" ${n} times; it belongs in "${m.correct}". They're stuck, so this time it's fine to say where it goes: in 1-2 short, kind sentences, explain WHY "${m.item}" belongs in "${m.correct}" (the reason, from the lesson). No question at the end.`),
       { asker: '🖐 Hands-on', remember: `(The learner kept getting "${m.item}" wrong in the hands-on activity; the professor explained it.)` })
       .finally(() => { if (stepInFor.current === id) stepInFor.current = null; });
-  }, [track, deck, tutor, slideContext, noteStruggle]);
+  }, [track, deck, tutor, slideContext, noteStruggle, feel]);
   const stepInFor = useRef<string | null>(null);   // the box the professor is explaining right now (after repeated mistakes)
 
   // Finn's go in a hands-on box: he says what he did; the professor reacts when the learner sorts it out
@@ -1995,11 +2073,12 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
     } else if (e.type === 'revealed') {
       queueLine(() => (onBox(id) ? cuesRef.current.play({ text: NICE_TRY }) : undefined));
     } else if (e.type === 'stuck') {
+      feel('hint', { box: id });
       setActivityHint((h) => h + 1);
       queueLine(() => (onBox(id) ? cuesRef.current.play({ text: TAKE_ANOTHER_LOOK }) : undefined));
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [learnerName, track, queueLine]);
+  }, [learnerName, track, queueLine, feel]);
 
   // Finn's plan for each hands-on box on a slide, made when the slide starts (so his line is ready to say)
   const finnPlans = useRef(new Map<string, Omit<FinnMove, 'nonce'>>());
@@ -2050,6 +2129,9 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
     const began = turnStarted.current.get(id);
     turnStarted.current.delete(id);
     track('tutor_decision', { action: 'activity_done', ...(began ? { seconds: Math.round((Date.now() - began) / 1000) } : {}) });
+    // solved on the first try (no wrong move, hint or "I'm lost" at it): a good sign
+    const i = playerRef.current.slideIndex;
+    if (!meter.current.point({ topic: topicOf[i] ?? 0, slide: i, box: id })?.total) feel('solved', { box: id });
     if (yourTurnRef.current !== id) {
       // Done before its turn (while the professor says what to do, or before he gets to it): no sitting
       // through instructions they no longer need. He stops, the praise, then on past the box.
@@ -2067,12 +2149,13 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
     setYourTurn(null);
     // after the professor (an explanation, a reply to Finn) has finished, not over them
     queueLine(() => playCue({ text: praise })).then(() => { if (playerRef.current.activeId === id) playerRef.current.nextClip(); });
-  }, [track, playCue, praise, queueLine, tutor]);
+  }, [track, playCue, praise, queueLine, tutor, topicOf, feel]);
   /** Skip: the box fills in its answers (so the learner still sees how it goes), a word from the professor, then on. */
   const skipActivity = () => {
     const id = yourTurnRef.current;
     if (!id) return;
     tracking.track('tutor_decision', { action: 'activity_skip' });   // a skip, not a solve (learner stats)
+    feel('skip', { box: id });
     activitiesDone.current.add(id);
     activitiesSolved.current.add(id);
     activitiesRevealed.current.add(id);
@@ -2132,19 +2215,19 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
       if (replayOffer && !variant && ['y', 'n'].includes(e.key.toLowerCase()) && t?.tagName !== 'INPUT') { answerReplay(e.key.toLowerCase() === 'y', 'button'); return; }
       if (t && (['INPUT', 'TEXTAREA', 'SELECT'].includes(t.tagName) || t.closest?.('[data-activity]'))) return;
       if (t?.tagName === 'BUTTON' && (e.key === ' ' || e.key === 'Enter')) return;   // the button's own click (was: clicked AND pause/resume)
-      if (e.key === 'ArrowRight' && e.shiftKey) player.nextSlide();
-      else if (e.key === 'ArrowRight') player.nextClip();
-      else if (e.key === 'PageDown') player.nextSlide();
-      else if (e.key === 'ArrowLeft' || e.key === 'PageUp') player.prevSlide();
+      if (e.key === 'ArrowRight' && e.shiftKey) skipTo(player.nextSlide);
+      else if (e.key === 'ArrowRight') skipTo(player.nextClip);
+      else if (e.key === 'PageDown') skipTo(player.nextSlide);
+      else if (e.key === 'ArrowLeft' || e.key === 'PageUp') goBack();
       else if (e.key === ' ') { e.preventDefault(); if (player.status === 'paused') resumeLesson(); else player.pause(); }
-      else if (e.key.toLowerCase() === 'r') player.repeat();
-      else if (e.key.toLowerCase() === 's') player.simplify();
+      else if (e.key.toLowerCase() === 'r') { feel('again'); player.repeat(); }
+      else if (e.key.toLowerCase() === 's') { feel('simpler'); player.simplify(); }
       else if (e.key.toLowerCase() === 'l') confused();
       else return;
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [started, player, confused, selfCheck, variant, answerSelfCheck, replayOffer, answerReplay]);
+  }, [started, player, confused, selfCheck, variant, answerSelfCheck, replayOffer, answerReplay, feel]);
 
   // What the slide shows right now: the slide, the helper it morphed into, or
   // the element being explained, focused and in plain words
@@ -2170,6 +2253,17 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
     cues.stop();
     playerRef.current.resume();
   }
+  /** ⏮ / ←: back a slide (into the meter: maybe unclear, maybe just curious) */
+  function goBack() {
+    const i = playerRef.current.slideIndex;
+    if (i > 0) feel('went_back', { slide: i - 1, box: null });
+    playerRef.current.prevSlide();
+  }
+  /** ⏭ ⏩ / →: skipping ahead (into the meter, apart: disengagement, not confusion) */
+  function skipTo(move: () => void) {
+    feel('skip');
+    move();
+  }
 
   /** A fresh lesson from the first slide: Finn asks again, hands-on boxes wait again (the end screen, and ↺ at the top left). */
   function startOver() {
@@ -2187,6 +2281,7 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
     classmateWho.current = []; lastMixUp.current = -2; curious.current.clear(); struggles.current.clear();
     midTopics.current.clear(); shaky.current.clear(); carried.current.clear(); helperUsed.current.clear(); midMatch.current.clear(); midPending.current = null; midResume.current = false; struggleSlide.current = -1; mateTalkAt.current = 0;
     finnSpoken.current.clear(); mistakeCounts.current.clear(); steppedIn.current.clear();
+    meter.current.reset(); liveLevel.current = 'clear'; topicLeft.current = null;
     // (a preview never touches the learner's saved place in this browser)
     setSelfCheck(null); setYourTurn(null); cues.stop(); if (!preview) forgetProgress(); player.restart();
     lessonStartedAt.current = Date.now();
@@ -2207,6 +2302,7 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
         classmateWho.current = from.mates.who; lastMixUp.current = from.mates.mixUp; struggles.current = new Map(from.mates.struggles);
         midTopics.current = new Set(from.mates.mid); shaky.current = new Set(from.mates.shaky); carried.current = new Set(from.mates.carried); helperUsed.current = new Set(from.mates.used ?? []);
       }
+      if (from.meter) meter.current.restore(from.meter);
       player.goToSlide(from.index);
     }
     setStarted(true);
@@ -2586,16 +2682,16 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
           or a phone turned sideways, just the icons (the names are still there for screen readers) */}
       <div className="flex flex-wrap items-center justify-center gap-2" data-bubble-avoid>
         <div className={group} role="group" aria-label="Move through the lesson">
-          {ctl('⏮', 'Previous slide', { onClick: player.prevSlide, disabled: player.slideIndex === 0 })}
+          {ctl('⏮', 'Previous slide', { onClick: goBack, disabled: player.slideIndex === 0 })}
           {/* (no Resume while it's the learner's turn: the hands-on box moves the lesson on. Was: a greyed-out ▶ Resume) */}
           {player.status === 'paused'
             ? !yourTurn && ctl('▶', 'Resume', { onClick: resumeLesson })
             : ctl('⏸', 'Pause', { onClick: player.pause, disabled: player.status === 'finished' })}
-          {ctl('⏭', 'Skip ahead', { onClick: player.nextClip, title: 'Skip to the next part of this slide' })}
-          {ctl('⏩', 'Next slide', { onClick: player.nextSlide })}
+          {ctl('⏭', 'Skip ahead', { onClick: () => skipTo(player.nextClip), title: 'Skip to the next part of this slide' })}
+          {ctl('⏩', 'Next slide', { onClick: () => skipTo(player.nextSlide) })}
         </div>
         <div className={group} role="group" aria-label="Help">
-          {ctl('⟲', 'Repeat', { onClick: player.repeat })}
+          {ctl('⟲', 'Repeat', { onClick: () => { feel('again'); player.repeat(); } })}
           {ctl('🌱', 'Simpler please', { onClick: () => handleText('simpler please'), title: 'Say it again in simpler words' })}
           {ctl('😕', 'I\'m lost', { onClick: () => confused(), title: 'Another way to see it' })}
         </div>
