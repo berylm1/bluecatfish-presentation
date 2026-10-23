@@ -58,7 +58,8 @@ export const NOW_HALF_LIFE_MS = 30_000;   // then fades by half every 30 s (gone
 export const SAME_WITHIN_MS = 10_000;     // the same action at the same box within 10 s counts once
 export const OVERALL_WEIGHT = 0.5;        // the latest finished topic's weight in the overall average
 // Where each level starts (unsure, confused)
-export const THRESHOLDS = { point: [2, 4], topic: [3, 6], overall: [2, 4] } as const;
+// (overall: an average of topic scores, so the topic's scale; was [2, 4] in the plan: one "Lost me" made a whole lesson "confused")
+export const THRESHOLDS = { point: [2, 4], topic: [3, 6], overall: [3, 6] } as const;
 
 export function levelOf(score: number, kind: keyof typeof THRESHOLDS): ConfusionLevel {
   const [unsure, confused] = THRESHOLDS[kind];

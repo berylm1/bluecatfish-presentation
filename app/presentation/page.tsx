@@ -609,6 +609,7 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
    * logged for the study (confusion_level, confusion_topic). Never shown to the learner.
    */
   const meter = useRef(new ConfusionMeter());
+  const { track: trackEvent } = tracking;   // (stable)
   const liveLevel = useRef<ConfusionLevel>('clear');
   // What reacts to a box's level right away (the professor's check-in, set further down)
   const onMeter = useRef<(signal: ConfusionSignal, where: Where) => void>(() => {});
@@ -622,8 +623,9 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
     const from = liveLevel.current;
     liveLevel.current = level;
     const hot = meter.current.hotPoint(topic);
-    tracking.track('confusion_level', { level, from, topicScore: meter.current.topic(topic).score, box: hot?.box || null, now: hot?.now ?? 0, overall: meter.current.overall().score });
-  }, [deck, topicOf, tracking]);
+    trackEvent('confusion_level', { level, from, topicScore: meter.current.topic(topic).score, box: hot?.box || null, now: hot?.now ?? 0, overall: meter.current.overall().score });
+    // (trackEvent, not tracking: that's a new object every render, which restarted the 5 s check below before it ever ran)
+  }, [deck, topicOf, trackEvent]);
   /**
    * An action into the meter: at the box being said now (or `box`; null: the slide itself), on this slide
    * (or `slide`). `same`: what makes two of them the same action (a hands-on item), else one per 10 s.

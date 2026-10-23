@@ -16,7 +16,8 @@ const SERIES = [
   { group: 'classmates', name: 'With classmates', color: '#2a78d6' },
   { group: 'no_classmates', name: 'Without classmates', color: '#eb6834' },
 ] as const;
-const W = 720, H = 300, PAD = { l: 40, r: 120, t: 16, b: 44 };
+const W = 720, H = 300, PAD = { l: 40, r: 130, t: 16, b: 44 };
+const INSET = 56;   // the first and last topic sit this far in from the plot's edges (room for their names)
 
 function quantile(xs: number[], q: number) {
   const v = [...xs].sort((a, b) => a - b);
@@ -43,7 +44,7 @@ export default function ConfusionGraph({ topics, curves, person, onClearPerson }
 
   const top = Math.max(THRESHOLDS.topic[1] + 2, ...stats.flatMap((s) => s.at.map((a) => (a ? a.hi : 0))), ...(picked?.scores.map((x) => x ?? 0) ?? []));
   const yMax = Math.ceil(top / 2) * 2;
-  const x = (t: number) => PAD.l + (topics.length === 1 ? (W - PAD.l - PAD.r) / 2 : (t * (W - PAD.l - PAD.r)) / (topics.length - 1));
+  const x = (t: number) => PAD.l + INSET + (topics.length === 1 ? (W - PAD.l - PAD.r - 2 * INSET) / 2 : (t * (W - PAD.l - PAD.r - 2 * INSET)) / (topics.length - 1));
   const y = (v: number) => PAD.t + (1 - v / yMax) * (H - PAD.t - PAD.b);
   const path = (pts: ([number, number] | null)[]) => pts.reduce((d, p, i) => (p ? `${d}${d && pts[i - 1] ? 'L' : 'M'}${x(p[0]).toFixed(1)},${y(p[1]).toFixed(1)}` : d), '');
   const band = (at: (typeof stats)[number]['at']) => {
@@ -86,7 +87,7 @@ export default function ConfusionGraph({ topics, curves, person, onClearPerson }
           {/* grid and the levels' thresholds */}
           {ticks.map((v) => <g key={v}><line x1={PAD.l} x2={W - PAD.r} y1={y(v)} y2={y(v)} stroke="#e2e8f0" strokeWidth={1} /><text x={PAD.l - 8} y={y(v) + 4} textAnchor="end" fontSize={11} fill="#64748b">{v}</text></g>)}
           {([['unsure', THRESHOLDS.topic[0]], ['confused', THRESHOLDS.topic[1]]] as const).map(([name, v]) => v <= yMax && (
-            <g key={name}><line x1={PAD.l} x2={W - PAD.r} y1={y(v)} y2={y(v)} stroke="#94a3b8" strokeDasharray="4 4" strokeWidth={1} /><text x={W - PAD.r + 6} y={y(v) + 4} fontSize={11} fill="#64748b">{name}</text></g>
+            <g key={name}><line x1={PAD.l} x2={W - PAD.r} y1={y(v)} y2={y(v)} stroke="#94a3b8" strokeDasharray="4 4" strokeWidth={1} /><text x={PAD.l + 4} y={y(v) - 4} fontSize={11} fill="#64748b">{name}</text></g>
           ))}
           {topics.map((name, t) => <text key={t} x={x(t)} y={H - PAD.b + 18} textAnchor="middle" fontSize={11} fill="#475569">{name.length > 16 ? `${name.slice(0, 15)}…` : name}</text>)}
           <text x={PAD.l} y={H - 6} fontSize={11} fill="#64748b">Topic score (0 = clear). Lines: average of people who finished; bands: the middle half.</text>
