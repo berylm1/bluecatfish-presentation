@@ -256,8 +256,11 @@ export class ConfusionMeter {
     };
   }
 
-  /** From what save() gave (checked: a broken or edited entry can't break the lesson) */
-  restore(saved: unknown, at = Date.now()) {
+  /**
+   * From what save() gave (checked: a broken or edited entry can't break the lesson). `fits`: whether a slide is
+   * still in that topic (the lesson edited since: points saved for slides that moved are left out)
+   */
+  restore(saved: unknown, at = Date.now(), fits: (topic: number, slide: number) => boolean = () => true) {
     this.reset();
     const s = saved as Partial<SavedMeter> | null;
     if (!s || typeof s !== 'object' || s.v !== 1) return;
@@ -271,7 +274,7 @@ export class ConfusionMeter {
     for (const e of Array.isArray(s.points) ? s.points.slice(-300) : []) {
       if (!Array.isArray(e) || typeof e[0] !== 'string' || e[0].length > 120) continue;
       const topic = int(e[1]), slide = int(e[2]), total = num(e[3], 0, POINT_MAX), now = num(e[4], 0, POINT_MAX);
-      if (topic === null || slide === null || total === null || now === null) continue;
+      if (topic === null || slide === null || total === null || now === null || !fits(topic, slide)) continue;
       const box = e[0].slice(e[0].indexOf(':') + 1);
       this.points.set(`${slide}:${box}`, { topic, slide, box, total, now, nowAt: at, sure: e[5] === true, signals: counts(e[6]), last: {} });
     }
@@ -291,12 +294,15 @@ export class ConfusionMeter {
   }
 }
 
-/** A question to the professor: curiosity (0), unless it asks what something means (+1) */
+/** A question to the professor: curiosity (0), unless it asks what something means, or says it's unclear (+1) */
 export function questionSignal(text: string): ConfusionSignal {
-  const t = text.trim().toLowerCase();
+  // (curly apostrophes, from a Mac's or a phone's keyboard, and "whats" typed without one)
+  const t = text.trim().toLowerCase().replace(/[\u2018\u2019\u02bc]/g, "'").replace(/\bwhats\b/g, "what's");
   if (/\bwhat(?:'s| does| do| is| are)\b.{0,60}\bmean\b/.test(t) || /\bmeaning of\b/.test(t)) return 'what_means';
-  if (/^(?:what(?:'s| is| are)|define)\s+(?:a |an |the )?[\w-]+(?:\s[\w-]+)?\s*\??$/.test(t)) return 'what_means';
-  if (/\b(?:i don'?t (?:get|understand)|confus|makes? no sense|i'?m not sure (?:what|why|how))\b/.test(t)) return 'what_means';
+  // "what is a barbel?", "define invasive" (not "what's next?", "what is it?": nothing to define)
+  const term = t.match(/^(?:what(?:'s| is| are)|define)\s+(?:a |an |the )?([\w-]+(?:\s[\w-]+)?)\s*\??$/)?.[1];
+  if (term && !/^(?:it|this|that|they|them|these|those|he|she|next|up|going on|happening|left|that one|this one)$/.test(term)) return 'what_means';
+  if (/\b(?:i (?:don't|do not|didn't|did not) (?:get|understand)|confus\w*|makes? no sense|i'?m not sure (?:what|why|how)|i'?m lost)\b/.test(t)) return 'what_means';
   return 'question';
 }
 

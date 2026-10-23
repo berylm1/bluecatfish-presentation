@@ -9,7 +9,7 @@
  * (a puzzled face on camera, "I'm lost", "simpler please", or "lost me" at the
  * self-check). Counted once per learner (session), not per event.
  */
-import { THRESHOLDS } from '@/lib/confusion';
+import { POINT_MAX, THRESHOLDS } from '@/lib/confusion';
 
 export type EventRow = {
   session_id: string;
@@ -78,8 +78,10 @@ export function slideStats(rows: EventRow[]): Record<string, SlideStats> {
     const key = `${r.session_id}|${String(v.topic)}`;
     const had = snap.get(key);
     if (had && (!had.partial || v.partial)) continue;
-    const points = (Array.isArray(v.points) ? v.points : []).filter((p): p is { slide: string; box: string | null; total: number } =>
-      !!p && typeof p.slide === 'string' && typeof p.total === 'number');
+    // (written by the browser: only well-formed points, in the meter's range)
+    const points = (Array.isArray(v.points) ? v.points.slice(0, 50) : []).filter((p): p is { slide: string; box: string | null; total: number } =>
+      !!p && typeof p.slide === 'string' && p.slide.length <= 80 && (p.box === null || (typeof p.box === 'string' && p.box.length <= 80))
+      && typeof p.total === 'number' && Number.isFinite(p.total) && p.total >= 0 && p.total <= POINT_MAX);
     snap.set(key, { partial: !!v.partial, points });
     (metered.get(r.session_id) ?? metered.set(r.session_id, new Set()).get(r.session_id)!).add(String(v.topic));
   }

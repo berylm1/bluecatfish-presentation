@@ -3,6 +3,7 @@ import { createClient } from '@supabase/supabase-js';
 import { DEMOGRAPHICS, POST_QUIZ, PRE_QUIZ, SURVEY } from '@/lib/study/content';
 import { ANSWERS } from '@/lib/study/key';
 import { AUTH_COOKIE, verifyToken } from '@/lib/editorAuth';
+import { TOPIC_MAX } from '@/lib/confusion';
 
 /*
  * The study's results, for /studyResults (editors only: under PROTECTED_APIS in lib/editorAuth.ts).
@@ -40,6 +41,11 @@ type TopicScore = { topic: number; name: string; score: number; level: string; o
 type Confusion = { topics: Map<number, TopicScore>; levels: { at: string; level: string }[]; last: string; mates: { topic: number; action: string; byMeter: boolean }[] };
 const CLASSMATE_ACTIONS = ['classmate', 'classmate_mistake', 'classmate_mid', 'classmate_lost', 'classmate_react'];
 const MAX_CONFUSED_STRETCH_MS = 10 * 60_000;   // one stretch of "confused" counts at most this long (a tab left open)
+const MAX_TOPICS = 50;   // a topic number past this is junk (the browser writes these events: a made-up 1,000,000 would mean a column each)
+const LEVELS = ['clear', 'unsure', 'confused'];
+/** A score from an event: a number in the meter's range, or null (the browser writes these: never trusted as they come) */
+const scoreOf = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? Math.min(TOPIC_MAX, Math.max(0, v)) : null);
+const levelOf = (v: unknown) => (typeof v === 'string' && LEVELS.includes(v) ? v : '');
 
 /** Minutes the meter's level was "confused": from each level change to the next (or the session's last event) */
 function confusedMinutes(c: Confusion): number {
@@ -88,20 +94,21 @@ async function lessonStats(sessions: string[]) {
     if (e.event_type === 'confusion_topic' || e.event_type === 'confusion_level') {
       const c = meterOf(e.session_id);
       if (e.created_at > c.last) c.last = e.created_at;
-      if (e.event_type === 'confusion_level') { if (typeof v.level === 'string') c.levels.push({ at: e.created_at, level: v.level }); return; }
+      if (e.event_type === 'confusion_level') { if (levelOf(v.level)) c.levels.push({ at: e.created_at, level: v.level }); return; }
       const topic = Number.isInteger(v.topic) ? v.topic : e.section;
-      if (!Number.isInteger(topic) || typeof v.score !== 'number') return;
+      const score = scoreOf(v.score);
+      if (!Number.isInteger(topic) || topic < 0 || topic >= MAX_TOPICS || score === null) return;
       const had = c.topics.get(topic);
       // the latest snapshot of a topic counts (one taken as it ended beats a partial one, when the tab was hidden, taken before it)
       if (had && !had.partial && v.partial) return;
-      c.topics.set(topic, { topic, name: String(v.name ?? ''), score: v.score, level: String(v.level ?? ''), overall: Number(v.overall) || 0, overallLevel: String(v.overallLevel ?? ''), at: e.created_at, partial: !!v.partial });
+      c.topics.set(topic, { topic, name: String(v.name ?? '').slice(0, 80), score, level: levelOf(v.level), overall: scoreOf(v.overall) ?? 0, overallLevel: levelOf(v.overallLevel), at: e.created_at, partial: !!v.partial });
       return;
     }
     if (e.event_type === 'emotion_state') add(e.session_id, `face_${e.value?.state ?? 'other'}`, 1);
     else if (e.event_type === 'tutor_decision') {
       if (ACTIONS.includes(v.action)) add(e.session_id, v.action, 1);
       if (v.byMeter === true) add(e.session_id, 'helped_by_meter', 1);
-      if (CLASSMATE_ACTIONS.includes(v.action) && Number.isInteger(e.section)) meterOf(e.session_id).mates.push({ topic: e.section, action: v.action, byMeter: v.byMeter === true });
+      if (CLASSMATE_ACTIONS.includes(v.action) && Number.isInteger(e.section) && e.section < MAX_TOPICS) meterOf(e.session_id).mates.push({ topic: e.section, action: v.action, byMeter: v.byMeter === true });
       if (e.created_at > (confusion.get(e.session_id)?.last ?? '')) meterOf(e.session_id).last = e.created_at;
     }
     else add(e.session_id, e.event_type, 1);
