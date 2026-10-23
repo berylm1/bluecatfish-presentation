@@ -82,7 +82,7 @@ type PointState = {
 };
 type TopicExtra = { points: number; check?: ConfusionSignal; signals: Partial<Record<ConfusionSignal, number>>; last: Record<string, number> };
 
-export type PointReading = { topic: number; slide: number; box: string; now: number; total: number; level: ConfusionLevel; sure: boolean };
+export type PointReading = { topic: number; slide: number; box: string; now: number; total: number; level: ConfusionLevel; sure: boolean; signals: Partial<Record<ConfusionSignal, number>> };
 export type TopicReading = {
   topic: number;
   score: number;
@@ -164,7 +164,7 @@ export class ConfusionMeter {
     // a camera guess (or going back) alone is never enough to act on: at most "unsure"
     let level = levelOf(now, 'point');
     if (!p.sure && level === 'confused') level = 'unsure';
-    return { topic: p.topic, slide: p.slide, box: p.box, now, total: round(p.total), level, sure: p.sure };
+    return { topic: p.topic, slide: p.slide, box: p.box, now, total: round(p.total), level, sure: p.sure, signals: { ...p.signals } };
   }
 
   /** One box (or the slide itself: no box) */

@@ -40,7 +40,7 @@ import { lessonParts } from '@/lib/canvas/parts';
 import { answerGist, areaIds, setAreaText, togetherSlide, TOGETHER_ID } from '@/lib/canvas/together';
 import { preloadedDeck, studyLesson, studyPost, writeStudy, type StudyRecord } from '@/lib/study/client';
 import { signals } from '@/lib/signals';
-import { ConfusionMeter, questionSignal, snapshotPoints, type ConfusionLevel, type ConfusionSignal, type SavedMeter } from '@/lib/confusion';
+import { atLeast, ConfusionMeter, questionSignal, snapshotPoints, type ConfusionLevel, type ConfusionSignal, type SavedMeter, type Where } from '@/lib/confusion';
 
 /*
  * The canvas presentation (see docs/customization-plan.md).
@@ -205,6 +205,16 @@ function classmateBudget(questions: number, topics: number): { every: number; fo
  */
 const CURIOUS_CHANCE = 0.25;   // a topic end that doesn't call for a classmate: how often one is curious anyway
 const MIX_UP_EVERY = 3;        // Finn's mix-ups: at most every 3rd classmate turn (from the 2nd on), and only when the topic went well
+// The confusion meter's overall level (lib/confusion.ts) steers the classmates: confused, more helping and less
+// curiosity, no mix-ups; clear (a topic or more in), more challenge: Finn's mix-up as often as every 2nd turn
+const MIX_UP_EVERY_CLEAR = 2;
+const CONFUSED_CURIOUS = 0.5;  // confused overall: curious moments (topic end, mid-topic) this much as often
+// ...and the professor: plain words first for the boxes not heard yet, and a little longer between slides
+const CONFUSED_PAUSE_MS = 1200;
+// A box gets confusing (its "now" score) without "I'm lost" (which has its own help): the professor checks in, at most this often
+const METER_CHECK_IN = true;   // false = only the camera's puzzled look checks in (as before the meter)
+const CHECK_IN_EVERY_MS = 60_000;
+const CHECK_IN_LINE = "Hmm, that part seems a little tricky. Want me to go over it a different way? Say yes, or tell me what's tripping you up.";
 /*
  * A classmate's moment in the middle of a topic (classmateMid), after a box's sentence is finished (the player waits there,
  * as for a hands-on box), when something calls for it:
@@ -291,6 +301,9 @@ function endingLine(a: { name: string; covered: string; solved: number; quiz: { 
 // After "kind of" / "lost me" at the end of a part
 const REPLAY_ASK_KIND = 'No problem. Want to see that part a different way?';
 const REPLAY_ASK_LOST = "That's okay, it happens. Want me to show you that part a different way?";
+// After "got it" on a topic the confusion meter says was confusing (lib/confusion.ts): offered anyway, lightly
+const REPLAY_ASK_GOT = 'Great! That part had a few tricky bits, though. Want a quick look at it a different way, just in case?';
+const OFFER_AFTER_GOT = true;   // false = "Got it" always moves on (as before the meter)
 // Cards, when the instructions don't already ask for a guess (said once per box)
 const THINK_LINE = 'Before you flip one, take a second to guess the answer in your head.';
 const EXCHANGE_HIDE_MS = 12000;   // the question + answer box under the slide goes away this long after the answer
@@ -317,6 +330,18 @@ function hardestTopic(deck: Deck, topicOf: number[], stateOf: (topic: number) =>
   }
   return best?.name ?? null;
 }
+
+/** The topic the confusion meter found hardest (unsure or worse; the highest score), or null (was: hardestTopic's count-based guess) */
+function meterHardest(deck: Deck, topicOf: number[], m: ConfusionMeter): string | null {
+  let best: { name: string; score: number } | null = null;
+  for (const topic of new Set(topicOf)) {
+    const r = m.topic(topic);
+    const name = deck.slides[topicOf.indexOf(topic)]?.topic?.trim();
+    if (name && atLeast(r.level, 'unsure') && (!best || r.score > best.score)) best = { name, score: r.score };
+  }
+  return best?.name ?? null;
+}
+const HARDEST_FROM_METER = true;   // false = the end screen's "trickiest part" from the old counts (hardestTopic)
 
 /** What a classmate says at a topic's end: a question, or (truth set: Finn) a mistake for the learner to catch. */
 type FinnLine = { question: string; truth?: string; who: ClassmateId; bank?: BankQuestion };
@@ -521,7 +546,16 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
       tracking.track('tutor_decision', { action: 'activity_start', kind: el.type === 'activity' ? el.kind : '' });
     },
     startAt,
+    // The confusion meter, overall confused: plain words first (the boxes not heard yet, with their plain clip made), a little slower
+    plainFirst: (el) => {
+      if (meter.current.overall().level !== 'confused' || el.type === 'activity' || plainHeard.current.has(el.id) || !currentAudio(el, 'plain')) return false;
+      plainHeard.current.add(el.id);
+      tracking.track('tutor_decision', { action: 'plain_first', box: el.id, overall: meter.current.overall().score });
+      return true;
+    },
+    extraPause: () => (meter.current.overall().level === 'confused' ? CONFUSED_PAUSE_MS : 0),
   });
+  const plainHeard = useRef(new Set<string>());   // boxes said in plain words first (said again: the usual words)
   const cues = useCues(started);
   // The personal hello is made once they stop typing their name, so Start speaks at once
   const { preload: preloadLine } = cues;
@@ -576,6 +610,8 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
    */
   const meter = useRef(new ConfusionMeter());
   const liveLevel = useRef<ConfusionLevel>('clear');
+  // What reacts to a box's level right away (the professor's check-in, set further down)
+  const onMeter = useRef<(signal: ConfusionSignal, where: Where) => void>(() => {});
   /** The level right now changed (a box got confusing, or faded): logged, for "minutes spent confused" */
   const checkLive = useCallback(() => {
     const i = playerRef.current.slideIndex;
@@ -597,8 +633,10 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
     const slide = at.slide ?? p.slideIndex;
     if (!started || slide < 0 || slide >= deck.slides.length) return;
     const box = 'box' in at ? at.box ?? null : p.activeId && !isIntroId(p.activeId) ? p.activeId : null;
-    meter.current.record(signal, { topic: topicOf[slide] ?? 0, slide, box }, Date.now(), at.same);
+    const where = { topic: topicOf[slide] ?? 0, slide, box };
+    if (!meter.current.record(signal, where, Date.now(), at.same).counted) return;
     checkLive();
+    onMeter.current(signal, where);
   }, [started, deck, topicOf, checkLive]);
   // (a confusing moment fades: the level is checked now and then too)
   useEffect(() => {
@@ -1286,26 +1324,45 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
   const classmateWho = useRef<ClassmateId[]>([]);         // who spoke at each classmate turn so far
   const lastMixUp = useRef(-2);                            // the turn of Finn's last mix-up (none yet: the 2nd turn can be one)
   const topicName = useCallback((topic: number) => deck.slides[topicOf.indexOf(topic)]?.topic?.trim() ?? '', [deck, topicOf]);
-  /** Did the learner struggle in the topic? ("simpler please", "I'm lost", "again", a puzzled face, the professor stepping in on a hands-on item, or 2+ hands-on mistakes) */
+  /**
+   * Did the learner struggle in the topic? The confusion meter's topic level (lib/confusion.ts): "I'm lost", "simpler
+   * please", "again", hands-on mistakes and hints, "another way to see it", a puzzled face, Finn's mix-up believed…
+   * at least unsure. Or the topic before ended unsure or worse: go gently here too.
+   * (was: any one of those, counted apart: struggledOld)
+   */
   const struggled = useCallback((topic: number) => {
-    const st = tracking.stateOf(topic);
-    return st.confusion_marks + st.simplify_requests + st.repeats > 0 || (struggles.current.get(topic)?.length ?? 0) >= 2
-      || shaky.current.has(topic - 1)   // (the topic before: "Kind of" or "Lost me", so go gently here too)
-      || helperUsed.current.has(topic);  // (they used "another way to see it" here)
-  }, [tracking]);
+    const m = meter.current;
+    return atLeast(m.topic(topic).level, 'unsure') || (topic > 0 && m.hasEnded(topic - 1) && atLeast(m.topic(topic - 1).level, 'unsure'));
+  }, []);
+  // const struggledOld = (topic: number) => {
+  //   const st = tracking.stateOf(topic);
+  //   return st.confusion_marks + st.simplify_requests + st.repeats > 0 || (struggles.current.get(topic)?.length ?? 0) >= 2
+  //     || shaky.current.has(topic - 1) || helperUsed.current.has(topic);
+  // };
+  /** What was hardest in the topic, in words: its hardest box (the meter's), then what they struggled with; else `fallback` */
+  const troubleText = useCallback((topic: number, fallback: string) => {
+    const h = meter.current.topic(topic).hardest;
+    const el = h?.box ? deck.slides[h.slide]?.elements.find((e) => e.id === h.box) : null;
+    return [el ? shownWords(el) : '', ...(struggles.current.get(topic) ?? [])].map((t) => t.replace(/\s+/g, ' ').trim()).filter(Boolean).join('; ').slice(0, 300) || fallback;
+  }, [deck]);
+  /** The levels behind a reaction (logged with it: every classmate move traces back to what caused it) */
+  const meterNow = useCallback((topic: number) => ({ topicLevel: meter.current.topic(topic).level, overallLevel: meter.current.overall().level }), []);
   /**
    * Does a classmate speak at this topic's end, and why (null: not this time). The rhythm is the learner's asking
    * (classmateBudget); a topic where they asked nothing gets the question they didn't ask, when the bank has one.
    */
-  const classmateTurn = useCallback((topic: number): { why: 'quiet' | 'due' | 'curious'; struggling: boolean } | null => {
+  const classmateTurn = useCallback((topic: number): { why: 'quiet' | 'due' | 'curious' | 'help'; struggling: boolean } | null => {
     // (a classmate already spoke mid-topic: like the learner asking, that was the classmates' part)
     const asked = tracking.stateOf(topic).questions > 0 || midTopics.current.has(topic);
     const open = openQuestions(topicName(topic)).length > 0;
     const b = classmateBudget(learnerQuestions.current, topicsSeen.current.size);
     const struggling = struggled(topic);
-    if (!curious.current.has(topic)) curious.current.set(topic, Math.random() < CURIOUS_CHANCE);
+    const overall = meter.current.overall().level;
+    if (!curious.current.has(topic)) curious.current.set(topic, Math.random() < CURIOUS_CHANCE * (overall === 'confused' ? CONFUSED_CURIOUS : 1));
     if (!asked && open) return { why: 'quiet', struggling };
     if (!asked && endsSinceTurn.current + 1 >= b.every) return { why: 'due', struggling };
+    // A confused topic: a classmate's question that clears it up, even when the learner asked (not after a mid-topic moment)
+    if (open && meter.current.topic(topic).level === 'confused' && !midTopics.current.has(topic)) return { why: 'help', struggling: true };
     // (they asked here: the follow-ups after their question were the classmates' part; a learner who asks a lot gets no extra)
     return open && curious.current.get(topic) && (!asked || b.every === 1) ? { why: 'curious', struggling } : null;
   }, [tracking, openQuestions, topicName, struggled]);
@@ -1323,12 +1380,15 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
     const fromBank = (q: BankQuestion): FinnLine => ({ question: q.q, who: q.asker, bank: q });
     // Struggled here: the open question closest to what they struggled with, a checking (Finn) or curious (Maya) one first: it clears it up
     if (plan.struggling && open.length) {
-      const ranked = await closestTo(struggles.current.get(topic)?.join('; ') || taught, open);
+      const ranked = await closestTo(troubleText(topic, taught), open);
       return fromBank(ranked.find((q) => q.asker !== 'leo') ?? ranked[0]);
     }
-    // Went well: now and then Finn's mix-up to catch (a challenge; never when it would confuse, nor right after Finn spoke)
+    // Went well: now and then Finn's mix-up to catch (a challenge; never when it would confuse, nor right after Finn spoke).
+    // The meter overall: confused, none; clear, more often
     const turn = classmateWho.current.length;
-    if (!plan.struggling && plan.why !== 'curious' && turn - lastMixUp.current >= MIX_UP_EVERY && classmateWho.current[turn - 1] !== 'finn') {
+    const overall = meter.current.overall();
+    const every = overall.level === 'clear' && overall.topics > 0 ? MIX_UP_EVERY_CLEAR : MIX_UP_EVERY;
+    if (!plan.struggling && overall.level !== 'confused' && plan.why !== 'curious' && turn - lastMixUp.current >= every && classmateWho.current[turn - 1] !== 'finn') {
       const mix = await fetchClassmate(name, taught, true, 'finn');
       if (mix) return mix;
     }
@@ -1341,7 +1401,7 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
     return fetchClassmate(name, taught, false, leastSpoken()[0]);
     // (fetchClassmate is further down: only called later)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [deck, topicOf, slideText, openQuestions, closestTo, topicName, leastSpoken]);
+  }, [deck, topicOf, slideText, openQuestions, closestTo, topicName, leastSpoken, troubleText]);
   const midTopics = useRef(new Set<number>());   // topics a classmate already spoke in, mid-topic
   const mateTalkAt = useRef(0);                    // when the learner last asked or a classmate last spoke (a mid-topic moment waits after)
   const shaky = useRef(new Set<number>());         // topics the learner rated "Kind of" or "Lost me"
@@ -1376,14 +1436,20 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
       if (lastOfTopic || midTopics.current.has(topic)) return false;
       const since = Date.now() - mateTalkAt.current;
       if (since < MID_HELP_COOLDOWN_MS) return false;
-      if (struggleSlide.current === i && openQuestions(topicName(topic)).length) {
+      // Unclear on this slide right now (the meter's box "now" score, unsure or worse, not a camera guess alone): the
+      // topic's open question closest to it. Not for "I'm lost" alone: "another way to see it" was its help (its
+      // question comes at the topic's end). (was: any struggle on this slide, struggleSlide)
+      const hot = meter.current.hotPoint(topic, Date.now(), i);
+      const handled = hot && Object.keys(hot.signals).every((k) => k === 'lost' || k.startsWith('helper_') || k === 'puzzled');
+      if (hot && hot.sure && atLeast(hot.level, 'unsure') && !handled && openQuestions(topicName(topic)).length) {
         midPending.current = { why: 'struggle', from: topic };
         return true;
       }
       if (since < MID_COOLDOWN_MS) return false;
       const m = midMatch.current.get(i);
       const every = classmateBudget(learnerQuestions.current, topicsSeen.current.size).every;
-      if (m && !bankAsked.current.has(m.q.id) && m.score >= MID_RELATED_MIN && Math.random() < (MID_CHANCE[every] ?? 0.1)) {
+      const chance = (MID_CHANCE[every] ?? 0.1) * (meter.current.overall().level === 'confused' ? CONFUSED_CURIOUS : 1);
+      if (m && !bankAsked.current.has(m.q.id) && m.score >= MID_RELATED_MIN && Math.random() < chance) {
         midPending.current = { why: 'curious', from: topic, q: m.q };
         return true;
       }
@@ -1399,13 +1465,15 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
       let q = mid.q ?? null;
       if (!q) {
         // the open question closest to what they struggled with: a checking (Finn) or curious (Maya) one first, it clears it up
-        const ranked = await closestTo(struggles.current.get(mid.from)?.join('; ') || slideText(at), openQuestions(topicName(mid.from)));
+        const hot = meter.current.hotPoint(mid.from, Date.now(), at);
+        const el = hot?.box ? deck.slides[at]?.elements.find((e) => e.id === hot.box) : null;
+        const ranked = await closestTo((el && shownWords(el)) || struggles.current.get(mid.from)?.join('; ') || slideText(at), openQuestions(topicName(mid.from)));
         q = ranked.find((x) => x.asker !== 'leo') ?? ranked[0] ?? null;
       }
       if (!q || bankAsked.current.has(q.id) || playerRef.current.slideIndex !== at) { go(); return; }
       mateTalkAt.current = Date.now();
       classmateWho.current.push(q.asker);
-      tracking.track('tutor_decision', { action: 'classmate_mid', why: mid.why, question: q.q.slice(0, 300), who: q.asker }, { classmate_turns: 1 });
+      tracking.track('tutor_decision', { action: 'classmate_mid', why: mid.why, question: q.q.slice(0, 300), who: q.asker, byMeter: mid.why === 'struggle', ...meterNow(mid.from) }, { classmate_turns: 1 });
       midResume.current = true;
       const said = await mateSays(q.asker, q.q);
       if (!said || playerRef.current.slideIndex !== at) {
@@ -1505,7 +1573,7 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
         classmateWho.current.push(line.who);
         mateTalkAt.current = Date.now();
         classmateAsked.current.push(q);
-        tracking.track('tutor_decision', { action: line.truth ? 'classmate_mistake' : 'classmate', question: q.slice(0, 300), who: line.who, why: plan.why, struggling: plan.struggling }, { classmate_turns: 1 });
+        tracking.track('tutor_decision', { action: line.truth ? 'classmate_mistake' : 'classmate', question: q.slice(0, 300), who: line.who, why: plan.why, struggling: plan.struggling, byMeter: plan.struggling && !line.truth, ...meterNow(topic) }, { classmate_turns: 1 });
         const name = learnerName.trim();
         const turnTo = name ? `Hmm. ${name}, what do you think? Is ${CLASSMATE_NAME} right?` : `Hmm. What do you think, is ${CLASSMATE_NAME} right?`;
         if (line.truth) cues.preload(turnTo);   // ready by the time Finn finishes
@@ -1679,15 +1747,15 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
     const open = openQuestions(topicName(topic));
     if (!open.length) return;
     carried.current.add(topic);
-    const ranked = await closestTo(struggles.current.get(topic)?.join('; ') || slideText(from), open);
+    const ranked = await closestTo(troubleText(topic, slideText(from)), open);
     const q = ranked.find((x) => x.asker !== 'leo') ?? ranked[0];
     if (!q || playerRef.current.slideIndex !== from) return;
     mateTalkAt.current = Date.now();
     classmateWho.current.push(q.asker);
-    tracking.track('tutor_decision', { action: 'classmate_lost', question: q.q.slice(0, 300), who: q.asker }, { classmate_turns: 1 });
+    tracking.track('tutor_decision', { action: 'classmate_lost', question: q.q.slice(0, 300), who: q.asker, byMeter: false, ...meterNow(topic) }, { classmate_turns: 1 });
     if (!(await mateSays(q.asker, q.q)) || playerRef.current.slideIndex !== from) return;
     if (await runDetour([{ q, ask: false }])) await endDetour();
-  }, [topicOf, openQuestions, topicName, closestTo, slideText, tracking, mateSays, runDetour, endDetour]);
+  }, [topicOf, openQuestions, topicName, closestTo, slideText, tracking, mateSays, runDetour, endDetour, troubleText, meterNow]);
 
   /** The self-check answer: noted for the topic; "lost me" gets another way to see it first. */
   const answerSelfCheck = useCallback((rating: SelfCheckRating, inChat = false) => {
@@ -1705,8 +1773,13 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
     if (rating === 'lost' || rating === 'kind') {
       setReplayOffer({ to: sc.to, from: sc.from, mood: rating === 'lost' ? 'frustrated' : 'confused', rating });
       cues.play({ text: rating === 'lost' ? REPLAY_ASK_LOST : REPLAY_ASK_KIND });
+    } else if (OFFER_AFTER_GOT && meter.current.topic(topicOf[sc.from] ?? 0).level === 'confused') {
+      // "Got it", but the topic was confusing (with "Got it" counted): the offer anyway
+      tracking.track('tutor_decision', { action: 'replay_offer_got', byMeter: true, ...meterNow(topicOf[sc.from] ?? 0) });
+      setReplayOffer({ to: sc.to, from: sc.from, mood: 'confused', rating });
+      cues.play({ text: REPLAY_ASK_GOT });
     } else playerRef.current.goToSlide(sc.to);
-  }, [selfCheck, tracking, cues, addLine, feel]);
+  }, [selfCheck, tracking, cues, addLine, feel, topicOf, meterNow]);
 
   // "Want to see that part a different way?" after "kind of" / "lost me": a button, or said / typed
   const [replayOffer, setReplayOffer] = useState<{ to: number; from: number; mood: 'confused' | 'frustrated'; rating: SelfCheckRating } | null>(null);
@@ -1719,7 +1792,9 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
     cues.stop();
     // then (another way to see it, or not) a classmate asks the topic's leftover question closest to what was hard, before
     // moving on: about this topic, here (was: in the middle of the next topic, where it didn't fit the slide)
-    const next = () => { void lostQuestion(offer.from).then(() => { if (playerRef.current.slideIndex === offer.from) playerRef.current.goToSlide(offer.to); }); };
+    // (after "Got it": no leftover question, they said they got it)
+    const leftover = () => (offer.rating === 'got' ? Promise.resolve() : lostQuestion(offer.from));
+    const next = () => { void leftover().then(() => { if (playerRef.current.slideIndex === offer.from) playerRef.current.goToSlide(offer.to); }); };
     if (yes) confused(next, offer.mood, false);   // (the section check counted it)
     else next();
   }, [replayOffer, tracking, cues, confused, addLine, lostQuestion]);
@@ -1871,7 +1946,8 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
       playCue({ text: line });
       return () => { cancelled = true; stopCue(); };
     }
-    const recap = [deck.recap?.trim(), personalRecap(learnerName.trim(), hardestTopic(deck, topicOf, stateOf, finnResults.current), finnResults.current)].filter(Boolean).join(' ');
+    const hardest = HARDEST_FROM_METER ? meterHardest(deck, topicOf, meter.current) : hardestTopic(deck, topicOf, stateOf, finnResults.current);
+    const recap = [deck.recap?.trim(), personalRecap(learnerName.trim(), hardest, finnResults.current)].filter(Boolean).join(' ');
     if (recap) preloadCue(recap);
     (async () => {
       if (!(await playCue('cue_conclusionIntro')) || cancelled) return;
@@ -1905,6 +1981,7 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
     setMood(state);
     tracking.track('emotion_state', { state }, state === 'confused' ? { confusion_marks: 1 } : undefined);
     if (state === 'confused') noteStruggle();
+    lastCheckIn.current = Date.now();   // (the meter's check-in waits a while after this one)
     p.interrupt(() => {
       cues.play(state === 'confused' ? 'cue_confused' : 'cue_bored').then((ok) => {
         if (!ok) return;
@@ -1932,6 +2009,43 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
     else if (asked === 'confused') confused();
     else act('cmd_nextSlide', () => playerRef.current.nextSlide());
   };
+
+  // The meter: a box got confusing ("now", sure, without "I'm lost", which brings its own help, and not just the camera,
+  // which has its own check-in above): once the professor has moved on to the next box, the same check-in
+  // ("…want me to go over it a different way?"), at most once a box and once a minute
+  const checkInDue = useRef<{ key: string; slide: number; box: string | null; at: number } | null>(null);
+  const checkInDone = useRef(new Set<string>());
+  const lastCheckIn = useRef(0);
+  onMeter.current = (signal, where) => {
+    if (signal === 'lost' || signal === 'puzzled' || !METER_CHECK_IN) return;
+    const pt = meter.current.point(where);
+    const key = `${where.slide}:${where.box ?? ''}`;
+    if (!pt || pt.level !== 'confused' || !pt.sure || pt.signals.lost || checkInDone.current.has(key)) return;
+    checkInDue.current = { key, slide: where.slide, box: where.box ?? null, at: Date.now() };
+  };
+  useEffect(() => {
+    const due = checkInDue.current;
+    if (!due || !started) return;
+    const p = playerRef.current;
+    if (Date.now() - due.at > CHECK_IN_EVERY_MS || p.slideIndex !== due.slide) { checkInDue.current = null; return; }   // (gone by: never mind)
+    // after the sentence: on the next box (not over the help they just asked for), when nothing else is going on
+    if (p.status !== 'playing' || !p.activeId || p.activeId === due.box || Date.now() - lastCheckIn.current < CHECK_IN_EVERY_MS) return;
+    if (tutorBusy || variant || checkIn.current || micBusy || yourTurnRef.current || selfCheckRef.current || finnBusy.current || detourBusy.current) return;
+    checkInDue.current = null;
+    checkInDone.current.add(due.key);
+    lastCheckIn.current = Date.now();
+    tracking.track('tutor_decision', { action: 'checkin_offer', why: 'meter', box: due.box, byMeter: true, ...meterNow(topicOf[due.slide] ?? 0) });
+    p.interrupt(() => {
+      cues.play({ text: CHECK_IN_LINE }).then((ok) => {
+        if (!ok) return;
+        checkIn.current = 'confused';
+        setAskingHelp('confused');
+        resumeAfterTurn.current = true;
+        talk();
+      });
+    });
+  }, [started, player.activeId, player.status, tutorBusy, variant, micBusy, tracking, cues, talk, topicOf, meterNow]);
+  useEffect(() => { if (started) preloadCue(CHECK_IN_LINE); }, [started, preloadCue]);
 
   // Busy moments are skipped in onEmotion, so the camera isn't restarted for every answer
   const { ready: emotionReady, error: emotionError, live: liveFace, learning: faceLearning } = useEmotionWatcher(cameraOn && started, onEmotion);
@@ -1985,7 +2099,7 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
     const el = onHelper
       ? variant!.slide!.elements.find((e) => e.id === helperActive)
       : player.activeId && !variant ? deck.slides[player.slideIndex]?.elements.find((e) => e.id === player.activeId) : null;
-    const live = onHelper || (player.status === 'playing' && player.mode === 'normal');
+    const live = onHelper || (player.status === 'playing' && player.mode === 'normal' && !player.plainWords);
     if (!live || !el?.pointers?.length) { setLaser(null); return; }
     const t = setInterval(() => {
       const audio = onHelper ? getCueAudio() : player.getAudio();
@@ -1993,7 +2107,7 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
       setLaser((cur) => (p ? (cur?.pointer === p && cur.elementId === el.id ? cur : { elementId: el.id, pointer: p }) : null));
     }, 120);
     return () => clearInterval(t);
-  }, [player.status, player.mode, player.activeId, player.slideIndex, player.getAudio, deck, variant, helperActive, getCueAudio]);
+  }, [player.status, player.mode, player.plainWords, player.activeId, player.slideIndex, player.getAudio, deck, variant, helperActive, getCueAudio]);
 
   /* ------------------------------------------------ hands-on boxes */
   const praise = learnerName.trim() ? `Nice work, ${learnerName.trim()}!` : 'Nice work!';
@@ -2376,7 +2490,7 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
 
   const slide = deck.slides[player.slideIndex];
   // the end screen: the hardest topic, to go over again
-  const hardestName = player.status === 'finished' ? hardestTopic(deck, topicOf, stateOf, finnResults.current) : null;
+  const hardestName = player.status === 'finished' ? (HARDEST_FROM_METER ? meterHardest(deck, topicOf, meter.current) : hardestTopic(deck, topicOf, stateOf, finnResults.current)) : null;
   const finnSummary = player.status === 'finished' ? finnScore(finnResults.current) : '';
   const finishedHardest = hardestName ? { name: hardestName, index: deck.slides.findIndex((s) => s.topic?.trim() === hardestName) } : null;
   // What the learner did, for the end screen
