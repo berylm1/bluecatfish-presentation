@@ -573,6 +573,6 @@ export async function POST(req: Request) {
     
   } catch (err: any) {
     console.error("Section generation error:", err);
-    return NextResponse.json({ error: err.message || "Failed to get sections" }, { status: 500 });
+    return NextResponse.json({ error: "Failed to get sections" }, { status: 500 });   // (was err.message: the details are in the log above)
   }
 }

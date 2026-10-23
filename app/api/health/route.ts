@@ -1,10 +1,14 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { checkRedisHealth } from '@/src/redisClient';
+import { AUTH_COOKIE, verifyToken } from '@/lib/editorAuth';
+import { rateLimit } from '@/lib/rateLimit';
 
 /*
  * Setup check: open /api/health on a deployment to see which services it can
  * actually reach. Never prints key values — only whether they're set and work.
+ * The details (which settings are set, which project the keys are for, table sizes) only for
+ * an unlocked editor; anyone else gets just ok or not. (Was: all of it, to anyone.)
  */
 export const dynamic = 'force-dynamic';
 export const maxDuration = 30;
@@ -53,7 +57,10 @@ async function run(fn: () => Promise<Check>): Promise<Check> {
   }
 }
 
-export async function GET() {
+export async function GET(req: NextRequest) {
+  const limited = await rateLimit(req, 'health');
+  if (limited) return limited;
+  const editor = await verifyToken(req.cookies.get(AUTH_COOKIE)?.value);
   const env = Object.fromEntries(ENV_VARS.map((v) => [v, process.env[v] ? 'set' : 'MISSING']));
 
   const serverUrl = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -153,9 +160,11 @@ export async function GET() {
     manim,
   };
 
+  const ok = Object.values(checks).every((c) => c.ok);
+  if (!editor) return NextResponse.json({ ok, details: 'Unlock the editor (/unlock) to see the details.' }, { headers: { 'Cache-Control': 'no-store' } });
   return NextResponse.json(
     {
-      ok: Object.values(checks).every((c) => c.ok),
+      ok,
       checks,
       keys: {
         SUPABASE_SERVICE_ROLE_KEY: keyInfo(serviceKey),

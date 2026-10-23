@@ -48,8 +48,9 @@ export async function POST(request: NextRequest) {
     const conversation = (Array.isArray(body.conversation) ? body.conversation as ConversationMessage[] : [])
       .filter((t) => (t?.role === 'user' || t?.role === 'assistant') && typeof t.content === 'string');
     const userText = (body.userText as string | undefined)?.trim();
-    const topic = body.topic as string | undefined;
-    const style = body.style as string | undefined;
+    // (only used when the page sends no prompt of its own: kept short, as this endpoint pays per word)
+    const topic = typeof body.topic === 'string' ? body.topic.slice(0, 200) : undefined;
+    const style = typeof body.style === 'string' ? body.style.slice(0, 200) : undefined;
     const stream = body.stream === true;
     // "Your turn" feedback already carries the model answer: skip the lookup (faster, and
     // its "use the knowledge base word for word" instruction would fight the feedback prompt)
@@ -149,10 +150,9 @@ export async function POST(request: NextRequest) {
 
     if (!response.ok) {
       const errorText = await response.text();
-      return NextResponse.json(
-        { error: 'OpenAI request failed.', details: errorText },
-        { status: response.status }
-      );
+      // (the details stay in the server's log: OpenAI's error text isn't for the page)
+      console.error('OpenAI request failed:', response.status, errorText.slice(0, 500));
+      return NextResponse.json({ error: 'OpenAI request failed.' }, { status: response.status });
     }
 
     // Non-streaming path — unchanged, so existing callers keep working

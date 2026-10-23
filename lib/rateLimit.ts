@@ -23,7 +23,9 @@ type Rule = { perSession: number; perAddress: number; windowSec: number; perDay?
 
 export const LIMITS = {
   tutor: { perSession: 10, perAddress: 60, windowSec: 60, perDay: 3000, label: 'questions' },
-  tts: { perSession: 30, perAddress: 200, windowSec: 60, perDay: 20000, label: 'read-aloud requests' },
+  // Read-aloud speaks any text sent (up to MAX.ttsText) on our key: about 1.5¢ a minute of speech. Was 200 a minute per
+  // address and 20,000 a day (one address could spend hundreds of dollars in a day); a lesson needs a few a minute
+  tts: { perSession: 30, perAddress: 80, windowSec: 60, perDay: 6000, label: 'read-aloud requests' },
   transcribe: { perSession: 20, perAddress: 120, windowSec: 60, perDay: 6000, label: 'recordings' },
   search: { perSession: 20, perAddress: 120, windowSec: 60, perDay: 5000, label: 'searches' },
   // Learner-data updates (/api/signals/state): free, but each one writes a row. A lesson sends
@@ -36,6 +38,8 @@ export const LIMITS = {
   board: { perSession: 10, perAddress: 60, windowSec: 60, perDay: 3000, label: 'drawings' },
   // The question bank (/api/bank/match): one lookup per question asked (an embedding, cheap)
   bank: { perSession: 20, perAddress: 120, windowSec: 60, perDay: 5000, label: 'question lookups' },
+  // The setup check (/api/health): each call reaches OpenAI, Supabase and Redis
+  health: { perSession: 10, perAddress: 20, windowSec: 60, label: 'setup checks' },
   // The online study (/api/study): a few saves per step, each writes the person's row
   study: { perSession: 30, perAddress: 300, windowSec: 60, perDay: 20000, label: 'study saves' },
   // Starting the study (a new row each time): a household or a dorm shares an address, a script doesn't get far

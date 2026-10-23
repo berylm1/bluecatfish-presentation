@@ -31,7 +31,7 @@ export async function POST(req: Request) {
   } catch (err: any) {
     console.error("Transcription error:", err);
     return NextResponse.json(
-      { error: err.message || "Failed to transcribe" },
+      { error: "Failed to transcribe" },   // (was err.message: OpenAI's error text went to the page; it's in the log above)
       { status: 500 }
     );
   }

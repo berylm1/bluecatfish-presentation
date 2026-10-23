@@ -1,7 +1,9 @@
 // Password gate for the editor pages and their APIs (see proxy.ts).
-// Passwords live in the EDITOR_PASSWORDS env var ("Kai,Beryl,Dr. Cao"); the
-// password someone uses is also their name ("last edited by Dr. Cao"). Names
-// may have spaces and dots.
+// Editors live in the EDITOR_PASSWORDS env var, each "Name:password", comma-separated:
+// "Kai:some-long-password,Beryl:another-one,Dr. Cao:a-third". The name is what's shown
+// ("last edited by Dr. Cao"); the password (after the first ":") is what's typed.
+// An entry with no ":" is the old form, where the name is the password ("Kai"): it still
+// works, but a name is easy to guess (and the editor holds the study's answers).
 //
 // After unlocking, the browser keeps a signed cookie: name.expiry.signature.
 // The signature is an HMAC keyed with the password list, so changing the
@@ -42,29 +44,37 @@ export function isProtected(rawPath: string): 'page' | 'api' | null {
   return null;
 }
 
-function passwords(): string[] {
+type Editor = { name: string; password: string; old: boolean };
+function editors(): Editor[] {
   return (process.env.EDITOR_PASSWORDS ?? '')
     .split(',')
-    .map((p) => p.trim())
-    .filter(Boolean);
+    .map((entry) => entry.trim())
+    .filter(Boolean)
+    .map((entry) => {
+      const at = entry.indexOf(':');
+      return at > 0
+        ? { name: entry.slice(0, at).trim(), password: entry.slice(at + 1).trim(), old: false }
+        : { name: entry, password: entry, old: true };
+    })
+    .filter((e) => e.name && e.password);
 }
 
 export function gateConfigured(): boolean {
-  return passwords().length > 0;
+  return editors().length > 0;
 }
 
-/** The name for a password, or null. Not case-sensitive: "kai" works for "Kai". */
+/** The name for a password, or null. A real password must match exactly; an old name-as-password entry isn't case-sensitive ("kai" works for "Kai"). */
 export function checkPassword(input: string): string | null {
-  const typed = input.trim().toLowerCase();
+  const typed = input.trim();
   if (!typed) return null;
-  return passwords().find((p) => p.toLowerCase() === typed) ?? null;
+  return editors().find((e) => (e.old ? e.password.toLowerCase() === typed.toLowerCase() : e.password === typed))?.name ?? null;
 }
 
 async function sign(message: string): Promise<string> {
   const enc = new TextEncoder();
   const key = await crypto.subtle.importKey(
     'raw',
-    enc.encode(`editor-gate:${passwords().join(',')}`),
+    enc.encode(`editor-gate:${editors().map((e) => `${e.name}:${e.password}`).join(',')}`),
     { name: 'HMAC', hash: 'SHA-256' },
     false,
     ['sign'],
@@ -95,8 +105,8 @@ export async function verifyToken(token: string | undefined): Promise<string | n
   for (let i = 0; i < sig.length; i++) diff |= expected.charCodeAt(i) ^ sig.charCodeAt(i);
   if (diff !== 0) return null;
   const decoded = decodeURIComponent(name);
-  // A password removed from the list stops working even with a valid cookie
-  return passwords().includes(decoded) ? decoded : null;
+  // An editor removed from the list stops working even with a valid cookie
+  return editors().some((e) => e.name === decoded) ? decoded : null;
 }
 
 /** The unlocked editor's name for an API request (the middleware already checked the cookie). */
