@@ -1,6 +1,6 @@
 import type { CheckedClaim, Slide, SlideElement } from './types';
 import { shownWords, spokenText } from './queue';
-import { chat, knowledgeExcerpts, type Excerpt } from './ai';
+import { chat, knowledgeExcerptsMany, type Excerpt } from './ai';
 
 // "Check this slide" in the editor: the slide's facts (what it shows and what
 // the professor says) checked against the knowledge base, each with where it
@@ -29,7 +29,8 @@ export async function checkSlide(slide: Slide, lessonTitle: string): Promise<{ c
   const parts = slideWords(slide);
   if (!parts.length) return { claims: [], excerpts: 0 };
   // Excerpts for each part, without repeats
-  const found = await Promise.all(parts.map((p) => knowledgeExcerpts(`${slide.topic ?? ''} ${p.words}`, PER_ELEMENT)));
+  // (each box its own search, sent together)
+  const found = await knowledgeExcerptsMany(parts.map((p) => `${slide.topic ?? ''} ${p.words}`), PER_ELEMENT);
   const excerpts: Excerpt[] = [];
   const seen = new Set<string>();
   for (const e of found.flat()) {

@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Deck } from '@/lib/canvas/types';
 import { deckSections, factSlide, findCrossSectionRepeats } from '@/lib/lessonOverlap';
 import type { RepeatSuggestion } from '@/lib/canvas/repeats';
-import { lessonBasis, repeatKey } from '@/lib/canvas/checks';
+import { changedSinceRepeats, lessonBasis, repeatKey, repeatSlides } from '@/lib/canvas/checks';
 
 /*
  * "Check for repeats" in the editor's side panel:
@@ -12,7 +12,9 @@ import { lessonBasis, repeatKey } from '@/lib/canvas/checks';
  *     word match /lessonReview uses)
  *   - with the AI: everything the lesson says or shows that repeats an
  *     earlier slide, each with a rewrite to Accept (an undoable edit, then
- *     yours: the AI won't rewrite it) or Skip
+ *     yours: the AI won't rewrite it) or Skip. Usually only the slides changed
+ *     since the last check (against the whole lesson); the whole lesson when
+ *     there's no record of the last one, or on request
  * Works on the lesson as it is in the editor, unsaved changes too.
  */
 
@@ -23,7 +25,7 @@ const btn = 'px-2.5 py-1 rounded-md border border-slate-300 bg-white hover:bg-sl
 export default function RepeatsPanel({ deck, active, runSignal = 0, onAccept, onGoTo, onChecked, onSkip }: {
   deck: Deck;
   /** The AI check ran on the lesson as it was (kept with the lesson: deck.checks.repeats) */
-  onChecked?: (from: string, found: number) => void;
+  onChecked?: (from: string, found: number, slides: Record<string, string>) => void;
   /** A suggestion was skipped: it isn't suggested again while that part stays the same */
   onSkip?: (key: string) => void;
   /** Changes when something else (Publish) asks for the AI check */
@@ -34,7 +36,7 @@ export default function RepeatsPanel({ deck, active, runSignal = 0, onAccept, on
   onAccept: (s: RepeatSuggestion) => boolean;
   onGoTo: (slideIndex: number, elId?: string) => void;
 }) {
-  const [state, setState] = useState<{ busy: boolean; error?: string; list?: RepeatSuggestion[]; at?: number; partial?: number; hidden?: number }>({ busy: false });
+  const [state, setState] = useState<{ busy: boolean; whole?: boolean; error?: string; list?: RepeatSuggestion[]; at?: number; partial?: number; hidden?: number }>({ busy: false });
   const [done, setDone] = useState<Record<number, 'accepted' | 'skipped' | 'changed'>>({});
 
   // The free word match: updates as you edit, while the panel shows (it compares every pair of lines:
@@ -44,20 +46,26 @@ export default function RepeatsPanel({ deck, active, runSignal = 0, onAccept, on
   const skipped = useMemo(() => new Set(deck.checks?.repeatSkips ?? []), [deck.checks?.repeatSkips]);
   const last = deck.checks?.repeats;
   const unchanged = !!last && active && last.from === lessonBasis(deck);
+  // the slides changed since the last check (null: no record of it, so the whole lesson)
+  const changed = useMemo(() => (active ? changedSinceRepeats(deck) : null), [deck, active]);
 
-  const check = async () => {
-    setState({ busy: true });
+  const check = async (whole = false) => {
+    const was = whole ? null : changedSinceRepeats(deck);
+    // (nothing changed since the last check: the button reads the whole lesson again)
+    const only = was?.length ? was : null;
+    setState({ busy: true, whole: !only });
     setDone({});
     const from = lessonBasis(deck);
+    const slides = repeatSlides(deck);
     try {
-      const res = await fetch('/api/editor/repeats', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ deck }) });
+      const res = await fetch('/api/editor/repeats', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ deck, ...(only ? { changed: only } : {}) }) });
       const d = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(d.error || `The check failed (${res.status})`);
       // ones skipped before (and still about the same words) aren't suggested again
       const all: RepeatSuggestion[] = d.suggestions ?? [];
       const list = all.filter((x) => !skipped.has(repeatKey(x.slideId, x.elId, x.beforeSay)));
       setState({ busy: false, list, at: Date.now(), partial: d.partial, hidden: all.length - list.length });
-      onChecked?.(from, list.length);
+      onChecked?.(from, list.length, slides);
     } catch (e) {
       setState({ busy: false, error: e instanceof Error ? e.message : String(e) });
     }
@@ -98,10 +106,14 @@ export default function RepeatsPanel({ deck, active, runSignal = 0, onAccept, on
 
       <section className="border-t border-slate-200 pt-3">
         <h4 className="text-xs font-semibold uppercase tracking-wider text-slate-500 mb-1.5">Everything, with the AI</h4>
-        <button className="w-full px-3 py-2 rounded-md bg-cyan-600 hover:bg-cyan-700 text-white font-semibold disabled:opacity-50" onClick={check} disabled={state.busy}>
-          {state.busy ? '✨ Reading the whole lesson…' : state.list ? '✨ Check again' : '✨ Check the whole lesson'}
+        <button className="w-full px-3 py-2 rounded-md bg-cyan-600 hover:bg-cyan-700 text-white font-semibold disabled:opacity-50" onClick={() => check()} disabled={state.busy}>
+          {state.busy ? (state.whole ? '✨ Reading the whole lesson…' : '✨ Checking what changed…')
+            : changed?.length ? `✨ Check what changed (${changed.length} slide${changed.length === 1 ? '' : 's'})` : '✨ Check the whole lesson'}
         </button>
-        <p className="text-xs text-slate-500 mt-1">Reads what&apos;s shown and what&apos;s said on every slide (not the hands-on boxes). Takes up to a minute.</p>
+        <p className="text-xs text-slate-500 mt-1">
+          {changed?.length ? 'Compares the slides changed since the last check with the whole lesson. ' : ''}Reads what&apos;s shown and what&apos;s said (not the hands-on boxes). Takes up to a minute.
+          {!!changed?.length && <> <button className="underline" onClick={() => check(true)} disabled={state.busy}>Check the whole lesson instead</button></>}
+        </p>
         {state.error && <p className="mt-2 text-xs text-red-700 bg-red-50 border border-red-200 rounded-md px-2 py-1.5">{state.error}</p>}
         {state.list && (
           <p className="mt-2 text-xs text-slate-600" role="status">

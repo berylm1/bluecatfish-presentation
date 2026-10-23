@@ -27,7 +27,7 @@ const VERDICT: Record<CheckedClaim['verdict'], { icon: string; label: string; bo
   supported: { icon: '✅', label: 'In the sources', box: 'border-emerald-200 bg-emerald-50' },
 };
 
-const EVERY_AT_ONCE = 2;    // slides checked side by side
+const EVERY_AT_ONCE = 5;    // slides checked side by side (was 2)
 const DESCRIBE_AT_ONCE = 2;
 
 /** One slide checked by the server (throws with the server's message). */

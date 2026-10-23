@@ -246,10 +246,16 @@ function Editor({
     return () => clearTimeout(t);
   }, [deck]);
 
+  // Each slide's own checks, kept until that slide changes: an edit re-checks only the slide being edited (was: every
+  // slide on every keystroke or drag, and the empty-space check tries growing each picture step by step)
+  const ownWarnings = useRef(new Map<string, { key: string; warnings: Warning[] }>());
   const warningsFor = useCallback((i: number): Warning[] => {
     const s = deck.slides[i];
     const fit = (overflow[s.id] ?? []).map((id) => ({ elementId: id, level: 'warn' as const, message: 'Text doesn’t fit its box, even at the smallest size: make the box bigger or the text shorter' }));
-    return [...fit, ...slideWarnings(s)];
+    const key = JSON.stringify(s);
+    let own = ownWarnings.current.get(s.id);
+    if (own?.key !== key) ownWarnings.current.set(s.id, own = { key, warnings: slideWarnings(s) });
+    return [...fit, ...own.warnings];
   }, [deck, overflow]);
   const allWarnings = useMemo(() => deck.slides.map((_, i) => warningsFor(i)), [deck, warningsFor]);
   // On the helper layer: the helper's own checks (overlaps, text that doesn't fit, ...)
@@ -1087,7 +1093,7 @@ function Editor({
             {/* kept mounted, so its results stay while you edit (and switch tabs) */}
             <div className={panel === 'repeats' ? '' : 'hidden'}>
               <RepeatsPanel deck={deck} active={panel === 'repeats'} runSignal={repeatRun} onAccept={acceptRepeat} onGoTo={goToRepeat}
-                onChecked={(from, found) => ed.annotate((d) => { d.checks = { ...d.checks, repeats: { from, at: new Date().toISOString(), found } }; })}
+                onChecked={(from, found, slides) => ed.annotate((d) => { d.checks = { ...d.checks, repeats: { from, at: new Date().toISOString(), found, slides } }; })}
                 onSkip={(key) => ed.annotate((d) => { d.checks = { ...d.checks, repeatSkips: [...new Set([...(d.checks?.repeatSkips ?? []), key])] }; })} />
             </div>
             {/* kept mounted too: each slide's results stay */}

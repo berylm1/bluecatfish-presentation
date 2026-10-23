@@ -28,7 +28,7 @@ async function planSections(): Promise<PlannedSection[]> {
       Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
     },
     body: JSON.stringify({
-      model: "gpt-6.1-sol",
+      model: "gpt-6-luna",
       reasoning_effort: "low", 
       response_format: { type: "json_object" },
       messages: [
@@ -222,7 +222,7 @@ async function generateSingleSection(
       Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
     },
     body: JSON.stringify({
-      model: "gpt-6.1-sol",
+      model: "gpt-6-luna",
       reasoning_effort: "medium", 
       response_format: { type: "json_object" },
       messages: [
@@ -477,7 +477,7 @@ async function addImageSteps(sections: any[]) {
         Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
       },
       body: JSON.stringify({
-        model: "gpt-6.1-sol",
+        model: "gpt-6-luna",
         reasoning_effort: "low", 
         response_format: { type: "json_object" },
         messages: [

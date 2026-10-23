@@ -7,12 +7,12 @@ import { sanitizeDeck } from './sanitize';
 import { fitStatus, neededHeight, textMetrics } from './fitEstimate';
 import { growMedia } from './fillSpace';
 import { fingerprint, needsAnswerCheck, sayBasis, slideBasis } from './aiFields';
-import { chat, knowledge, STYLE } from './ai';
+import { chat, knowledge, openai, STYLE } from './ai';
 import { writeRecap } from './prepare';
 import { removeRepeats } from './repeats';
 import { checkActivityAnswers } from './activityCheck';
 import { fixStoryOrder } from './storyOrder';
-import { lessonPictures, pictureCandidates, pictureIdea } from './pictures';
+import { checkPictures, lessonPictures, pictureCandidates } from './pictures';
 import { pictureCheckable } from './aiFields';
 
 const GENERATE_BUDGET_MS = 270_000;   // the ai-deck route's maxDuration is 300 s
@@ -40,7 +40,7 @@ type TopicPlan = { title: string; query: string; covers: string[] };
 
 export async function imagesFor(query: string, count: number): Promise<LibImage[]> {
   try {
-    const emb = await fetch('https://api.openai.com/v1/embeddings', {
+    const emb = await openai('embeddings', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${process.env.OPENAI_API_KEY}` },
       body: JSON.stringify({ model: 'text-embedding-3-small', input: query }),
@@ -279,10 +279,9 @@ export async function generateAiDeck(lesson: LessonInfo): Promise<{ deck: Deck; 
       const slides = deck.slides.filter(pictureCheckable);
       const candidates = await pictureCandidates(deck, slides, lessonPictures(deck, false));
       let added = 0;
-      await Promise.all(slides.map(async (s) => {
-        const idea = await pictureIdea(deck, s, candidates.get(s.id) ?? []).catch(() => null);
+      for (const { slide: s, idea } of await checkPictures(deck, slides, candidates)) {
         if (idea) { s.elements = idea.elements; added += idea.pictures.length; }
-      }));
+      }
       if (added) notes.push(`Added ${added} picture${added === 1 ? '' : 's'} from the library where slides talk about what they show`);
     } catch (e) {
       notes.push(`Adding pictures failed: ${e instanceof Error ? e.message : String(e)}`);
