@@ -3,16 +3,20 @@
  * event on /presentation carries value.lesson and value.slide). Shown in the
  * slide editor as a heatmap, so you can see which slides to rework.
  *
- * "Struggled" = the learner showed at least one sign of confusion on the
- * slide: a puzzled face on camera, "I'm lost", "simpler please", or "lost me"
- * at the self-check. Counted once per learner (session), not per event.
+ * "Struggled" = the confusion meter's points on the slide (lib/confusion.ts: each
+ * topic's snapshot, the confusion_topic event) reached "unsure" for the learner.
+ * Learners from before the meter: at least one sign of confusion on the slide
+ * (a puzzled face on camera, "I'm lost", "simpler please", or "lost me" at the
+ * self-check). Counted once per learner (session), not per event.
  */
+import { POINT_MAX, THRESHOLDS } from '@/lib/confusion';
 
 export type EventRow = {
   session_id: string;
   event_type: string;
   value: Record<string, unknown> | null;
   dwell_ms: number | null;
+  section?: number | null;   // the topic (its index in the lesson)
 };
 
 export type SlideStats = {
@@ -32,6 +36,8 @@ export type SlideStats = {
   away: number;              // looked away / left the camera
   /** The slide's hands-on box (null when it has none, or nobody got to it) */
   handsOn: HandsOnStats | null;
+  /** The confusion meter: the slide's points (its boxes together) averaged over the learners it has a snapshot for, and its boxes, most first */
+  meter: { learners: number; avgPoints: number; boxes: { box: string | null; avg: number; stuck: number }[] } | null;
 };
 
 export type HandsOnStats = {
@@ -51,7 +57,7 @@ export type HandsOnStats = {
 const empty = (): SlideStats => ({
   learners: 0, struggled: 0, share: 0, puzzledFace: 0, boredFace: 0, lostClicks: 0, simpler: 0,
   repeats: 0, questions: 0, selfCheck: { got: 0, kind: 0, lost: 0 }, helpOffered: 0, helpAccepted: 0,
-  avgSeconds: null, away: 0, handsOn: null,
+  avgSeconds: null, away: 0, handsOn: null, meter: null,
 });
 const emptyHandsOn = (): HandsOnStats => ({ started: 0, done: 0, skipped: 0, hints: 0, wrong: 0, steppedIn: 0, finn: 0, finnCaught: 0, avgSeconds: null, hardest: [] });
 
@@ -63,10 +69,42 @@ export function slideStats(rows: EventRow[]): Record<string, SlideStats> {
   const dwell: Record<string, number[]> = {};
   const handsOnTimes: Record<string, number[]> = {};
   const wrongItems: Record<string, Record<string, number>> = {};
+  // The meter's snapshots: one per learner and topic, the newest (rows come newest first; partial ones lose to a full one)
+  const snap = new Map<string, { partial: boolean; points: { slide: string; box: string | null; total: number }[] }>();
+  const metered = new Map<string, Set<string>>();   // session → the topics it has a snapshot of
+  for (const r of rows) {
+    if (r.event_type !== 'confusion_topic') continue;
+    const v = r.value ?? {};
+    const key = `${r.session_id}|${String(v.topic)}`;
+    const had = snap.get(key);
+    if (had && (!had.partial || v.partial)) continue;
+    // (written by the browser: only well-formed points, in the meter's range)
+    const points = (Array.isArray(v.points) ? v.points.slice(0, 50) : []).filter((p): p is { slide: string; box: string | null; total: number } =>
+      !!p && typeof p.slide === 'string' && p.slide.length <= 80 && (p.box === null || (typeof p.box === 'string' && p.box.length <= 80))
+      && typeof p.total === 'number' && Number.isFinite(p.total) && p.total >= 0 && p.total <= POINT_MAX);
+    snap.set(key, { partial: !!v.partial, points });
+    (metered.get(r.session_id) ?? metered.set(r.session_id, new Set()).get(r.session_id)!).add(String(v.topic));
+  }
+  // slide → session → its points there (all its boxes), and box → session → points
+  const slidePoints: Record<string, Map<string, number>> = {};
+  const boxPoints: Record<string, Map<string, Map<string, number>>> = {};
+  const topicOfSlide: Record<string, string> = {};
+  for (const [key, { points }] of snap) {
+    const [session, topic] = key.split('|');
+    for (const p of points) {
+      topicOfSlide[p.slide] = topic;
+      const m = (slidePoints[p.slide] ??= new Map());
+      m.set(session, (m.get(session) ?? 0) + p.total);
+      const b = ((boxPoints[p.slide] ??= new Map()).get(p.box ?? '') ?? boxPoints[p.slide].set(p.box ?? '', new Map()).get(p.box ?? '')!);
+      b.set(session, (b.get(session) ?? 0) + p.total);
+    }
+  }
 
   for (const r of rows) {
+    if (r.event_type === 'confusion_topic') continue;
     const slide = typeof r.value?.slide === 'string' ? r.value.slide : null;
     if (!slide) continue;
+    if (Number.isInteger(r.section) && topicOfSlide[slide] === undefined) topicOfSlide[slide] = String(r.section);
     const s = (out[slide] ??= empty());
     (seen[slide] ??= new Set()).add(r.session_id);
     const struggle = () => (struggled[slide] ??= new Set()).add(r.session_id);
@@ -117,9 +155,27 @@ export function slideStats(rows: EventRow[]): Record<string, SlideStats> {
     }
   }
 
+  const UNSURE = THRESHOLDS.point[0];
   for (const [slide, s] of Object.entries(out)) {
     s.learners = seen[slide]?.size ?? 0;
-    s.struggled = struggled[slide]?.size ?? 0;
+    // a learner with the meter's snapshot of this slide's topic: its points here; one from before the meter: any sign
+    const topic = topicOfSlide[slide];
+    const pts = slidePoints[slide];
+    let n = 0;
+    for (const session of seen[slide] ?? []) {
+      const byMeter = topic !== undefined && metered.get(session)?.has(topic);
+      if (byMeter ? (pts?.get(session) ?? 0) >= UNSURE : struggled[slide]?.has(session)) n++;
+    }
+    s.struggled = n;
+    const withMeter = [...(seen[slide] ?? [])].filter((x) => topic !== undefined && metered.get(x)?.has(topic)).length;
+    if (withMeter && pts) {
+      const avg = (m: Map<string, number>) => Math.round(([...m.values()].reduce((a, b) => a + b, 0) / withMeter) * 10) / 10;
+      s.meter = {
+        learners: withMeter, avgPoints: avg(pts),
+        boxes: [...(boxPoints[slide] ?? new Map()).entries()].map(([box, m]) => ({ box: box || null, avg: avg(m), stuck: [...m.values()].filter((v) => v >= UNSURE).length }))
+          .sort((a, b) => b.avg - a.avg).slice(0, 6),
+      };
+    }
     s.share = s.learners ? s.struggled / s.learners : 0;
     const d = dwell[slide];
     s.avgSeconds = d?.length ? Math.round(d.reduce((a, b) => a + b, 0) / d.length / 1000) : null;

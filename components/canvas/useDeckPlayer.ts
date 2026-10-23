@@ -105,12 +105,17 @@ export function useDeckPlayer(
     onWait?: (el: SlideElement) => void;
     /** The slide to start on (a preview from the editor's current slide) */
     startAt?: number;
+    /** Asked as a clip starts in its usual words: true → its plain version instead (a learner who's been confused) */
+    plainFirst?: (el: SlideElement) => boolean;
+    /** Extra time after a slide's last clip before moving on (ms; a learner who's been confused: a little slower) */
+    extraPause?: () => number;
   } = {},
 ) {
   const optsRef = useRef(opts);
   optsRef.current = opts;
   const [pos, setPos] = useState<Pos>(() => ({ slide: Math.max(0, Math.min(opts.startAt ?? 0, deck.slides.length - 1)), clip: 0, mode: 'normal', token: 0 }));
   const [status, setStatus] = useState<PlayerStatus>('loading');
+  const [playing, setPlaying] = useState<Pos['mode']>('normal');   // the version being said (plainFirst can turn a usual clip plain)
   const statusRef = useRef(status);
   statusRef.current = status;
   const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -199,7 +204,7 @@ export function useDeckPlayer(
         } else {
           goToSlide(to);
         }
-      }, order.length ? AFTER_SLIDE_MS : SILENT_SLIDE_MS);
+      }, (order.length ? AFTER_SLIDE_MS : SILENT_SLIDE_MS) + Math.max(0, Math.min(3000, optsRef.current.extraPause?.() ?? 0)));
       return () => { cancelled = true; clear(); };
     }
 
@@ -214,8 +219,10 @@ export function useDeckPlayer(
     }
     if (isIntroId(el.id)) introsHeard.current.add(deck.slides[pos.slide].id);
     setStatus('loading');
-    textRef.current = pos.mode === 'plain' ? el.plain?.trim() || spokenText(el) : spokenText(el);
-    clipUrl(el, pos.mode).then((url) => {
+    const mode: Pos['mode'] = pos.mode === 'normal' && !isIntroId(el.id) && optsRef.current.plainFirst?.(el) ? 'plain' : pos.mode;
+    setPlaying(mode);
+    textRef.current = mode === 'plain' ? el.plain?.trim() || spokenText(el) : spokenText(el);
+    clipUrl(el, mode).then((url) => {
       if (cancelled) return;
       const next = () => {
         if (cancelled) return;
@@ -389,12 +396,14 @@ export function useDeckPlayer(
     slideIndex: Math.min(pos.slide, deck.slides.length - 1),
     clipIndex: pos.clip,
     clipCount: order.length,
-    mode: pos.mode,
+    mode: pos.mode,   // (plain: the learner asked for it, "simpler please": the slide focuses on the box)
+    /** The plain words are being said (asked for, or plainFirst): no laser marks, they're for the usual words */
+    plainWords: speaking && playing === 'plain',
     topicIndex: topics[Math.min(pos.slide, deck.slides.length - 1)] ?? 0,
     topicCount: (topics[topics.length - 1] ?? 0) + 1,
     activeId: speaking ? current?.id ?? null : null,
     /** Words of the clip being spoken (for the transcript), and its audio for timing */
-    captionText: speaking && current ? (pos.mode === 'plain' ? current.plain?.trim() || spokenText(current) : spokenText(current)) : '',
+    captionText: speaking && current ? (playing === 'plain' ? current.plain?.trim() || spokenText(current) : spokenText(current)) : '',
     getAudio,
     status,
     ...controls,
