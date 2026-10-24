@@ -40,7 +40,7 @@ import { lessonParts } from '@/lib/canvas/parts';
 import { answerGist, areaIds, setAreaText, togetherSlide, TOGETHER_ID } from '@/lib/canvas/together';
 import { preloadedDeck, studyLesson, studyPost, writeStudy, type StudyRecord } from '@/lib/study/client';
 import { signals } from '@/lib/signals';
-import { atLeast, ConfusionMeter, questionSignal, snapshotPoints, type ConfusionLevel, type ConfusionSignal, type SavedMeter, type Where } from '@/lib/confusion';
+import { atLeast, ConfusionMeter, questionSignal, SIGNALS, snapshotPoints, type ConfusionLevel, type ConfusionSignal, type SavedMeter, type Where } from '@/lib/confusion';
 
 /*
  * The canvas presentation (see docs/customization-plan.md).
@@ -304,6 +304,13 @@ const REPLAY_ASK_LOST = "That's okay, it happens. Want me to show you that part 
 // After "got it" on a topic the confusion meter says was confusing (lib/confusion.ts): offered anyway, lightly
 const REPLAY_ASK_GOT = 'Great! That part had a few tricky bits, though. Want a quick look at it a different way, just in case?';
 const OFFER_AFTER_GOT = true;   // false = "Got it" always moves on (as before the meter)
+// "How did that section go?" outside the study: asked only when the meter isn't sure. A confused topic goes straight to
+// "another way?"; a topic that clearly went well (a good sign, like a hands-on box solved first try or Finn's mix-up
+// caught, and no sign of confusion) gets a quick word and moves on. In the study it's always asked: it's a measure,
+// and it checks the meter. false = always asked, everywhere (as before)
+const ADAPTIVE_SECTION_CHECK = true;
+const SMOOTH_LINE = 'Nice, that part went smoothly!';
+const REPLAY_ASK_SKIPPED = 'That part looked a little tricky. Want me to show it to you a different way?';
 // Cards, when the instructions don't already ask for a guess (said once per box)
 const THINK_LINE = 'Before you flip one, take a second to guess the answer in your head.';
 const EXCHANGE_HIDE_MS = 12000;   // the question + answer box under the slide goes away this long after the answer
@@ -1696,8 +1703,7 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
               tracking.track('tutor_decision', { action: 'helper', why: 'classmate_mistake', kind });
               presentVariant({ title: '', body: '', narration: '', slide: helper, variant: 'helper' }, () => {
                 if (over() || playerRef.current.slideIndex !== from) return;
-                setSelfCheck({ from, to });
-                cuesRef.current?.play('cue_selfCheck');
+                askSectionCheck(from, to);
               });
               return;
             }
@@ -1712,9 +1718,34 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
     // here afterwards and asks "How did that section go?" then)
     if (over()) return;
     if (playerRef.current.slideIndex !== from) return;   // the learner went somewhere else meanwhile
+    askSectionCheck(from, to);
+  };
+  /** The end of a topic: "How did that section go?", or (outside the study, when the meter is sure: ADAPTIVE_SECTION_CHECK) not */
+  function askSectionCheck(from: number, to: number) {
+    const topic = topicOf[from] ?? 0;
+    if (ADAPTIVE_SECTION_CHECK && !study) {
+      const t = meter.current.topic(topic);
+      const confusion = (Object.entries(t.signals) as [keyof typeof SIGNALS, number][]).some(([k, n]) => n > 0 && SIGNALS[k].points > 0);
+      const good = (t.signals.solved ?? 0) + (t.signals.finn_caught ?? 0) > 0;
+      if (t.level === 'confused') {
+        // clearly confusing: straight to the offer (the same one "Lost me" gets, its leftover question after)
+        checked.current.add(from);
+        tracking.track('tutor_decision', { action: 'section_check_skipped', why: 'confused', ...meterNow(topic) });
+        setReplayOffer({ to, from, mood: 'confused', rating: 'lost' });
+        cuesRef.current?.play({ text: REPLAY_ASK_SKIPPED });
+        return;
+      }
+      if (t.score === 0 && good && !confusion) {
+        // clearly fine: a quick word, and on (no signs at all isn't "fine": a quiet learner is still asked)
+        checked.current.add(from);
+        tracking.track('tutor_decision', { action: 'section_check_skipped', why: 'clear', ...meterNow(topic) });
+        cuesRef.current?.play({ text: SMOOTH_LINE }).then(() => { if (playerRef.current.slideIndex === from) playerRef.current.goToSlide(to); });
+        return;
+      }
+    }
     setSelfCheck({ from, to });
     cuesRef.current?.play('cue_selfCheck');
-  };
+  }
   // Leaving the slide (the ⏩/⏮ buttons, keys) during Finn's turn or an answer: it's over, so
   // nobody talks over the new slide (was: the answer went on while the next slide played)
   const { cancel: cancelAnswer } = tutor;
@@ -2098,7 +2129,7 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
       });
     });
   }, [started, player.activeId, player.status, tutorBusy, variant, micBusy, tracking, cues, talk, topicOf, meterNow]);
-  useEffect(() => { if (started) preloadCue(CHECK_IN_LINE); }, [started, preloadCue]);
+  useEffect(() => { if (!started) return; preloadCue(CHECK_IN_LINE); if (ADAPTIVE_SECTION_CHECK && !study) { preloadCue(SMOOTH_LINE); preloadCue(REPLAY_ASK_SKIPPED); } }, [started, preloadCue, study]);
 
   // Busy moments are skipped in onEmotion, so the camera isn't restarted for every answer
   const { ready: emotionReady, error: emotionError, live: liveFace, learning: faceLearning } = useEmotionWatcher(cameraOn && started, onEmotion);
