@@ -69,14 +69,28 @@ export function needsPlain(el: SlideElement): boolean {
   return !!el.plainByAI && el.plainFrom !== fingerprint(spoken);
 }
 
+/** This Supabase project's id (from its address), to tell our own stored files from another project's */
+const OUR_PROJECT = (process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL || '').replace(/^https?:\/\//, '').split('.')[0];
+
+/**
+ * Is a stored file's link one this lesson can still use? Yes, unless it points at another Supabase project:
+ * the first one was deleted (Oct 25, 2026) and its recordings and pictures with it. Those count as missing, so
+ * a save makes the recordings again (and the lesson says the words live meanwhile). Links elsewhere: yes.
+ */
+export function storedHere(url: string | undefined): boolean {
+  if (!url) return false;
+  const m = url.match(/^https:\/\/([a-z0-9]+)\.supabase\.co\//i);
+  return !m || !OUR_PROJECT || m[1].toLowerCase() === OUR_PROJECT.toLowerCase();
+}
+
 export function needsAudio(el: SlideElement): boolean {
   const spoken = spokenText(el);
-  return speaksAtAll(el) && !!spoken && el.audioFor !== audioKey(spoken, false);
+  return speaksAtAll(el) && !!spoken && (el.audioFor !== audioKey(spoken, false) || !storedHere(el.audioUrl));
 }
 
 export function needsPlainAudio(el: SlideElement): boolean {
   const plain = plainText(el);
-  return speaksAtAll(el) && !!plain && el.plainAudioFor !== audioKey(plain, true);
+  return speaksAtAll(el) && !!plain && (el.plainAudioFor !== audioKey(plain, true) || !storedHere(el.plainAudioUrl));
 }
 
 /**
@@ -149,7 +163,7 @@ export function needsIntro(slides: Slide[], i: number): boolean {
 export function needsIntroAudio(slides: Slide[], i: number): boolean {
   const s = slides[i];
   const text = s ? introText(s) : '';
-  return !!text && !s.intro?.off && startsTopic(slides, i) && s.intro?.audioFor !== audioKey(text, false);
+  return !!text && !s.intro?.off && startsTopic(slides, i) && (s.intro?.audioFor !== audioKey(text, false) || !storedHere(s.intro?.audioUrl));
 }
 
 /** What a hands-on box's answer check looked at: its task and answer key. */
@@ -461,8 +475,8 @@ export function applyPatches(deck: Deck, patches: Patch[]): number {
 export function currentAudio(el: SlideElement, mode: 'normal' | 'plain'): string | undefined {
   if (mode === 'plain') {
     const plain = plainText(el);
-    return plain && el.plainAudioUrl && el.plainAudioFor === audioKey(plain, true) ? el.plainAudioUrl : undefined;
+    return plain && el.plainAudioUrl && el.plainAudioFor === audioKey(plain, true) && storedHere(el.plainAudioUrl) ? el.plainAudioUrl : undefined;
   }
   const spoken = spokenText(el);
-  return spoken && el.audioUrl && el.audioFor === audioKey(spoken, false) ? el.audioUrl : undefined;
+  return spoken && el.audioUrl && el.audioFor === audioKey(spoken, false) && storedHere(el.audioUrl) ? el.audioUrl : undefined;
 }

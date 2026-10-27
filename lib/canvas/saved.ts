@@ -1,6 +1,7 @@
 import { getValue, scanKeys, setValue } from '@/src/redisClient';
 import type { Deck } from './types';
 import { compact } from './sanitize';
+import { backupFile, backupPath } from './backup';
 
 // Named versions: each publish is saved under a name the person gives it ("Blue Catfish,
 // field trip version"), so it can be loaded again later (the editor's "Saved versions…").
@@ -62,7 +63,11 @@ export async function saveVersion(lesson: string, rawName: unknown, deck: Deck, 
   const slug = slugOf(name);
   const savedAt = new Date().toISOString();
   const { checks: _editorOnly, ...kept } = deck;
-  await setValue(versionKey(lesson, slug), JSON.stringify(compact({ ...kept, savedAs: name, updatedAt: savedAt, updatedBy: by })));
+  const stored = compact({ ...kept, savedAs: name, updatedAt: savedAt, updatedBy: by });
+  await setValue(versionKey(lesson, slug), JSON.stringify(stored));
+  // a copy in the lesson's backup folder (best effort: the version is saved either way)
+  const backupWarning = await backupFile(backupPath.saved(lesson, slug), stored);
+  if (backupWarning) console.warn(backupWarning);
   const list = await index();
   list.push({ lesson, slug, name, savedAt, by, slides: deck.slides.length });
   await setValue(INDEX_KEY, JSON.stringify(list.slice(-500)));

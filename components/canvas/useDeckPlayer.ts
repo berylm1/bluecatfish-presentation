@@ -245,13 +245,32 @@ export function useDeckPlayer(
         timerRef.current = setTimeout(next, Math.min(12000, Math.max(2000, (words * 350) / voiceSpeedNow())));
         return;
       }
+      // A stored clip that won't load (deleted, moved): the same words said live instead (was: skipped, so the
+      // professor jumped over that part in silence). Once; a live clip that fails goes on as before.
+      let fellBack = false;
+      const sayLive = () => {
+        if (cancelled || fellBack) return;
+        fellBack = true;
+        liveClip(textRef.current, pos.mode === 'plain').then((live) => {
+          if (cancelled) return;
+          if (!live) { next(); return; }
+          const again = voiced(new Audio(live));
+          audioRef.current = again;
+          again.onended = next;
+          again.onerror = next;
+          if (pausedRef.current) return;
+          again.play().then(() => { if (!cancelled) setStatus('playing'); }).catch(next);
+        });
+      };
+      const stored = !url.startsWith('blob:');
       const audio = voiced(new Audio(url));
       audioRef.current = audio;
       audio.onended = next;
-      audio.onerror = next;
+      audio.onerror = stored ? sayLive : next;
       // Paused (or interrupted) while the clip was loading: keep it ready, don't start it
       if (pausedRef.current) return;
-      audio.play().then(() => { if (!cancelled) setStatus('playing'); }).catch(next);
+      // (a clip that can't load also rejects play(): onerror says it live; any other refusal goes on)
+      audio.play().then(() => { if (!cancelled) setStatus('playing'); }).catch((e) => { if (!(stored && e?.name === 'NotSupportedError')) next(); });
       // Get the following clip ready while this one plays
       const following = order[pos.clip + 1] ?? orders[pos.slide + 1]?.[0];
       if (following) clipUrl(following, 'normal');
