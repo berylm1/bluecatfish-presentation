@@ -12,7 +12,7 @@ type State = { lesson: string; current: { slug: string | null; name: string | nu
 
 const day = (iso: string | null) => (iso ? new Date(iso).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : '');
 
-export default function StudyVersionPicker() {
+export default function StudyVersionPicker({ onChange }: { onChange?: () => void }) {
   const [state, setState] = useState<State | null>(null);
   const [pick, setPick] = useState('');
   const [busy, setBusy] = useState(false);
@@ -36,7 +36,7 @@ export default function StudyVersionPicker() {
       const r = await fetch('/api/study/results/version', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ slug: pick || null }) });
       const d = await r.json().catch(() => ({}));
       if (!r.ok) setError(d.error ?? `Error ${r.status}`);
-      else await load();
+      else { await load(); onChange?.(); }
     } finally {
       setBusy(false);
     }

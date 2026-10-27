@@ -10,6 +10,7 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import ConfusionGraph, { type Curve } from '@/components/study/ConfusionGraph';
 import StudyVersionPicker from '@/components/study/StudyVersionPicker';
+import StudyChecklist from '@/components/study/StudyChecklist';
 
 type Summary = {
   group: string | null; people: number; finished: number;
@@ -26,7 +27,8 @@ export default function StudyResults() {
   const [tests, setTests] = useState(false);
   const [data, setData] = useState<Data | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [person, setPerson] = useState<string | null>(null);   // their own line on the confusion graph
+  const [person, setPerson] = useState<string | null>(null);
+  const [readyKey, setReadyKey] = useState(0);   // bumped when the study's lesson version changes: the checklist checks again   // their own line on the confusion graph
 
   useEffect(() => {
     let live = true;
@@ -50,7 +52,8 @@ export default function StudyResults() {
           <a href={`/api/study/results?format=csv${tests ? '&tests=1' : ''}`} className="px-4 py-2 rounded-lg bg-cyan-600 hover:bg-cyan-500 text-white font-semibold">⬇ Download spreadsheet (CSV)</a>
           <Link href="/study?test=1" className="text-sm underline text-cyan-700">Try it (test run)</Link>
         </header>
-        <StudyVersionPicker />
+        <StudyVersionPicker onChange={() => setReadyKey((k) => k + 1)} />
+        <StudyChecklist refreshKey={readyKey} />
         {error && <p className="rounded-lg bg-red-100 text-red-900 px-4 py-3">{error}</p>}
         {data && (
           <>

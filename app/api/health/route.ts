@@ -1,3 +1,4 @@
+import { SETUP_BUCKETS, SETUP_TABLES, setupMissing } from '@/lib/setupCheck';
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { checkRedisHealth } from '@/src/redisClient';
@@ -57,9 +58,6 @@ async function run(fn: () => Promise<Check>): Promise<Check> {
   }
 }
 
-// What the setup files (supabase/migrations) make: health checks each one is there
-const SETUP_TABLES = ['documents3', 'images2', 'slide_templates', 'learner_state', 'events', 'canvas_lessons', 'canvas_decks', 'canvas_deck_history', 'study_participants', 'section_difficulty'];
-const SETUP_BUCKETS = ['slide-audio', 'slide-imagesv2'];   // (lesson-backups is made by the site the first time it's needed)
 const OPTIONAL = ['manim'];
 
 export async function GET(req: NextRequest) {
@@ -154,21 +152,9 @@ export async function GET(req: NextRequest) {
   // (was: a table made by hand in Supabase, never in the code, and lost with the first project)
   const setup = await run(async () => {
     if (!admin) return needAdmin;
-    const missing: string[] = [];
-    await Promise.all(SETUP_TABLES.map(async (t) => {
-      const { error } = await admin.from(t).select('*', { count: 'exact', head: true });
-      if (error) missing.push(`table ${t}`);
-    }));
-    // (the two searches: asked for nothing, so they change nothing)
-    const zero = `[${new Array(1536).fill(0).join(',')}]`;
-    await Promise.all(['match_documents3', 'match_images2'].map(async (fn) => {
-      const { error } = await admin.rpc(fn, { query_embedding: zero, match_count: 1 });
-      if (error) missing.push(`function ${fn}`);
-    }));
-    const { data: buckets } = await admin.storage.listBuckets();
-    for (const b of SETUP_BUCKETS) if (!(buckets ?? []).some((x) => x.name === b)) missing.push(`bucket ${b}`);
+    const missing = await setupMissing(admin);
     return missing.length
-      ? { ok: false, detail: `missing: ${missing.sort().join(', ')} (run the setup files in supabase/migrations, in order)` }
+      ? { ok: false, detail: `missing: ${missing.join(', ')} (run the setup files in supabase/migrations, in order)` }
       : { ok: true, detail: `all ${SETUP_TABLES.length} tables, 2 search functions and ${SETUP_BUCKETS.length} buckets` };
   });
 
