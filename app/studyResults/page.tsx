@@ -8,13 +8,14 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
+import ConfusionGraph, { type Curve } from '@/components/study/ConfusionGraph';
 
 type Summary = {
   group: string | null; people: number; finished: number;
   pre: number | null; postSame: number | null; gain: number | null; post: number | null;
   lessonMinutes: number | null; questions: number | null; enjoy: number | null;
 };
-type Data = { summary: Summary[]; steps: Record<string, number>; rows: Record<string, unknown>[] };
+type Data = { summary: Summary[]; steps: Record<string, number>; rows: Record<string, unknown>[]; confusion?: { topics: string[]; curves: Curve[] } };
 
 const GROUP_NAME: Record<string, string> = { classmates: 'With classmates', no_classmates: 'Without classmates', null: 'Not started yet' };
 const STEPS = ['checks', 'about', 'pre', 'start', 'lesson', 'post', 'survey', 'done'];
@@ -24,6 +25,7 @@ export default function StudyResults() {
   const [tests, setTests] = useState(false);
   const [data, setData] = useState<Data | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [person, setPerson] = useState<string | null>(null);   // their own line on the confusion graph
 
   useEffect(() => {
     let live = true;
@@ -69,6 +71,11 @@ export default function StudyResults() {
               ))}
             </section>
             <section className="rounded-2xl bg-white border p-5">
+              <h2 className="font-semibold">Confusion through the lesson</h2>
+              <p className="text-sm text-slate-500 mb-3">From the lesson&apos;s confusion meter, per topic. Click someone in the table below to see their own line.</p>
+              <ConfusionGraph topics={data.confusion?.topics ?? []} curves={data.confusion?.curves ?? []} person={person} onClearPerson={() => setPerson(null)} />
+            </section>
+            <section className="rounded-2xl bg-white border p-5">
               <h2 className="font-semibold">Where people are (or stopped)</h2>
               <div className="mt-3 flex flex-wrap gap-2 text-sm">
                 {STEPS.map((st) => <span key={st} className="px-3 py-1 rounded-full bg-slate-100">{st}: <b>{data.steps[st] ?? 0}</b></span>)}
@@ -77,10 +84,11 @@ export default function StudyResults() {
             <section className="rounded-2xl bg-white border p-5 overflow-x-auto">
               <h2 className="font-semibold">Everyone ({data.rows.length})</h2>
               <table className="mt-3 text-sm w-full">
-                <thead><tr className="text-left text-slate-500">{['Started', 'Group', 'Step', 'Age', 'Done before', 'Pre', 'Post', 'Lesson min', 'Questions', 'Camera', 'Test'].map((h) => <th key={h} className="pr-4 pb-2 font-medium">{h}</th>)}</tr></thead>
+                <thead><tr className="text-left text-slate-500">{['Started', 'Group', 'Step', 'Age', 'Done before', 'Pre', 'Post', 'Lesson min', 'Questions', 'Confusion at the end', 'Confused topics', 'Camera', 'Test'].map((h) => <th key={h} className="pr-4 pb-2 font-medium">{h}</th>)}</tr></thead>
                 <tbody>
                   {data.rows.slice().reverse().map((r) => (
-                    <tr key={String(r.id)} className="border-t">
+                    <tr key={String(r.id)} onClick={() => setPerson(person === r.id ? null : String(r.id))} title="Show their line on the confusion graph"
+                      className={`border-t cursor-pointer hover:bg-slate-50 ${person === r.id ? 'bg-cyan-50' : ''}`}>
                       <td className="pr-4 py-1.5 whitespace-nowrap">{new Date(String(r.created_at)).toLocaleString()}</td>
                       <td className="pr-4">{GROUP_NAME[String(r.group)]}</td>
                       <td className="pr-4">{show(r.step)}</td>
@@ -90,6 +98,8 @@ export default function StudyResults() {
                       <td className="pr-4">{show(r.post_score)}</td>
                       <td className="pr-4">{show(r.lesson_minutes)}</td>
                       <td className="pr-4">{show(r.lesson_questions)}</td>
+                      <td className="pr-4">{r.confusion_end_level ? `${show(r.confusion_end_overall)} (${r.confusion_end_level})` : '–'}</td>
+                      <td className="pr-4">{show(r.confusion_topics_confused)}</td>
                       <td className="pr-4">{r.camera_ok == null ? '–' : r.camera_ok ? 'on' : 'off'}</td>
                       <td className="pr-4">{r.is_test ? 'test' : ''}</td>
                     </tr>
