@@ -50,6 +50,7 @@ export default function StudyResults() {
           <h1 className="text-2xl font-bold flex-1">Study results</h1>
           <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={tests} onChange={(e) => setTests(e.target.checked)} /> Include test runs</label>
           <a href={`/api/study/results?format=csv${tests ? '&tests=1' : ''}`} className="px-4 py-2 rounded-lg bg-cyan-600 hover:bg-cyan-500 text-white font-semibold">⬇ Download spreadsheet (CSV)</a>
+          <Link href="/studyResults/report" className="px-4 py-2 rounded-lg border bg-white hover:bg-slate-50 font-semibold">📋 Pilot report</Link>
           <Link href="/study?test=1" className="text-sm underline text-cyan-700">Try it (test run)</Link>
         </header>
         <StudyVersionPicker onChange={() => setReadyKey((k) => k + 1)} />

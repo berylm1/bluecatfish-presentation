@@ -89,6 +89,8 @@ export type PointReading = { topic: number; slide: number; box: string; now: num
 export type TopicReading = {
   topic: number;
   score: number;
+  /** The score without the section check's answer (what the meter knew before asking: the pilot report compares the two) */
+  beforeCheck: number;
   level: ConfusionLevel;
   /** The box with the highest total (where a classmate's question helps most), when one has any */
   hardest: PointReading | null;
@@ -194,6 +196,7 @@ export class ConfusionMeter {
     const t = this.extra.get(topic);
     const rest = pts.slice(1).reduce((s, p) => s + p.total, 0);
     const score = round(clamp((pts[0]?.total ?? 0) + rest / 4 + (t?.points ?? 0), 0, TOPIC_MAX));
+    const beforeCheck = round(clamp((pts[0]?.total ?? 0) + rest / 4 + (t ? this.topicOnlyPoints(t.signals) : 0), 0, TOPIC_MAX));
     const signals: Partial<Record<ConfusionSignal, number>> = { ...(t?.signals ?? {}) };
     let disengaged = 0;
     for (const p of this.points.values()) {
@@ -203,7 +206,7 @@ export class ConfusionMeter {
         if ((SIGNALS[k] as SignalDef).disengaged) disengaged += n;
       }
     }
-    return { topic, score, level: levelOf(score, 'topic'), hardest: pts[0] && pts[0].total > 0 ? pts[0] : null, signals, disengaged };
+    return { topic, score, beforeCheck, level: levelOf(score, 'topic'), hardest: pts[0] && pts[0].total > 0 ? pts[0] : null, signals, disengaged };
   }
 
   /** A topic is over: it joins the overall average (again: its score is updated where it was) */

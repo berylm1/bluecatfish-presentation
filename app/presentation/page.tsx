@@ -671,7 +671,7 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
     const slideId = (i: number) => deck.slides[i]?.id;
     const value = {
       lesson: deck.lessonId, topic, name: deck.slides[topicOf.indexOf(topic)]?.topic?.trim().slice(0, 80) ?? '', partial,
-      score: r.score, level: r.level, overall: o.score, overallLevel: o.level,
+      score: r.score, beforeCheck: r.beforeCheck, level: r.level, overall: o.score, overallLevel: o.level,
       hardest: r.hardest ? { slide: slideId(r.hardest.slide) ?? null, box: r.hardest.box || null, total: r.hardest.total } : null,
       signals: r.signals, points: snapshotPoints(meter.current.pointsOf(topic), slideId),
     };

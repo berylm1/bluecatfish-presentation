@@ -148,7 +148,8 @@ export async function GET(request: NextRequest) {
       const c = confusion.get(s);
       if (!c || (!c.topics.size && !c.levels.length)) continue;   // (a session from before the meter)
       any = true;
-      for (const [t, sc] of c.topics) { const had = topics.get(t); if (!had || had.at <= sc.at) topics.set(t, sc); }
+      // (the latest; but a later partial snapshot, the tab hidden, never replaces one taken as the topic ended)
+      for (const [t, sc] of c.topics) { const had = topics.get(t); if (!had || (had.at <= sc.at && !(sc.partial && !had.partial))) topics.set(t, sc); }
       mates.push(...c.mates);
       minutesConfused += confusedMinutes(c);
     }
