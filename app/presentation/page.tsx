@@ -81,7 +81,7 @@ export default function CanvasPresentation() {
     if (Number.isInteger(at) && at > 1) setStartAt(at - 1);
     // (the study: the deck was loaded during the checks and quiz 1, app/study)
     const ahead = params.get('study') && !pv ? preloadedDeck(lesson) : null;
-    (ahead ? Promise.resolve({ deck: ahead, preview: false }) : loadDeck(lesson, pv === 'ai' ? 'ai' : pv ? 'draft' : null))
+    (ahead ? Promise.resolve({ deck: ahead, preview: false }) : loadDeck(lesson, pv === 'ai' ? 'ai' : pv ? 'draft' : null, pv ? null : params.get('study')))
       .then(setLoaded)
       .catch((e) => setError(e instanceof Error ? e.message : String(e)));
   }, []);

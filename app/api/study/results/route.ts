@@ -161,6 +161,8 @@ export async function GET(request: NextRequest) {
   const rows: Row[] = people.map((p: any) => {
     const r: Row = {
       id: p.id, created_at: p.created_at, is_test: p.is_test, step: p.step, group: p.study_group, finished: !!p.finished_at,
+      // the lesson version they saw (migration 014: "slug:Name", shown by its name)
+      lesson_version: typeof p.lesson_version === 'string' ? (p.lesson_version.includes(':') ? p.lesson_version.split(':').slice(1).join(':') : p.lesson_version) : null,
     };
     for (const d of DEMOGRAPHICS) r[d.id] = p[d.id];
     Object.assign(r, {

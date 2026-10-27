@@ -9,6 +9,7 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import ConfusionGraph, { type Curve } from '@/components/study/ConfusionGraph';
+import StudyVersionPicker from '@/components/study/StudyVersionPicker';
 
 type Summary = {
   group: string | null; people: number; finished: number;
@@ -49,6 +50,7 @@ export default function StudyResults() {
           <a href={`/api/study/results?format=csv${tests ? '&tests=1' : ''}`} className="px-4 py-2 rounded-lg bg-cyan-600 hover:bg-cyan-500 text-white font-semibold">⬇ Download spreadsheet (CSV)</a>
           <Link href="/study?test=1" className="text-sm underline text-cyan-700">Try it (test run)</Link>
         </header>
+        <StudyVersionPicker />
         {error && <p className="rounded-lg bg-red-100 text-red-900 px-4 py-3">{error}</p>}
         {data && (
           <>
@@ -84,13 +86,14 @@ export default function StudyResults() {
             <section className="rounded-2xl bg-white border p-5 overflow-x-auto">
               <h2 className="font-semibold">Everyone ({data.rows.length})</h2>
               <table className="mt-3 text-sm w-full">
-                <thead><tr className="text-left text-slate-500">{['Started', 'Group', 'Step', 'Age', 'Done before', 'Pre', 'Post', 'Lesson min', 'Questions', 'Confusion at the end', 'Confused topics', 'Camera', 'Test'].map((h) => <th key={h} className="pr-4 pb-2 font-medium">{h}</th>)}</tr></thead>
+                <thead><tr className="text-left text-slate-500">{['Started', 'Group', 'Version', 'Step', 'Age', 'Done before', 'Pre', 'Post', 'Lesson min', 'Questions', 'Confusion at the end', 'Confused topics', 'Camera', 'Test'].map((h) => <th key={h} className="pr-4 pb-2 font-medium">{h}</th>)}</tr></thead>
                 <tbody>
                   {data.rows.slice().reverse().map((r) => (
                     <tr key={String(r.id)} onClick={() => setPerson(person === r.id ? null : String(r.id))} title="Show their line on the confusion graph"
                       className={`border-t cursor-pointer hover:bg-slate-50 ${person === r.id ? 'bg-cyan-50' : ''}`}>
                       <td className="pr-4 py-1.5 whitespace-nowrap">{new Date(String(r.created_at)).toLocaleString()}</td>
                       <td className="pr-4">{GROUP_NAME[String(r.group)]}</td>
+                      <td className="pr-4">{show(r.lesson_version)}</td>
                       <td className="pr-4">{show(r.step)}</td>
                       <td className="pr-4">{show(r.age_range)}</td>
                       <td className="pr-4">{show(r.done_before)}{r.seen_before_browser ? ' (browser: yes)' : ''}</td>

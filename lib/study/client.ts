@@ -92,7 +92,7 @@ export function preloadLesson(lesson: string) {
   if (deckLoading) return;
   try { if (preloadedDeck(lesson)) return; } catch { /* fine */ }
   deckLoading = true;
-  fetch(`/api/deck?lesson=${encodeURIComponent(lesson)}`)
+  fetch(`/api/deck?lesson=${encodeURIComponent(lesson)}&study=1`)   // (the version the study is frozen to)
     .then((r) => (r.ok ? r.json() : null))
     .then((d) => {
       const deck = d?.deck;

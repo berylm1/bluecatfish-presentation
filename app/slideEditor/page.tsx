@@ -958,6 +958,9 @@ function Editor({
               <MenuItem onClick={() => { close(); setSavedOpen(true); }} hint="Versions saved when they were published: copy a slide back, or go back to one">Saved versions…</MenuItem>
               <MenuItem onClick={() => { close(); openVersions(); }} hint="Replace this draft with an AI-made deck">Start from AI…</MenuItem>
               <MenuItem onClick={() => { close(); window.open(`/lessonReview?lesson=${encodeURIComponent(lessonId)}&preview=1`, '_blank', 'noopener'); }} hint="The saved draft as a readable page, to print">📖 Lesson review ↗</MenuItem>
+              {/* the admin pages (editors only, like this one) */}
+              <MenuItem onClick={() => { close(); window.open('/studyResults', '_blank', 'noopener'); }} hint="The study: its results, the spreadsheet, and the lesson version it plays">📊 Study results ↗</MenuItem>
+              <MenuItem onClick={() => { close(); window.open('/lessonBackup', '_blank', 'noopener'); }} hint="Copy every lesson into Supabase; pictures to upload again">💾 Lesson backup ↗</MenuItem>
               {lessonId !== DEFAULT_LESSON.id && (
                 <MenuItem danger onClick={() => { close(); setConfirmDelete({ busy: false }); }}>Delete this lesson…</MenuItem>
               )}

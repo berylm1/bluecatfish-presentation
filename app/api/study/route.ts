@@ -3,6 +3,7 @@ import { createClient } from '@supabase/supabase-js';
 import { rateLimit } from '@/lib/rateLimit';
 import { DEMOGRAPHICS, GROUPS, POST_QUIZ, PRE_QUIZ, STUDY_VERSION, surveyFor, type QuizQuestion } from '@/lib/study/content';
 import { ANSWERS, score } from '@/lib/study/key';
+import { studyDeck } from '@/lib/study/version';
 
 /*
  * The online study (app/study): one row per person in study_participants (migration 011), saved
@@ -144,6 +145,12 @@ export async function POST(request: NextRequest) {
           group = withMates < without ? 'classmates' : without < withMates ? 'no_classmates' : Math.random() < 0.5 ? 'classmates' : 'no_classmates';
           await update({ study_group: group });
         }
+      }
+      // the lesson version they'll see (the one the study is frozen to now), recorded once (migration 014)
+      const { version } = await studyDeck(null).catch(() => ({ version: null }));
+      if (version) {
+        const { error: vError } = await supabase.from('study_participants').update({ lesson_version: version }).eq('id', id).is('lesson_version', null);
+        if (vError && !/lesson_version/.test(vError.message)) throw vError;   // (column missing: migration 014 not run yet)
       }
       await update(forward('lesson'));
       return NextResponse.json({ group });
