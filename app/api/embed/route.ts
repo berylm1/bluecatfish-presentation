@@ -4,66 +4,25 @@ import { lazySupabaseAdmin } from '@/lib/supabase/admin';
 import { requireIngestAdmin } from '@/lib/requireAdmin';
 import mammoth from 'mammoth';
 import extract from 'pdf-extraction';
+import { chunkBySentences } from '@/lib/knowledgeChunks';
 
 const supabase = lazySupabaseAdmin('NEXT_PUBLIC_SUPABASE_URL');   // created on first use, so the build doesn't need env vars
 
-function chunkText(text: string, maxChunkSize: number = 200, overlap: number = 40): string[] {
-  const words = text.split(' ');
-  const chunks: string[] = [];
-  
-  let current: string[] = [];
-  for (const word of words) {
-    current.push(word)
-    const currentText = current.join(' ');
-    
-    if (currentText.length >= maxChunkSize) {
-      chunks.push(currentText);
-
-      let overlapWords: string[] = [];
-      let overlapChars = 0;
-
-      for (let i = current.length - 1; i >= 0 && overlapChars < overlap; i--) {
-        overlapWords.unshift(current[i]);
-        overlapChars += current[i].length + 1; // +1 for the space
-      }
-      
-      current = overlapWords;
-    } 
+/** Embeddings for many pieces at once (OpenAI takes a list: one request per 100, was one per piece) */
+async function getEmbeddings(texts: string[]): Promise<number[][]> {
+  const out: number[][] = [];
+  for (let i = 0; i < texts.length; i += 100) {
+    const response = await fetch('https://api.openai.com/v1/embeddings', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${process.env.OPENAI_API_KEY}` },
+      body: JSON.stringify({ model: 'text-embedding-3-small', input: texts.slice(i, i + 100) }),
+    });
+    const data = await response.json().catch(() => null);
+    const got: number[][] | undefined = data?.data?.map((d: { embedding: number[] }) => d.embedding);
+    if (!response.ok || !got || got.length !== texts.slice(i, i + 100).length) throw new Error(`Embedding failed (HTTP ${response.status})`);
+    out.push(...got);
   }
-  
-  if (current.length) {
-   chunks.push(current.join(' '));
-  }
-  return chunks;
-}
-
-async function getEmbedding(text: string): Promise<number[]> {
-  console.log("CALLING EMBEDDING API");
-  console.log("🔥 /api/embed HIT");
-  const response = await fetch('https://api.openai.com/v1/embeddings', {
-    method: 'POST',
-    headers: { 
-      'Content-Type': 'application/json', 
-      Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
-    },
-    body: JSON.stringify({ model: 'text-embedding-3-small', input: text }),
-  });
-
-  const raw = await response.text();
-  console.log("embedding raw response:", raw);
-
-  let data;
-  try {
-    data = JSON.parse(raw);
-  } catch (e) {
-    throw new Error("Embedding API returned non-JSON: " + raw);
-  }
-
-  if (!data.data?.[0]?.embedding) {
-    throw new Error("Missing embedding in response: " + raw);
-  }
-  
-  return data.data[0].embedding;
+  return out;
 }
 
 export async function POST(request: NextRequest) {
@@ -108,28 +67,23 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    text = text
-      .replace(/\s+/g, ' ')
-      .replace(/\n/g, ' ')
-      .trim();
-
-    const chunks = chunkText(text, 200, 40);
-    const results = [];
-
-    for (const chunk of chunks) {
-      const embedding = await getEmbedding(chunk);
-      console.log("embedding length:", embedding.length);
-      const { data, error } = await supabase
-        .from('documents3')
-        .insert({ content: chunk, embedding, source: fileName || 'manual-input'})
-        .select();
-      console.log("insert result:", { data, error });
-      if (error) {
-        console.error("SUPABASE INSERT FAILED:", error);
-        throw error;
-      }
-     results.push(chunk);
-      }
+    // whole sentences, about 300 characters each, led by their section's heading (lib/knowledgeChunks.ts)
+    const chunks = chunkBySentences(text);
+    if (!chunks.length) return NextResponse.json({ error: 'No text found in it' }, { status: 400 });
+    const embeddings = await getEmbeddings(chunks);
+    const source = String(fileName || 'manual-input').slice(0, 200);
+    // The same file uploaded again: its new pieces replace its old ones (was: both kept, so every fact twice).
+    // Only once every piece has its embedding, so a failed upload leaves the old pieces as they were.
+    if (fileName) {
+      const { error: delError } = await supabase.from('documents3').delete().eq('source', source);
+      if (delError) throw delError;
+    }
+    const { error } = await supabase.from('documents3').insert(chunks.map((content, i) => ({ content, embedding: embeddings[i], source })));
+    if (error) {
+      console.error('SUPABASE INSERT FAILED:', error);
+      throw error;
+    }
+    const results = chunks;
   return NextResponse.json({ 
     success: true, 
     chunks: results.length 
