@@ -72,16 +72,26 @@ export async function POST(request: NextRequest) {
     if (!chunks.length) return NextResponse.json({ error: 'No text found in it' }, { status: 400 });
     const embeddings = await getEmbeddings(chunks);
     const source = String(fileName || 'manual-input').slice(0, 200);
-    // The same file uploaded again: its new pieces replace its old ones (was: both kept, so every fact twice).
-    // Only once every piece has its embedding, so a failed upload leaves the old pieces as they were.
-    if (fileName) {
-      const { error: delError } = await supabase.from('documents3').delete().eq('source', source);
-      if (delError) throw delError;
-    }
-    const { error } = await supabase.from('documents3').insert(chunks.map((content, i) => ({ content, embedding: embeddings[i], source })));
-    if (error) {
-      console.error('SUPABASE INSERT FAILED:', error);
-      throw error;
+    // The new pieces go in first (100 at a time); then the same file's old pieces come out, so an upload of a file
+    // already there replaces it (was: both kept, every fact twice). Anything failing on the way: the new pieces
+    // that went in come out again, and the old ones stay as they were.
+    const added: number[] = [];
+    try {
+      for (let i = 0; i < chunks.length; i += 100) {
+        const { data, error } = await supabase.from('documents3')
+          .insert(chunks.slice(i, i + 100).map((content, j) => ({ content, embedding: embeddings[i + j], source })))
+          .select('id');
+        if (error) throw error;
+        added.push(...((data ?? []) as { id: number }[]).map((r) => r.id));
+      }
+      if (fileName && added.length) {
+        const { error: delError } = await supabase.from('documents3').delete().eq('source', source).lt('id', Math.min(...added));
+        if (delError) throw delError;
+      }
+    } catch (e) {
+      console.error('Knowledge base upload failed:', e);
+      if (added.length) await supabase.from('documents3').delete().in('id', added);
+      throw e;
     }
     const results = chunks;
   return NextResponse.json({ 

@@ -40,7 +40,7 @@ export default function ConfusionGraph({ topics, curves, person, onClearPerson }
     };
   }), [curves, topics]);
   const picked = person ? curves.find((c) => c.id === person) ?? null : null;
-  if (!topics.length) return <p className="text-sm text-slate-500">No confusion meter data yet (it fills in as people finish topics; migration 012 needs to be run).</p>;
+  if (!topics.length) return <p className="text-sm text-slate-500">No confusion meter data yet: it fills in as people finish topics.</p>;
 
   const top = Math.max(THRESHOLDS.topic[1] + 2, ...stats.flatMap((s) => s.at.map((a) => (a ? a.hi : 0))), ...(picked?.scores.map((x) => x ?? 0) ?? []));
   const yMax = Math.ceil(top / 2) * 2;

@@ -85,7 +85,7 @@ export async function POST(request: NextRequest) {
     const id = body?.id;
     if (typeof id !== 'string' || !UUID.test(id)) return fail('id required');
     const { data: row, error: readError } = await supabase.from('study_participants')
-      .select('id, step, study_group, is_test, pre_quiz, post_quiz, survey, lesson_started_at, lesson_finished_at, lesson_session').eq('id', id).maybeSingle();
+      .select('*')   // (lesson_version too, once migration 014 is run).eq('id', id).maybeSingle();
     if (readError) throw readError;
     if (!row) return fail('Not found', 404);
     const update = async (fields: Record<string, unknown>) => {
@@ -95,7 +95,7 @@ export async function POST(request: NextRequest) {
     // Steps only go forward (a stale tab can't send someone back)
     const forward = (step: unknown) => (typeof step === 'string' && STEPS.indexOf(step) > STEPS.indexOf(row.step) ? { step } : {});
 
-    if (action === 'get') return NextResponse.json({ step: row.step, group: row.study_group, test: row.is_test });
+    if (action === 'get') return NextResponse.json({ step: row.step, group: row.study_group, test: row.is_test, lessonVersion: row.lesson_version ?? null });
 
     if (action === 'save') {
       const fields: Record<string, unknown> = SAVE_STEPS[body.step]?.includes(row.step) ? { step: body.step } : {};

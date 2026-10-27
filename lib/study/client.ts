@@ -97,7 +97,7 @@ export function preloadLesson(lesson: string) {
     .then((d) => {
       const deck = d?.deck;
       if (!deck?.slides?.length) return;
-      try { sessionStorage.setItem(deckKey(lesson), JSON.stringify({ at: Date.now(), deck })); } catch { /* too big or private mode: the lesson loads it itself */ }
+      try { sessionStorage.setItem(deckKey(lesson), JSON.stringify({ at: Date.now(), deck, version: d?.version ?? LIVE_VERSION })); } catch { /* too big or private mode: the lesson loads it itself */ }
       // the first slide's clips, into the browser's cache
       const first = deck.slides[0];
       const urls = [first?.intro?.audioUrl, ...(first?.elements ?? []).map((e: { audioUrl?: string }) => e.audioUrl)].filter(Boolean).slice(0, 5);
@@ -107,11 +107,14 @@ export function preloadLesson(lesson: string) {
     .finally(() => { deckLoading = false; });
 }
 
-/** The deck loaded ahead (this tab, the last few hours), or null */
-export function preloadedDeck(lesson: string): any | null {
+/** What a person's row records when the study isn't frozen to a saved version (lib/study/version.ts LIVE_LABEL) */
+export const LIVE_VERSION = 'live (not frozen)';
+
+/** The deck loaded ahead (this tab, the last few hours) and its version, or null */
+export function preloadedDeck(lesson: string): { deck: any; version: string } | null {
   try {
     const d = JSON.parse(sessionStorage.getItem(deckKey(lesson)) ?? 'null');
-    return d && Date.now() - d.at < DECK_FRESH_MS && d.deck?.slides?.length ? d.deck : null;
+    return d && Date.now() - d.at < DECK_FRESH_MS && d.deck?.slides?.length ? { deck: d.deck, version: d.version ?? LIVE_VERSION } : null;
   } catch {
     return null;
   }

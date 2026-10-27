@@ -70,7 +70,8 @@ export function needsPlain(el: SlideElement): boolean {
 }
 
 /** This Supabase project's id (from its address), to tell our own stored files from another project's */
-const OUR_PROJECT = (process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL || '').replace(/^https?:\/\//, '').split('.')[0];
+// (only for an address on supabase.co: with a custom domain every link would look like another project's)
+const OUR_PROJECT = (process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL || '').match(/^https:\/\/([a-z0-9]+)\.supabase\.co/i)?.[1] ?? '';
 
 /**
  * Is a stored file's link one this lesson can still use? Yes, unless it points at another Supabase project:

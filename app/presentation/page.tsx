@@ -38,7 +38,7 @@ import { lessonLength } from '@/lib/canvas/lessonLength';
 import Quiz, { pickQuiz } from '@/components/canvas/Quiz';
 import { lessonParts } from '@/lib/canvas/parts';
 import { answerGist, areaIds, setAreaText, togetherSlide, TOGETHER_ID } from '@/lib/canvas/together';
-import { preloadedDeck, studyLesson, studyPost, writeStudy, type StudyRecord } from '@/lib/study/client';
+import { LIVE_VERSION, preloadedDeck, studyLesson, studyPost, writeStudy, type StudyRecord } from '@/lib/study/client';
 import { signals } from '@/lib/signals';
 import { atLeast, ConfusionMeter, questionSignal, SIGNALS, snapshotPoints, type ConfusionLevel, type ConfusionSignal, type SavedMeter, type Where } from '@/lib/confusion';
 
@@ -65,12 +65,16 @@ export default function CanvasPresentation() {
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
+    // (the study: the lesson version recorded for them when they pressed Start; null: not known)
+    let recorded: Promise<string | null> = Promise.resolve(null);
     if (params.get('study')) {
       const s = studyLesson();
       if (!s) { setError('This lesson link is part of the study: start it from the study page (/study) on this browser.'); return; }
       // the group the server gave them (not what this browser says: it could be edited); offline: the browser's
       setStudyReady(false);
-      studyPost<{ group?: StudyRecord['group'] }>('get', { id: s.id })
+      const got = studyPost<{ group?: StudyRecord['group']; lessonVersion?: string | null }>('get', { id: s.id });
+      recorded = got.then((d) => d.lessonVersion ?? null, () => null);
+      got
         .then((d) => setStudy(d.group ? { ...s, group: d.group } : s))
         .catch(() => setStudy(s))
         .finally(() => setStudyReady(true));
@@ -79,9 +83,13 @@ export default function CanvasPresentation() {
     const pv = params.get('preview');
     const at = Number(params.get('slide'));
     if (Number.isInteger(at) && at > 1) setStartAt(at - 1);
-    // (the study: the deck was loaded during the checks and quiz 1, app/study)
+    // (the study: the deck was loaded during the checks and quiz 1, app/study; used only if it's the version recorded
+    // for them at Start: the study's version could have been changed in between)
     const ahead = params.get('study') && !pv ? preloadedDeck(lesson) : null;
-    (ahead ? Promise.resolve({ deck: ahead, preview: false }) : loadDeck(lesson, pv === 'ai' ? 'ai' : pv ? 'draft' : null, pv ? null : params.get('study')))
+    const load = () => loadDeck(lesson, pv === 'ai' ? 'ai' : pv ? 'draft' : null, pv ? null : params.get('study'));
+    (ahead
+      ? recorded.then((v) => (v && v === (ahead.version ?? LIVE_VERSION) ? { deck: ahead.deck, preview: false } : load()))
+      : load())
       .then(setLoaded)
       .catch((e) => setError(e instanceof Error ? e.message : String(e)));
   }, []);
