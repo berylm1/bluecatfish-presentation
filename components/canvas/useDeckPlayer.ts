@@ -258,7 +258,7 @@ export function useDeckPlayer(
       const sayLive = () => {
         if (cancelled || fellBack) return;
         fellBack = true;
-        liveClip(textRef.current, pos.mode === 'plain').then((live) => {
+        liveClip(textRef.current, mode === 'plain').then((live) => {
           if (cancelled) return;
           if (!live) { next(); return; }
           const again = voiced(new Audio(live));
