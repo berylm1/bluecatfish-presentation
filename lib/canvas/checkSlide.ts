@@ -13,14 +13,19 @@ const MAX_ELEMENTS = 8;      // searched one by one (each its own excerpts)
 const PER_ELEMENT = 4;
 const MAX_EXCERPTS = 16;
 
-/** The words on a slide worth checking: each element's shown and spoken words (hands-on boxes too: their answers are facts). */
+/**
+ * The words on a slide worth checking: each element's shown and spoken words (hands-on boxes too: their answers are
+ * facts). A picture: only what the professor says about it, marked as a picture's (its description says what it shows,
+ * a person holding a fish, the setting: never in the knowledge base, so it always came up as a gap).
+ */
 function slideWords(slide: Slide): { el: SlideElement; words: string; labelled: string }[] {
   return slide.elements.flatMap((el) => {
-    const shown = shownWords(el).trim();
+    const picture = el.type === 'image';
+    const shown = picture ? '' : shownWords(el).trim();
     const said = spokenText(el);
     const words = [shown, said && said !== shown ? said : ''].filter(Boolean).join(' / ');
     // labelled for the AI, so a fix can be written back into the right one
-    const labelled = [shown && `SHOWN: ${shown}`, said && said !== shown ? `SAID: ${said}` : ''].filter(Boolean).join(' | ');
+    const labelled = [shown && `SHOWN: ${shown}`, said && said !== shown ? `${picture ? 'SAID ABOUT A PICTURE' : 'SAID'}: ${said}` : ''].filter(Boolean).join(' | ');
     return words.length >= 8 ? [{ el, words, labelled }] : [];
   }).slice(0, MAX_ELEMENTS);
 }
@@ -42,6 +47,8 @@ export async function checkSlide(slide: Slide, lessonTitle: string): Promise<{ c
   const out = await chat(
     'You fact-check one slide of a lesson for 10-14 year olds against excerpts from the lesson\'s knowledge base. ' +
       'List each distinct FACT the slide states or the professor says (numbers, dates, names, causes, comparisons); skip opinions, jokes and instructions. ' +
+      'Words SAID ABOUT A PICTURE often describe what the picture shows (who is in it, what they are doing or holding, colors, the setting): skip those, ' +
+      'they are not facts the knowledge base could hold; check only the facts in them about the subject itself (sizes, numbers, places, what it eats, history). ' +
       'For each: "supported" if an excerpt says it (the same fact in other words counts; a rounded number like "100+ pounds" for "over 100 pounds" counts); ' +
       '"contradicted" if an excerpt says something different; "unsupported" if no excerpt covers it. ' +
       'Give the excerpt numbers it rests on and a short exact quote (under 20 words) from one of them. For a contradicted fact, "fix" = what the excerpts say instead, in one plain sentence. ' +
