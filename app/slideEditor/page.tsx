@@ -11,6 +11,7 @@ import { useEditorDeck, blankDeck, blankSlide, cloneSlide, newId, elementsOf, he
 import SlideCanvas from '@/components/canvas/SlideCanvas';
 import { answersToLookAt, claimKey, factBasis, lessonBasis, slideWarnings, slidesToFactCheck, type Warning } from '@/lib/canvas/checks';
 import { speakingOrder } from '@/lib/canvas/queue';
+import { topicRepeats } from '@/lib/canvas/topicRuns';
 import { deckFromAnyVersion } from '@/lib/canvas/fromLegacy';
 import { growMedia } from '@/lib/canvas/fillSpace';
 import { answerState, countTodo, needsBank, openPictureIdeas, pictureBasis, pictureSkipKey, quizBasis, todoTotal, type Patch } from '@/lib/canvas/aiFields';
@@ -249,14 +250,17 @@ function Editor({
   // Each slide's own checks, kept until that slide changes: an edit re-checks only the slide being edited (was: every
   // slide on every keystroke or drag, and the empty-space check tries growing each picture step by step)
   const ownWarnings = useRef(new Map<string, { key: string; warnings: Warning[] }>());
+  // (lesson-wide: a topic that's in two places)
+  const repeatedTopics = useMemo(() => topicRepeats(deck.slides), [deck.slides]);
   const warningsFor = useCallback((i: number): Warning[] => {
     const s = deck.slides[i];
     const fit = (overflow[s.id] ?? []).map((id) => ({ elementId: id, level: 'warn' as const, message: 'Text doesn’t fit its box, even at the smallest size: make the box bigger or the text shorter' }));
     const key = JSON.stringify(s);
     let own = ownWarnings.current.get(s.id);
     if (own?.key !== key) ownWarnings.current.set(s.id, own = { key, warnings: slideWarnings(s) });
-    return [...fit, ...own.warnings];
-  }, [deck, overflow]);
+    const repeat = repeatedTopics.get(s.id);
+    return [...fit, ...(repeat ? [{ level: 'warn' as const, kind: 'topic' as const, ...repeat }] : []), ...own.warnings];
+  }, [deck, overflow, repeatedTopics]);
   const allWarnings = useMemo(() => deck.slides.map((_, i) => warningsFor(i)), [deck, warningsFor]);
   // On the helper layer: the helper's own checks (overlaps, text that doesn't fit, ...)
   const slideWarns = useMemo(() => ed.layer === 'helper'
