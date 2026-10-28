@@ -14,12 +14,15 @@ const PER_ELEMENT = 4;
 const MAX_EXCERPTS = 16;
 
 /**
- * The words on a slide worth checking: each element's shown and spoken words (hands-on boxes too: their answers are
- * facts). A picture: only what the professor says about it, marked as a picture's (its description says what it shows,
- * a person holding a fish, the setting: never in the knowledge base, so it always came up as a gap).
+ * The words on a slide worth checking: each element's shown and spoken words. A picture: only what the professor says
+ * about it, marked as a picture's (its description says what it shows, a person holding a fish, the setting: never in
+ * the knowledge base, so it always came up as a gap). Not hands-on boxes: their answers have their own check
+ * (lib/canvas/activityCheck.ts), which takes a plainly true answer ("menhaden → Fish") the knowledge base doesn't
+ * spell out; this one, judging from the knowledge base only, flagged every such answer (was: both checked them).
  */
 function slideWords(slide: Slide): { el: SlideElement; words: string; labelled: string }[] {
   return slide.elements.flatMap((el) => {
+    if (el.type === 'activity') return [];
     const picture = el.type === 'image';
     const shown = picture ? '' : shownWords(el).trim();
     const said = spokenText(el);
