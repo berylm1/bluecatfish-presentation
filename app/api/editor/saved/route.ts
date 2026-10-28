@@ -1,5 +1,7 @@
 import { NextResponse } from 'next/server';
 import { isLessonId } from '@/lib/canvas/store';
+import { STUDY_LESSON } from '@/lib/study/content';
+import { getStudyVersion } from '@/lib/study/version';
 import { cleanName, deleteSaved, listSaved, nameTaken, readSaved, slugOf } from '@/lib/canvas/saved';
 
 export const dynamic = 'force-dynamic';
@@ -28,6 +30,11 @@ export async function GET(req: Request) {
 export async function DELETE(req: Request) {
   const { lesson, slug } = await req.json().catch(() => ({}));
   if (!isLessonId(lesson) || typeof slug !== 'string' || !/^[a-z0-9-]{1,60}$/.test(slug)) return NextResponse.json({ error: 'Bad version' }, { status: 400 });
+  // (not the version the study plays: /studyResults picks another first; was: deleted, and the study quietly fell back to the live lesson)
+  const study = await getStudyVersion().catch(() => null);
+  if (lesson === STUDY_LESSON && study?.slug === slug) {
+    return NextResponse.json({ error: `“${study.name}” is the lesson the study plays. Pick another one on Study results first.` }, { status: 409 });
+  }
   await deleteSaved(lesson, slug);
   return NextResponse.json({ ok: true });
 }

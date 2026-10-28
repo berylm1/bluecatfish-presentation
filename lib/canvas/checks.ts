@@ -12,8 +12,10 @@ export interface Warning {
   level: 'warn' | 'info';
   message: string;
   /** 'answers': the answer check's ⚠ (the hands-on box's own panel and the Publish checklist show it in full);
-   *  'space': lots of empty space (the slide's own panel offers to grow the pictures) */
-  kind?: 'answers' | 'space';
+   *  'space': lots of empty space (the slide's own panel offers to grow the pictures);
+   *  'topic': the slide's topic is also somewhere else, not next to it (topicRuns.ts; `topic`: the name that joins it up) */
+  kind?: 'answers' | 'space' | 'topic';
+  topic?: string;
 }
 
 export const isDecorative = (el: SlideElement) => el.type === 'image' && !!el.silent;

@@ -33,6 +33,7 @@ import { askStoryOrder } from './storyOrder';
 import { movesFor } from './order';
 import { usedPictures, writeBankTopic } from './bank';
 import { checkPictures, lessonPictures, pictureCandidates } from './pictures';
+import { joinSplitTopics } from './topicRuns';
 
 const otherText = (slide: Slide, el: SlideElement) =>
   slide.elements.filter((e) => e.id !== el.id).map(sayBasis).filter(Boolean).join(' | ');
@@ -130,6 +131,8 @@ async function nameTopics(deck: Deck): Promise<Map<number, string>> {
     'You group lesson slides into topics. Slides in a row with the same topic form one topic, which learners navigate ' +
       'by ("next topic", "go to the part about crabs"). For every slide marked NEEDS TOPIC, give a topic of 2 to 5 words. ' +
       'If the slide continues the slide before it, reuse that slide\'s topic EXACTLY; start a new topic only when the subject changes. ' +
+      'A topic is ONE run of slides in a row: never give a slide the topic of a slide that is not next to it, and a single slide between two ' +
+      'slides of the same topic belongs to that topic (a new name there would split it in two, and learners would see it twice). ' +
       'Reply as JSON: {"topics": [{"index": 3, "topic": "Why They Spread"}]}',
     `Lesson: ${deck.title}\n\n${lines.join('\n')}`,
     true,
@@ -344,9 +347,12 @@ export async function prepareDeck(
   if (deck.slides.some(needsTopic)) {
     words.hold(nameTopics(deck)
       .then((names) => {
-        for (const [i, topic] of names) {
-          const s = deck.slides[i];
-          if (s && needsTopic(s)) keep({ slideId: s.id, kind: 'topic', topic, topicFrom: fingerprint(slideBasis(s)) });
+        // the names as a whole: none splitting a topic or reused further away (topicRuns.ts); only the new ones change
+        const fresh = new Set(deck.slides.flatMap((s, i) => (needsTopic(s) && names.has(i) ? [i] : [])));
+        const topics = joinSplitTopics(deck.slides.map((s, i) => (fresh.has(i) ? names.get(i) : s.topic)), fresh);
+        for (const i of fresh) {
+          const s = deck.slides[i], topic = topics[i];
+          if (topic) keep({ slideId: s.id, kind: 'topic', topic, topicFrom: fingerprint(slideBasis(s)) });
         }
       })
       .catch((e) => fail('Naming topics', e))

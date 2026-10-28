@@ -12,7 +12,8 @@ import type { Deck } from './types';
 
 export type Loaded = { deck: Deck; preview: boolean };
 
-export async function loadDeck(lesson: string, preview: 'draft' | 'ai' | null): Promise<Loaded> {
+/** study: someone in the study (their id): the lesson version the study is frozen to (lib/study/version.ts) */
+export async function loadDeck(lesson: string, preview: 'draft' | 'ai' | null, study?: string | null): Promise<Loaded> {
   if (lesson === 'sample') return { deck: SAMPLE_DECK, preview: false };
   if (preview) {
     const res = await fetch(`/api/editor/deck?lesson=${encodeURIComponent(lesson)}&kind=${preview}`);
@@ -21,7 +22,7 @@ export async function loadDeck(lesson: string, preview: 'draft' | 'ai' | null): 
     if (!deck?.slides?.length) throw new Error(preview === 'ai' ? 'This lesson has no AI deck yet.' : 'This draft has no saved slides yet.');
     return { deck, preview: true };
   }
-  const res = await fetch(`/api/deck?lesson=${encodeURIComponent(lesson)}`);
+  const res = await fetch(`/api/deck?lesson=${encodeURIComponent(lesson)}${study ? `&study=${encodeURIComponent(study)}` : ''}`);
   const { deck, error } = await res.json();
   if (error) throw new Error(error);
   if (deck?.slides?.length) return { deck, preview: false };

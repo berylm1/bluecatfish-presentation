@@ -3,6 +3,7 @@ import { lazySupabaseAdmin } from '@/lib/supabase/admin';
 import type { Deck } from './types';
 import { compact } from './sanitize';
 import { DEFAULT_LESSON, type LessonInfo } from './lessons';
+import { backupFile, backupPath } from './backup';
 
 // Where decks live (docs/customization-plan.md): read from Redis (fast),
 // every hand-made deck also written to Supabase as a backup. If Redis loses
@@ -115,10 +116,25 @@ export async function writeDeck(lesson: string, kind: DeckKind, deck: Deck, by: 
         .insert({ lesson_id: lesson, deck: stored, published_by: by });
       if (histErr) throw new Error(histErr.message);
     }
-    return null;
   } catch (e) {
     return backupError(e);
   }
+  // ...and as a file in the lesson's backup folder (lib/canvas/backup.ts)
+  return (await backupFile(backupPath.deck(lesson, kind), stored))
+    ?? (kind === 'live' ? await backupFile(backupPath.published(lesson, stored.updatedAt ?? new Date().toISOString()), stored) : null);
+}
+
+/** The backup copy only (the table and the file), as the deck is: for copying what Redis has into a new database */
+export async function backupDeck(lesson: string, kind: 'draft' | 'live', deck: Deck): Promise<string | null> {
+  try {
+    const { error } = await supabase
+      .from('canvas_decks')
+      .upsert({ lesson_id: lesson, kind, deck, updated_by: deck.updatedBy ?? null, updated_at: deck.updatedAt ?? new Date().toISOString() }, { onConflict: 'lesson_id,kind' });
+    if (error) throw new Error(error.message);
+  } catch (e) {
+    return backupError(e);
+  }
+  return backupFile(backupPath.deck(lesson, kind), deck);
 }
 
 export async function deleteDeck(lesson: string, kind: DeckKind): Promise<string | null> {

@@ -3,6 +3,7 @@ import { createClient } from '@supabase/supabase-js';
 import { DEMOGRAPHICS, POST_QUIZ, PRE_QUIZ, SURVEY } from '@/lib/study/content';
 import { ANSWERS } from '@/lib/study/key';
 import { AUTH_COOKIE, verifyToken } from '@/lib/editorAuth';
+import { TOPIC_MAX } from '@/lib/confusion';
 
 /*
  * The study's results, for /studyResults (editors only: under PROTECTED_APIS in lib/editorAuth.ts).
@@ -34,10 +35,35 @@ const minutes = (from?: string | null, to?: string | null) => (from && to ? Math
 const ACTIONS = ['activity_done', 'activity_done_early', 'activity_wrong', 'activity_skip', 'activity_hint', 'activity_help',
   'activity_finn', 'activity_finn_caught', 'classmate_mistake_answer', 'helper', 'plain', 'bank_answer', 'bank_together'];
 
+/** A topic's confusion, from the lesson's confusion meter (lib/confusion.ts: the confusion_topic events) */
+type TopicScore = { topic: number; name: string; score: number; level: string; overall: number; overallLevel: string; at: string; partial: boolean };
+/** What one lesson session showed of the confusion meter */
+type Confusion = { topics: Map<number, TopicScore>; levels: { at: string; level: string }[]; last: string; mates: { topic: number; action: string; byMeter: boolean }[] };
+const CLASSMATE_ACTIONS = ['classmate', 'classmate_mistake', 'classmate_mid', 'classmate_lost', 'classmate_react'];
+const MAX_CONFUSED_STRETCH_MS = 10 * 60_000;   // one stretch of "confused" counts at most this long (a tab left open)
+const MAX_TOPICS = 50;   // a topic number past this is junk (the browser writes these events: a made-up 1,000,000 would mean a column each)
+const LEVELS = ['clear', 'unsure', 'confused'];
+/** A score from an event: a number in the meter's range, or null (the browser writes these: never trusted as they come) */
+const scoreOf = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? Math.min(TOPIC_MAX, Math.max(0, v)) : null);
+const levelOf = (v: unknown) => (typeof v === 'string' && LEVELS.includes(v) ? v : '');
+
+/** Minutes the meter's level was "confused": from each level change to the next (or the session's last event) */
+function confusedMinutes(c: Confusion): number {
+  let ms = 0;
+  const lv = [...c.levels].sort((a, b) => a.at.localeCompare(b.at));
+  lv.forEach((l, i) => {
+    if (l.level !== 'confused') return;
+    const to = lv[i + 1]?.at ?? c.last;
+    ms += Math.min(MAX_CONFUSED_STRETCH_MS, Math.max(0, Date.parse(to) - Date.parse(l.at)));
+  });
+  return Math.round(ms / 6000) / 10;
+}
+
 /** What each lesson session did: summed over its topics (learner_state), and counted from the events */
 async function lessonStats(sessions: string[]) {
   const out = new Map<string, Record<string, number>>();
-  if (!sessions.length) return out;
+  const confusion = new Map<string, Confusion>();
+  if (!sessions.length) return { out, confusion };
   const add = (s: string, k: string, n: number) => {
     const m = out.get(s) ?? {};
     m[k] = (m[k] ?? 0) + n;
@@ -53,14 +79,38 @@ async function lessonStats(sessions: string[]) {
     // (migration 010 not run: no classmate columns)
     catch { states = await all(() => db().from('learner_state').select(['session_id', ...cols.filter((c) => c !== 'classmate_turns' && c !== 'bank_answers')].join(', ')).in('session_id', batch).order('session_id').order('section')); }
     for (const st of states) for (const c of cols) if (typeof st[c] === 'number') add(st.session_id, c, st[c]);
-    const events = await all(() => db().from('events').select('id, session_id, event_type, value')
-      .in('session_id', batch).in('event_type', ['emotion_state', 'hand_raise', 'presence_away', 'tutor_decision']).order('id'));
+    const events = await all(() => db().from('events').select('id, session_id, section, event_type, value, created_at')
+      .in('session_id', batch).in('event_type', ['emotion_state', 'hand_raise', 'presence_away', 'tutor_decision', 'confusion_level', 'confusion_topic']).order('created_at').order('id'));
     for (const e of events) countEvent(e);
   }
-  return out;
+  return { out, confusion };
+  function meterOf(session: string): Confusion {
+    let c = confusion.get(session);
+    if (!c) { c = { topics: new Map(), levels: [], last: '', mates: [] }; confusion.set(session, c); }
+    return c;
+  }
   function countEvent(e: any) {
+    const v = e.value ?? {};
+    if (e.event_type === 'confusion_topic' || e.event_type === 'confusion_level') {
+      const c = meterOf(e.session_id);
+      if (e.created_at > c.last) c.last = e.created_at;
+      if (e.event_type === 'confusion_level') { if (levelOf(v.level)) c.levels.push({ at: e.created_at, level: v.level }); return; }
+      const topic = Number.isInteger(v.topic) ? v.topic : e.section;
+      const score = scoreOf(v.score);
+      if (!Number.isInteger(topic) || topic < 0 || topic >= MAX_TOPICS || score === null) return;
+      const had = c.topics.get(topic);
+      // the latest snapshot of a topic counts (one taken as it ended beats a partial one, when the tab was hidden, taken before it)
+      if (had && !had.partial && v.partial) return;
+      c.topics.set(topic, { topic, name: String(v.name ?? '').slice(0, 80), score, level: levelOf(v.level), overall: scoreOf(v.overall) ?? 0, overallLevel: levelOf(v.overallLevel), at: e.created_at, partial: !!v.partial });
+      return;
+    }
     if (e.event_type === 'emotion_state') add(e.session_id, `face_${e.value?.state ?? 'other'}`, 1);
-    else if (e.event_type === 'tutor_decision') { if (ACTIONS.includes(e.value?.action)) add(e.session_id, e.value.action, 1); }
+    else if (e.event_type === 'tutor_decision') {
+      if (ACTIONS.includes(v.action)) add(e.session_id, v.action, 1);
+      if (v.byMeter === true) add(e.session_id, 'helped_by_meter', 1);
+      if (CLASSMATE_ACTIONS.includes(v.action) && Number.isInteger(e.section) && e.section < MAX_TOPICS) meterOf(e.session_id).mates.push({ topic: e.section, action: v.action, byMeter: v.byMeter === true });
+      if (e.created_at > (confusion.get(e.session_id)?.last ?? '')) meterOf(e.session_id).last = e.created_at;
+    }
     else add(e.session_id, e.event_type, 1);
   }
 }
@@ -83,12 +133,37 @@ export async function GET(request: NextRequest) {
 
   const sessionsOf = (p: any): string[] => (p.lesson_session ? String(p.lesson_session).split(' ').filter(Boolean) : []);
   // (the lesson's counts can't be read: the answers still come, with those columns empty)
-  const stats = await lessonStats(people.flatMap(sessionsOf)).catch((e) => { console.error('study results:', e); return new Map<string, Record<string, number>>(); });
-  const LESSON_COLS = ['questions', 'classmate_turns', 'bank_answers', 'confusion_marks', 'repeats', 'simplify_requests', 'skips', 'barge_ins', 'dwell_ms_total', 'face_confused', 'face_bored', 'hand_raise', 'presence_away', ...ACTIONS];
+  const { out: stats, confusion } = await lessonStats(people.flatMap(sessionsOf)).catch((e) => {
+    console.error('study results:', e);
+    return { out: new Map<string, Record<string, number>>(), confusion: new Map<string, Confusion>() };
+  });
+  const LESSON_COLS = ['questions', 'classmate_turns', 'bank_answers', 'confusion_marks', 'repeats', 'simplify_requests', 'skips', 'barge_ins', 'dwell_ms_total', 'face_confused', 'face_bored', 'hand_raise', 'presence_away', ...ACTIONS, 'helped_by_meter'];
+  // The confusion meter, per person: their sessions together (a later session's topic replaces an earlier one's)
+  const meterOf = (p: any) => {
+    const topics = new Map<number, TopicScore>();
+    const mates: Confusion['mates'] = [];
+    let minutesConfused = 0;
+    let any = false;
+    for (const s of sessionsOf(p)) {
+      const c = confusion.get(s);
+      if (!c || (!c.topics.size && !c.levels.length)) continue;   // (a session from before the meter)
+      any = true;
+      // (the latest; but a later partial snapshot, the tab hidden, never replaces one taken as the topic ended)
+      for (const [t, sc] of c.topics) { const had = topics.get(t); if (!had || (had.at <= sc.at && !(sc.partial && !had.partial))) topics.set(t, sc); }
+      mates.push(...c.mates);
+      minutesConfused += confusedMinutes(c);
+    }
+    return any ? { topics, mates, minutesConfused: Math.round(minutesConfused * 10) / 10 } : null;
+  };
+  const meters = new Map(people.map((p: any) => [p.id, meterOf(p)]));
+  // a column per topic (the lesson's topics, in order: topic 1, 2, …)
+  const topicCount = Math.max(0, ...[...meters.values()].flatMap((m) => (m ? [...m.topics.keys()].map((t) => t + 1) : [])));
 
   const rows: Row[] = people.map((p: any) => {
     const r: Row = {
       id: p.id, created_at: p.created_at, is_test: p.is_test, step: p.step, group: p.study_group, finished: !!p.finished_at,
+      // the lesson version they saw (migration 014: "slug:Name", shown by its name)
+      lesson_version: typeof p.lesson_version === 'string' ? (p.lesson_version.includes(':') ? p.lesson_version.split(':').slice(1).join(':') : p.lesson_version) : null,
     };
     for (const d of DEMOGRAPHICS) r[d.id] = p[d.id];
     Object.assign(r, {
@@ -103,6 +178,20 @@ export async function GET(request: NextRequest) {
     const did: Record<string, number> = {};
     for (const s of sessionsOf(p)) for (const [k, n] of Object.entries(stats.get(s) ?? {})) did[k] = (did[k] ?? 0) + n;
     for (const c of LESSON_COLS) r[`lesson_${c}`] = sessionsOf(p).length ? did[c] ?? 0 : null;
+    // the confusion meter (empty when it wasn't in the lesson yet, or migration 012 wasn't run)
+    const m = meters.get(p.id);
+    const scores = m ? [...m.topics.values()] : [];
+    const last = scores.filter((t) => !t.partial).sort((a, b) => a.at.localeCompare(b.at)).pop() ?? scores.sort((a, b) => a.at.localeCompare(b.at)).pop();
+    const max = scores.reduce<TopicScore | null>((b, t) => (!b || t.score > b.score ? t : b), null);
+    Object.assign(r, {
+      confusion_end_overall: last?.overall ?? null,
+      confusion_end_level: last?.overallLevel ?? null,
+      confusion_max_topic_score: max?.score ?? null,
+      confusion_max_topic: max ? max.name || `topic ${max.topic + 1}` : null,
+      confusion_topics_confused: m ? scores.filter((t) => t.level === 'confused').length : null,
+      confusion_minutes_confused: m ? m.minutesConfused : null,
+    });
+    for (let t = 0; t < topicCount; t++) r[`confusion_topic_${t + 1}`] = m?.topics.get(t)?.score ?? null;
     // every answer
     for (const [phase, qs, saved] of [['pre', PRE_QUIZ, p.pre_quiz], ['post', POST_QUIZ, p.post_quiz]] as const) {
       for (const qq of qs) {
@@ -146,5 +235,17 @@ export async function GET(request: NextRequest) {
     };
   });
   const steps = rows.reduce<Record<string, number>>((m, r) => ({ ...m, [String(r.step)]: (m[String(r.step)] ?? 0) + 1 }), {});
-  return NextResponse.json({ summary, steps, rows });
+  // The confusion graph: each person's topic scores, and where a classmate spoke
+  const names: string[] = [];
+  for (const m of meters.values()) for (const t of m?.topics.values() ?? []) if (t.name && !names[t.topic]) names[t.topic] = t.name;
+  const curves = people.flatMap((p: any) => {
+    const m = meters.get(p.id);
+    if (!m || !m.topics.size) return [];
+    return [{
+      id: p.id, group: p.study_group, finished: !!p.finished_at,
+      scores: Array.from({ length: topicCount }, (_, t) => m.topics.get(t)?.score ?? null),
+      mates: m.mates.map((x) => ({ topic: x.topic, byMeter: x.byMeter, action: x.action })),
+    }];
+  });
+  return NextResponse.json({ summary, steps, rows, confusion: { topics: Array.from({ length: topicCount }, (_, t) => names[t] || `Topic ${t + 1}`), curves } });
 }

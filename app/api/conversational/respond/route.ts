@@ -3,6 +3,11 @@ import { MAX, rateLimit, tooLarge } from '@/lib/rateLimit';
 import { lazySupabaseAdmin } from '@/lib/supabase/admin';
 import { classifyIntent } from '@/lib/tutorIntent';
 
+// The knowledge base: the closest pieces handed to the professor (lib/knowledgeChunks.ts: about 300 characters each;
+// was 4 pieces of 200, cut mid-sentence), and how close to the question a piece must be (1 = the same meaning)
+const KB_PIECES = 5;
+const KB_MIN_SIMILARITY = 0.2;
+
 const supabase = lazySupabaseAdmin();   // created on first use, so the build doesn't need env vars
 
 type ConversationMessage = {
@@ -98,10 +103,11 @@ export async function POST(request: NextRequest) {
       const queryEmbedding = await getEmbedding(userText);
       const { data, error } = await supabase.rpc('match_documents3', {
         query_embedding: queryEmbedding,
-        match_count: 4,
+        match_count: KB_PIECES,
       });
       if (error) console.error('Supabase RPC error:', error);
-      docs = data;
+      // (a piece barely related to the question is left out: it only pulls the answer off topic)
+      docs = (data ?? []).filter((d: { similarity?: number }) => typeof d.similarity !== 'number' || d.similarity >= KB_MIN_SIMILARITY);
     } catch (e) {
       console.error('Knowledge-base lookup failed:', e);
     }
