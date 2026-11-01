@@ -1,7 +1,7 @@
 'use client';
 
 /**
- * /studyResults: how the online study is going (editors only: lib/editorAuth.ts). The two groups
+ * /studyResults: how the online study (the classmates study; the others: StudyTabs) is going (editors only: lib/editorAuth.ts). The two groups
  * side by side, where people stopped, everyone's row, and the whole thing as a spreadsheet
  * (/api/study/results?format=csv: one person per row, every answer in its own column).
  */
@@ -11,6 +11,7 @@ import Link from 'next/link';
 import ConfusionGraph, { type Curve } from '@/components/study/ConfusionGraph';
 import StudyVersionPicker from '@/components/study/StudyVersionPicker';
 import StudyChecklist from '@/components/study/StudyChecklist';
+import StudyTabs from '@/components/study/StudyTabs';
 
 type Summary = {
   group: string | null; people: number; finished: number;
@@ -46,8 +47,9 @@ export default function StudyResults() {
   return (
     <main className="min-h-screen bg-slate-50 text-slate-900 p-6">
       <div className="max-w-6xl mx-auto flex flex-col gap-6">
+        <StudyTabs current="classmates" />
         <header className="flex flex-wrap items-center gap-4">
-          <h1 className="text-2xl font-bold flex-1">Study results</h1>
+          <h1 className="text-2xl font-bold flex-1">Classmates study</h1>
           <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={tests} onChange={(e) => setTests(e.target.checked)} /> Include test runs</label>
           <a href={`/api/study/results?format=csv${tests ? '&tests=1' : ''}`} className="px-4 py-2 rounded-lg bg-cyan-600 hover:bg-cyan-500 text-white font-semibold">⬇ Download spreadsheet (CSV)</a>
           <Link href="/studyResults/report" className="px-4 py-2 rounded-lg border bg-white hover:bg-slate-50 font-semibold">📋 Pilot report</Link>
