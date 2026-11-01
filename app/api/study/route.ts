@@ -84,8 +84,9 @@ export async function POST(request: NextRequest) {
 
     const id = body?.id;
     if (typeof id !== 'string' || !UUID.test(id)) return fail('id required');
+    // ('*': lesson_version too, once migration 014 is run)
     const { data: row, error: readError } = await supabase.from('study_participants')
-      .select('*')   // (lesson_version too, once migration 014 is run).eq('id', id).maybeSingle();
+      .select('*').eq('id', id).maybeSingle();
     if (readError) throw readError;
     if (!row) return fail('Not found', 404);
     const update = async (fields: Record<string, unknown>) => {
