@@ -42,6 +42,22 @@ export function studyLesson(): StudyRecord | null {
   return id && r && r.id === id && r.group ? r : null;
 }
 
+/**
+ * A fresh start for the next person on this computer (in-person sessions: the homepage's "New person" button,
+ * the study's "Someone else…"): their name, where they were in the lesson, their study record, the voice speed and
+ * sounds, this tab's session. The editor's unlock (a cookie) stays.
+ */
+export function freshStart() {
+  for (const store of [localStorage, sessionStorage]) {
+    try {
+      for (const k of Object.keys(store)) {
+        if (k === KEY || k === 'learnerName' || k === 'voiceSpeed' || k === 'handsOnSounds' || k === 'learner_session'
+          || k.startsWith('lessonProgress:') || k.startsWith('studyDeck:')) store.removeItem(k);
+      }
+    } catch { /* private mode: nothing kept anyway */ }
+  }
+}
+
 /** Has this browser seen the lesson before (outside the study)? A backup to what people say. */
 export function seenBefore(): boolean {
   try {

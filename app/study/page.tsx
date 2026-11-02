@@ -5,7 +5,7 @@ import {
   CONSENT, DEMOGRAPHICS, POST_QUIZ, PRE_QUIZ, SCALE, STUDY_LESSON, STUDY_MINUTES, STUDY_TITLE, surveyFor,
   type DemographicId, type QuizQuestion, type StudyGroup,
 } from '@/lib/study/content';
-import { forgetPreloaded, isComputer, preloadCamera, preloadLesson, readStudy, seenBefore, studyPost, writeStudy, type StudyRecord } from '@/lib/study/client';
+import { freshStart, isComputer, preloadCamera, preloadLesson, readStudy, seenBefore, studyPost, writeStudy, type StudyRecord } from '@/lib/study/client';
 import { learnerHeaders } from '@/lib/learnerSession';
 
 /*
@@ -89,11 +89,8 @@ export default function Study() {
     }
   }, []);
 
-  const forget = () => {
-    writeStudy(null);
-    forgetPreloaded(STUDY_LESSON);
-    try { for (const k of Object.keys(localStorage)) if (k.startsWith('lessonProgress:')) localStorage.removeItem(k); } catch { /* fine */ }
-  };
+  // (everything this browser kept: the record, the lesson's place, the name: lib/study/client.ts freshStart)
+  const forget = () => freshStart();
   const resetTest = () => {
     if (!window.confirm('Forget this test run on this browser and start again?')) return;
     forget();
