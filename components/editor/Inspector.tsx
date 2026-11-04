@@ -360,6 +360,9 @@ export function SlideInspector({
               {w.kind === 'space' && (
                 onGrowMedia && <button className="ml-1.5 underline text-cyan-700 hover:text-cyan-600" onClick={onGrowMedia}>⤢ Make them bigger</button>
               )}
+              {w.kind === 'topic' && w.topic && (
+                <button className="ml-1.5 underline text-cyan-700 hover:text-cyan-600" onClick={() => update({ topic: w.topic, topicByAI: undefined })}>Use “{w.topic}”</button>
+              )}
             </p>
           ))}
         </div>

@@ -14,6 +14,10 @@ export type StudyRecord = {
   group?: StudyGroup;
   /** They let the camera on in the check (the lesson turns it on) */
   camera?: boolean;
+  /** Their participant code (P7: migration 017), for the researcher to note at the end */
+  code?: string | null;
+  /** They gave their name (kept in this browser as learnerName, for the professor; never sent to the study) */
+  named?: boolean;
 };
 
 const KEY = 'studyRecord';
@@ -40,6 +44,22 @@ export function studyLesson(): StudyRecord | null {
   const id = new URLSearchParams(window.location.search).get('study');
   const r = readStudy();
   return id && r && r.id === id && r.group ? r : null;
+}
+
+/**
+ * A fresh start for the next person on this computer (in-person sessions: the homepage's "New person" button,
+ * the study's "Someone else…"): their name, where they were in the lesson, their study record, the voice speed and
+ * sounds, this tab's session. The editor's unlock (a cookie) stays.
+ */
+export function freshStart() {
+  for (const store of [localStorage, sessionStorage]) {
+    try {
+      for (const k of Object.keys(store)) {
+        if (k === KEY || k === 'learnerName' || k === 'voiceSpeed' || k === 'handsOnSounds' || k === 'learner_session'
+          || k.startsWith('lessonProgress:') || k.startsWith('studyDeck:')) store.removeItem(k);
+      }
+    } catch { /* private mode: nothing kept anyway */ }
+  }
 }
 
 /** Has this browser seen the lesson before (outside the study)? A backup to what people say. */
@@ -92,12 +112,12 @@ export function preloadLesson(lesson: string) {
   if (deckLoading) return;
   try { if (preloadedDeck(lesson)) return; } catch { /* fine */ }
   deckLoading = true;
-  fetch(`/api/deck?lesson=${encodeURIComponent(lesson)}`)
+  fetch(`/api/deck?lesson=${encodeURIComponent(lesson)}&study=1`)   // (the version the study is frozen to)
     .then((r) => (r.ok ? r.json() : null))
     .then((d) => {
       const deck = d?.deck;
       if (!deck?.slides?.length) return;
-      try { sessionStorage.setItem(deckKey(lesson), JSON.stringify({ at: Date.now(), deck })); } catch { /* too big or private mode: the lesson loads it itself */ }
+      try { sessionStorage.setItem(deckKey(lesson), JSON.stringify({ at: Date.now(), deck, version: d?.version ?? LIVE_VERSION })); } catch { /* too big or private mode: the lesson loads it itself */ }
       // the first slide's clips, into the browser's cache
       const first = deck.slides[0];
       const urls = [first?.intro?.audioUrl, ...(first?.elements ?? []).map((e: { audioUrl?: string }) => e.audioUrl)].filter(Boolean).slice(0, 5);
@@ -107,11 +127,14 @@ export function preloadLesson(lesson: string) {
     .finally(() => { deckLoading = false; });
 }
 
-/** The deck loaded ahead (this tab, the last few hours), or null */
-export function preloadedDeck(lesson: string): any | null {
+/** What a person's row records when the study isn't frozen to a saved version (lib/study/version.ts LIVE_LABEL) */
+export const LIVE_VERSION = 'live (not frozen)';
+
+/** The deck loaded ahead (this tab, the last few hours) and its version, or null */
+export function preloadedDeck(lesson: string): { deck: any; version: string } | null {
   try {
     const d = JSON.parse(sessionStorage.getItem(deckKey(lesson)) ?? 'null');
-    return d && Date.now() - d.at < DECK_FRESH_MS && d.deck?.slides?.length ? d.deck : null;
+    return d && Date.now() - d.at < DECK_FRESH_MS && d.deck?.slides?.length ? { deck: d.deck, version: d.version ?? LIVE_VERSION } : null;
   } catch {
     return null;
   }

@@ -1,6 +1,8 @@
 'use client';
 
 import type { SlideStats } from '@/lib/canvas/slideStats';
+import type { SlideElement } from '@/lib/canvas/types';
+import { shownWords } from '@/lib/canvas/queue';
 
 // The slide editor's learner heatmap: a badge per slide in the list, and the
 // details for the open slide (from /api/editor/slide-stats).
@@ -39,6 +41,36 @@ function HandsOnRow({ h }: { h: NonNullable<SlideStats['handsOn']> }) {
           trickiest: {h.hardest.map(([item, n], i) => <span key={item}>{i ? ', ' : ''}<b>{item}</b> ({n})</span>)}
         </span>
       )}
+    </div>
+  );
+}
+
+/** The confusion meter on this slide: which of its boxes learners got stuck on (their points, averaged), most first */
+function MeterRow({ m, elements }: { m: NonNullable<SlideStats['meter']>; elements?: SlideElement[] }) {
+  const words = (box: string | null) => {
+    const el = box ? elements?.find((e) => e.id === box) : null;
+    const w = el ? shownWords(el).replace(/\s+/g, ' ').trim() : '';
+    return box === null ? 'the slide itself' : w ? (w.length > 60 ? `${w.slice(0, 58)}…` : w) : 'a box no longer on the slide';
+  };
+  const top = Math.max(1, ...m.boxes.map((b) => b.avg));
+  return (
+    <div className="mt-1.5 pt-1.5 border-t border-slate-100" data-meter-row>
+      <span className="font-semibold text-slate-900">🧭 Where learners got stuck</span>
+      <span className="text-slate-400" title="The confusion meter's points: “I’m lost” 3, “simpler please” 2, a hands-on mistake 1… averaged over the learners"> · confusion points, average of {m.learners} · whole slide <b className="text-slate-700">{m.avgPoints}</b></span>
+      {m.boxes.length ? (
+        <ul className="mt-1 flex flex-col gap-0.5">
+          {m.boxes.map((b) => (
+            <li key={b.box ?? ''} className="flex items-center gap-2">
+              <span className="shrink-0 w-24 h-1.5 rounded-full bg-slate-100 overflow-hidden" aria-hidden>
+                <span className="block h-full rounded-full bg-amber-500" style={{ width: `${Math.round((b.avg / top) * 100)}%` }} />
+              </span>
+              <b className="shrink-0 w-8 text-right">{b.avg}</b>
+              <span className="truncate">{words(b.box)}</span>
+              {b.stuck > 0 && <span className="ml-auto shrink-0 text-slate-500 whitespace-nowrap">{b.stuck} stuck</span>}
+            </li>
+          ))}
+        </ul>
+      ) : <p className="text-slate-500">Nobody got stuck here.</p>}
     </div>
   );
 }
@@ -91,7 +123,7 @@ function HandsOnOverview({ all, slides, current, onGo }: {
 export function SlideStatsPanel({ stats, days, onClose, all, slides, current, onGo }: {
   stats: SlideStats | undefined; days: number; onClose: () => void;
   /** The whole lesson's stats, for the hands-on overview */
-  all?: Record<string, SlideStats>; slides?: { id: string; topic?: string }[]; current?: string; onGo?: (index: number) => void;
+  all?: Record<string, SlideStats>; slides?: { id: string; topic?: string; elements?: SlideElement[] }[]; current?: string; onGo?: (index: number) => void;
 }) {
   const row = (label: string, n: number | string | null, hint?: string) =>
     n === 0 || n === null ? null : (
@@ -129,6 +161,7 @@ export function SlideStatsPanel({ stats, days, onClose, all, slides, current, on
           {row('⏱ avg seconds here', stats.avgSeconds)}
         </div>
       )}
+      {stats?.meter && <MeterRow m={stats.meter} elements={slides?.find((s) => s.id === current)?.elements} />}
       {stats?.handsOn && <HandsOnRow h={stats.handsOn} />}
       {all && slides && onGo && <HandsOnOverview all={all} slides={slides} current={current ?? ''} onGo={onGo} />}
     </div>

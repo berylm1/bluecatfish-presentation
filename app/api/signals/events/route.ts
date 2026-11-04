@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { lazySupabaseAdmin } from '@/lib/supabase/admin';
-import { EVENT_TYPES } from '@/lib/eventTypes';
+import { EVENT_TYPES, NEWER_EVENT_TYPES } from '@/lib/eventTypes';
 import { rateLimit } from '@/lib/rateLimit';
 
 export const dynamic = 'force-dynamic';
@@ -52,9 +52,16 @@ export async function POST(req: Request) {
   const rows = raw.slice(0, MAX_EVENTS).map((e) => clean(e, now)).filter((e): e is NonNullable<typeof e> => !!e);
   if (!rows.length) return NextResponse.json({ error: 'No usable events' }, { status: 400 });
   try {
-    const { error } = await supabase.from('events').insert(rows);
+    let { error } = await supabase.from('events').insert(rows);
+    let written = rows.length;
+    // A kind the database doesn't take yet (its migration not run): the rest still go in (was: one such row lost them all)
+    if (error && /events_event_type_check/.test(error.message) && rows.some((r) => NEWER_EVENT_TYPES.includes(r.event_type))) {
+      const older = rows.filter((r) => !NEWER_EVENT_TYPES.includes(r.event_type));
+      written = older.length;
+      ({ error } = older.length ? await supabase.from('events').insert(older) : { error: null });
+    }
     if (error) throw new Error(error.message);
-    return NextResponse.json({ ok: true, written: rows.length, dropped: Math.min(raw.length, MAX_EVENTS) - rows.length });
+    return NextResponse.json({ ok: true, written, dropped: Math.min(raw.length, MAX_EVENTS) - written });
   } catch (e) {
     // tracking is best effort: say what went wrong, the lesson doesn't wait for it
     return NextResponse.json({ error: e instanceof Error ? e.message : String(e) }, { status: 500 });

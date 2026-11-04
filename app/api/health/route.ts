@@ -1,3 +1,4 @@
+import { SETUP_BUCKETS, SETUP_TABLES, setupMissing } from '@/lib/setupCheck';
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { checkRedisHealth } from '@/src/redisClient';
@@ -56,6 +57,8 @@ async function run(fn: () => Promise<Check>): Promise<Check> {
     return { ok: false, detail: e instanceof Error ? e.message : String(e) };
   }
 }
+
+const OPTIONAL = ['manim'];
 
 export async function GET(req: NextRequest) {
   const limited = await rateLimit(req, 'health');
@@ -145,7 +148,18 @@ export async function GET(req: NextRequest) {
         ? { ok: true, detail: `both URLs point at project ${refs.SUPABASE_URL}` }
         : { ok: false, detail: `the two URLs point at different projects: ${JSON.stringify(refs)}` };
 
+  // Everything the setup files make (supabase/migrations 000-013), so a missing piece shows at once
+  // (was: a table made by hand in Supabase, never in the code, and lost with the first project)
+  const setup = await run(async () => {
+    if (!admin) return needAdmin;
+    const missing = await setupMissing(admin);
+    return missing.length
+      ? { ok: false, detail: `missing: ${missing.join(', ')} (run the setup files in supabase/migrations, in order)` }
+      : { ok: true, detail: `all ${SETUP_TABLES.length} tables, 2 search functions and ${SETUP_BUCKETS.length} buckets` };
+  });
+
   const checks = {
+    setup,
     supabaseProject,
     supabaseServiceKey: serviceKeyCheck,
     supabaseAnonKey: anonKey,
@@ -160,7 +174,8 @@ export async function GET(req: NextRequest) {
     manim,
   };
 
-  const ok = Object.values(checks).every((c) => c.ok);
+  // (not counted: what the site does without; the animation server isn't in use)
+  const ok = Object.entries(checks).every(([k, c]) => c.ok || OPTIONAL.includes(k));
   if (!editor) return NextResponse.json({ ok, details: 'Unlock the editor (/unlock) to see the details.' }, { headers: { 'Cache-Control': 'no-store' } });
   return NextResponse.json(
     {

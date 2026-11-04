@@ -5,7 +5,8 @@
 // DRAFT: written from what the Blue Catfish lesson teaches. Check every question against the final
 // lesson before the study starts, and keep ids the same once real people have answered.
 
-export const STUDY_VERSION = 'v1';   // saved with each person: change it when the questions change
+export const STUDY_VERSION = 'v2';   // saved with each person: change it when the questions change
+// (v2: in person; the name first, the pilot's demographic questions, the UEQ-S, post-condition and post-study questionnaires)
 export const STUDY_TITLE = 'Learning with AI: the Blue Catfish lesson';
 export const STUDY_MINUTES = '25–35';
 export const STUDY_LESSON = 'blue-catfish';
@@ -23,33 +24,54 @@ export const CONSENT = {
   heading: 'Before you start',
   paragraphs: [
     'We are graduate students studying how people learn from an interactive, AI-narrated lesson. In this study you will go through a short lesson about blue catfish in the Chesapeake Bay, taught by an AI professor. Some people will also have AI classmates in the lesson and some won’t. Which one you get is picked at random.',
-    `It takes about ${STUDY_MINUTES} minutes: a quick sound and microphone check, a few questions about you, a 5-question quiz, the lesson, a second quiz, and a short questionnaire about how it went. You’ll see how you did on the quizzes at the end.`,
-    'You need a laptop or desktop computer with sound. The lesson can use your microphone, so you can ask the professor questions out loud, and your camera if you allow it. You can also type, and the camera is optional.',
-    'If the camera is on, it is used only inside your browser to notice things like a raised hand or a puzzled look. No video or picture is ever recorded or sent anywhere. Only short labels, such as "looked confused on slide 4", are saved. What you say to the professor is turned into text so it can answer you, and those questions are saved as text.',
-    'We don’t ask for your name or email, and nothing you answer is linked to who you are. Your answers are stored securely and used only for this research project. Results may appear in our thesis, only as group totals or without anything that could identify you.',
-    'Taking part is voluntary. You can stop at any time by closing the page. Answers you gave up to that point may be kept, without anything that identifies you. There are no known risks beyond normal computer use, and no direct benefit other than learning about blue catfish.',
+    `It takes about ${STUDY_MINUTES} minutes: a quick sound and microphone check, a few questions about you, a 5-question quiz, the lesson, a second quiz, and two short questionnaires about how it went. You’ll see how you did on the quizzes at the end.`,
+    'The lesson uses the microphone, so you can ask the professor questions out loud (you can also type), and the camera if you allow it (it’s optional). Your browser may ask to allow them.',
+    'Nothing from the microphone or camera is recorded or saved. The camera is used only inside the browser, to notice things like a raised hand or a puzzled look; only short labels, such as "looked confused on slide 4", are saved. What you say to the professor is turned into text so it can answer you, and those questions are saved as text.',
+    'You’ll be asked for a first name or nickname, so the professor can greet you. It stays on this computer and is not saved with your answers: they’re saved under a participant number. Your answers are stored securely and used only for this research project. Results may appear in our thesis, only as group totals or without anything that could identify you.',
+    'Taking part is voluntary. You can stop at any time. Answers you gave up to that point may be kept, without anything that identifies you. There are no known risks beyond normal computer use, and no direct benefit other than learning about blue catfish.',
     'Please don’t tell anyone else what the lesson is like until they’ve done it too.',
   ],
+  // (v1: "We don't ask for your name or email, and nothing you answer is linked to who you are." The name is asked
+  // now, and kept on the computer only)
   // Questions about the study: put the research team's or the professor's contact here
   contact: 'Questions about this study? Contact the research team.',
-  agree: 'I am 18 or older, I have read the above, and I agree to take part.',
+  agree: 'I am 18 or older, I have read the above, and I agree to take part, including the use of the microphone and (if I allow it) the camera as described.',
 };
 
 /* ------------------------------------------------------------- demographics */
 
-export type Demographic = { id: DemographicId; q: string; choices?: string[]; optional?: boolean; text?: boolean };
-export type DemographicId = 'age_range' | 'student' | 'field' | 'ai_use' | 'catfish_knowledge' | 'bay_area' | 'english_first' | 'done_before';
+/**
+ * The pre-study questionnaire (the pilot's "Pre-Study Questionnaire"), saved together (study_participants.demographics,
+ * migration 017). `other`: the choice that opens a box to write in ("Other: ___"); `number`: a number from min to max.
+ */
+export type Demographic = { id: DemographicId; q: string; choices?: string[]; optional?: boolean; text?: boolean; number?: { min: number; max: number }; other?: string };
+export type DemographicId = 'age' | 'gender' | 'role' | 'ai_familiarity' | 'ai_tutor_before' | 'catfish_familiarity';
 
+const FAMILIAR = ['1 – Not at all familiar', '2 – Slightly familiar', '3 – Moderately familiar', '4 – Very familiar', '5 – Extremely familiar'];
 export const DEMOGRAPHICS: Demographic[] = [
-  { id: 'age_range', q: 'How old are you?', choices: ['18–24', '25–34', '35–44', '45–54', '55–64', '65 or older'] },
-  { id: 'student', q: 'Are you a student?', choices: ['Undergraduate student', 'Graduate student', 'Not a student', 'Other'] },
-  { id: 'field', q: 'What do you study, or what is your work? (optional)', text: true, optional: true },
-  { id: 'ai_use', q: 'How often do you use AI tools like ChatGPT?', choices: ['Never', 'A few times a year', 'Monthly', 'Weekly', 'Daily'] },
-  { id: 'catfish_knowledge', q: 'How much did you know about blue catfish before today?', choices: ['Nothing', 'A little', 'Some', 'A lot'] },
-  { id: 'bay_area', q: 'Do you live in or near the Chesapeake Bay area?', choices: ['Yes', 'No', 'Not sure'] },
-  { id: 'english_first', q: 'Is English your first language?', choices: ['Yes', 'No'] },
-  { id: 'done_before', q: 'Have you gone through this Blue Catfish presentation before?', choices: ['No', 'Yes, part of it', 'Yes, all of it'] },
+  { id: 'age', q: 'What is your age (in years)?', number: { min: 18, max: 110 } },
+  { id: 'gender', q: 'What is your gender?', choices: ['Male', 'Female', 'Non-binary', 'Prefer to self-describe', 'Prefer not to answer'], other: 'Prefer to self-describe' },
+  { id: 'role', q: 'What is your current educational background or role?', choices: ['Undergraduate student', 'Graduate student', 'Faculty / Educator', 'Other', 'Prefer not to answer'], other: 'Other' },
+  { id: 'ai_familiarity', q: 'How familiar are you with AI tools such as ChatGPT?', choices: FAMILIAR },
+  { id: 'ai_tutor_before', q: 'Have you previously used AI-based learning or tutoring tools?', choices: ['Yes', 'No', 'Not sure'] },
+  { id: 'catfish_familiarity', q: 'How familiar are you with Blue Catfish and their ecological impacts in the Chesapeake Bay?', choices: FAMILIAR },
 ];
+/** A demographic answer as kept: a choice, "Other: what they wrote", or the age */
+export function demographicAnswer(d: Demographic, raw: unknown): string | null {
+  if (typeof raw !== 'string') return null;
+  const v = raw.replace(/\s+/g, ' ').trim();
+  if (!v) return null;
+  if (d.number) { const n = Number(v); return Number.isInteger(n) && n >= d.number.min && n <= d.number.max ? String(n) : null; }
+  if (d.text) return v.slice(0, 200);
+  if (d.choices?.includes(v)) return v === d.other ? null : v;   // ("Other" alone: what they wrote is needed)
+  if (d.other && v.startsWith(`${d.other}: `) && v.length > d.other.length + 2) return v.slice(0, 200);
+  return null;
+}
+// v1's questions (were study_participants columns age_range, student, field, ai_use, catfish_knowledge, bay_area,
+// english_first, done_before: removed by migration 018):
+//   How old are you? (ranges) · Are you a student? · What do you study, or what is your work? · How often do you use AI tools
+//   like ChatGPT? · How much did you know about blue catfish before today? · Do you live in or near the Chesapeake Bay area?
+//   · Is English your first language? · Have you gone through this Blue Catfish presentation before?
 
 /* -------------------------------------------------------------------- quiz */
 
@@ -98,38 +120,56 @@ export const POST_QUIZ: QuizQuestion[] = [QUIZ_NEW[0], QUIZ_SAME[2], QUIZ_NEW[1]
 /* ------------------------------------------------------------ questionnaire */
 
 export type SurveyItem =
-  | { id: string; kind: 'scale'; q: string; low?: string; high?: string; group?: 'classmates' | 'no_classmates' }
-  | { id: string; kind: 'pick'; q: string; choices: string[]; group?: 'classmates' | 'no_classmates' }
-  | { id: string; kind: 'text'; q: string; optional?: boolean; group?: 'classmates' | 'no_classmates' };
+  | { id: string; kind: 'scale'; q: string; low?: string; high?: string; group?: 'classmates' | 'no_classmates'; part?: SurveyPart }
+  | { id: string; kind: 'pair'; low: string; high: string; q?: undefined; group?: undefined; part?: SurveyPart }
+  | { id: string; kind: 'pick'; q: string; choices: string[]; group?: 'classmates' | 'no_classmates'; part?: SurveyPart }
+  | { id: string; kind: 'text'; q: string; optional?: boolean; group?: 'classmates' | 'no_classmates'; part?: SurveyPart };
+/** The page it's on: after the lesson (UEQ-S and the general questions), then the post-study questions */
+export type SurveyPart = 'condition' | 'study';
 
 export const SCALE = ['Strongly disagree', 'Disagree', 'Neutral', 'Agree', 'Strongly agree'];
+export const PAIR_POINTS = 7;   // the UEQ-S: 7 circles between two words
 
-// Agree/disagree 1-5. `group`: asked only of that group.
+/*
+ * After the lesson (the pilot's "Post-Condition Questionnaire"):
+ *   the UEQ-S (the User Experience Questionnaire, short version, ueq-online.org): its 8 word pairs, in its order and
+ *   wording, 1-7 from the left word to the right. (Scored -3 to +3 by the UEQ's own sheet: answer minus 4.)
+ *   Items 1-4: pragmatic quality; 5-8: hedonic quality.
+ *   Then the general experience: 1-5, strongly disagree to strongly agree.
+ * Then the post-study questions (the pilot's "Post-Study Questionnaire"), for one version per person: its open questions
+ * only. (Its questions 1-4 compare the two versions: for someone who saw both.) 5 and 6 are about the classmates, so
+ * the other group gets one about what helped instead. `group`: asked only of that group.
+ */
 export const SURVEY: SurveyItem[] = [
-  { id: 'enjoy', kind: 'scale', q: 'I enjoyed the lesson.' },
-  { id: 'attention', kind: 'scale', q: 'I paid attention for most of the lesson.' },
-  { id: 'follow', kind: 'scale', q: 'The lesson was easy to follow.' },
-  { id: 'learned', kind: 'scale', q: 'I learned something new about blue catfish.' },
-  { id: 'askComfort', kind: 'scale', q: 'I felt comfortable asking questions.' },
-  { id: 'notAlone', kind: 'scale', q: 'It felt like being in a class, not learning alone.' },
-  { id: 'again', kind: 'scale', q: 'I would like to learn other topics this way.' },
-  { id: 'effort', kind: 'scale', q: 'How much mental effort did the lesson take?', low: 'Very little', high: 'A lot' },
-  // with the classmates
-  { id: 'matesHelped', kind: 'scale', q: 'The classmates’ questions helped me understand.', group: 'classmates' },
-  { id: 'matesWanted', kind: 'scale', q: 'The classmates asked things I wanted to know too.', group: 'classmates' },
-  { id: 'matesDistract', kind: 'scale', q: 'The classmates were distracting.', group: 'classmates' },
-  { id: 'finnThink', kind: 'scale', q: 'Finn’s mix-ups made me think harder.', group: 'classmates' },
-  { id: 'matesReal', kind: 'scale', q: 'The classmates felt like real classmates.', group: 'classmates' },
-  { id: 'favorite', kind: 'pick', q: 'Which classmate did you like most?', choices: ['Maya', 'Finn', 'Leo', 'None of them'], group: 'classmates' },
-  // without
-  { id: 'wantMates', kind: 'scale', q: 'I would have liked other students in the lesson with me.', group: 'no_classmates' },
-  // open
-  { id: 'liked', kind: 'text', q: 'What did you like most about the lesson?' },
-  { id: 'annoyed', kind: 'text', q: 'Was anything confusing or annoying?' },
-  { id: 'other', kind: 'text', q: 'Anything else you’d like to tell us? (optional)', optional: true },
+  { id: 'ueq1', kind: 'pair', low: 'obstructive', high: 'supportive', part: 'condition' },
+  { id: 'ueq2', kind: 'pair', low: 'complicated', high: 'easy', part: 'condition' },
+  { id: 'ueq3', kind: 'pair', low: 'inefficient', high: 'efficient', part: 'condition' },
+  { id: 'ueq4', kind: 'pair', low: 'confusing', high: 'clear', part: 'condition' },
+  { id: 'ueq5', kind: 'pair', low: 'boring', high: 'exciting', part: 'condition' },
+  { id: 'ueq6', kind: 'pair', low: 'not interesting', high: 'interesting', part: 'condition' },
+  { id: 'ueq7', kind: 'pair', low: 'conventional', high: 'inventive', part: 'condition' },
+  { id: 'ueq8', kind: 'pair', low: 'usual', high: 'leading edge', part: 'condition' },
+  { id: 'clear', kind: 'scale', q: 'The AI instructor presented the lecture clearly.', part: 'condition' },
+  { id: 'engaged', kind: 'scale', q: 'The lecture kept me engaged.', part: 'condition' },
+  { id: 'interactHelped', kind: 'scale', q: 'The interactions during the lecture helped me understand the content.', part: 'condition' },
+  { id: 'encouraged', kind: 'scale', q: 'I felt encouraged to participate in the lecture.', part: 'condition' },
+  { id: 'smooth', kind: 'scale', q: 'The lecture progressed smoothly without unnecessary interruptions.', part: 'condition' },
+  { id: 'matesEffect', kind: 'text', q: 'How did the AI Classmates affect your learning experience?', group: 'classmates', part: 'study' },
+  { id: 'matesHelpful', kind: 'text', q: 'What did you find helpful or distracting about the AI Classmates’ interactions?', group: 'classmates', part: 'study' },
+  { id: 'helped', kind: 'text', q: 'What helped you learn in the lecture, and what got in the way?', group: 'no_classmates', part: 'study' },
+  { id: 'improve', kind: 'text', q: 'What would you improve about the AI-led learning platform?', part: 'study' },
 ];
+// v1's questionnaire (survey.version 'v1'), for the people who answered it: I enjoyed the lesson · I paid attention ·
+// easy to follow · learned something new · comfortable asking questions · felt like a class · would learn this way again ·
+// mental effort · (classmates) their questions helped · asked what I wanted to know · distracting · Finn's mix-ups made
+// me think · felt real · favourite classmate · (without) would have liked other students · liked most · confusing or
+// annoying · anything else. Their ids: enjoy, attention, follow, learned, askComfort, notAlone, again, effort,
+// matesHelped, matesWanted, matesDistract, finnThink, matesReal, favorite, wantMates, liked, annoyed, other.
+export const SURVEY_V1_IDS = ['enjoy', 'attention', 'follow', 'learned', 'askComfort', 'notAlone', 'again', 'effort', 'matesHelped', 'matesWanted', 'matesDistract', 'finnThink', 'matesReal', 'favorite', 'wantMates', 'liked', 'annoyed', 'other'];
 
 export const surveyFor = (group: string | null) => SURVEY.filter((s) => !s.group || s.group === group);
 
 export const GROUPS = ['classmates', 'no_classmates'] as const;
+/** A person's participant code (migration 017): P7, or T7 for a test run; null before the migration */
+export const participantCode = (no: unknown, test: unknown) => (typeof no === 'number' || typeof no === 'string' ? `${test ? 'T' : 'P'}${no}` : null);
 export type StudyGroup = (typeof GROUPS)[number];

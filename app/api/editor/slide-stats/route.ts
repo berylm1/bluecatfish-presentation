@@ -11,7 +11,7 @@ const supabase = lazySupabaseAdmin();
 const PAGE = 1000;       // Supabase returns at most 1000 rows per request
 const MAX_ROWS = 20000;  // the newest this many events are plenty for a heatmap
 const TYPES = ['step_start', 'dwell', 'emotion_state', 'confusion_click', 'simplify_request', 'repeat_request',
-  'tutor_question', 'presence_away', 'self_check', 'tutor_decision'];
+  'tutor_question', 'presence_away', 'self_check', 'tutor_decision', 'confusion_topic'];
 
 export async function GET(req: Request) {
   const params = new URL(req.url).searchParams;
@@ -25,7 +25,7 @@ export async function GET(req: Request) {
     for (let from = 0; from < MAX_ROWS; from += PAGE) {
       const { data, error } = await supabase
         .from('events')
-        .select('session_id, event_type, value, dwell_ms')
+        .select('session_id, section, event_type, value, dwell_ms')
         .filter('value->>lesson', 'eq', lesson)
         .in('event_type', TYPES)
         .gte('created_at', since)

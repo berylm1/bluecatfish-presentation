@@ -46,10 +46,14 @@ const LABEL = 12;    // room above the circle for its label
  * The largest circle on the right that stays clear of every data-bubble-avoid
  * box (the slide, the buttons, the transcript). Tries the bottom-right corner
  * and the strip beside the slide (level with its bottom), and takes whichever
- * fits the bigger circle.
+ * fits the bigger circle. With the class chat down the right-hand side: the
+ * corner just left of it (was: the window's corner, behind the chat).
  */
-function fitPlace(): { d: number; top: number } {
+function fitPlace(): { d: number; top: number; right: number } {
   const w = window.innerWidth, h = window.innerHeight;
+  const chat = document.querySelector('[data-class-chat]')?.getBoundingClientRect();
+  const onRight = chat && chat.width > 0 && chat.left > w / 2;
+  const edge = onRight ? w - chat.left + GAP : EDGE;   // from the window's right edge to the circle's
   const els = [...document.querySelectorAll('[data-bubble-avoid]')];
   const boxes = els.map((el) => el.getBoundingClientRect()).filter((b) => b.width > 0 && b.height > 0);
   const slide = document.querySelector('[data-bubble-slide]')?.getBoundingClientRect();
@@ -58,16 +62,16 @@ function fitPlace(): { d: number; top: number } {
     boxes.every((b) => b.right + GAP <= left || b.left - GAP >= left + d || b.bottom + GAP <= top || b.top - GAP >= top + d);
   const most = Math.max(MIN, Math.min(MAX, Math.round(Math.min(w, h) * 0.22)));   // small screens, smaller circle
   for (let d = most; d >= MIN; d -= 4) {
-    const left = w - EDGE - d;
+    const left = w - edge - d;
     const tops = [h - EDGE - d, ...(slide ? [Math.min(h - EDGE - d, slide.bottom - d)] : [])];
-    for (const top of tops) if (clear(left, top, d)) return { d, top };
+    for (const top of tops) if (clear(left, top, d)) return { d, top, right: edge };
   }
-  return { d: MIN, top: h - EDGE - MIN };
+  return { d: MIN, top: h - EDGE - MIN, right: edge };
 }
 
 export default function CameraBubble({ sees, progress = 0 }: { sees: CameraSees; progress?: number }) {
   const videoRef = useRef<HTMLVideoElement>(null);
-  const [place, setPlace] = useState<{ d: number; top: number } | null>(null);
+  const [place, setPlace] = useState<{ d: number; top: number; right: number } | null>(null);
   const size = place?.d ?? MIN;
   const [camError, setCamError] = useState(false);
 
@@ -86,7 +90,7 @@ export default function CameraBubble({ sees, progress = 0 }: { sees: CameraSees;
   // Fit the corner now, when the window changes, and every half second (boxes
   // like the question-and-answer panel come and go)
   useLayoutEffect(() => {
-    const refit = () => setPlace((p) => { const n = fitPlace(); return p && p.d === n.d && p.top === n.top ? p : n; });
+    const refit = () => setPlace((p) => { const n = fitPlace(); return p && p.d === n.d && p.top === n.top && p.right === n.right ? p : n; });
     refit();
     window.addEventListener('resize', refit);
     const t = setInterval(refit, 500);
@@ -112,7 +116,7 @@ export default function CameraBubble({ sees, progress = 0 }: { sees: CameraSees;
   return (
     <div
       className="fixed z-30 flex flex-col items-center pointer-events-none select-none"
-      style={{ right: EDGE, top: place?.top ?? undefined, bottom: place ? undefined : EDGE, width: size }}
+      style={{ right: place?.right ?? EDGE, top: place?.top ?? undefined, bottom: place ? undefined : EDGE, width: size }}
       aria-label={`Camera: ${raising ? 'hand going up' : look.label}`}
       role="status"
     >
