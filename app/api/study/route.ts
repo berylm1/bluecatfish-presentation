@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { rateLimit } from '@/lib/rateLimit';
-import { DEMOGRAPHICS, GROUPS, POST_QUIZ, PRE_QUIZ, STUDY_VERSION, surveyFor, type QuizQuestion } from '@/lib/study/content';
+import { DEMOGRAPHICS, demographicAnswer, GROUPS, participantCode, POST_QUIZ, PRE_QUIZ, STUDY_VERSION, surveyFor, PAIR_POINTS, type QuizQuestion } from '@/lib/study/content';
 import { ANSWERS, score } from '@/lib/study/key';
 import { studyDeck } from '@/lib/study/version';
 
@@ -77,9 +77,9 @@ export async function POST(request: NextRequest) {
         seen_before_browser: bool(body.seenBefore),
         device: str(body.device, 300),
         screen: str(body.screen, 40),
-      }).select('id').single();
+      }).select('*').single();   // ('*': participant_no too, once migration 017 is run)
       if (error) throw error;
-      return NextResponse.json({ id: data.id });
+      return NextResponse.json({ id: data.id, code: participantCode(data.participant_no, data.is_test) });
     }
 
     const id = body?.id;
@@ -96,15 +96,19 @@ export async function POST(request: NextRequest) {
     // Steps only go forward (a stale tab can't send someone back)
     const forward = (step: unknown) => (typeof step === 'string' && STEPS.indexOf(step) > STEPS.indexOf(row.step) ? { step } : {});
 
-    if (action === 'get') return NextResponse.json({ step: row.step, group: row.study_group, test: row.is_test, lessonVersion: row.lesson_version ?? null });
+    if (action === 'get') return NextResponse.json({ step: row.step, group: row.study_group, test: row.is_test, lessonVersion: row.lesson_version ?? null, code: participantCode(row.participant_no, row.is_test) });
 
     if (action === 'save') {
       const fields: Record<string, unknown> = SAVE_STEPS[body.step]?.includes(row.step) ? { step: body.step } : {};
-      if (body.about && typeof body.about === 'object') {
+      // the pre-study questionnaire, together (migration 017; v1's were a column each)
+      if (body.about && typeof body.about === 'object' && !row.demographics) {
+        const about: Record<string, string> = {};
         for (const d of DEMOGRAPHICS) {
-          const v = str(body.about[d.id], d.text ? 200 : 60);
-          if (v !== null && (d.text || d.choices?.includes(v))) fields[d.id] = v;
+          const v = demographicAnswer(d, body.about[d.id]);
+          if (v !== null) about[d.id] = v;
         }
+        if (DEMOGRAPHICS.some((d) => !d.optional && !about[d.id])) return fail('Answer every question about you');
+        fields.demographics = { version: STUDY_VERSION, ...about };
       }
       if (body.checks && typeof body.checks === 'object') {
         for (const k of ['sound_ok', 'mic_ok', 'camera_ok'] as const) if (bool(body.checks[k]) !== null) fields[k] = body.checks[k];
@@ -175,6 +179,7 @@ export async function POST(request: NextRequest) {
         for (const it of items) {
           const v = body.answers?.[it.id];
           if (it.kind === 'scale' && Number.isInteger(v) && v >= 1 && v <= 5) answers[it.id] = v;
+          if (it.kind === 'pair' && Number.isInteger(v) && v >= 1 && v <= PAIR_POINTS) answers[it.id] = v;
           if (it.kind === 'pick' && typeof v === 'string' && it.choices.includes(v)) answers[it.id] = v;
           if (it.kind === 'text' && typeof v === 'string' && v.trim()) answers[it.id] = v.trim().slice(0, 2000);
         }
@@ -195,6 +200,8 @@ export async function POST(request: NextRequest) {
   } catch (e) {
     console.error('study:', e);
     const msg = e instanceof Error ? e.message : String((e as any)?.message ?? e);
+    // Migration 017 not run yet (the in-person study's columns), or 011 (the table)
+    if (/demographics|participant_no/i.test(msg)) return fail('The study isn’t set up yet (run setup file 017 in Supabase).', 503);
     // Migration 011 not run yet
     if (/study_participants|study_assign|schema cache|does not exist/i.test(msg)) return fail('The study isn’t set up yet (run migration 011 in Supabase).', 503);
     return fail('Something went wrong saving that. Please try again.', 500);

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
-import { DEMOGRAPHICS, POST_QUIZ, PRE_QUIZ, SURVEY } from '@/lib/study/content';
+import { DEMOGRAPHICS, participantCode, POST_QUIZ, PRE_QUIZ, SURVEY, SURVEY_V1_IDS } from '@/lib/study/content';
 import { ANSWERS } from '@/lib/study/key';
 import { AUTH_COOKIE, verifyToken } from '@/lib/editorAuth';
 import { TOPIC_MAX } from '@/lib/confusion';
@@ -115,6 +115,9 @@ async function lessonStats(sessions: string[]) {
   }
 }
 
+/** v1's pre-study questions, a column each (still there for the people who answered them) */
+const V1_DEMOGRAPHICS = ['age_range', 'student', 'field', 'ai_use', 'catfish_knowledge', 'bay_area', 'english_first', 'done_before'];
+
 export async function GET(request: NextRequest) {
   // (the editor gate in proxy.ts covers this too; checked here as well, so these answers never depend on one place)
   if (!(await verifyToken(request.cookies.get(AUTH_COOKIE)?.value))) return NextResponse.json({ error: 'Locked: unlock the editor first (/unlock).' }, { status: 401 });
@@ -165,7 +168,10 @@ export async function GET(request: NextRequest) {
       // the lesson version they saw (migration 014: "slug:Name", shown by its name)
       lesson_version: typeof p.lesson_version === 'string' ? (p.lesson_version.includes(':') ? p.lesson_version.split(':').slice(1).join(':') : p.lesson_version) : null,
     };
-    for (const d of DEMOGRAPHICS) r[d.id] = p[d.id];
+    // the participant code (migration 017), and the pre-study questionnaire: v2's together (demographics), v1's a column each
+    r.code = participantCode(p.participant_no, p.is_test);
+    for (const d of DEMOGRAPHICS) r[`about_${d.id}`] = p.demographics?.[d.id] ?? null;
+    for (const id of V1_DEMOGRAPHICS) r[id] = p[id] ?? null;
     Object.assign(r, {
       seen_before_browser: p.seen_before_browser, device: p.device, screen: p.screen,
       sound_ok: p.sound_ok, mic_ok: p.mic_ok, camera_ok: p.camera_ok,
@@ -201,7 +207,14 @@ export async function GET(request: NextRequest) {
         r[`${phase}_${qq.id}_sec`] = saved?.times?.[qq.id] != null ? Math.round(saved.times[qq.id] / 100) / 10 : null;
       }
     }
-    for (const s of SURVEY) r[`survey_${s.id}`] = p.survey?.answers?.[s.id] ?? null;
+    for (const id of [...SURVEY.map((x) => x.id), ...SURVEY_V1_IDS]) r[`survey_${id}`] = p.survey?.answers?.[id] ?? null;
+    // the UEQ-S's scales, as its own sheet scores them (-3 to +3: the answer minus 4): pragmatic (1-4), hedonic (5-8), overall
+    const ueq = (ids: number[]) => {
+      const v = ids.map((n) => p.survey?.answers?.[`ueq${n}`]).filter((x): x is number => typeof x === 'number');
+      return v.length === ids.length ? Math.round((v.reduce((a, b) => a + b - 4, 0) / v.length) * 100) / 100 : null;
+    };
+    Object.assign(r, { ueq_pragmatic: ueq([1, 2, 3, 4]), ueq_hedonic: ueq([5, 6, 7, 8]), ueq_overall: ueq([1, 2, 3, 4, 5, 6, 7, 8]) });
+    r.interview_notes = p.interview_notes ?? null;
     r.lesson_sessions = sessionsOf(p).join(' ');
     return r;
   });
@@ -231,7 +244,8 @@ export async function GET(request: NextRequest) {
       pre: avg(done.map((r) => r.pre_score as number)), postSame: avg(done.map((r) => r.post_same_score as number)),
       gain: avg(done.map((r) => r.gain as number)), post: avg(done.map((r) => r.post_score as number)),
       lessonMinutes: avg(done.map((r) => r.lesson_minutes as number)), questions: avg(done.map((r) => r.lesson_questions as number)),
-      enjoy: avg(done.map((r) => r.survey_enjoy as number)),
+      engaged: avg(done.map((r) => r.survey_engaged as number)),   // ("The lecture kept me engaged", 1-5; v1: "I enjoyed it", survey_enjoy)
+      ueq: avg(done.map((r) => r.ueq_overall as number)),
     };
   });
   const steps = rows.reduce<Record<string, number>>((m, r) => ({ ...m, [String(r.step)]: (m[String(r.step)] ?? 0) + 1 }), {});

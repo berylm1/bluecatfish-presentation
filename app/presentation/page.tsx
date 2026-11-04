@@ -499,7 +499,8 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
   });
   // What to call the learner (optional, asked on the start screen; remembered on this browser)
   const [learnerName, setLearnerName] = useState('');
-  useEffect(() => { if (study) return; try { setLearnerName(localStorage.getItem('learnerName') ?? ''); } catch { /* private mode */ } }, [study]);   // (the study is anonymous: no name)
+  // (the study: the name they gave on its name page, app/study; kept in this browser only, never sent to the study)
+  useEffect(() => { try { setLearnerName(localStorage.getItem('learnerName') ?? ''); } catch { /* private mode */ } }, []);
   // Where they left off last time (not for previews, or a link to a given slide)
   const [resume, setResume] = useState<(Progress & { index: number }) | null>(null);
   useEffect(() => { if (!preview && !startAt) setResume(readProgress(deck)); }, [deck, preview, startAt]);
@@ -2545,7 +2546,7 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
           </div>
         )}
         <p className="text-slate-300 text-center max-w-md">🔊 Turn your sound on. Ask the professor anything, or say &quot;next&quot;, &quot;next slide&quot;, &quot;repeat&quot; or &quot;simpler please&quot; at any time.</p>
-        {/* (the study is anonymous: no name) */}
+        {/* (the study: the name was asked on its own page before, app/study) */}
         {!study && <label className="flex flex-col items-center gap-1 text-sm text-slate-300">
           What should Professor Marine call you? (optional)
           <input

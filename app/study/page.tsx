@@ -2,16 +2,17 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  CONSENT, DEMOGRAPHICS, POST_QUIZ, PRE_QUIZ, SCALE, STUDY_LESSON, STUDY_MINUTES, STUDY_TITLE, surveyFor,
-  type DemographicId, type QuizQuestion, type StudyGroup,
+  CONSENT, DEMOGRAPHICS, demographicAnswer, PAIR_POINTS, POST_QUIZ, PRE_QUIZ, SCALE, STUDY_LESSON, STUDY_TITLE, surveyFor,
+  type DemographicId, type QuizQuestion, type StudyGroup, type SurveyItem,
 } from '@/lib/study/content';
 import { freshStart, isComputer, preloadCamera, preloadLesson, readStudy, seenBefore, studyPost, writeStudy, type StudyRecord } from '@/lib/study/client';
 import { learnerHeaders } from '@/lib/learnerSession';
 
 /*
- * The online study: consent → sound, mic and camera checks → about you → pre-quiz → Start (the group
+ * The study (in person, v2): consent → their name (kept in this browser only) → sound, mic and camera checks → about you
+ * (the pre-study questionnaire) → pre-quiz → Start (the group
  * is picked) → the lesson (/presentation?study=…, with or without the classmates) → post-quiz →
- * questionnaire → how you did. The checks come first, so someone whose sound doesn't work stops before
+ * questionnaires (after the lesson; then the post-study questions) → how you did, and their participant code. The checks come first, so someone whose sound doesn't work stops before
  * they're in a group (the groups stay even), and the lesson loads in the background meanwhile. Each step is saved as it's done (/api/study), and this browser
  * remembers where they are, so a refresh picks up there. ?test=1: a test run (not in the results,
  * and the group can be chosen).
@@ -56,7 +57,7 @@ export default function Study() {
       studyPost('get', { id: saved.id }).then((d) => {
         const later = ORDER.indexOf(d.step) >= ORDER.indexOf(saved.step as Step) ? d.step : saved.step;
         if (later !== d.step) studyPost('save', { id: saved.id, step: later, ...(later === 'post' ? { lessonFinished: true } : {}) }).catch(() => {});
-        const r = { ...saved, step: later, group: d.group ?? saved.group };
+        const r = { ...saved, step: later, group: d.group ?? saved.group, code: d.code ?? saved.code };
         writeStudy(r); setRec(r); setStep(later as Step);
       }).catch(() => { /* offline for a moment: the browser's step */ });
     }
@@ -131,12 +132,20 @@ export default function Study() {
           </div>
           <Consent busy={busy} onAgree={() => go('checks', async () => {
             const d = await studyPost('join', { test, seenBefore: seenBefore(), device: navigator.userAgent, screen: `${window.screen.width}x${window.screen.height}` });
-            return { id: d.id, test };
+            return { id: d.id, test, code: d.code ?? null };
           })} />
         </div>
       )}
 
-      {step === 'checks' && rec && (
+      {step === 'checks' && rec && !rec.named && (
+        <NameStep onDone={(name) => {
+          try { localStorage.setItem('learnerName', name); } catch { /* private mode: the professor won't use it */ }
+          const n = { ...rec, named: true };
+          writeStudy(n); setRec(n);
+        }} />
+      )}
+
+      {step === 'checks' && rec && rec.named && (
         <Checks busy={busy} onDone={(checks) => go('about', async () => {
           await studyPost('save', { id: rec.id, checks, step: 'about' });
           return { camera: checks.camera_ok };
@@ -227,31 +236,64 @@ function Consent({ busy, onAgree }: { busy: boolean; onAgree: () => void }) {
   );
 }
 
+/** Their first name or a nickname, for the professor to greet them: kept in this browser only (never sent to the study) */
+function NameStep({ onDone }: { onDone: (name: string) => void }) {
+  const [name, setName] = useState('');
+  const clean = name.trim();
+  return (
+    <div className={card}>
+      <h1 className="text-2xl font-bold">What should Professor Marine call you?</h1>
+      <p className="mt-2 text-slate-600">Your first name or a nickname. It stays on this computer: it isn’t saved with your answers.</p>
+      <form className="mt-5 flex flex-wrap gap-3" onSubmit={(e) => { e.preventDefault(); if (clean) onDone(clean); }}>
+        <input value={name} autoFocus maxLength={24} placeholder="Your first name" aria-label="Your first name"
+          onChange={(e) => setName(e.target.value.replace(/[^\p{L}\p{N} '.-]/gu, '').slice(0, 24))}
+          className="flex-1 min-w-48 px-3 py-2 rounded-lg border border-slate-300 focus:border-cyan-500 outline-none" />
+        <button className={primary} disabled={!clean}>Continue</button>
+      </form>
+    </div>
+  );
+}
+
+/** The pre-study questionnaire (lib/study/content.ts DEMOGRAPHICS): choices, an age, and "Other: ___" written in */
 function About({ busy, onDone }: { busy: boolean; onDone: (about: Partial<Record<DemographicId, string>>) => void }) {
   const [a, setA] = useState<Partial<Record<DemographicId, string>>>({});
-  const missing = DEMOGRAPHICS.filter((d) => !d.optional && !a[d.id]?.trim());
+  const [own, setOwn] = useState<Partial<Record<DemographicId, string>>>({});   // what they wrote for "Other"
+  // the answer as it's sent: "Other: what they wrote" for the write-in choice
+  const value = (d: (typeof DEMOGRAPHICS)[number]) => (d.other && a[d.id] === d.other ? `${d.other}: ${own[d.id]?.trim() ?? ''}` : a[d.id] ?? '');
+  const missing = DEMOGRAPHICS.filter((d) => !d.optional && demographicAnswer(d, value(d)) === null);
   return (
     <div className={card}>
       <h1 className="text-2xl font-bold">A few questions about you</h1>
-      <p className="mt-1 text-slate-600 text-sm">No names: none of this identifies you.</p>
+      <p className="mt-1 text-slate-600 text-sm">None of this identifies you.</p>
       <div className="mt-5 flex flex-col gap-5">
-        {DEMOGRAPHICS.map((d) => (
+        {DEMOGRAPHICS.map((d, i) => (
           <fieldset key={d.id}>
-            <legend className="font-semibold mb-2">{d.q}</legend>
-            {d.text ? (
+            <legend className="font-semibold mb-2">{i + 1}. {d.q}</legend>
+            {d.number ? (
+              <input type="number" inputMode="numeric" min={d.number.min} max={d.number.max} aria-label={d.q}
+                className="w-28 px-3 py-2 rounded-lg border border-slate-300" value={a[d.id] ?? ''} onChange={(e) => setA({ ...a, [d.id]: e.target.value.slice(0, 3) })} />
+            ) : d.text ? (
               <input className="w-full px-3 py-2 rounded-lg border border-slate-300" maxLength={200} value={a[d.id] ?? ''} onChange={(e) => setA({ ...a, [d.id]: e.target.value })} />
             ) : (
-              <div className="flex flex-wrap gap-2">
-                {d.choices!.map((c) => (
-                  <button key={c} type="button" onClick={() => setA({ ...a, [d.id]: c })} aria-pressed={a[d.id] === c}
-                    className={`px-3 py-2 rounded-lg border text-sm ${a[d.id] === c ? 'bg-cyan-600 border-cyan-600 text-white' : 'border-slate-300 hover:border-cyan-500'}`}>{c}</button>
-                ))}
-              </div>
+              <>
+                <div className="flex flex-wrap gap-2">
+                  {d.choices!.map((c) => (
+                    <button key={c} type="button" onClick={() => setA({ ...a, [d.id]: c })} aria-pressed={a[d.id] === c}
+                      className={`px-3 py-2 rounded-lg border text-sm ${a[d.id] === c ? 'bg-cyan-600 border-cyan-600 text-white' : 'border-slate-300 hover:border-cyan-500'}`}>{c}</button>
+                  ))}
+                </div>
+                {d.other && a[d.id] === d.other && (
+                  <input autoFocus maxLength={150} placeholder="Please write it here" aria-label={`${d.q}: ${d.other}`}
+                    className="mt-2 w-full px-3 py-2 rounded-lg border border-slate-300" value={own[d.id] ?? ''} onChange={(e) => setOwn({ ...own, [d.id]: e.target.value })} />
+                )}
+              </>
             )}
+            {d.number && a[d.id] && demographicAnswer(d, a[d.id]) === null && <p className="mt-1 text-xs text-amber-700">A whole number of years, {d.number.min} or older.</p>}
           </fieldset>
         ))}
       </div>
-      <button className={`${primary} mt-6`} disabled={busy || missing.length > 0} onClick={() => onDone(a)}>Continue</button>
+      <button className={`${primary} mt-6`} disabled={busy || missing.length > 0}
+        onClick={() => onDone(Object.fromEntries(DEMOGRAPHICS.map((d) => [d.id, value(d)])))}>Continue</button>
       {missing.length > 0 && <p className="mt-2 text-xs text-slate-500">Answer every question to continue ({missing.length} left).</p>}
     </div>
   );
@@ -526,16 +568,47 @@ function LessonStep({ rec }: { rec: StudyRecord }) {
   );
 }
 
+/**
+ * After the lesson: the post-condition questionnaire (the UEQ-S's word pairs, then the general questions), then on a
+ * second page the post-study questions. Sent together at the end.
+ */
 function Survey({ group, busy, onDone }: { group: StudyGroup | null; busy: boolean; onDone: (a: Record<string, string | number>) => void }) {
-  const items = surveyFor(group);
+  const all = surveyFor(group);
+  const [page, setPage] = useState<'condition' | 'study'>('condition');
+  const items = all.filter((it) => (it.part ?? 'study') === page);
   const [a, setA] = useState<Record<string, string | number>>({});
-  const missing = items.filter((it) => !(it.kind === 'text' && it.optional) && (a[it.id] === undefined || (typeof a[it.id] === 'string' && !(a[it.id] as string).trim())));
+  const missingIn = (list: SurveyItem[]) => list.filter((it) => !(it.kind === 'text' && it.optional) && (a[it.id] === undefined || (typeof a[it.id] === 'string' && !(a[it.id] as string).trim())));
+  const missing = missingIn(items);
+  const pairs = items.filter((it) => it.kind === 'pair');
+  const rest = items.filter((it) => it.kind !== 'pair');
   return (
     <div className={card}>
-      <h1 className="text-2xl font-bold">How did it go?</h1>
-      <p className="mt-1 text-slate-600 text-sm">Last part. There are no right answers: tell us what you really think.</p>
-      <div className="mt-5 flex flex-col gap-6">
-        {items.map((it) => (
+      <h1 className="text-2xl font-bold">{page === 'condition' ? 'How was the lesson?' : 'Last few questions'}</h1>
+      <p className="mt-1 text-slate-600 text-sm">
+        {page === 'condition' ? 'About the lesson you just did. There are no right answers: tell us what you really think.' : 'A few sentences each is plenty.'}
+      </p>
+      {pairs.length > 0 && (
+        <fieldset className="mt-5">
+          <legend className="font-semibold">For each pair, pick the circle closest to how you’d describe the lesson.</legend>
+          <div className="mt-3 flex flex-col gap-2">
+            {pairs.map((it) => it.kind === 'pair' && (
+              <div key={it.id} role="radiogroup" aria-label={`${it.low} to ${it.high}`} className="grid grid-cols-[1fr_auto_1fr] items-center gap-2 sm:gap-3">
+                <span className="text-right text-sm">{it.low}</span>
+                <span className="flex gap-1 sm:gap-1.5">
+                  {Array.from({ length: PAIR_POINTS }, (_, n) => (
+                    <button key={n} type="button" role="radio" aria-checked={a[it.id] === n + 1} aria-label={`${n + 1} of ${PAIR_POINTS}`}
+                      onClick={() => setA({ ...a, [it.id]: n + 1 })}
+                      className={`w-7 h-7 rounded-full border-2 ${a[it.id] === n + 1 ? 'bg-cyan-600 border-cyan-600' : 'border-slate-300 hover:border-cyan-500'}`} />
+                  ))}
+                </span>
+                <span className="text-sm">{it.high}</span>
+              </div>
+            ))}
+          </div>
+        </fieldset>
+      )}
+      <div className="mt-6 flex flex-col gap-6">
+        {rest.map((it) => (
           <fieldset key={it.id}>
             <legend className="font-semibold mb-2">{it.q}</legend>
             {it.kind === 'scale' && (
@@ -561,14 +634,18 @@ function Survey({ group, busy, onDone }: { group: StudyGroup | null; busy: boole
               </div>
             )}
             {it.kind === 'text' && (
-              <textarea className="w-full h-24 px-3 py-2 rounded-xl border border-slate-300 focus:border-cyan-500 outline-none" maxLength={2000}
+              <textarea className="w-full h-24 px-3 py-2 rounded-xl border border-slate-300 focus:border-cyan-500 outline-none" maxLength={2000} aria-label={it.q}
                 value={(a[it.id] as string) ?? ''} onChange={(e) => setA({ ...a, [it.id]: e.target.value })} />
             )}
           </fieldset>
         ))}
       </div>
-      <button className={`${primary} mt-6`} disabled={busy || missing.length > 0} onClick={() => onDone(a)}>{busy ? 'Saving…' : 'Finish'}</button>
-      {missing.length > 0 && <p className="mt-2 text-xs text-slate-500">Answer every question to finish ({missing.length} left).</p>}
+      {page === 'condition' && all.some((it) => it.part === 'study') ? (
+        <button className={`${primary} mt-6`} disabled={missing.length > 0} onClick={() => { setPage('study'); window.scrollTo(0, 0); }}>Continue</button>
+      ) : (
+        <button className={`${primary} mt-6`} disabled={busy || missingIn(all).length > 0} onClick={() => onDone(a)}>{busy ? 'Saving…' : 'Finish'}</button>
+      )}
+      {missing.length > 0 && <p className="mt-2 text-xs text-slate-500">Answer every question to continue ({missing.length} left).</p>}
     </div>
   );
 }
@@ -605,6 +682,12 @@ function Done({ rec, results, setResults, onNextPerson }: { rec: StudyRecord; re
         <p className="mt-4 text-sm text-slate-500">Your answers are saved. (We couldn’t load your scores just now.)</p>
       ) : (
         <p className="mt-4 text-sm text-slate-500">Loading how you did…</p>
+      )}
+      {rec.code && (
+        <p className="mt-5 rounded-xl bg-slate-100 px-4 py-3 text-sm text-slate-700">
+          Participant number: <b className="text-lg text-slate-900 tracking-wide">{rec.code}</b>
+          <span className="block text-xs text-slate-500">For the researcher, to note with the interview.</span>
+        </p>
       )}
       <p className="mt-4 text-sm text-slate-500">You can close this page now.</p>
       {onNextPerson && <button className={`${quiet} mt-2 underline`} onClick={onNextPerson}>Someone else wants to take part on this computer</button>}

@@ -12,13 +12,13 @@
 
 export const REPORT_STEPS: { id: string; label: string }[] = [
   { id: 'consent', label: 'Agreed to take part' },
-  { id: 'checks', label: 'Sound and mic' },
+  { id: 'checks', label: 'Name, sound and mic' },
   { id: 'about', label: 'About them' },
   { id: 'pre', label: 'Quiz 1' },
   { id: 'start', label: 'Ready to start' },
   { id: 'lesson', label: 'The lesson' },
   { id: 'post', label: 'Quiz 2' },
-  { id: 'survey', label: 'Questionnaire' },
+  { id: 'survey', label: 'Questionnaires' },
   { id: 'done', label: 'Finished' },
 ];
 
@@ -55,7 +55,12 @@ export type ReportTopic = { score: number; beforeCheck?: number; signals: Record
 const MAX_MINUTES = 180;   // longer: a tab left open, not time spent
 const MIN_RATED = 4;       // answers of each kind before a threshold is suggested
 const CHECK_POINTS: Record<string, number> = { check_got: -2, check_kind: 2, check_lost: 4 };   // lib/confusion.ts SIGNALS
-const COMMENT_QUESTIONS: Record<string, string> = { annoyed: 'Confusing or annoying', other: 'Anything else', liked: 'Liked most' };
+// the open questions: v2's post-study ones, then v1's (lib/study/content.ts)
+const COMMENT_QUESTIONS: Record<string, string> = {
+  matesEffect: 'How the classmates affected learning', matesHelpful: 'Helpful or distracting about the classmates',
+  helped: 'What helped, and what got in the way', improve: 'What to improve',
+  annoyed: 'Confusing or annoying', other: 'Anything else', liked: 'Liked most',
+};
 
 const minutesBetween = (a: string | null, b: string | null) => (a && b ? (Date.parse(b) - Date.parse(a)) / 60000 : null);
 const round1 = (n: number) => Math.round(n * 10) / 10;

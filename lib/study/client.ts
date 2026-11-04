@@ -14,6 +14,10 @@ export type StudyRecord = {
   group?: StudyGroup;
   /** They let the camera on in the check (the lesson turns it on) */
   camera?: boolean;
+  /** Their participant code (P7: migration 017), for the researcher to note at the end */
+  code?: string | null;
+  /** They gave their name (kept in this browser as learnerName, for the professor; never sent to the study) */
+  named?: boolean;
 };
 
 const KEY = 'studyRecord';
