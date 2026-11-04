@@ -112,7 +112,7 @@ export default function StudyResults() {
                       <td className="pr-4">{GROUP_NAME[String(r.group)]}</td>
                       <td className="pr-4">{show(r.lesson_version)}</td>
                       <td className="pr-4">{show(r.step)}</td>
-                      <td className="pr-4">{show(r.about_age ?? r.age_range)}</td>
+                      <td className="pr-4">{show(r.about_age)}</td>
                       <td className="pr-4">{show(r.pre_score)}</td>
                       <td className="pr-4">{show(r.post_score)}</td>
                       <td className="pr-4">{show(r.lesson_minutes)}</td>

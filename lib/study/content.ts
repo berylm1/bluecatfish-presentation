@@ -67,8 +67,8 @@ export function demographicAnswer(d: Demographic, raw: unknown): string | null {
   if (d.other && v.startsWith(`${d.other}: `) && v.length > d.other.length + 2) return v.slice(0, 200);
   return null;
 }
-// v1's questions (study_participants columns age_range, student, field, ai_use, catfish_knowledge, bay_area, english_first,
-// done_before, still there for the people who answered them):
+// v1's questions (were study_participants columns age_range, student, field, ai_use, catfish_knowledge, bay_area,
+// english_first, done_before: removed by migration 018):
 //   How old are you? (ranges) · Are you a student? · What do you study, or what is your work? · How often do you use AI tools
 //   like ChatGPT? · How much did you know about blue catfish before today? · Do you live in or near the Chesapeake Bay area?
 //   · Is English your first language? · Have you gone through this Blue Catfish presentation before?

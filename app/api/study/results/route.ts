@@ -115,8 +115,8 @@ async function lessonStats(sessions: string[]) {
   }
 }
 
-/** v1's pre-study questions, a column each (still there for the people who answered them) */
-const V1_DEMOGRAPHICS = ['age_range', 'student', 'field', 'ai_use', 'catfish_knowledge', 'bay_area', 'english_first', 'done_before'];
+// v1's pre-study questions were a column each; removed by migration 018 (only test runs had answered them):
+// const V1_DEMOGRAPHICS = ['age_range', 'student', 'field', 'ai_use', 'catfish_knowledge', 'bay_area', 'english_first', 'done_before'];
 
 export async function GET(request: NextRequest) {
   // (the editor gate in proxy.ts covers this too; checked here as well, so these answers never depend on one place)
@@ -168,10 +168,10 @@ export async function GET(request: NextRequest) {
       // the lesson version they saw (migration 014: "slug:Name", shown by its name)
       lesson_version: typeof p.lesson_version === 'string' ? (p.lesson_version.includes(':') ? p.lesson_version.split(':').slice(1).join(':') : p.lesson_version) : null,
     };
-    // the participant code (migration 017), and the pre-study questionnaire: v2's together (demographics), v1's a column each
+    // the participant code (migration 017), and the pre-study questionnaire (demographics)
     r.code = participantCode(p.participant_no, p.is_test);
     for (const d of DEMOGRAPHICS) r[`about_${d.id}`] = p.demographics?.[d.id] ?? null;
-    for (const id of V1_DEMOGRAPHICS) r[id] = p[id] ?? null;
+    // for (const id of V1_DEMOGRAPHICS) r[id] = p[id] ?? null;   (migration 018)
     Object.assign(r, {
       seen_before_browser: p.seen_before_browser, device: p.device, screen: p.screen,
       sound_ok: p.sound_ok, mic_ok: p.mic_ok, camera_ok: p.camera_ok,
