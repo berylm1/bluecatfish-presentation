@@ -40,6 +40,7 @@ import { lessonParts } from '@/lib/canvas/parts';
 import { answerGist, areaIds, setAreaText, togetherSlide, TOGETHER_ID } from '@/lib/canvas/together';
 import { LIVE_VERSION, preloadedDeck, studyLesson, studyPost, writeStudy, type StudyRecord } from '@/lib/study/client';
 import { signals } from '@/lib/signals';
+import LessonGuide from '@/components/canvas/LessonGuide';
 import { atLeast, ConfusionMeter, questionSignal, SIGNALS, snapshotPoints, type ConfusionLevel, type ConfusionSignal, type SavedMeter, type Where } from '@/lib/confusion';
 
 /*
@@ -477,6 +478,10 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
     window.addEventListener('keydown', esc);
     return () => { window.removeEventListener('pointerdown', close); window.removeEventListener('keydown', esc); };
   }, [optionsOpen]);
+  // "Here's what you can do" (components/canvas/LessonGuide): a page before the start screen (not in the editor's
+  // previews), and over the lesson from ❓ (the lesson paused meanwhile)
+  const [guideSeen, setGuideSeen] = useState(!!preview);
+  const [guideOpen, setGuideOpen] = useState<{ wasPlaying: boolean } | null>(null);
   const [classmateOn, setClassmateOn] = useState(matesAllowed);         // the AI classmates (Maya, Finn, Leo) ask at topic ends; Finn plays in hands-on boxes
   const [classmateSaying, setClassmateSaying] = useState<ClassmateId | null>(null);   // who's talking now
   // Hands-on sounds (pop, bonk, chime): on unless turned off (remembered on this browser)
@@ -2521,6 +2526,7 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
     (from ? cues.play({ text: welcomeBack(name) }) : name ? cues.play({ text: greeting(name) }) : cues.play('cue_intro')).finally(() => setIntroDone(true));
   }
 
+  if (!started && !guideSeen) return <LessonGuide mates={matesAllowed && classmateOn} onDone={() => { setGuideSeen(true); window.scrollTo(0, 0); }} />;
   if (!started) {
     const length = lessonLength(deck.slides);
     const plan = {
@@ -2679,6 +2685,7 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
       </div>
 
       {cameraOn && <CameraBubble sees={cameraSees} progress={handProgress} />}
+      {guideOpen && <LessonGuide overlay mates={matesAllowed && classmateOn} onDone={() => { const was = guideOpen.wasPlaying; setGuideOpen(null); if (was) resumeLesson(); }} />}
 
       {/* A phone held upright: the slide (and a hands-on box) is small, so suggest turning it.
           Shown again when a hands-on box starts, if it was closed */}
@@ -2937,6 +2944,11 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
             {mood && ` · ${mood === 'confused' ? '😕 puzzled' : mood === 'bored' ? '😐 quiet' : '🙂'}`}
           </span>
         )}
+        {/* What they can do (the page before the start, again) */}
+        <button className={btn} aria-label="What you can do" title="What you can do in the lesson"
+          onClick={() => { const wasPlaying = player.status === 'playing'; if (wasPlaying) player.pause(); setGuideOpen({ wasPlaying }); }}>
+          ❓<span className={label}> Help</span>
+        </button>
         {/* The on/off switches, in one menu (was: five more buttons, so the controls took two rows) */}
         <div className="relative" ref={optionsRef}>
           <button className={`${btn} ${optionsOpen ? 'bg-white/25' : ''}`} onClick={() => setOptionsOpen((o) => !o)} aria-expanded={optionsOpen}
