@@ -4,7 +4,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
  * Is everything the setup files (supabase/migrations) make in the Supabase project? Every table, the two
  * knowledge searches and the storage buckets. For /api/health and the study's checklist (/studyResults).
  */
-export const SETUP_TABLES = ['documents3', 'images2', 'slide_templates', 'learner_state', 'events', 'canvas_lessons', 'canvas_decks', 'canvas_deck_history', 'study_participants', 'section_difficulty', 'study_settings'];
+export const SETUP_TABLES = ['documents3', 'images2', 'slide_templates', 'learner_state', 'events', 'canvas_lessons', 'canvas_decks', 'canvas_deck_history', 'study_participants', 'section_difficulty', 'study_settings', 'study2_participants'];
 export const SETUP_BUCKETS = ['slide-audio', 'slide-imagesv2'];   // (lesson-backups is made by the site the first time it's needed)
 
 export async function setupMissing(admin: SupabaseClient): Promise<string[]> {

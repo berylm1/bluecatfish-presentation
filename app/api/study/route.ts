@@ -1,12 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { rateLimit } from '@/lib/rateLimit';
-import { DEMOGRAPHICS, demographicAnswer, GROUPS, participantCode, POST_QUIZ, PRE_QUIZ, STUDY_VERSION, surveyFor, PAIR_POINTS, type QuizQuestion } from '@/lib/study/content';
+import { DEMOGRAPHICS, demographicAnswer, participantCode, studyOf, POST_QUIZ, PRE_QUIZ, STUDY_VERSION, surveyFor, PAIR_POINTS, type QuizQuestion } from '@/lib/study/content';
 import { ANSWERS, score } from '@/lib/study/key';
 import { studyDeck } from '@/lib/study/version';
 
 /*
- * The online study (app/study): one row per person in study_participants (migration 011), saved
+ * The studies (app/study, app/study2: body.study 2): one row per person in its table (study_participants, migration 011;
+ * study2_participants, 019), saved
  * step by step so someone who stops halfway is still counted where they stopped.
  *   join    consent given: a new row, its id back (the browser keeps it); next, the sound/mic/camera checks
  *   get     where they are (coming back after a refresh), and their group
@@ -64,13 +65,14 @@ export async function POST(request: NextRequest) {
   try { body = await request.json(); } catch { return fail('Bad request'); }
   const action = body?.action;
   const supabase = db();
+  const S = studyOf(body?.study);   // which study (its table and groups)
 
   try {
     if (action === 'join') {
       // (a new row each time: tighter, so a script can't fill the table with fake people)
       const joinLimited = await rateLimit(request, 'studyJoin');
       if (joinLimited) return joinLimited;
-      const { data, error } = await supabase.from('study_participants').insert({
+      const { data, error } = await supabase.from(S.table).insert({
         is_test: body.test === true,
         step: 'checks',
         consent_at: new Date().toISOString(),
@@ -85,12 +87,12 @@ export async function POST(request: NextRequest) {
     const id = body?.id;
     if (typeof id !== 'string' || !UUID.test(id)) return fail('id required');
     // ('*': lesson_version too, once migration 014 is run)
-    const { data: row, error: readError } = await supabase.from('study_participants')
+    const { data: row, error: readError } = await supabase.from(S.table)
       .select('*').eq('id', id).maybeSingle();
     if (readError) throw readError;
     if (!row) return fail('Not found', 404);
     const update = async (fields: Record<string, unknown>) => {
-      const { error } = await supabase.from('study_participants').update({ ...fields, updated_at: new Date().toISOString() }).eq('id', id);
+      const { error } = await supabase.from(S.table).update({ ...fields, updated_at: new Date().toISOString() }).eq('id', id);
       if (error) throw error;
     };
     // Steps only go forward (a stale tab can't send someone back)
@@ -135,26 +137,27 @@ export async function POST(request: NextRequest) {
       if (!row.pre_quiz) return fail('Do the first quiz first');
       let group: string | null = row.study_group;
       // a test run can choose (to try both); everyone else gets the group with fewer people
-      if (!group && row.is_test && GROUPS.includes(body.group)) {
+      if (!group && row.is_test && S.groups.includes(body.group)) {
         group = body.group;
         await update({ study_group: group });
       }
       if (!group) {
-        const { data, error } = await supabase.rpc('study_assign', { p_id: id });
-        if (!error && GROUPS.includes(data)) group = data;
+        const { data, error } = await supabase.rpc(S.assign, { p_id: id });
+        if (!error && S.groups.includes(data)) group = data;
         else {
           // (the function can't be reached, e.g. no permission to run it: the same choice here, without its lock)
-          console.error('study_assign:', error?.message ?? data);
-          const count = async (g: string) => (await supabase.from('study_participants').select('id', { count: 'exact', head: true }).eq('is_test', false).eq('study_group', g)).count ?? 0;
-          const [withMates, without] = await Promise.all([count('classmates'), count('no_classmates')]);
-          group = withMates < without ? 'classmates' : without < withMates ? 'no_classmates' : Math.random() < 0.5 ? 'classmates' : 'no_classmates';
+          console.error(`${S.assign}:`, error?.message ?? data);
+          const count = async (g: string) => (await supabase.from(S.table).select('id', { count: 'exact', head: true }).eq('is_test', false).eq('study_group', g)).count ?? 0;
+          const [a, b] = S.groups;
+          const [na, nb] = await Promise.all([count(a), count(b)]);
+          group = na < nb ? a : nb < na ? b : Math.random() < 0.5 ? a : b;
           await update({ study_group: group });
         }
       }
       // the lesson version they'll see (the one the study is frozen to now), recorded once (migration 014)
       const { version } = await studyDeck(null).catch(() => ({ version: null }));
       if (version) {
-        const { error: vError } = await supabase.from('study_participants').update({ lesson_version: version }).eq('id', id).is('lesson_version', null);
+        const { error: vError } = await supabase.from(S.table).update({ lesson_version: version }).eq('id', id).is('lesson_version', null);
         if (vError && !/lesson_version/.test(vError.message)) throw vError;   // (column missing: migration 014 not run yet)
       }
       await update(forward('lesson'));
@@ -186,7 +189,7 @@ export async function POST(request: NextRequest) {
         await update({ survey: { version: STUDY_VERSION, answers, ms: ms(body.ms) }, finished_at: new Date().toISOString(), ...forward('done') });
       }
       // How they did (only now: after this nothing can be answered again)
-      const { data: done } = await supabase.from('study_participants').select('pre_quiz, post_quiz, pre_score, post_score').eq('id', id).single();
+      const { data: done } = await supabase.from(S.table).select('pre_quiz, post_quiz, pre_score, post_score').eq('id', id).single();
       const preA = done?.pre_quiz?.answers ?? {};
       const postA = done?.post_quiz?.answers ?? {};
       return NextResponse.json({
@@ -198,12 +201,12 @@ export async function POST(request: NextRequest) {
 
     return fail('Unknown action');
   } catch (e) {
-    console.error('study:', e);
+    console.error(`study ${S.id}:`, e);
     const msg = e instanceof Error ? e.message : String((e as any)?.message ?? e);
     // Migration 017 not run yet (the in-person study's columns), or 011 (the table)
     if (/demographics|participant_no/i.test(msg)) return fail('The study isn’t set up yet (run setup file 017 in Supabase).', 503);
     // Migration 011 not run yet
-    if (/study_participants|study_assign|schema cache|does not exist/i.test(msg)) return fail('The study isn’t set up yet (run migration 011 in Supabase).', 503);
+    if (/study2?_participants|study2?_assign|schema cache|does not exist/i.test(msg)) return fail(`The study isn’t set up yet (run setup file ${S.setup} in Supabase).`, 503);
     return fail('Something went wrong saving that. Please try again.', 500);
   }
 }

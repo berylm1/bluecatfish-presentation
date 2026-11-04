@@ -1,6 +1,6 @@
 'use client';
 
-import type { StudyGroup } from './content';
+import { STUDIES, type StudyGroup, type StudyId } from './content';
 
 /*
  * The study in the browser: who this is (the id /api/study gave them), their group and where they
@@ -18,32 +18,37 @@ export type StudyRecord = {
   code?: string | null;
   /** They gave their name (kept in this browser as learnerName, for the professor; never sent to the study) */
   named?: boolean;
+  /** Which study (lib/study/content.ts STUDIES): 2, static vs adaptive; absent: 1, the classmates study */
+  study?: StudyId;
 };
 
-const KEY = 'studyRecord';
-
-export function readStudy(): StudyRecord | null {
+/** Each study's record is kept apart (studyRecord, study2Record) */
+export function readStudy(study: StudyId = 1): StudyRecord | null {
   try {
-    const r = JSON.parse(localStorage.getItem(KEY) ?? 'null');
-    return r && typeof r.id === 'string' ? r : null;
+    const r = JSON.parse(localStorage.getItem(STUDIES[study].storeKey) ?? 'null');
+    return r && typeof r.id === 'string' ? { ...r, study: study === 2 ? 2 : undefined } : null;
   } catch {
     return null;
   }
 }
 
-export function writeStudy(r: StudyRecord | null) {
+/** Saves a record (where its study keeps it); null with `study`: forgets that study's */
+export function writeStudy(r: StudyRecord | null, study: StudyId = r?.study ?? 1) {
   try {
-    if (r) localStorage.setItem(KEY, JSON.stringify(r));
-    else localStorage.removeItem(KEY);
+    if (r) localStorage.setItem(STUDIES[study].storeKey, JSON.stringify(r));
+    else localStorage.removeItem(STUDIES[study].storeKey);
   } catch { /* private mode: only this tab's state */ }
 }
 
-/** The lesson in the study: the record, when the page was opened for it (?study=<its id>) */
+/** The lesson in a study: the record, when the page was opened for it (?study=<its id>), whichever study it's in */
 export function studyLesson(): StudyRecord | null {
   if (typeof window === 'undefined') return null;
   const id = new URLSearchParams(window.location.search).get('study');
-  const r = readStudy();
-  return id && r && r.id === id && r.group ? r : null;
+  for (const n of [1, 2] as const) {
+    const r = readStudy(n);
+    if (id && r && r.id === id && r.group) return r;
+  }
+  return null;
 }
 
 /**
@@ -55,7 +60,7 @@ export function freshStart() {
   for (const store of [localStorage, sessionStorage]) {
     try {
       for (const k of Object.keys(store)) {
-        if (k === KEY || k === 'learnerName' || k === 'voiceSpeed' || k === 'handsOnSounds' || k === 'learner_session'
+        if (k === STUDIES[1].storeKey || k === STUDIES[2].storeKey || k === 'learnerName' || k === 'voiceSpeed' || k === 'handsOnSounds' || k === 'learner_session'
           || k.startsWith('lessonProgress:') || k.startsWith('studyDeck:')) store.removeItem(k);
       }
     } catch { /* private mode: nothing kept anyway */ }

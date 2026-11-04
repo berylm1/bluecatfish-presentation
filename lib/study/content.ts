@@ -38,6 +38,17 @@ export const CONSENT = {
   agree: 'I am 18 or older, I have read the above, and I agree to take part, including the use of the microphone and (if I allow it) the camera as described.',
 };
 
+/** Study 2 (static vs adaptive): the same, but what the two lessons are */
+export const CONSENT2 = {
+  ...CONSENT,
+  paragraphs: [
+    'We are graduate students studying how people learn from an AI-narrated lesson. In this study you will go through a short lesson about blue catfish in the Chesapeake Bay, taught by an AI professor. Some people get a lesson that responds to them: they can ask the professor questions, and AI classmates join in. Others get a lesson that plays like a video. Which one you get is picked at random.',
+    CONSENT.paragraphs[1],
+    'In the lesson that responds, the microphone lets you ask the professor questions out loud (you can also type), and the camera can be used if you allow it (it’s optional). Your browser may ask to allow them.',
+    ...CONSENT.paragraphs.slice(3),
+  ],
+};
+
 /* ------------------------------------------------------------- demographics */
 
 /**
@@ -167,9 +178,28 @@ export const SURVEY: SurveyItem[] = [
 // matesHelped, matesWanted, matesDistract, finnThink, matesReal, favorite, wantMates, liked, annoyed, other.
 export const SURVEY_V1_IDS = ['enjoy', 'attention', 'follow', 'learned', 'askComfort', 'notAlone', 'again', 'effort', 'matesHelped', 'matesWanted', 'matesDistract', 'finnThink', 'matesReal', 'favorite', 'wantMates', 'liked', 'annoyed', 'other'];
 
-export const surveyFor = (group: string | null) => SURVEY.filter((s) => !s.group || s.group === group);
+export const surveyFor = (group: string | null) => SURVEY.filter((s) => !s.group || s.group === surveyGroup(group));
 
-export const GROUPS = ['classmates', 'no_classmates'] as const;
 /** A person's participant code (migration 017): P7, or T7 for a test run; null before the migration */
 export const participantCode = (no: unknown, test: unknown) => (typeof no === 'number' || typeof no === 'string' ? `${test ? 'T' : 'P'}${no}` : null);
-export type StudyGroup = (typeof GROUPS)[number];
+export const GROUPS = ['classmates', 'no_classmates'] as const;
+/** Study 2 (/study2): static (the professor reads the slides; nothing responds) or adaptive (the lesson as it is, classmates and all) */
+export const GROUPS2 = ['static', 'adaptive'] as const;
+export type StudyGroup = (typeof GROUPS)[number] | (typeof GROUPS2)[number];
+
+/*
+ * The studies: the same steps, each its own table and groups.
+ *   1  /study    the classmates study: with or without the AI classmates (study_participants)
+ *   2  /study2   static vs adaptive (study2_participants, migration 019)
+ */
+export type StudyId = 1 | 2;
+export const STUDIES = {
+  1: { id: 1, path: '/study', table: 'study_participants', assign: 'study_assign', groups: GROUPS as readonly string[], setup: '011', storeKey: 'studyRecord',
+    names: { classmates: 'With classmates', no_classmates: 'Without classmates' } as Record<string, string> },
+  2: { id: 2, path: '/study2', table: 'study2_participants', assign: 'study2_assign', groups: GROUPS2 as readonly string[], setup: '019', storeKey: 'study2Record',
+    names: { static: 'Static', adaptive: 'Adaptive' } as Record<string, string> },
+} as const;
+export type StudyDef = (typeof STUDIES)[StudyId];
+export const studyOf = (v: unknown): StudyDef => (v === 2 || v === '2' ? STUDIES[2] : STUDIES[1]);
+/** A group as the questionnaire sees it: adaptive has the classmates, static doesn't */
+export const surveyGroup = (g: string | null) => (g === 'adaptive' ? 'classmates' : g === 'static' ? 'no_classmates' : g);

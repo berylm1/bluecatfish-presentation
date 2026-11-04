@@ -76,7 +76,8 @@ export default function ClassChat({ entries, learnerName, liveSlide, getAudio, t
   /** Who is talking now (a ring on their avatar at the top) */
   speaking: Speaker | null;
   /** What the learner types here goes to the professor (a question, or "next") */
-  onSend: (text: string) => void;
+  /** What they type (none: no box to type in: study 2's static lesson) */
+  onSend?: (text: string) => void;
   onClose?: () => void;
   closeLabel?: string;
   className?: string;
@@ -119,7 +120,7 @@ export default function ClassChat({ entries, learnerName, liveSlide, getAudio, t
       </header>
       <div ref={box} className="flex-1 min-h-0 overflow-y-auto px-3 py-3 flex flex-col gap-2.5 text-sm leading-snug" aria-live="polite"
         onScroll={(e) => { const b = e.currentTarget; stick.current = b.scrollHeight - b.scrollTop - b.clientHeight < 40; }}>
-        {entries.length === 0 && <p className="text-white/45 text-xs text-center mt-6">What’s said in class shows up here. Ask the professor anything below.</p>}
+        {entries.length === 0 && <p className="text-white/45 text-xs text-center mt-6">What’s said in class shows up here.{onSend ? ' Ask the professor anything below.' : ''}</p>}
         {entries.map((e) => {
           if (e.kind === 'slide') {
             const live = e.id === liveSlide;
@@ -167,11 +168,11 @@ export default function ClassChat({ entries, learnerName, liveSlide, getAudio, t
           <div className="flex items-end gap-2"><Avatar who="professor" size={26} /><div className="rounded-2xl rounded-bl-md bg-white/10 px-3 py-2"><span className="inline-flex gap-1 py-1"><Dot /><Dot d={150} /><Dot d={300} /></span></div></div>
         )}
       </div>
-      <form className="flex items-center gap-1.5 p-2 border-t border-white/10" onSubmit={(e) => { e.preventDefault(); if (typed.trim()) { onSend(typed.trim()); setTyped(''); stick.current = true; } }}>
+      {onSend && <form className="flex items-center gap-1.5 p-2 border-t border-white/10" onSubmit={(e) => { e.preventDefault(); if (typed.trim()) { onSend(typed.trim()); setTyped(''); stick.current = true; } }}>
         <input value={typed} onChange={(e) => setTyped(e.target.value)} maxLength={500} placeholder="Ask the professor anything…" aria-label="Type to the class"
           className="flex-1 min-w-0 px-3 py-2 rounded-lg bg-white/10 placeholder:text-white/40 text-sm outline-none focus:bg-white/15" />
         <button className="px-3 py-2 rounded-lg bg-cyan-500/90 hover:bg-cyan-400 text-slate-950 text-sm font-semibold disabled:opacity-40" disabled={!typed.trim()}>Send</button>
-      </form>
+      </form>}
     </section>
   );
 }

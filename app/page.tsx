@@ -10,8 +10,7 @@ export default function Home() {
   const [cleared, setCleared] = useState(false);
   // In person, one computer for everyone: the next person starts fresh (asked for their name again, from the first slide)
   const newPerson = () => {
-    const study = readStudy();
-    const mid = study && study.step !== 'done';
+    const mid = [readStudy(1), readStudy(2)].some((r) => r && r.step !== 'done');   // (either study)
     if (!window.confirm(mid
       ? 'Someone is partway through the study on this computer. Start fresh for a new person? (What they did so far stays saved.)'
       : 'Start fresh for a new person? This computer forgets the last person’s name and where they were.')) return;

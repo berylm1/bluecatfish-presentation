@@ -34,8 +34,12 @@ export async function studyDeck(participant: string | null): Promise<{ deck: Dec
   let slug: string | null = null;
   let name: string | null = null;
   if (participant && /^[0-9a-f-]{36}$/i.test(participant)) {
-    const { data } = await supabase.from('study_participants').select('lesson_version').eq('id', participant).maybeSingle();
-    const recorded = data?.lesson_version as string | null | undefined;
+    // (their row: in the classmates study's table, or study 2's)
+    let recorded: string | null | undefined;
+    for (const table of ['study_participants', 'study2_participants']) {
+      const { data } = await supabase.from(table).select('lesson_version').eq('id', participant).maybeSingle();
+      if (data) { recorded = data.lesson_version as string | null; break; }
+    }
     if (recorded && recorded !== LIVE_LABEL) {
       const [s, ...rest] = recorded.split(':');   // "slug:Name"
       slug = s; name = rest.join(':');
