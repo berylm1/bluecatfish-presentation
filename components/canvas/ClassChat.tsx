@@ -92,9 +92,19 @@ export default function ClassChat({ entries, learnerName, liveSlide, getAudio, t
 
   const last = entries[entries.length - 1];
   const lastText = !last ? '' : last.kind === 'slide' ? last.lines[last.lines.length - 1]?.text ?? '' : last.text;
+  // Someone new says something (a new line in the chat): down to it, even if they'd scrolled up (was: only when already at
+  // the bottom). Words still coming into the same line: followed while they're at the bottom
+  const seen = useRef(entries.length);
   useEffect(() => {
     const b = box.current;
-    if (b && stick.current) b.scrollTop = b.scrollHeight;
+    if (!b) return;
+    if (entries.length > seen.current) stick.current = true;
+    seen.current = entries.length;
+    if (!stick.current) return;
+    b.scrollTop = b.scrollHeight;
+    // (again once it's laid out: a picture or a folded slide can grow it after this)
+    const raf = requestAnimationFrame(() => { if (stick.current) b.scrollTop = b.scrollHeight; });
+    return () => cancelAnimationFrame(raf);
   }, [entries.length, lastText, thinking]);
 
   return (
