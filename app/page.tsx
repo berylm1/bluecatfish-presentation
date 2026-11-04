@@ -30,16 +30,21 @@ export default function Home() {
           <p className="text-lg md:text-xl text-slate-300 mb-10 max-w-xl">
             A short, hands-on lesson about the giant fish that&apos;s changing the Chesapeake Bay.
           </p>
-          {/* was /presentationv2: the canvas page is the main presentation now */}
+          {/* The study (in person: app/study, consent first). Was: the lesson itself (/presentation) */}
           <Link
-            href="/presentation"
+            href="/study"
             className="inline-block px-10 py-5 rounded-2xl bg-cyan-400 hover:bg-cyan-300 text-slate-900 text-2xl font-bold shadow-[0_10px_40px_rgba(34,211,238,0.35)] transition-colors"
           >
             ▶ Start the lesson
           </Link>
+          {/* The lesson on its own, outside the study (nothing saved to the study) */}
+          <Link href="/presentation" className="mt-6 text-sm text-slate-400 hover:text-white underline">
+            Just the lesson (not the study)
+          </Link>
+          {/* The classic version, hidden for now (the study's lesson is the canvas one):
           <Link href="/presentationv2" className="mt-6 text-sm text-slate-400 hover:text-white underline">
             Classic version (full AI lesson)
-          </Link>
+          </Link> */}
         </div>
       </div>
       {/* For the editors (Kai, Beryl, Dr. Cao): the editor asks for the password (lib/editorAuth.ts), and
