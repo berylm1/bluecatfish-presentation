@@ -3,7 +3,8 @@ import { readSaved } from '@/lib/canvas/saved';
 import { needsAudio, needsIntroAudio, speaksAtAll, storedHere } from '@/lib/canvas/aiFields';
 import { AUTH_COOKIE, verifyToken } from '@/lib/editorAuth';
 import { setupMissing } from '@/lib/setupCheck';
-import { CONSENT, STUDY_LESSON } from '@/lib/study/content';
+import { CONSENT, STUDIES, STUDY_LESSON, STUDY_LESSON_TITLE } from '@/lib/study/content';
+import { readDeck } from '@/lib/canvas/store';
 import { getStudyVersion } from '@/lib/study/version';
 import { lazySupabaseAdmin } from '@/lib/supabase/admin';
 import { checkRedisHealth } from '@/src/redisClient';
@@ -22,6 +23,7 @@ type Item = { id: string; group: 'Setup' | 'The lesson' | 'The study'; label: st
 // (the consent page's contact line as it came: still to be replaced with the research team's real contact)
 const CONTACT_PLACEHOLDER = 'Questions about this study? Contact the research team.';
 const MANUAL: { id: string; group: Item['group']; label: string; hint: string }[] = [
+  { id: 'extras_checked', group: 'The lesson', label: 'The extras only re-explain the slides', hint: 'The classmates’ questions, their answer slides and the helper slides teach nothing the slides don’t (✨ check them below)' },
   { id: 'quiz_checked', group: 'The study', label: 'The quizzes match the final lesson', hint: 'Every quiz question is answered in the lesson as it is now (lib/study/content.ts)' },
   { id: 'consent_approved', group: 'The study', label: 'The consent page is approved', hint: 'By your advisor or ethics board, as required' },
   { id: 'pilot_done', group: 'The study', label: 'The pilot is done', hint: 'A few real people went through it, and anything they hit is fixed' },
@@ -60,7 +62,7 @@ export async function GET(req: NextRequest) {
   const version = await getStudyVersion();
   const frozen = version.slug ? await readSaved(STUDY_LESSON, version.slug) : null;
 
-  const [setup, services, knowledge, tests, manualRow] = await Promise.all([
+  const [setup, services, knowledge, tests, studyLesson, manualRow] = await Promise.all([
     run(async () => {
       const missing = await setupMissing(supabase as never);
       return missing.length ? { ok: false, detail: `Missing: ${missing.join(', ')}. Run the setup files in supabase/migrations.` } : { ok: true, detail: 'Every table, search and storage bucket is there' };
@@ -78,16 +80,22 @@ export async function GET(req: NextRequest) {
       if (error) throw new Error(error.message);
       return count ? { ok: true, detail: `${count} pieces` } : { ok: false, detail: 'Empty: upload it on /textIngest, or the professor answers from the slides only' };
     }),
+    // a finished test run in each group of each study, on the frozen version
     run(async () => {
       if (!version.slug) return { ok: false, detail: 'Freeze the lesson first: test runs count on that version' };
-      const { data, error } = await supabase.from('study_participants').select('study_group').eq('is_test', true).not('finished_at', 'is', null).like('lesson_version', `${version.slug}:%`);
-      if (error) throw new Error(error.message);
-      const groups = new Set((data ?? []).map((r: { study_group: string | null }) => r.study_group));
-      const missing = [!groups.has('classmates') && 'with classmates', !groups.has('no_classmates') && 'without classmates'].filter(Boolean);
+      const missing: string[] = [];
+      for (const S of [STUDIES[2], STUDIES[1]]) {
+        const { data, error } = await supabase.from(S.table).select('study_group').eq('is_test', true).not('finished_at', 'is', null).like('lesson_version', `${version.slug}:%`);
+        if (error) { missing.push(`${S.path} (${/study2/.test(error.message) ? `run setup file ${S.setup}` : error.message})`); continue; }
+        const groups = new Set((data ?? []).map((r: { study_group: string | null }) => r.study_group));
+        for (const g of S.groups) if (!groups.has(g)) missing.push(`${S.names[g]} (${S.path})`);
+      }
       return missing.length
-        ? { ok: false, detail: `No finished test run ${missing.join(' or ')} on "${version.name}" yet (Study results → Try it, pick the group)` }
-        : { ok: true, detail: `Finished in both groups on "${version.name}"` };
+        ? { ok: false, detail: `No finished test run on "${version.name}" yet: ${missing.join(', ')}. Try it, and pick the group` }
+        : { ok: true, detail: `Finished in every group of both studies on "${version.name}"` };
     }),
+    // the study's lesson: made from the original yet? (app/api/editor/study-lesson)
+    Promise.all([readDeck(STUDY_LESSON, 'draft'), readDeck(STUDY_LESSON, 'live')]).then(([d, l]) => ({ draft: !!d?.slides?.length, live: !!l?.slides?.length }), () => ({ draft: false, live: false })),
     supabase.from('study_settings').select('manual').eq('id', 1).maybeSingle().then((r) => r, () => ({ data: null, error: { message: 'unreachable' } })),
   ]);
 
@@ -98,6 +106,8 @@ export async function GET(req: NextRequest) {
   const items: Item[] = [
     { id: 'setup', group: 'Setup', label: 'The database is set up', ...setup },
     { id: 'services', group: 'Setup', label: 'The services answer', ...services },
+    { id: 'study_lesson', group: 'The lesson', label: `“${STUDY_LESSON_TITLE}” is made`, ok: studyLesson.live,
+      detail: studyLesson.live ? 'Its extras are written from its own slides only' : studyLesson.draft ? 'Made: open it in the editor, Save, then Publish it' : 'Not yet: make it from the original (its slides, none of its extras)' },
     { id: 'frozen', group: 'The lesson', label: 'The lesson is frozen for the study', ok: !!frozen,
       detail: frozen ? `"${version.name}", ${frozen.slides.length} slide${frozen.slides.length === 1 ? "" : "s"}` : version.slug ? `"${version.name}" is no longer saved: pick another` : 'Not frozen: pick a saved version above' },
     { id: 'recordings', group: 'The lesson', label: 'Every sentence has its recording', ok: !!gaps && gaps.audio === 0,
@@ -105,7 +115,7 @@ export async function GET(req: NextRequest) {
     { id: 'pictures', group: 'The lesson', label: 'Every picture is in storage', ok: !!gaps && gaps.pictures === 0,
       detail: !gaps ? 'Freeze the lesson first' : gaps.pictures ? `${gaps.pictures} pointing at the deleted project: see Lesson backup for which` : 'All there' },
     { id: 'knowledge', group: 'The lesson', label: 'The knowledge base is loaded', ...knowledge },
-    { id: 'tests', group: 'The study', label: 'A test run finished in each group', ...tests },
+    { id: 'tests', group: 'The study', label: 'A test run finished in every group', ...tests },
     { id: 'contact', group: 'The study', label: 'The consent page has your contact', ok: CONSENT.contact !== CONTACT_PLACEHOLDER,
       detail: CONSENT.contact !== CONTACT_PLACEHOLDER ? CONSENT.contact : 'Still "Contact the research team": put a real email or name in lib/study/content.ts (CONSENT.contact)' },
     ...MANUAL.map((m) => ({

@@ -4,6 +4,7 @@ import { autoFix, formatGuide, imagesFor, markAi, problems, toSlide, type LibIma
 import { hasWords } from './pictures';
 import { BANK_PER_TOPIC, fingerprint, slideBasis } from './aiFields';
 import { spokenText } from './queue';
+import { slidesOnly } from '@/lib/study/content';
 
 /*
  * The question bank (Deck.bank): about BANK_PER_TOPIC questions per topic that kids in class might
@@ -54,6 +55,19 @@ over time or a comparison. The FIRST speaking element's "say" answers the questi
 Every fact comes from the SOURCE CONTENT or the topic's slides; never invent numbers.
 Reply as JSON: {"slide":{"background":"#hex","elements":[...]}}`;
 
+// The study's lesson (lib/study/content.ts slidesOnly): the questions and answers stay inside what its slides teach
+const SLIDES_ONLY_SOURCE = '(none: use only WHAT THE TOPIC\'S SLIDES TEACH)';
+const QUESTIONS_SLIDES_ONLY = `${STYLE}
+You prepare a lesson's QUESTION BANK for ONE topic: questions 10-14 year olds might really ask in class after its slides.
+Write ${BANK_PER_TOPIC} questions:
+- 2 "curious": what a word on the slides means, or why or how something on them happens
+- 2 "practical": what something on the slides means for people, the Bay or the learner
+- 2 "checking": a kid checking they understood ("So does that mean…?", "Wait, is it because…?")
+Each: under 16 words, in kid words, different from the others, and FULLY answered by WHAT THE TOPIC'S SLIDES TEACH.
+Never ask about anything the slides don't teach: no new facts, numbers or examples. Ask about what they teach in another way.
+Reply as JSON: {"questions":[{"q":"...","kind":"curious|practical|checking"}]}`;
+const ANSWER_SLIDES_ONLY = ANSWER.replace('Every fact comes from the SOURCE CONTENT or the topic\'s slides; never invent numbers.',
+  'Every fact comes from WHAT THE TOPIC\'S SLIDES TEACH, and nothing else: no new facts, numbers or examples. Re-explain what the slides say, in other words.');
 const FIX = `You fix ONE lesson slide (JSON) so it follows the slide format. Keep its words and pictures; move and resize boxes so nothing
 overflows, goes off the slide or overlaps.
 
@@ -74,8 +88,10 @@ export async function writeBankTopic(deck: Deck, topic: string,
 ): Promise<BankQuestion[]> {
   const slides = deck.slides.filter((s) => s.topic?.trim() === topic);
   const taught = slides.map((s) => `${slideBasis(s)}\n${s.elements.map(spokenText).filter(Boolean).join(' ')}`).join('\n---\n').slice(0, 6000);
-  const facts = await knowledge(`${deck.title} ${topic}: details, reasons, numbers, what people do`, 15);
-  const out = JSON.parse(await chat(QUESTIONS, `Lesson: ${deck.title}\nTOPIC: ${topic}\n\nWHAT THE TOPIC'S SLIDES TEACH:\n${taught}\n\nSOURCE CONTENT:\n${facts || '(none found)'}`, true, 1500));
+  // (the study's lesson: its slides only, never the knowledge base, so the classmates re-explain and don't teach more)
+  const only = slidesOnly(deck.lessonId);
+  const facts = only ? SLIDES_ONLY_SOURCE : await knowledge(`${deck.title} ${topic}: details, reasons, numbers, what people do`, 15);
+  const out = JSON.parse(await chat(only ? QUESTIONS_SLIDES_ONLY : QUESTIONS, `Lesson: ${deck.title}\nTOPIC: ${topic}\n\nWHAT THE TOPIC'S SLIDES TEACH:\n${taught}\n\nSOURCE CONTENT:\n${facts || '(none found)'}`, true, 1500));
   const asks = (Array.isArray(out?.questions) ? out.questions : [])
     .filter((x: any) => typeof x?.q === 'string' && x.q.trim()).slice(0, BANK_PER_TOPIC)
     .map((x: any) => ({ q: String(x.q).trim().slice(0, 200), kind: x.kind as keyof typeof KIND_ASKER }));
@@ -95,7 +111,7 @@ export async function writeBankTopic(deck: Deck, topic: string,
     const images: LibImage[] = offered[n];
     const list = images.map((i) => `${i.id}: ${i.description}`).join('\n') || '(none: use text, a chart or a diagram)';
     try {
-      let raw = JSON.parse(await chat(ANSWER,
+      let raw = JSON.parse(await chat(only ? ANSWER_SLIDES_ONLY : ANSWER,
         `Lesson: ${deck.title}\nTOPIC: ${topic}\nQUESTION: ${a.q}\n\nWHAT THE TOPIC'S SLIDES TEACH:\n${taught.slice(0, 3000)}\n\nAVAILABLE IMAGES:\n${list}\n\nSOURCE CONTENT:\n${facts || '(none found)'}`,
         true, 3000)).slide;
       let slide = toSlide(raw, topic, images, `${id}-s`);

@@ -3,6 +3,7 @@ import { STYLE, chat, knowledge } from './ai';
 import { autoFix, formatGuide, imagesFor, problems, type LibImage } from './generate';
 import { fingerprint, sayBasis, slideBasis } from './aiFields';
 import { shownWords } from './queue';
+import { slidesOnly } from '@/lib/study/content';
 
 /*
  * The AI's draft of a slide's helper: the "explain it another way" version
@@ -96,14 +97,18 @@ export function toHelper(raw: any, slide: Slide, images: LibImage[]): SlideEleme
 /** Drafts the helper for one slide (one retry if the layout has problems). */
 export async function draftHelper(slide: Slide, deck: Deck): Promise<SlideHelper> {
   const basis = slideBasis(slide);
+  // (the study's lesson: the slide alone, never the knowledge base, so "another way to see it" adds nothing new)
+  const only = slidesOnly(deck.lessonId);
   const [facts, images] = await Promise.all([
-    knowledge(`${slide.topic ?? ''} ${basis}`, 5),
+    only ? Promise.resolve('') : knowledge(`${slide.topic ?? ''} ${basis}`, 5),
     imagesFor(`${slide.topic ?? ''} ${basis}`.slice(0, 500), 10),
   ]);
   const user =
     `Lesson: ${deck.title}\nTopic: ${slide.topic ?? '(not set)'}\nSLIDE (background ${slide.background?.color ?? '#ffffff'}): ${describe(slide)}\n\n` +
     `AVAILABLE IMAGES:\n${images.map((i) => `${i.id}: ${i.description}`).join('\n') || '(none: keep the slide\'s pictures or use none)'}\n\n` +
-    `Knowledge base excerpts:\n${facts || '(none found)'}`;
+    (only
+      ? 'Knowledge base excerpts: (none: use ONLY what the SLIDE says. No fact, number or example that isn\'t on it; a picture only shows what the slide says)'
+      : `Knowledge base excerpts:\n${facts || '(none found)'}`);
 
   let raw = JSON.parse(await chat(SYSTEM, user, true, 3000));
   let elements = toHelper(raw, slide, images);

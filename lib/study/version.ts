@@ -16,8 +16,9 @@ const NONE: StudyVersion = { slug: null, name: null, setAt: null, setBy: null };
 export const LIVE_LABEL = 'live (not frozen)';
 
 export async function getStudyVersion(): Promise<StudyVersion> {
-  const { data, error } = await supabase.from('study_settings').select('version_slug, version_name, set_at, set_by').eq('id', 1).maybeSingle();
+  const { data, error } = await supabase.from('study_settings').select('lesson_id, version_slug, version_name, set_at, set_by').eq('id', 1).maybeSingle();
   if (error || !data) return NONE;   // (migration 014 not run: not frozen)
+  if (data.lesson_id && data.lesson_id !== STUDY_LESSON) return NONE;   // (a version of another lesson: the study's lesson changed since)
   return { slug: data.version_slug, name: data.version_name, setAt: data.set_at, setBy: data.set_by };
 }
 

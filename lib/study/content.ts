@@ -9,7 +9,17 @@ export const STUDY_VERSION = 'v2';   // saved with each person: change it when t
 // (v2: in person; the name first, the pilot's demographic questions, the UEQ-S, post-condition and post-study questionnaires)
 export const STUDY_TITLE = 'Learning with AI: the Blue Catfish lesson';
 export const STUDY_MINUTES = '25–35';
-export const STUDY_LESSON = 'blue-catfish';
+/*
+ * The study's own lesson, "Blue Catfish (study)": a copy of the original (STUDY_SOURCE), pulled from it slide by slide
+ * (lib/canvas/studyLesson.ts), whose extras (the classmates' question bank and its answer slides, helper slides) are
+ * written from its own slides only, never the knowledge base: so a group that hears them isn't taught anything the
+ * other wasn't. Both studies play it. (was: the original lesson itself, 'blue-catfish')
+ */
+export const STUDY_LESSON = 'blue-catfish-study';
+export const STUDY_LESSON_TITLE = 'Blue Catfish (study)';
+export const STUDY_SOURCE = 'blue-catfish';
+/** Extras written from the lesson's own slides only (the study's lesson) */
+export const slidesOnly = (lessonId: string | undefined) => lessonId === STUDY_LESSON;
 
 export type Choice = { id: string; text: string };
 export type ChoiceQuestion = { id: string; kind: 'choice'; q: string; choices: Choice[] };
