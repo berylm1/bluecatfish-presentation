@@ -8,7 +8,7 @@
 export const QUESTIONS_VERSION = 'v4';   // the questions' version, saved with each person's answers: change it when the questions change
 // (v2: in person; the name first, the pilot's demographic questions, the UEQ-S, post-condition and post-study questionnaires)
 export const STUDY_TITLE = 'Learning with AI: the Blue Catfish lesson';
-export const STUDY_MINUTES = '25–35';
+export const STUDY_MINUTES = '25–40';
 /*
  * The study's own lesson, "Blue Catfish (study)": a copy of the original (STUDY_SOURCE), pulled from it slide by slide
  * (lib/canvas/studyLesson.ts), whose extras (the classmates' question bank and its answer slides, helper slides) are
