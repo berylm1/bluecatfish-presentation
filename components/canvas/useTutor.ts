@@ -21,7 +21,10 @@ const VOICE =
   'Talk in the same voice as the slides: funny, a bit goofy, lightly sarcastic about the fish and the problem (never about the student), ' +
   'with the facts kept exactly right. No lists or headings: this is read out loud. If you don\'t know, say so.';
 
-export function useTutor() {
+/** lessonOnly: answer only from the study's lesson (its own words: static vs adaptive), not the knowledge base */
+export function useTutor(lessonOnly = false) {
+  const lessonRef = useRef(lessonOnly);
+  lessonRef.current = lessonOnly;
   const speech = useSpeechQueue();
   const [exchange, setExchange] = useState<Exchange | null>(null);
   const [thinking, setThinking] = useState(false);
@@ -56,6 +59,7 @@ export function useTutor() {
           topic: 'Blue Catfish invasion in the Chesapeake Bay',
           stream: true,
           useKnowledgeBase: true,
+          ...(lessonRef.current ? { lessonOnly: true } : {}),
           systemPrompt: `${VOICE}\n\nWhat the learner is looking at right now:\n${slideContext}\n\nRelate the answer to this slide when it helps.`,
           conversation: historyRef.current.slice(-HISTORY_TURNS * 2),
         }),

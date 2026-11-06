@@ -20,6 +20,8 @@ export interface RepeatSuggestion {
   slideIndex: number;
   slideId: string;
   elId: string;
+  /** Which box on the slide it is (1 = its first box, in the order they were added), as the editor shows it */
+  box?: number;
   /** New spoken words (undefined = unchanged) */
   say?: string;
   /** New shown text, text boxes only (undefined = unchanged) */
@@ -40,6 +42,18 @@ function candidates(deck: Deck): { key: string; slideIndex: number; el: SlideEle
     // Keys by position: element ids are only unique within a slide
     return [{ key: `${si + 1}.${ei + 1}`, slideIndex: si, el }];
   }));
+}
+
+/**
+ * The AI's "why" in the editor's words: an element's [N.M] label ("already explained in 1.2") as "slide 1 box 2".
+ * Only labels of real elements, after a word like "in" or in brackets (so "1.5 million" stays a number).
+ */
+export function boxNames(why: string, keys: ReadonlyMap<string, unknown>): string {
+  return why
+    .replace(/\[(\d+)\.(\d+)\]/g, (m, a, b) => (keys.has(`${a}.${b}`) ? `slide ${a} box ${b}` : m))
+    .replace(/\b(in|at|from|on|by|see|as|repeats|repeating|slide|element|box)\s+(\d+)\.(\d+)\b/gi, (m, w, a, b) =>
+      (keys.has(`${a}.${b}`) ? `${/^(slide|element|box)$/i.test(w) ? '' : `${w} `}slide ${a} box ${b}` : m))
+    .replace(/\bslide (\d+) slide \1 box/g, 'slide $1 box');
 }
 
 /** What the AI reads: one line per element, as many whole lines as fit (and the last slide they reach). `changed`: those slides' lines are marked */
@@ -81,7 +95,8 @@ export async function findRepeats(deck: Deck, changed?: Set<string>): Promise<Re
       'Don\'t change anything that isn\'t a repeat, and don\'t add facts that aren\'t already in the lesson. ' +
       (changed ? 'Only the elements marked CHANGED have changed since the lesson was last checked: report only repeats that involve one of them ' +
         '(a CHANGED element that repeats something earlier, or a later element that repeats something a CHANGED one now says). The others were checked already. ' : '') +
-      'Reply as JSON: {"fixes":[{"id":"3.2","say":"...","text":"...","why":"repeats slide 1: ..."}]} (id = the [number] of the element; an empty list when there are no repeats).',
+      'Reply as JSON: {"fixes":[{"id":"3.2","say":"...","text":"...","why":"repeats slide 1 box 2: ..."}]} (id = the [number] of the element; ' +
+      'in "why", say where it was said first as "slide N box M" (from its [N.M]); an empty list when there are no repeats).',
     `Lesson: ${deck.title}\n\n${lines.join('\n')}`,
     true,
     8000,
@@ -103,7 +118,8 @@ export async function findRepeats(deck: Deck, changed?: Set<string>): Promise<Re
     if (!say && !text) continue;
     suggestions.push({
       slideIndex, slideId: deck.slides[slideIndex].id, elId: el.id, say, text,
-      why: typeof f.why === 'string' ? f.why.slice(0, 300) : 'repeats an earlier slide',
+      why: typeof f.why === 'string' ? boxNames(f.why, byKey).slice(0, 300) : 'repeats an earlier slide',
+      box: Number(item.key.split('.')[1]),
       beforeSay, beforeText: el.type === 'text' ? el.text : undefined,
     });
   }

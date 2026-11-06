@@ -5,11 +5,21 @@
 // DRAFT: written from what the Blue Catfish lesson teaches. Check every question against the final
 // lesson before the study starts, and keep ids the same once real people have answered.
 
-export const STUDY_VERSION = 'v2';   // saved with each person: change it when the questions change
+export const QUESTIONS_VERSION = 'v3';   // the questions' version, saved with each person's answers: change it when the questions change
 // (v2: in person; the name first, the pilot's demographic questions, the UEQ-S, post-condition and post-study questionnaires)
 export const STUDY_TITLE = 'Learning with AI: the Blue Catfish lesson';
 export const STUDY_MINUTES = '25–35';
-export const STUDY_LESSON = 'blue-catfish';
+/*
+ * The study's own lesson, "Blue Catfish (study)": a copy of the original (STUDY_SOURCE), pulled from it slide by slide
+ * (lib/canvas/studyLesson.ts), whose extras (the classmates' question bank and its answer slides, helper slides) are
+ * written from its own slides only, never the knowledge base: so a group that hears them isn't taught anything the
+ * other wasn't. Both studies play it. (was: the original lesson itself, 'blue-catfish')
+ */
+export const STUDY_LESSON = 'blue-catfish-study';
+export const STUDY_LESSON_TITLE = 'Blue Catfish (study)';
+export const STUDY_SOURCE = 'blue-catfish';
+/** Extras written from the lesson's own slides only (the study's lesson) */
+export const slidesOnly = (lessonId: string | undefined) => lessonId === STUDY_LESSON;
 
 export type Choice = { id: string; text: string };
 export type ChoiceQuestion = { id: string; kind: 'choice'; q: string; choices: Choice[] };
@@ -20,7 +30,8 @@ const abcd = (...texts: string[]): Choice[] => texts.map((text, i) => ({ id: 'ab
 
 /* ------------------------------------------------------------------ consent */
 
-export const CONSENT = {
+/** The classmates study (study 2): its consent page */
+export const CONSENT_CLASSMATES = {
   heading: 'Before you start',
   paragraphs: [
     'We are graduate students studying how people learn from an interactive, AI-narrated lesson. In this study you will go through a short lesson about blue catfish in the Chesapeake Bay, taught by an AI professor. Some people will also have AI classmates in the lesson and some won’t. Which one you get is picked at random.',
@@ -34,14 +45,25 @@ export const CONSENT = {
   // (v1: "We don't ask for your name or email, and nothing you answer is linked to who you are." The name is asked
   // now, and kept on the computer only)
   // Questions about the study: put the research team's or the professor's contact here
-  contact: 'Questions about this study? Contact the research team.',
+  contact: 'Questions about this study? Contact the research team: kfrancis@umes.edu',
   agree: 'I am 18 or older, I have read the above, and I agree to take part, including the use of the microphone and (if I allow it) the camera as described.',
+};
+
+/** Static vs adaptive (study 1): the same, but what its two lessons are */
+export const CONSENT_ADAPTIVE = {
+  ...CONSENT_CLASSMATES,
+  paragraphs: [
+    'We are graduate students studying how people learn from an AI-narrated lesson. In this study you will go through a short lesson about blue catfish in the Chesapeake Bay, taught by an AI professor. Some people get a lesson that responds to them: they can ask the professor questions, and AI classmates join in. Others get a lesson that plays like a video. Which one you get is picked at random.',
+    CONSENT_CLASSMATES.paragraphs[1],
+    'In the lesson that responds, the microphone lets you ask the professor questions out loud (you can also type), and the camera can be used if you allow it (it’s optional). Your browser may ask to allow them.',
+    ...CONSENT_CLASSMATES.paragraphs.slice(3),
+  ],
 };
 
 /* ------------------------------------------------------------- demographics */
 
 /**
- * The pre-study questionnaire (the pilot's "Pre-Study Questionnaire"), saved together (study_participants.demographics,
+ * The pre-study questionnaire (the pilot's "Pre-Study Questionnaire"), saved together (its table's demographics column,
  * migration 017). `other`: the choice that opens a box to write in ("Other: ___"); `number`: a number from min to max.
  */
 export type Demographic = { id: DemographicId; q: string; choices?: string[]; optional?: boolean; text?: boolean; number?: { min: number; max: number }; other?: string };
@@ -67,7 +89,7 @@ export function demographicAnswer(d: Demographic, raw: unknown): string | null {
   if (d.other && v.startsWith(`${d.other}: `) && v.length > d.other.length + 2) return v.slice(0, 200);
   return null;
 }
-// v1's questions (were study_participants columns age_range, student, field, ai_use, catfish_knowledge, bay_area,
+// The first questions (v1; were the classmates study's table's columns age_range, student, field, ai_use, catfish_knowledge, bay_area,
 // english_first, done_before: removed by migration 018):
 //   How old are you? (ranges) · Are you a student? · What do you study, or what is your work? · How often do you use AI tools
 //   like ChatGPT? · How much did you know about blue catfish before today? · Do you live in or near the Chesapeake Bay area?
@@ -75,7 +97,7 @@ export function demographicAnswer(d: Demographic, raw: unknown): string | null {
 
 /* -------------------------------------------------------------------- quiz */
 
-// The pre-quiz: these 5. The post-quiz: the same 5 (shuffled in with the rest), 5 harder ones, and 3 short answers.
+// The pre-quiz: these 5. The post-quiz: the same 5 (shuffled in with the rest), 4 harder ones, and 1 written answer.
 export const QUIZ_SAME: ChoiceQuestion[] = [
   { id: 'q1', kind: 'choice', q: 'Where do blue catfish originally come from?',
     choices: abcd('The Chesapeake Bay', 'The Mississippi River basin', 'The Atlantic Ocean', 'The Great Lakes') },
@@ -92,8 +114,9 @@ export const QUIZ_SAME: ChoiceQuestion[] = [
 export const QUIZ_NEW: ChoiceQuestion[] = [
   { id: 'q6', kind: 'choice', q: 'About how long can a blue catfish live?',
     choices: abcd('About 2 years', 'About 5 years', 'Over 100 years', '20 years or more') },
-  { id: 'q7', kind: 'choice', q: 'What do a blue catfish’s long whiskers (barbels) do?',
-    choices: abcd('They are covered in taste buds that help it find food', 'They sting other fish', 'They help it breathe air', 'They glow so it can see in the dark') },
+  // (removed from Quiz 2, v3)
+  // { id: 'q7', kind: 'choice', q: 'What do a blue catfish’s long whiskers (barbels) do?',
+  //   choices: abcd('They are covered in taste buds that help it find food', 'They sting other fish', 'They help it breathe air', 'They glow so it can see in the dark') },
   { id: 'q8', kind: 'choice', q: 'How heavy can the biggest blue catfish get?',
     choices: abcd('More than 1,000 pounds', 'About 5 pounds', 'About 20 pounds', 'More than 100 pounds') },
   { id: 'q9', kind: 'choice', q: 'Which of these is a way people are trying to control blue catfish in the Bay?',
@@ -109,13 +132,16 @@ export const QUIZ_NEW: ChoiceQuestion[] = [
 
 export const QUIZ_SHORT: TextQuestion[] = [
   { id: 's1', kind: 'text', q: 'In your own words, why are blue catfish a problem for the Chesapeake Bay?', hint: 'A few sentences is plenty.' },
-  { id: 's2', kind: 'text', q: 'Pick one thing about blue catfish (their size, what they eat, how long they live, or the water they can live in). How does it help them spread or survive in the Bay?' },
-  { id: 's3', kind: 'text', q: 'If you were in charge of the Bay, what would you do about blue catfish, and why?' },
+  // (removed from Quiz 2, v3: only the first written question is asked)
+  // { id: 's2', kind: 'text', q: 'Pick one thing about blue catfish (their size, what they eat, how long they live, or the water they can live in). How does it help them spread or survive in the Bay?' },
+  // { id: 's3', kind: 'text', q: 'If you were in charge of the Bay, what would you do about blue catfish, and why?' },
 ];
 
 export const PRE_QUIZ: QuizQuestion[] = QUIZ_SAME;
-/** The post-quiz: the 5 from before shuffled in with the 5 new ones (a fixed order, the same for everyone), then the short answers */
-export const POST_QUIZ: QuizQuestion[] = [QUIZ_NEW[0], QUIZ_SAME[2], QUIZ_NEW[1], QUIZ_SAME[0], QUIZ_NEW[2], QUIZ_SAME[4], QUIZ_NEW[3], QUIZ_SAME[1], QUIZ_NEW[4], QUIZ_SAME[3], ...QUIZ_SHORT];
+/** The post-quiz: the 5 from before shuffled in with the 4 new ones (a fixed order, the same for everyone), then the written question */
+const quizQ = (id: string) => [...QUIZ_SAME, ...QUIZ_NEW].find((q) => q.id === id)!;
+export const POST_QUIZ: QuizQuestion[] = [...['q6', 'q3', 'q1', 'q8', 'q5', 'q9', 'q2', 'q10', 'q4'].map(quizQ), ...QUIZ_SHORT];
+// (v2: q6, q3, q7, q1, q8, q5, q9, q2, q10, q4, then s1, s2, s3)
 
 /* ------------------------------------------------------------ questionnaire */
 
@@ -159,7 +185,7 @@ export const SURVEY: SurveyItem[] = [
   { id: 'helped', kind: 'text', q: 'What helped you learn in the lecture, and what got in the way?', group: 'no_classmates', part: 'study' },
   { id: 'improve', kind: 'text', q: 'What would you improve about the AI-led learning platform?', part: 'study' },
 ];
-// v1's questionnaire (survey.version 'v1'), for the people who answered it: I enjoyed the lesson · I paid attention ·
+// The first questionnaire (survey.version 'v1'), for the people who answered it: I enjoyed the lesson · I paid attention ·
 // easy to follow · learned something new · comfortable asking questions · felt like a class · would learn this way again ·
 // mental effort · (classmates) their questions helped · asked what I wanted to know · distracting · Finn's mix-ups made
 // me think · felt real · favourite classmate · (without) would have liked other students · liked most · confusing or
@@ -167,9 +193,32 @@ export const SURVEY: SurveyItem[] = [
 // matesHelped, matesWanted, matesDistract, finnThink, matesReal, favorite, wantMates, liked, annoyed, other.
 export const SURVEY_V1_IDS = ['enjoy', 'attention', 'follow', 'learned', 'askComfort', 'notAlone', 'again', 'effort', 'matesHelped', 'matesWanted', 'matesDistract', 'finnThink', 'matesReal', 'favorite', 'wantMates', 'liked', 'annoyed', 'other'];
 
-export const surveyFor = (group: string | null) => SURVEY.filter((s) => !s.group || s.group === group);
+export const surveyFor = (group: string | null) => SURVEY.filter((s) => !s.group || s.group === surveyGroup(group));
 
-export const GROUPS = ['classmates', 'no_classmates'] as const;
 /** A person's participant code (migration 017): P7, or T7 for a test run; null before the migration */
 export const participantCode = (no: unknown, test: unknown) => (typeof no === 'number' || typeof no === 'string' ? `${test ? 'T' : 'P'}${no}` : null);
-export type StudyGroup = (typeof GROUPS)[number];
+/** Static vs adaptive: static (the professor reads the slides; nothing responds) or adaptive (the lesson as it is, classmates and all) */
+export const ADAPTIVE_GROUPS = ['static', 'adaptive'] as const;
+/** The classmates study: with or without the AI classmates */
+export const CLASSMATE_GROUPS = ['classmates', 'no_classmates'] as const;
+export type StudyGroup = (typeof ADAPTIVE_GROUPS)[number] | (typeof CLASSMATE_GROUPS)[number];
+
+/*
+ * The studies: the same steps, each its own table, groups and settings (study_settings row = its id).
+ *   1  static vs adaptive, the main study   /study    adaptive_participants    results /studyResults
+ *   2  the classmates study                 /study2   classmates_participants  results /studyResults/classmates
+ * (setup file 021 named the tables by study; they were study2_participants and study_participants)
+ */
+export type StudyId = 1 | 2;
+export const STUDIES = {
+  1: { id: 1, name: 'Static vs adaptive', path: '/study', results: '/studyResults', table: 'adaptive_participants', assign: 'adaptive_assign',
+    groups: ADAPTIVE_GROUPS as readonly string[], storeKey: 'studyRecord', names: { static: 'Static', adaptive: 'Adaptive' } as Record<string, string> },
+  2: { id: 2, name: 'Classmates study', path: '/study2', results: '/studyResults/classmates', table: 'classmates_participants', assign: 'classmates_assign',
+    groups: CLASSMATE_GROUPS as readonly string[], storeKey: 'study2Record', names: { classmates: 'With classmates', no_classmates: 'Without classmates' } as Record<string, string> },
+} as const;
+/** The setup file that makes the studies' tables as the code names them */
+export const STUDY_TABLES_SETUP = '021';
+export type StudyDef = (typeof STUDIES)[StudyId];
+export const studyOf = (v: unknown): StudyDef => (v === 2 || v === '2' ? STUDIES[2] : STUDIES[1]);
+/** A group as the questionnaire sees it: adaptive has the classmates, static doesn't */
+export const surveyGroup = (g: string | null) => (g === 'adaptive' ? 'classmates' : g === 'static' ? 'no_classmates' : g);

@@ -10,10 +10,11 @@ export const dynamic = 'force-dynamic';
 export async function GET(req: Request) {
   const lesson = new URL(req.url).searchParams.get('lesson');
   if (!isLessonId(lesson)) return NextResponse.json({ error: 'Bad lesson' }, { status: 400 });
-  // The study (&study=<their id>, or 1 before they have one): the saved version it's frozen to (lib/study/version.ts)
+  // A study (&study=<their id>, or 1 / 2, the study, before they have one): the saved version it's frozen to (lib/study/version.ts)
   const study = new URL(req.url).searchParams.get('study');
   if (study && lesson === STUDY_LESSON) {
-    const frozen = await studyDeck(study === '1' ? null : study).catch(() => null);
+    // (1 or 2: which study, before they have a row; else their row's id)
+    const frozen = await (study === '1' || study === '2' ? studyDeck(null, study === '2' ? 2 : 1) : studyDeck(study)).catch(() => null);
     if (frozen?.deck) return NextResponse.json({ deck: frozen.deck, source: 'study', version: frozen.version }, { headers: { 'Cache-Control': 'no-store' } });
   }
   const live = await readDeck(lesson, 'live');

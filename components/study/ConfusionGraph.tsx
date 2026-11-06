@@ -15,7 +15,8 @@ export type Curve = { id: string; group: string | null; finished: boolean; score
 const SERIES = [
   { group: 'classmates', name: 'With classmates', color: '#2a78d6' },
   { group: 'no_classmates', name: 'Without classmates', color: '#eb6834' },
-] as const;
+];
+const COLORS = ['#2a78d6', '#eb6834'];   // (another study's groups: the same two colours, in its order)
 const W = 720, H = 300, PAD = { l: 40, r: 130, t: 16, b: 44 };
 const INSET = 56;   // the first and last topic sit this far in from the plot's edges (room for their names)
 
@@ -27,9 +28,11 @@ function quantile(xs: number[], q: number) {
 }
 const r1 = (n: number) => Math.round(n * 10) / 10;
 
-export default function ConfusionGraph({ topics, curves, person, onClearPerson }: { topics: string[]; curves: Curve[]; person: string | null; onClearPerson: () => void }) {
+/** groups: the study's groups and their names (default: the classmates study's) */
+export default function ConfusionGraph({ topics, curves, person, onClearPerson, groups }: { topics: string[]; curves: Curve[]; person: string | null; onClearPerson: () => void; groups?: { group: string; name: string }[] }) {
+  const series = useMemo(() => (groups ? groups.map((g, i) => ({ ...g, color: COLORS[i % COLORS.length] })) : SERIES), [groups]);
   const [hover, setHover] = useState<number | null>(null);
-  const stats = useMemo(() => SERIES.map((s) => {
+  const stats = useMemo(() => series.map((s) => {
     const mine = curves.filter((c) => c.group === s.group && c.finished);
     return {
       ...s, people: mine.length,
@@ -38,7 +41,7 @@ export default function ConfusionGraph({ topics, curves, person, onClearPerson }
         return xs.length ? { avg: xs.reduce((a, b) => a + b, 0) / xs.length, lo: quantile(xs, 0.25), hi: quantile(xs, 0.75), n: xs.length } : null;
       }),
     };
-  }), [curves, topics]);
+  }), [curves, topics, series]);
   const picked = person ? curves.find((c) => c.id === person) ?? null : null;
   if (!topics.length) return <p className="text-sm text-slate-500">No confusion meter data yet: it fills in as people finish topics.</p>;
 

@@ -2,11 +2,30 @@ import { NextRequest, NextResponse } from 'next/server';
 import { MAX, rateLimit, tooLarge } from '@/lib/rateLimit';
 import { lazySupabaseAdmin } from '@/lib/supabase/admin';
 import { classifyIntent } from '@/lib/tutorIntent';
+import { lessonText } from '@/lib/canvas/lessonText';
+import { readDeck } from '@/lib/canvas/store';
+import { STUDY_LESSON } from '@/lib/study/content';
+import { studyDeck } from '@/lib/study/version';
 
 // The knowledge base: the closest pieces handed to the professor (lib/knowledgeChunks.ts: about 300 characters each;
 // was 4 pieces of 200, cut mid-sentence), and how close to the question a piece must be (1 = the same meaning)
 const KB_PIECES = 5;
 const KB_MIN_SIMILARITY = 0.2;
+// Static vs adaptive: the lesson it plays, as words (the frozen version, else the live lesson), kept a minute
+let lessonCache: { at: number; text: string } | null = null;
+async function studyLessonText(): Promise<string> {
+  if (lessonCache && Date.now() - lessonCache.at < 60_000) return lessonCache.text;
+  try {
+    const frozen = (await studyDeck(null, 1)).deck;   // (static vs adaptive's frozen version)
+    const deck = frozen ?? (await readDeck(STUDY_LESSON, 'live'));
+    const text = deck?.slides?.length ? lessonText(deck) : '';
+    lessonCache = { at: Date.now(), text };
+    return text;
+  } catch (e) {
+    console.error('Study lesson for the professor:', e);
+    return '';
+  }
+}
 
 const supabase = lazySupabaseAdmin();   // created on first use, so the build doesn't need env vars
 
@@ -59,7 +78,11 @@ export async function POST(request: NextRequest) {
     const stream = body.stream === true;
     // "Your turn" feedback already carries the model answer: skip the lookup (faster, and
     // its "use the knowledge base word for word" instruction would fight the feedback prompt)
-    const useKnowledgeBase = body.useKnowledgeBase !== false;
+    // Static vs adaptive: the lesson's own words instead of the knowledge base, so the adaptive group's answers
+    // only re-explain what both groups were taught
+    // (read here, from the lesson the study plays: never text sent by the page)
+    const lessonFacts = body.lessonOnly === true ? await studyLessonText() : '';
+    const useKnowledgeBase = body.useKnowledgeBase !== false && !lessonFacts;
 
     if (!userText) {
       return NextResponse.json({ error: 'Missing user text.' }, { status: 400 });
@@ -119,7 +142,10 @@ export async function POST(request: NextRequest) {
     const messages = [
       {
         role: 'system',
-        content: !useKnowledgeBase ? effectiveSystemPrompt : effectiveSystemPrompt + intentLine + ` 
+        content: lessonFacts
+          ? `${effectiveSystemPrompt}${intentLine}\n\nTHE LESSON (what the learner is taught, slide by slide). Answer ONLY from it: re-explain, give an ` +
+            'example from it, or point back to it. If the answer is not in the lesson, say kindly that the lesson doesn\'t cover that, and bring them back to what it does cover.\n' + lessonFacts
+          : !useKnowledgeBase ? effectiveSystemPrompt : effectiveSystemPrompt + intentLine + ` 
 
       You MUST follow the knowledge base below.
       If the knowledge base contains an answer, you MUST use it exactly and do not modify it.

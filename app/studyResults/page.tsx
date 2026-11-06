@@ -1,140 +1,71 @@
-'use client';
-
 /**
- * /studyResults: how the online study (the classmates study; the others: StudyTabs) is going (editors only: lib/editorAuth.ts). The two groups
- * side by side, where people stopped, everyone's row, and the whole thing as a spreadsheet
- * (/api/study/results?format=csv: one person per row, every answer in its own column).
+ * /studyResults: static vs adaptive, the main study (study 1; editors only: lib/editorAuth.ts): its
+ * results (components/study/StudyResultsView), then how the two groups differ, then its pilot report. People take it at /study.
  */
 
-import { useEffect, useState } from 'react';
-import Link from 'next/link';
-import ConfusionGraph, { type Curve } from '@/components/study/ConfusionGraph';
-import StudyVersionPicker from '@/components/study/StudyVersionPicker';
-import StudyChecklist from '@/components/study/StudyChecklist';
-import StudyTabs from '@/components/study/StudyTabs';
+import StudyResultsView from '@/components/study/StudyResultsView';
 
-type Summary = {
-  group: string | null; people: number; finished: number;
-  pre: number | null; postSame: number | null; gain: number | null; post: number | null;
-  lessonMinutes: number | null; questions: number | null; engaged: number | null; ueq: number | null;
-};
-type Data = { summary: Summary[]; steps: Record<string, number>; rows: Record<string, unknown>[]; confusion?: { topics: string[]; curves: Curve[] } };
+/** What each group gets ('Same': as in the other group) */
+const FEATURES: { what: string; static: string; adaptive: string }[] = [
+  { what: 'Slides, the professor’s narration, pictures, laser marks', static: 'Same', adaptive: 'Same' },
+  { what: 'Pause, Repeat, previous and next slide', static: '✓', adaptive: '✓' },
+  { what: 'Hands-on activities', static: 'Their own right and wrong; no hints, help or praise', adaptive: 'As in the lesson: hints, the professor steps in, Finn has a go' },
+  { what: '“How did that section go?”', static: 'Asked, nothing follows (for the results)', adaptive: 'Asked, the lesson responds' },
+  { what: 'Confusion meter', static: 'Records only (for the results)', adaptive: 'Records and responds' },
+  { what: 'Asking the professor (Talk, typing, said commands)', static: '–', adaptive: '✓ answered from the lesson’s own words' },
+  { what: '“I’m lost”, “simpler please”, helper slides, plain words', static: '–', adaptive: '✓' },
+  { what: 'The classmates (Maya, Finn, Leo)', static: '–', adaptive: '✓' },
+  { what: 'Camera (raise a hand, a puzzled look)', static: '–', adaptive: '✓ (if they allowed it)' },
+  { what: 'The ending', static: 'What was covered', adaptive: 'Personal: their name, what they did, the hardest part' },
+  { what: '“Here’s what you can do” page', static: 'Its own, shorter list', adaptive: 'The full list' },
+];
 
-const GROUP_NAME: Record<string, string> = { classmates: 'With classmates', no_classmates: 'Without classmates', null: 'Not started yet' };
-const STEPS = ['checks', 'about', 'pre', 'start', 'lesson', 'post', 'survey', 'done'];
-const show = (v: unknown) => (v == null ? '–' : String(v));
+/** Keeping it fair: the extras re-explain the same lesson, and are counted */
+const FAIR: { title: string; text: string }[] = [
+  { title: 'The extras only re-explain', text: 'In this study the professor answers from the lesson’s own words (not the whole knowledge base), so the adaptive group isn’t taught anything the static group wasn’t.' },
+  { title: 'Quiz 2 tests the base lesson', text: 'Check it with “✨ Check them against the lesson” in Ready for the study? above: its base slides only. “✨ Check the extras against the slides” checks the classmates’ answers and helper slides.' },
+  { title: 'Each person’s extras are counted', text: 'Questions asked, classmate turns, helper slides and minutes in the lesson are in the table and the spreadsheet.' },
+];
+
+const card = 'rounded-2xl bg-white border p-5';
 
 export default function StudyResults() {
-  const [tests, setTests] = useState(false);
-  const [data, setData] = useState<Data | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [person, setPerson] = useState<string | null>(null);
-  const [readyKey, setReadyKey] = useState(0);   // bumped when the study's lesson version changes: the checklist checks again   // their own line on the confusion graph
-
-  useEffect(() => {
-    let live = true;
-    const load = () => fetch(`/api/study/results${tests ? '?tests=1' : ''}`).then(async (r) => {
-      const d = await r.json();
-      if (!live) return;
-      if (!r.ok) setError(d.error ?? `Error ${r.status}`);
-      else { setData(d); setError(null); }
-    }).catch((e) => live && setError(String(e)));
-    load();
-    const t = setInterval(load, 30000);
-    return () => { live = false; clearInterval(t); };
-  }, [tests]);
-
-  // The interview's notes for one person (app/api/study/results/notes)
-  const editNotes = async (id: string, code: string, now: string) => {
-    const notes = window.prompt(`Interview notes${code ? ` for ${code}` : ''}:`, now);
-    if (notes === null || notes === now) return;
-    const r = await fetch('/api/study/results/notes', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id, notes }) });
-    if (!r.ok) { setError((await r.json().catch(() => ({}))).error ?? `Error ${r.status}`); return; }
-    setData((d) => d && { ...d, rows: d.rows.map((x) => (x.id === id ? { ...x, interview_notes: notes.trim() || null } : x)) });
-  };
-
   return (
-    <main className="min-h-screen bg-slate-50 text-slate-900 p-6">
-      <div className="max-w-6xl mx-auto flex flex-col gap-6">
-        <StudyTabs current="classmates" />
-        <header className="flex flex-wrap items-center gap-4">
-          <h1 className="text-2xl font-bold flex-1">Classmates study</h1>
-          <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={tests} onChange={(e) => setTests(e.target.checked)} /> Include test runs</label>
-          <a href={`/api/study/results?format=csv${tests ? '&tests=1' : ''}`} className="px-4 py-2 rounded-lg bg-cyan-600 hover:bg-cyan-500 text-white font-semibold">⬇ Download spreadsheet (CSV)</a>
-          <Link href="/studyResults/report" className="px-4 py-2 rounded-lg border bg-white hover:bg-slate-50 font-semibold">📋 Pilot report</Link>
-          <Link href="/study?test=1" className="text-sm underline text-cyan-700">Try it (test run)</Link>
-        </header>
-        <StudyVersionPicker onChange={() => setReadyKey((k) => k + 1)} />
-        <StudyChecklist refreshKey={readyKey} />
-        {error && <p className="rounded-lg bg-red-100 text-red-900 px-4 py-3">{error}</p>}
-        {data && (
-          <>
-            <section className="grid md:grid-cols-2 gap-4">
-              {data.summary.filter((s) => s.group).map((s) => (
-                <div key={s.group} className="rounded-2xl bg-white border p-5">
-                  <h2 className="font-semibold text-lg">{GROUP_NAME[String(s.group)]}</h2>
-                  <p className="text-sm text-slate-500">{s.people} put in this group · {s.finished} finished everything</p>
-                  <dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-1.5 text-sm">
-                    <dt>Pre-quiz (of 5)</dt><dd className="font-semibold">{show(s.pre)}</dd>
-                    <dt>Same 5 after</dt><dd className="font-semibold">{show(s.postSame)}</dd>
-                    <dt>Gain on those 5</dt><dd className="font-semibold">{show(s.gain)}</dd>
-                    <dt>Post-quiz (of 10)</dt><dd className="font-semibold">{show(s.post)}</dd>
-                    <dt>Lesson minutes</dt><dd className="font-semibold">{show(s.lessonMinutes)}</dd>
-                    <dt>Questions asked</dt><dd className="font-semibold">{show(s.questions)}</dd>
-                    <dt>“Kept me engaged” (1–5)</dt><dd className="font-semibold">{show(s.engaged)}</dd>
-                    <dt>UEQ-S overall (−3 to +3)</dt><dd className="font-semibold">{show(s.ueq)}</dd>
-                  </dl>
-                  <p className="mt-3 text-xs text-slate-400">Averages over the people who finished.</p>
-                </div>
+    <StudyResultsView which={1}>
+      <section className={card}>
+        <h2 className="font-semibold">How the two groups differ</h2>
+        <div className="mt-3 overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="text-left text-slate-500">
+                <th className="font-medium pb-2 pr-4">Part of the lesson</th>
+                <th className="font-medium pb-2 pr-4">Static</th>
+                <th className="font-medium pb-2">Adaptive</th>
+              </tr>
+            </thead>
+            <tbody>
+              {FEATURES.map((f) => (
+                <tr key={f.what} className="border-t align-top">
+                  <td className="py-2 pr-4">{f.what}</td>
+                  <td className={`py-2 pr-4 ${f.static === '–' ? 'text-slate-400' : ''}`}>{f.static}</td>
+                  <td className="py-2">{f.adaptive}</td>
+                </tr>
               ))}
-            </section>
-            <section className="rounded-2xl bg-white border p-5">
-              <h2 className="font-semibold">Confusion through the lesson</h2>
-              <p className="text-sm text-slate-500 mb-3">From the lesson&apos;s confusion meter, per topic. Click someone in the table below to see their own line.</p>
-              <ConfusionGraph topics={data.confusion?.topics ?? []} curves={data.confusion?.curves ?? []} person={person} onClearPerson={() => setPerson(null)} />
-            </section>
-            <section className="rounded-2xl bg-white border p-5">
-              <h2 className="font-semibold">Where people are (or stopped)</h2>
-              <div className="mt-3 flex flex-wrap gap-2 text-sm">
-                {STEPS.map((st) => <span key={st} className="px-3 py-1 rounded-full bg-slate-100">{st}: <b>{data.steps[st] ?? 0}</b></span>)}
-              </div>
-            </section>
-            <section className="rounded-2xl bg-white border p-5 overflow-x-auto">
-              <h2 className="font-semibold">Everyone ({data.rows.length})</h2>
-              <table className="mt-3 text-sm w-full">
-                <thead><tr className="text-left text-slate-500">{['Code', 'Started', 'Group', 'Version', 'Step', 'Age', 'Pre', 'Post', 'Lesson min', 'Questions', 'Confusion at the end', 'Confused topics', 'Camera', 'Test', 'Interview notes'].map((h) => <th key={h} className="pr-4 pb-2 font-medium">{h}</th>)}</tr></thead>
-                <tbody>
-                  {data.rows.slice().reverse().map((r) => (
-                    <tr key={String(r.id)} onClick={() => setPerson(person === r.id ? null : String(r.id))} title="Show their line on the confusion graph"
-                      className={`border-t cursor-pointer hover:bg-slate-50 ${person === r.id ? 'bg-cyan-50' : ''}`}>
-                      <td className="pr-4 py-1.5 font-semibold whitespace-nowrap">{show(r.code)}</td>
-                      <td className="pr-4 py-1.5 whitespace-nowrap">{new Date(String(r.created_at)).toLocaleString()}</td>
-                      <td className="pr-4">{GROUP_NAME[String(r.group)]}</td>
-                      <td className="pr-4">{show(r.lesson_version)}</td>
-                      <td className="pr-4">{show(r.step)}</td>
-                      <td className="pr-4">{show(r.about_age)}</td>
-                      <td className="pr-4">{show(r.pre_score)}</td>
-                      <td className="pr-4">{show(r.post_score)}</td>
-                      <td className="pr-4">{show(r.lesson_minutes)}</td>
-                      <td className="pr-4">{show(r.lesson_questions)}</td>
-                      <td className="pr-4">{r.confusion_end_level ? `${show(r.confusion_end_overall)} (${r.confusion_end_level})` : '–'}</td>
-                      <td className="pr-4">{show(r.confusion_topics_confused)}</td>
-                      <td className="pr-4">{r.camera_ok == null ? '–' : r.camera_ok ? 'on' : 'off'}</td>
-                      <td className="pr-4">{r.is_test ? 'test' : ''}</td>
-                      <td className="pr-4 max-w-64">
-                        <button onClick={(e) => { e.stopPropagation(); editNotes(String(r.id), String(r.code ?? ''), (r.interview_notes as string | null) ?? ''); }}
-                          className="text-left text-cyan-800 hover:underline" title="The interview's notes">
-                          {r.interview_notes ? <span className="line-clamp-2 text-slate-700">{String(r.interview_notes)}</span> : '✎ Add'}
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </section>
-          </>
-        )}
-      </div>
-    </main>
+            </tbody>
+          </table>
+        </div>
+      </section>
+      <section className={card}>
+        <h2 className="font-semibold">Keeping it fair</h2>
+        <ol className="mt-3 grid md:grid-cols-3 gap-3">
+          {FAIR.map((f, i) => (
+            <li key={f.title} className="rounded-xl bg-slate-50 p-4 text-sm">
+              <span className="font-semibold">{i + 1}. {f.title}</span>
+              <p className="mt-1 text-slate-600">{f.text}</p>
+            </li>
+          ))}
+        </ol>
+      </section>
+    </StudyResultsView>
   );
 }

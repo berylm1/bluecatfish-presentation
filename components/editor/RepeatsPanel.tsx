@@ -133,10 +133,11 @@ export default function RepeatsPanel({ deck, active, runSignal = 0, onAccept, on
           {state.list?.map((s, i) => (
             <li key={i} className={`rounded-md border px-2.5 py-2 ${done[i] ? 'border-slate-200 bg-slate-50 opacity-60' : 'border-amber-200 bg-amber-50'}`}>
               <div className="flex items-center justify-between gap-2">
-                <button className="text-xs font-semibold underline" onClick={() => onGoTo(s.slideIndex, s.elId)}>Slide {s.slideIndex + 1}</button>
+                <button className="text-xs font-semibold underline" onClick={() => onGoTo(s.slideIndex, s.elId)} title="Show this box">Slide {s.slideIndex + 1}{s.box ? ` · box ${s.box}` : ''}</button>
                 {done[i] && <span className="text-xs text-slate-500">{done[i] === 'accepted' ? '✓ Accepted' : done[i] === 'skipped' ? 'Skipped' : 'Changed since the check: not applied'}</span>}
               </div>
-              <p className="text-xs text-amber-900 mt-0.5">{s.why}</p>
+              {/* (what's changed: this box; why: where it was said first) */}
+              <p className="text-xs text-amber-900 mt-0.5">{s.box ? <b>Box {s.box}: </b> : null}{s.why}</p>
               {s.text && (
                 <p className="text-xs mt-1"><span className="text-slate-500">Shown:</span> <s className="text-slate-500">{s.beforeText}</s> → <b>{s.text}</b></p>
               )}

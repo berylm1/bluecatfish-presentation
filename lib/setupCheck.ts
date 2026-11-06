@@ -4,7 +4,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
  * Is everything the setup files (supabase/migrations) make in the Supabase project? Every table, the two
  * knowledge searches and the storage buckets. For /api/health and the study's checklist (/studyResults).
  */
-export const SETUP_TABLES = ['documents3', 'images2', 'slide_templates', 'learner_state', 'events', 'canvas_lessons', 'canvas_decks', 'canvas_deck_history', 'study_participants', 'section_difficulty', 'study_settings'];
+export const SETUP_TABLES = ['documents3', 'images2', 'slide_templates', 'learner_state', 'events', 'canvas_lessons', 'canvas_decks', 'canvas_deck_history', 'adaptive_participants', 'classmates_participants', 'section_difficulty', 'study_settings'];
 export const SETUP_BUCKETS = ['slide-audio', 'slide-imagesv2'];   // (lesson-backups is made by the site the first time it's needed)
 
 export async function setupMissing(admin: SupabaseClient): Promise<string[]> {
@@ -14,8 +14,10 @@ export async function setupMissing(admin: SupabaseClient): Promise<string[]> {
     if (error) missing.push(`table ${t}`);
   }));
   // the columns later setup files add to a table (017: the study in person)
-  const { error: colError } = await admin.from('study_participants').select('participant_no, demographics, interview_notes').limit(0);
-  if (colError && !missing.includes('table study_participants')) missing.push('study_participants columns (setup file 017)');
+  const { error: colError } = await admin.from('classmates_participants').select('participant_no, demographics, interview_notes').limit(0);
+  if (colError && !missing.includes('table classmates_participants')) missing.push('classmates_participants columns (setup file 017)');
+  const { error: repError } = await admin.from('study_reports').select('study').limit(0);
+  if (repError && !missing.includes('table study_reports')) missing.push('study_reports.study (setup file 021)');
   // (the two searches: asked for nothing, so they change nothing)
   const zero = `[${new Array(1536).fill(0).join(',')}]`;
   await Promise.all(['match_documents3', 'match_images2'].map(async (fn) => {

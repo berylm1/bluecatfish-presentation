@@ -19,6 +19,9 @@ import { startsTopic } from '@/lib/canvas/intro';
 import { applyRepeatFix, type RepeatSuggestion } from '@/lib/canvas/repeats';
 import RepeatsPanel from '@/components/editor/RepeatsPanel';
 import Menu, { MenuHeading, MenuItem } from '@/components/editor/Menu';
+import PullFromOriginal from '@/components/editor/PullFromOriginal';
+import { pullSlides } from '@/lib/canvas/studyLesson';
+import { STUDY_LESSON, STUDY_SOURCE } from '@/lib/study/content';
 import CheckPanel, { picturesWithoutDescription, type Described } from '@/components/editor/CheckPanel';
 import { deckSections, findCrossSectionRepeats } from '@/lib/lessonOverlap';
 import { DEFAULT_PDF, type PdfOptions } from '@/components/editor/exportPdf';
@@ -181,8 +184,9 @@ function Editor({
   const [versions, setVersions] = useState<Version[] | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<{ busy: boolean; error?: string } | null>(null);
   const [savedOpen, setSavedOpen] = useState(false);   // More ▾ → Saved versions…
+  const [pullOpen, setPullOpen] = useState(false);     // More ▾ → Pull from the original… (the study's lesson)
   const versionsOpen = useRef(false);
-  versionsOpen.current = versions !== null || confirmDelete !== null || conflict !== null || savedOpen;
+  versionsOpen.current = versions !== null || confirmDelete !== null || conflict !== null || savedOpen || pullOpen;
   const [overflow, setOverflow] = useState<Record<string, string[]>>({});
   // 📊 Learners: how each slide went for learners (a heatmap on the slide list)
   const HEAT_DAYS = 30;
@@ -959,13 +963,16 @@ function Editor({
                 hint={missingDescriptions ? `${missingDescriptions} picture${missingDescriptions === 1 ? ' has' : 's have'} no description: the AI writes them` : 'Every picture has a description'}>
                 ✨ Describe all pictures{missingDescriptions ? ` (${missingDescriptions})` : ''}
               </MenuItem>
+              {lessonId === STUDY_LESSON && (
+                <MenuItem onClick={() => { close(); setPullOpen(true); }} hint={`Bring changed or new slides across from “${lessons.find((l) => l.id === STUDY_SOURCE)?.title ?? STUDY_SOURCE}”, one by one`}>⇣ Pull from the original…</MenuItem>
+              )}
               <MenuItem onClick={() => { close(); setSavedOpen(true); }} hint="Versions saved when they were published: copy a slide back, or go back to one">Saved versions…</MenuItem>
               <MenuItem onClick={() => { close(); openVersions(); }} hint="Replace this draft with an AI-made deck">Start from AI…</MenuItem>
               <MenuItem onClick={() => { close(); window.open(`/lessonReview?lesson=${encodeURIComponent(lessonId)}&preview=1`, '_blank', 'noopener'); }} hint="The saved draft as a readable page, to print">📖 Lesson review ↗</MenuItem>
               {/* the admin pages (editors only, like this one); the studies, as components/study/StudyTabs lists them */}
               <MenuHeading>Studies</MenuHeading>
-              <MenuItem onClick={() => { close(); window.open('/studyResults', '_blank', 'noopener'); }} hint="With or without the AI classmates: results, the spreadsheet, the lesson version it plays">📊 Classmates study ↗</MenuItem>
-              <MenuItem onClick={() => { close(); window.open('/studyResults/adaptive', '_blank', 'noopener'); }} hint="Static vs adaptive: being planned">⚖️ Static vs adaptive ↗</MenuItem>
+              <MenuItem onClick={() => { close(); window.open('/studyResults', '_blank', 'noopener'); }} hint="The main study: results, its lesson version, checklist and pilot report (people take it at /study)">⚖️ Static vs adaptive ↗</MenuItem>
+              <MenuItem onClick={() => { close(); window.open('/studyResults/classmates', '_blank', 'noopener'); }} hint="With or without the AI classmates: results, its lesson version, checklist and pilot report (people take it at /study2)">📊 Classmates study ↗</MenuItem>
               <MenuHeading>Admin</MenuHeading>
               <MenuItem onClick={() => { close(); window.open('/lessonBackup', '_blank', 'noopener'); }} hint="Copy every lesson into Supabase; pictures to upload again">💾 Lesson backup ↗</MenuItem>
               {lessonId !== DEFAULT_LESSON.id && (
@@ -1344,6 +1351,16 @@ function Editor({
             </div>
           </div>
         </div>
+      )}
+
+      {pullOpen && (
+        <PullFromOriginal source={STUDY_SOURCE} sourceTitle={lessons.find((l) => l.id === STUDY_SOURCE)?.title ?? STUDY_SOURCE} deck={deck}
+          onClose={() => setPullOpen(false)}
+          onPull={(original, ids) => {
+            ed.change((d) => { d.slides = pullSlides(original, d.slides, ids); });
+            setPullOpen(false); ed.setSelected(null);
+            flash(`Pulled ${ids.size} slide${ids.size === 1 ? '' : 's'} from the original (Ctrl+Z undoes it). Save to write their helpers again, from this lesson’s slides.`);
+          }} />
       )}
 
       {savedOpen && (

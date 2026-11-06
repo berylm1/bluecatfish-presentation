@@ -27,7 +27,8 @@ export type Report = {
   at: string;
   tests: boolean;
   people: number;
-  groups: { classmates: number; no_classmates: number; none: number };
+  /** People per group (the study's groups), and `none`: not in one yet */
+  groups: Record<string, number>;
   funnel: { id: string; label: string; reached: number }[];
   minutes: Spread[];
   meter: {
@@ -41,7 +42,7 @@ export type Report = {
   comments: { id: string; group: string | null; question: string; text: string }[];
 };
 
-/** A participant's row, as the report reads it (study_participants) */
+/** A participant's row, as the report reads it (its study's table) */
 export type ReportPerson = {
   id: string; step: string | null; study_group: string | null; is_test: boolean;
   consent_at: string | null; lesson_started_at: string | null; lesson_finished_at: string | null; finished_at: string | null;
@@ -88,7 +89,7 @@ export function bestLine(no: number[], yes: number[]): number | null {
   return best && best.acc > 0.5 ? best.t : null;
 }
 
-export function buildReport(people: ReportPerson[], topics: ReportTopic[], opts: { tests: boolean; at?: string; current?: { unsure: number; confused: number } }): Report {
+export function buildReport(people: ReportPerson[], topics: ReportTopic[], opts: { tests: boolean; at?: string; current?: { unsure: number; confused: number }; groups?: readonly string[] }): Report {
   const current = opts.current ?? { unsure: 3, confused: 6 };
   const stepAt = (s: string | null) => Math.max(0, REPORT_STEPS.findIndex((x) => x.id === s));
   const funnel = REPORT_STEPS.map((s, k) => ({ id: s.id, label: s.label, reached: people.filter((p) => stepAt(p.step) >= k).length }));
@@ -136,8 +137,7 @@ export function buildReport(people: ReportPerson[], topics: ReportTopic[], opts:
     tests: opts.tests,
     people: people.length,
     groups: {
-      classmates: people.filter((p) => p.study_group === 'classmates').length,
-      no_classmates: people.filter((p) => p.study_group === 'no_classmates').length,
+      ...Object.fromEntries((opts.groups ?? ['classmates', 'no_classmates']).map((g) => [g, people.filter((p) => p.study_group === g).length])),
       none: people.filter((p) => !p.study_group).length,
     },
     funnel,
