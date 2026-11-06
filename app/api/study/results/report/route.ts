@@ -3,11 +3,11 @@ import { AUTH_COOKIE, verifyToken } from '@/lib/editorAuth';
 import { THRESHOLDS } from '@/lib/confusion';
 import { buildReport, type ReportPerson, type ReportTopic } from '@/lib/study/report';
 import { lazySupabaseAdmin } from '@/lib/supabase/admin';
-import { studyOf, type StudyDef } from '@/lib/study/content';
+import { studyOf, STUDY_TABLES_SETUP, type StudyDef } from '@/lib/study/content';
 
 /*
  * The pilot report (at the bottom of each study's results page; editors only: under /api/study/results in lib/editorAuth.ts).
- * ?study=2 / { study: 2 }: static vs adaptive's (its table; its snapshots, study_reports.study, migration 020)
+ * Each study its own people and snapshots (study_reports.study = its id): ?study=2 / { study: 2 }, the classmates study
  *   GET [?tests=1]        → the report now (lib/study/report.ts), and the saved snapshots (their names)
  *   GET ?snapshot=<id>    → one saved snapshot
  *   POST { name, tests }  → save the report now as a snapshot (migration 016)
@@ -70,11 +70,11 @@ export async function GET(req: NextRequest) {
       if (!data) return NextResponse.json({ error: 'No such snapshot' }, { status: 404 });
       return NextResponse.json({ snapshot: data }, { headers: { 'Cache-Control': 'no-store' } });
     }
-    // (each study's own snapshots; before migration 020 there's no study column: all are the classmates study's)
+    // (each study's own snapshots; before the study column, all were the classmates study's)
     const listOf = async () => {
       const r = await supabase.from('study_reports').select('id, name, created_at, created_by, report->people').eq('study', S.id).order('created_at', { ascending: false });
       if (r.error && /column/i.test(r.error.message)) {   // (the study column: 020 not run yet)
-        return S.id === 1 ? supabase.from('study_reports').select('id, name, created_at, created_by, report->people').order('created_at', { ascending: false }) : { data: [], error: null };
+        return S.id === 2 ? supabase.from('study_reports').select('id, name, created_at, created_by, report->people').order('created_at', { ascending: false }) : { data: [], error: null };
       }
       return r;
     };
@@ -98,8 +98,8 @@ export async function POST(req: NextRequest) {
   try {
     const S = studyOf(body?.study);
     const report = await reportNow(body?.tests === true, S);
-    const { data, error } = await supabase.from('study_reports').insert({ name, created_by: editor, report, ...(S.id === 2 ? { study: 2 } : {}) }).select('id').single();
-    if (error) throw new Error(missingTable(error.message) ? 'Run setup file 016 (supabase/migrations/016_study_reports.sql) first.' : /column/i.test(error.message) ? 'Run setup file 020 (supabase/migrations/020_study2_settings.sql) first.' : error.message);
+    const { data, error } = await supabase.from('study_reports').insert({ name, created_by: editor, report, study: S.id }).select('id').single();
+    if (error) throw new Error(missingTable(error.message) ? 'Run setup file 016 (supabase/migrations/016_study_reports.sql) first.' : /column/i.test(error.message) ? `Run setup file ${STUDY_TABLES_SETUP} first.` : error.message);
     return NextResponse.json({ ok: true, id: data.id });
   } catch (e) {
     return NextResponse.json({ error: e instanceof Error ? e.message : String(e) }, { status: 500 });

@@ -76,7 +76,7 @@ export default function ClassChat({ entries, learnerName, liveSlide, getAudio, t
   /** Who is talking now (a ring on their avatar at the top) */
   speaking: Speaker | null;
   /** What the learner types here goes to the professor (a question, or "next") */
-  /** What they type (none: no box to type in: study 2's static lesson) */
+  /** What they type (none: no box to type in: the static lesson) */
   onSend?: (text: string) => void;
   onClose?: () => void;
   closeLabel?: string;

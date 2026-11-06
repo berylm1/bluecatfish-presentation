@@ -5,7 +5,7 @@
 // DRAFT: written from what the Blue Catfish lesson teaches. Check every question against the final
 // lesson before the study starts, and keep ids the same once real people have answered.
 
-export const STUDY_VERSION = 'v2';   // saved with each person: change it when the questions change
+export const QUESTIONS_VERSION = 'v2';   // the questions' version, saved with each person's answers: change it when the questions change
 // (v2: in person; the name first, the pilot's demographic questions, the UEQ-S, post-condition and post-study questionnaires)
 export const STUDY_TITLE = 'Learning with AI: the Blue Catfish lesson';
 export const STUDY_MINUTES = '25–35';
@@ -30,7 +30,8 @@ const abcd = (...texts: string[]): Choice[] => texts.map((text, i) => ({ id: 'ab
 
 /* ------------------------------------------------------------------ consent */
 
-export const CONSENT = {
+/** The classmates study (study 2): its consent page */
+export const CONSENT_CLASSMATES = {
   heading: 'Before you start',
   paragraphs: [
     'We are graduate students studying how people learn from an interactive, AI-narrated lesson. In this study you will go through a short lesson about blue catfish in the Chesapeake Bay, taught by an AI professor. Some people will also have AI classmates in the lesson and some won’t. Which one you get is picked at random.',
@@ -48,21 +49,21 @@ export const CONSENT = {
   agree: 'I am 18 or older, I have read the above, and I agree to take part, including the use of the microphone and (if I allow it) the camera as described.',
 };
 
-/** Study 2 (static vs adaptive): the same, but what the two lessons are */
-export const CONSENT2 = {
-  ...CONSENT,
+/** Static vs adaptive (study 1): the same, but what its two lessons are */
+export const CONSENT_ADAPTIVE = {
+  ...CONSENT_CLASSMATES,
   paragraphs: [
     'We are graduate students studying how people learn from an AI-narrated lesson. In this study you will go through a short lesson about blue catfish in the Chesapeake Bay, taught by an AI professor. Some people get a lesson that responds to them: they can ask the professor questions, and AI classmates join in. Others get a lesson that plays like a video. Which one you get is picked at random.',
-    CONSENT.paragraphs[1],
+    CONSENT_CLASSMATES.paragraphs[1],
     'In the lesson that responds, the microphone lets you ask the professor questions out loud (you can also type), and the camera can be used if you allow it (it’s optional). Your browser may ask to allow them.',
-    ...CONSENT.paragraphs.slice(3),
+    ...CONSENT_CLASSMATES.paragraphs.slice(3),
   ],
 };
 
 /* ------------------------------------------------------------- demographics */
 
 /**
- * The pre-study questionnaire (the pilot's "Pre-Study Questionnaire"), saved together (study_participants.demographics,
+ * The pre-study questionnaire (the pilot's "Pre-Study Questionnaire"), saved together (its table's demographics column,
  * migration 017). `other`: the choice that opens a box to write in ("Other: ___"); `number`: a number from min to max.
  */
 export type Demographic = { id: DemographicId; q: string; choices?: string[]; optional?: boolean; text?: boolean; number?: { min: number; max: number }; other?: string };
@@ -88,7 +89,7 @@ export function demographicAnswer(d: Demographic, raw: unknown): string | null {
   if (d.other && v.startsWith(`${d.other}: `) && v.length > d.other.length + 2) return v.slice(0, 200);
   return null;
 }
-// v1's questions (were study_participants columns age_range, student, field, ai_use, catfish_knowledge, bay_area,
+// The first questions (v1; were the classmates study's table's columns age_range, student, field, ai_use, catfish_knowledge, bay_area,
 // english_first, done_before: removed by migration 018):
 //   How old are you? (ranges) · Are you a student? · What do you study, or what is your work? · How often do you use AI tools
 //   like ChatGPT? · How much did you know about blue catfish before today? · Do you live in or near the Chesapeake Bay area?
@@ -180,7 +181,7 @@ export const SURVEY: SurveyItem[] = [
   { id: 'helped', kind: 'text', q: 'What helped you learn in the lecture, and what got in the way?', group: 'no_classmates', part: 'study' },
   { id: 'improve', kind: 'text', q: 'What would you improve about the AI-led learning platform?', part: 'study' },
 ];
-// v1's questionnaire (survey.version 'v1'), for the people who answered it: I enjoyed the lesson · I paid attention ·
+// The first questionnaire (survey.version 'v1'), for the people who answered it: I enjoyed the lesson · I paid attention ·
 // easy to follow · learned something new · comfortable asking questions · felt like a class · would learn this way again ·
 // mental effort · (classmates) their questions helped · asked what I wanted to know · distracting · Finn's mix-ups made
 // me think · felt real · favourite classmate · (without) would have liked other students · liked most · confusing or
@@ -192,23 +193,27 @@ export const surveyFor = (group: string | null) => SURVEY.filter((s) => !s.group
 
 /** A person's participant code (migration 017): P7, or T7 for a test run; null before the migration */
 export const participantCode = (no: unknown, test: unknown) => (typeof no === 'number' || typeof no === 'string' ? `${test ? 'T' : 'P'}${no}` : null);
-export const GROUPS = ['classmates', 'no_classmates'] as const;
-/** Study 2 (/study2): static (the professor reads the slides; nothing responds) or adaptive (the lesson as it is, classmates and all) */
-export const GROUPS2 = ['static', 'adaptive'] as const;
-export type StudyGroup = (typeof GROUPS)[number] | (typeof GROUPS2)[number];
+/** Static vs adaptive: static (the professor reads the slides; nothing responds) or adaptive (the lesson as it is, classmates and all) */
+export const ADAPTIVE_GROUPS = ['static', 'adaptive'] as const;
+/** The classmates study: with or without the AI classmates */
+export const CLASSMATE_GROUPS = ['classmates', 'no_classmates'] as const;
+export type StudyGroup = (typeof ADAPTIVE_GROUPS)[number] | (typeof CLASSMATE_GROUPS)[number];
 
 /*
- * The studies: the same steps, each its own table and groups.
- *   1  /study    the classmates study: with or without the AI classmates (study_participants)
- *   2  /study2   static vs adaptive (study2_participants, migration 019)
+ * The studies: the same steps, each its own table, groups and settings (study_settings row = its id).
+ *   1  static vs adaptive, the main study   /study    adaptive_participants    results /studyResults
+ *   2  the classmates study                 /study2   classmates_participants  results /studyResults/classmates
+ * (setup file 021 named the tables by study; they were study2_participants and study_participants)
  */
 export type StudyId = 1 | 2;
 export const STUDIES = {
-  1: { id: 1, path: '/study', table: 'study_participants', assign: 'study_assign', groups: GROUPS as readonly string[], setup: '011', storeKey: 'studyRecord',
-    names: { classmates: 'With classmates', no_classmates: 'Without classmates' } as Record<string, string> },
-  2: { id: 2, path: '/study2', table: 'study2_participants', assign: 'study2_assign', groups: GROUPS2 as readonly string[], setup: '019', storeKey: 'study2Record',
-    names: { static: 'Static', adaptive: 'Adaptive' } as Record<string, string> },
+  1: { id: 1, name: 'Static vs adaptive', path: '/study', results: '/studyResults', table: 'adaptive_participants', assign: 'adaptive_assign',
+    groups: ADAPTIVE_GROUPS as readonly string[], storeKey: 'studyRecord', names: { static: 'Static', adaptive: 'Adaptive' } as Record<string, string> },
+  2: { id: 2, name: 'Classmates study', path: '/study2', results: '/studyResults/classmates', table: 'classmates_participants', assign: 'classmates_assign',
+    groups: CLASSMATE_GROUPS as readonly string[], storeKey: 'study2Record', names: { classmates: 'With classmates', no_classmates: 'Without classmates' } as Record<string, string> },
 } as const;
+/** The setup file that makes the studies' tables as the code names them */
+export const STUDY_TABLES_SETUP = '021';
 export type StudyDef = (typeof STUDIES)[StudyId];
 export const studyOf = (v: unknown): StudyDef => (v === 2 || v === '2' ? STUDIES[2] : STUDIES[1]);
 /** A group as the questionnaire sees it: adaptive has the classmates, static doesn't */

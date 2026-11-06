@@ -27,7 +27,7 @@ const STEPS = ['checks', 'about', 'pre', 'start', 'lesson', 'post', 'survey', 'd
 const show = (v: unknown) => (v == null ? '–' : String(v));
 
 /**
- * One study's results (app/studyResults: 1, the classmates study; app/studyResults/adaptive: 2, static vs adaptive), each
+ * One study's results (app/studyResults: 1, static vs adaptive; app/studyResults/classmates: 2, the classmates study), each
  * with its own lesson version, "Ready for the study?" and, at the bottom, pilot report (components/study/PilotReport).
  * children: more of the page, after the results. Print: the pilot report alone.
  */
@@ -67,9 +67,9 @@ export default function StudyResultsView({ which, children }: { which: StudyId; 
     <main className="min-h-screen bg-slate-50 text-slate-900 p-6 print:bg-white print:p-0">
       {/* (print: the pilot report alone) */}
       <div className="max-w-6xl mx-auto flex flex-col gap-6 print:[&>*:not(#pilot-report)]:hidden">
-        <StudyTabs current={which === 2 ? 'adaptive' : 'classmates'} />
+        <StudyTabs current={which === 1 ? 'adaptive' : 'classmates'} />
         <header className="flex flex-wrap items-center gap-4">
-          <h1 className="text-2xl font-bold flex-1">{which === 2 ? 'Static vs adaptive' : 'Classmates study'}</h1>
+          <h1 className="text-2xl font-bold flex-1">{S.name}</h1>
           <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={tests} onChange={(e) => setTests(e.target.checked)} /> Include test runs</label>
           <a href={`/api/study/results${q(`format=csv${tests ? '&tests=1' : ''}`)}`} className="px-4 py-2 rounded-lg bg-cyan-600 hover:bg-cyan-500 text-white font-semibold">⬇ Download spreadsheet (CSV)</a>
           <a href="#pilot-report" className="px-4 py-2 rounded-lg border bg-white hover:bg-slate-50 font-semibold">📋 Pilot report ↓</a>

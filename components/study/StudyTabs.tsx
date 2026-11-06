@@ -2,13 +2,13 @@ import Link from 'next/link';
 
 /**
  * The studies, as tabs at the top of each one's page (and the editor's More menu lists the same two):
- *   adaptive    static vs adaptive, the main study (study 2, /study2: /studyResults/adaptive)
- *   classmates  with or without the AI classmates (/study: /studyResults)
+ *   adaptive    static vs adaptive, the main study (study 1: /study, results /studyResults)
+ *   classmates  with or without the AI classmates (study 2: /study2, results /studyResults/classmates)
  */
 export const STUDIES = [
   // (the main study first)
-  { id: 'adaptive', name: 'Static vs adaptive', href: '/studyResults/adaptive', status: 'The main study · /study2' },
-  { id: 'classmates', name: 'Classmates study', href: '/studyResults', status: 'With or without the AI classmates · /study' },
+  { id: 'adaptive', name: 'Static vs adaptive', href: '/studyResults', status: 'The main study · /study' },
+  { id: 'classmates', name: 'Classmates study', href: '/studyResults/classmates', status: 'With or without the AI classmates · /study2' },
 ] as const;
 
 export default function StudyTabs({ current }: { current: (typeof STUDIES)[number]['id'] }) {

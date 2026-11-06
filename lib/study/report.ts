@@ -42,7 +42,7 @@ export type Report = {
   comments: { id: string; group: string | null; question: string; text: string }[];
 };
 
-/** A participant's row, as the report reads it (study_participants) */
+/** A participant's row, as the report reads it (its study's table) */
 export type ReportPerson = {
   id: string; step: string | null; study_group: string | null; is_test: boolean;
   consent_at: string | null; lesson_started_at: string | null; lesson_finished_at: string | null; finished_at: string | null;

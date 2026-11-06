@@ -22,7 +22,7 @@ export type StudyRecord = {
   study?: StudyId;
 };
 
-/** Each study's record is kept apart (studyRecord, study2Record) */
+/** Each study's record is kept apart (studyRecord: static vs adaptive, study2Record: the classmates study) */
 export function readStudy(study: StudyId = 1): StudyRecord | null {
   try {
     const r = JSON.parse(localStorage.getItem(STUDIES[study].storeKey) ?? 'null');

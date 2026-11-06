@@ -5,8 +5,7 @@ import { studyOf } from '@/lib/study/content';
 
 /*
  * The researcher's notes from a person's interview (/studyResults; editors only: under /api/study/results in
- * lib/editorAuth.ts). POST { id, notes, study? } → kept on their row (study_participants.interview_notes, migration 017;
- * study 2: study2_participants, 019).
+ * lib/editorAuth.ts). POST { id, notes, study? } → kept on their row, in its study's table (interview_notes).
  */
 const supabase = lazySupabaseAdmin();
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;

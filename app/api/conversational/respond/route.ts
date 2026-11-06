@@ -11,12 +11,12 @@ import { studyDeck } from '@/lib/study/version';
 // was 4 pieces of 200, cut mid-sentence), and how close to the question a piece must be (1 = the same meaning)
 const KB_PIECES = 5;
 const KB_MIN_SIMILARITY = 0.2;
-// Study 2: the lesson the study plays, as words (the frozen version, else the live lesson), kept a minute
+// Static vs adaptive: the lesson it plays, as words (the frozen version, else the live lesson), kept a minute
 let lessonCache: { at: number; text: string } | null = null;
 async function studyLessonText(): Promise<string> {
   if (lessonCache && Date.now() - lessonCache.at < 60_000) return lessonCache.text;
   try {
-    const frozen = (await studyDeck(null, 2)).deck;   // (study 2's frozen version)
+    const frozen = (await studyDeck(null, 1)).deck;   // (static vs adaptive's frozen version)
     const deck = frozen ?? (await readDeck(STUDY_LESSON, 'live'));
     const text = deck?.slides?.length ? lessonText(deck) : '';
     lessonCache = { at: Date.now(), text };
@@ -78,7 +78,7 @@ export async function POST(request: NextRequest) {
     const stream = body.stream === true;
     // "Your turn" feedback already carries the model answer: skip the lookup (faster, and
     // its "use the knowledge base word for word" instruction would fight the feedback prompt)
-    // Study 2 (static vs adaptive): the lesson's own words instead of the knowledge base, so the adaptive group's answers
+    // Static vs adaptive: the lesson's own words instead of the knowledge base, so the adaptive group's answers
     // only re-explain what both groups were taught
     // (read here, from the lesson the study plays: never text sent by the page)
     const lessonFacts = body.lessonOnly === true ? await studyLessonText() : '';

@@ -3,7 +3,7 @@
 /**
  * "Here's what you can do": what a learner can do in the lesson, before its start screen (a page of its own, in the
  * lesson's look) and again from ❓ during it (over the slide). The study's two groups see the same words, apart from
- * the classmates (only for the group with them). Study 2's static lesson has its own, shorter list (nothing to ask).
+ * the classmates (only for the group with them). The static lesson has its own, shorter list (nothing to ask).
  */
 
 const ITEMS: { icon: string; title: string; text: string; mates?: boolean }[] = [
@@ -15,7 +15,7 @@ const ITEMS: { icon: string; title: string; text: string; mates?: boolean }[] = 
   { icon: '🙋', title: 'Your classmates Maya, Finn and Leo', text: 'They ask questions too. Finn sometimes gets things wrong: see if you can catch him!', mates: true },
   { icon: '💬', title: 'After each part', text: 'You may be asked how it went. Answer honestly: it helps the lesson help you.' },
 ];
-/** Study 2, static: the lesson plays like a video */
+/** The static lesson (static vs adaptive): it plays like a video */
 const STATIC_ITEMS: typeof ITEMS = [
   { icon: '▶️', title: 'Watch and listen', text: 'The professor goes through the slides. Keep your sound on.' },
   { icon: '⏸', title: 'Pause and repeat', text: 'Pause any time, or hear a part again with Repeat.' },

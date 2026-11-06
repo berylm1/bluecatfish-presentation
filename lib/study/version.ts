@@ -1,12 +1,12 @@
 import { lazySupabaseAdmin } from '@/lib/supabase/admin';
 import { readSaved } from '@/lib/canvas/saved';
 import type { Deck } from '@/lib/canvas/types';
-import { STUDY_LESSON, type StudyId } from './content';
+import { STUDIES, STUDY_LESSON, STUDY_TABLES_SETUP, type StudyId } from './content';
 
 /*
  * The lesson a study plays: one saved version (lib/canvas/saved.ts), picked on its results page, so editing
  * or publishing the lesson doesn't change it for people taking part. None picked: the live lesson.
- * Kept in study_settings (migration 014), a row per study (020: id 1 the classmates study, 2 static vs adaptive);
+ * Kept in study_settings (migration 014), a row per study (its id: 1 static vs adaptive, 2 the classmates study);
  * each person's row records the version they saw (lesson_version).
  */
 const supabase = lazySupabaseAdmin();
@@ -26,7 +26,7 @@ export async function getStudyVersion(study: StudyId = 1): Promise<StudyVersion>
 export async function setStudyVersion(slug: string | null, name: string | null, by: string, study: StudyId = 1): Promise<void> {
   const { error } = await supabase.from('study_settings').upsert({ id: study, lesson_id: STUDY_LESSON, version_slug: slug, version_name: name, set_at: new Date().toISOString(), set_by: by }, { onConflict: 'id' });
   if (error) {
-    if (study === 2 && /check|constraint/i.test(error.message)) throw new Error('Run setup file 020 (supabase/migrations/020_study2_settings.sql) in Supabase first.');
+    if (/check|constraint/i.test(error.message)) throw new Error(`Run setup file ${STUDY_TABLES_SETUP} in Supabase first.`);
     throw new Error(/study_settings/.test(error.message) ? 'Run migration 014 (supabase/migrations/014_study_version.sql) in Supabase first.' : error.message);
   }
 }
@@ -39,11 +39,11 @@ export async function studyDeck(participant: string | null, study: StudyId = 1):
   let slug: string | null = null;
   let name: string | null = null;
   if (participant && /^[0-9a-f-]{36}$/i.test(participant)) {
-    // (their row: in the classmates study's table, or study 2's)
+    // (their row: in one of the studies' tables)
     let recorded: string | null | undefined;
-    for (const [table, n] of [['study_participants', 1], ['study2_participants', 2]] as const) {
-      const { data } = await supabase.from(table).select('lesson_version').eq('id', participant).maybeSingle();
-      if (data) { recorded = data.lesson_version as string | null; study = n; break; }
+    for (const S of [STUDIES[1], STUDIES[2]]) {
+      const { data } = await supabase.from(S.table).select('lesson_version').eq('id', participant).maybeSingle();
+      if (data) { recorded = data.lesson_version as string | null; study = S.id; break; }
     }
     if (recorded && recorded !== LIVE_LABEL) {
       const [s, ...rest] = recorded.split(':');   // "slug:Name"

@@ -1,19 +1,19 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { rateLimit } from '@/lib/rateLimit';
-import { DEMOGRAPHICS, demographicAnswer, participantCode, studyOf, POST_QUIZ, PRE_QUIZ, STUDY_VERSION, surveyFor, PAIR_POINTS, type QuizQuestion } from '@/lib/study/content';
+import { DEMOGRAPHICS, demographicAnswer, participantCode, studyOf, STUDY_TABLES_SETUP, POST_QUIZ, PRE_QUIZ, QUESTIONS_VERSION, surveyFor, PAIR_POINTS, type QuizQuestion } from '@/lib/study/content';
 import { ANSWERS, score } from '@/lib/study/key';
 import { studyDeck } from '@/lib/study/version';
 
 /*
- * The studies (app/study, app/study2: body.study 2): one row per person in its table (study_participants, migration 011;
- * study2_participants, 019), saved
+ * The studies (app/study: static vs adaptive; app/study2, body.study 2: the classmates study): one row per person in
+ * its table (adaptive_participants, classmates_participants: lib/study/content.ts STUDIES), saved
  * step by step so someone who stops halfway is still counted where they stopped.
  *   join    consent given: a new row, its id back (the browser keeps it); next, the sound/mic/camera checks
  *   get     where they are (coming back after a refresh), and their group
  *   save    a step's answers (demographics, the checks, the lesson's session, timings)
  *   pre     the pre-quiz (once: it can't be answered again after the lesson)
- *   assign  Start: their group (study_assign keeps the groups even; a test run may pick one)
+ *   assign  Start: their group (its assign function keeps the groups even; a test run may pick one)
  *   post    the post-quiz (once)
  *   survey  the questionnaire (once): the end, and how they did on the quizzes
  * The id is a random uuid: knowing it is what lets a browser write to that row.
@@ -47,7 +47,7 @@ function cleanAnswers(questions: QuizQuestion[], raw: any) {
     const t = ms(raw?.times?.[q.id]);
     if (t !== null) times[q.id] = t;
   }
-  return { version: STUDY_VERSION, answers, times, ms: ms(raw?.ms) };
+  return { version: QUESTIONS_VERSION, answers, times, ms: ms(raw?.ms) };
 }
 
 /** What they answered and what was right (shown at the very end) */
@@ -110,7 +110,7 @@ export async function POST(request: NextRequest) {
           if (v !== null) about[d.id] = v;
         }
         if (DEMOGRAPHICS.some((d) => !d.optional && !about[d.id])) return fail('Answer every question about you');
-        fields.demographics = { version: STUDY_VERSION, ...about };
+        fields.demographics = { version: QUESTIONS_VERSION, ...about };
       }
       if (body.checks && typeof body.checks === 'object') {
         for (const k of ['sound_ok', 'mic_ok', 'camera_ok'] as const) if (bool(body.checks[k]) !== null) fields[k] = body.checks[k];
@@ -186,7 +186,7 @@ export async function POST(request: NextRequest) {
           if (it.kind === 'pick' && typeof v === 'string' && it.choices.includes(v)) answers[it.id] = v;
           if (it.kind === 'text' && typeof v === 'string' && v.trim()) answers[it.id] = v.trim().slice(0, 2000);
         }
-        await update({ survey: { version: STUDY_VERSION, answers, ms: ms(body.ms) }, finished_at: new Date().toISOString(), ...forward('done') });
+        await update({ survey: { version: QUESTIONS_VERSION, answers, ms: ms(body.ms) }, finished_at: new Date().toISOString(), ...forward('done') });
       }
       // How they did (only now: after this nothing can be answered again)
       const { data: done } = await supabase.from(S.table).select('pre_quiz, post_quiz, pre_score, post_score').eq('id', id).single();
@@ -206,7 +206,7 @@ export async function POST(request: NextRequest) {
     // Migration 017 not run yet (the in-person study's columns), or 011 (the table)
     if (/demographics|participant_no/i.test(msg)) return fail('The study isn’t set up yet (run setup file 017 in Supabase).', 503);
     // Migration 011 not run yet
-    if (/study2?_participants|study2?_assign|schema cache|does not exist/i.test(msg)) return fail(`The study isn’t set up yet (run setup file ${S.setup} in Supabase).`, 503);
+    if (/_participants|_assign|schema cache|does not exist/i.test(msg)) return fail(`The study isn’t set up yet (run setup file ${STUDY_TABLES_SETUP} in Supabase).`, 503);
     return fail('Something went wrong saving that. Please try again.', 500);
   }
 }

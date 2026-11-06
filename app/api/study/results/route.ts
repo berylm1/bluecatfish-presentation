@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
-import { DEMOGRAPHICS, participantCode, studyOf, POST_QUIZ, PRE_QUIZ, SURVEY, SURVEY_V1_IDS } from '@/lib/study/content';
+import { DEMOGRAPHICS, participantCode, studyOf, STUDY_TABLES_SETUP, POST_QUIZ, PRE_QUIZ, SURVEY, SURVEY_V1_IDS } from '@/lib/study/content';
 import { ANSWERS } from '@/lib/study/key';
 import { AUTH_COOKIE, verifyToken } from '@/lib/editorAuth';
 import { TOPIC_MAX } from '@/lib/confusion';
@@ -123,7 +123,7 @@ export async function GET(request: NextRequest) {
   if (!(await verifyToken(request.cookies.get(AUTH_COOKIE)?.value))) return NextResponse.json({ error: 'Locked: unlock the editor first (/unlock).' }, { status: 401 });
   const url = new URL(request.url);
   const tests = url.searchParams.get('tests') === '1';
-  const S = studyOf(url.searchParams.get('study'));   // ?study=2: static vs adaptive (its own table)
+  const S = studyOf(url.searchParams.get('study'));   // ?study=2: the classmates study (each study its own table)
   let people: any[];
   try {
     people = await all(() => {
@@ -131,8 +131,8 @@ export async function GET(request: NextRequest) {
       return tests ? q : q.eq('is_test', false);
     });
   } catch (error: any) {
-    const missing = /study2?_participants|schema cache|does not exist/i.test(error?.message ?? '');
-    return NextResponse.json({ error: missing ? `Run setup file ${S.setup} in Supabase first.` : 'Could not read the results.' }, { status: missing ? 503 : 500 });
+    const missing = /_participants|schema cache|does not exist/i.test(error?.message ?? '');
+    return NextResponse.json({ error: missing ? `Run setup file ${STUDY_TABLES_SETUP} in Supabase first.` : 'Could not read the results.' }, { status: missing ? 503 : 500 });
   }
 
   const sessionsOf = (p: any): string[] => (p.lesson_session ? String(p.lesson_session).split(' ').filter(Boolean) : []);
@@ -231,7 +231,7 @@ export async function GET(request: NextRequest) {
     };
     const csv = [cols.join(','), ...rows.map((r) => cols.map((c) => cell(r[c])).join(','))].join('\r\n');
     return new NextResponse('﻿' + csv, {   // (the BOM: Excel reads the dashes and quotes right)
-      headers: { 'Content-Type': 'text/csv; charset=utf-8', 'Content-Disposition': `attachment; filename="study${S.id === 2 ? '2' : ''}-results-${new Date().toISOString().slice(0, 10)}.csv"` },
+      headers: { 'Content-Type': 'text/csv; charset=utf-8', 'Content-Disposition': `attachment; filename="${S.id === 2 ? 'classmates' : 'static-vs-adaptive'}-results-${new Date().toISOString().slice(0, 10)}.csv"` },
     });
   }
 

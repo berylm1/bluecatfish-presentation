@@ -101,7 +101,7 @@ export default function PilotReport({ which }: { which: StudyId }) {
     <section id="pilot-report" aria-labelledby="pilot-title" className="flex flex-col gap-5 border-t-2 border-slate-200 pt-8 print:border-0 print:pt-0" data-pilot-report>
       <header className="flex flex-wrap items-center gap-3">
         <div className="flex-1 min-w-64">
-          <h2 id="pilot-title" className="text-2xl font-bold">Pilot report <span className="text-slate-400 font-semibold">· {which === 2 ? 'Static vs adaptive' : 'Classmates study'}</span></h2>
+          <h2 id="pilot-title" className="text-2xl font-bold">Pilot report <span className="text-slate-400 font-semibold">· {S.name}</span></h2>
           <p className="text-sm text-slate-600 print:hidden">
             Where people stop, how long each part takes, whether the confusion meter matches what people say, and their comments.
             Save a snapshot after a few people (“After 5 people”) to compare later.

@@ -21,7 +21,7 @@ const VOICE =
   'Talk in the same voice as the slides: funny, a bit goofy, lightly sarcastic about the fish and the problem (never about the student), ' +
   'with the facts kept exactly right. No lists or headings: this is read out loud. If you don\'t know, say so.';
 
-/** lessonOnly: answer only from the study's lesson (its own words, study 2), not the knowledge base */
+/** lessonOnly: answer only from the study's lesson (its own words: static vs adaptive), not the knowledge base */
 export function useTutor(lessonOnly = false) {
   const lessonRef = useRef(lessonOnly);
   lessonRef.current = lessonOnly;

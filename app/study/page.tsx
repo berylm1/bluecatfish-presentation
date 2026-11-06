@@ -1,6 +1,6 @@
 import StudyFlow from '@/components/study/StudyFlow';
 
-// The classmates study (with or without the AI classmates): components/study/StudyFlow. ?test=1: a test run
+// Static vs adaptive, the main study (study 1): components/study/StudyFlow. ?test=1: a test run
 export default function Study() {
   return <StudyFlow which={1} />;
 }

@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  CONSENT, CONSENT2, DEMOGRAPHICS, STUDIES, demographicAnswer, PAIR_POINTS, POST_QUIZ, PRE_QUIZ, SCALE, STUDY_LESSON, STUDY_TITLE, surveyFor,
+  CONSENT_ADAPTIVE, CONSENT_CLASSMATES, DEMOGRAPHICS, STUDIES, demographicAnswer, PAIR_POINTS, POST_QUIZ, PRE_QUIZ, SCALE, STUDY_LESSON, STUDY_TITLE, surveyFor,
   type DemographicId, type QuizQuestion, type StudyGroup, type StudyId, type SurveyItem,
 } from '@/lib/study/content';
 import { freshStart, isComputer, preloadCamera, preloadLesson, readStudy, seenBefore, studyPost, writeStudy, type StudyRecord } from '@/lib/study/client';
@@ -32,10 +32,10 @@ const primary = 'px-6 py-3 rounded-xl bg-cyan-500 hover:bg-cyan-400 disabled:opa
 const quiet = 'px-4 py-2 rounded-lg text-slate-600 hover:bg-slate-100 text-sm';
 const STEP_LABELS: [Step[], string][] = [[['consent', 'checks'], 'Setup'], [['about'], 'About you'], [['pre'], 'Quiz 1'], [['start', 'lesson'], 'Lesson'], [['post'], 'Quiz 2'], [['survey', 'done'], 'Questions']];
 
-/** One study's pages (app/study: 1, the classmates study; app/study2: 2, static vs adaptive), the same steps */
+/** One study's pages (app/study: 1, static vs adaptive; app/study2: 2, the classmates study), the same steps */
 export default function StudyFlow({ which }: { which: StudyId }) {
   const S = STUDIES[which];
-  const consent = which === 2 ? CONSENT2 : CONSENT;
+  const consent = which === 1 ? CONSENT_ADAPTIVE : CONSENT_CLASSMATES;
   // every save goes to this study's table
   const post = useCallback(<T = any,>(action: string, body: Record<string, unknown> = {}) => studyPost<T>(action, { ...body, study: which }), [which]);
   const [ready, setReady] = useState(false);
@@ -171,7 +171,7 @@ export default function StudyFlow({ which }: { which: StudyId }) {
         <div className={card}>
           <h1 className="text-2xl font-bold">Ready for the lesson</h1>
           <p className="mt-3 text-slate-700">The lesson starts next. It takes about 15–20 minutes. Find a quiet spot and keep your sound on.</p>
-          {which === 1 && <p className="mt-2 text-slate-700">In the lesson you can ask Professor Marine questions out loud, or type them in the chat.</p>}
+          {which === 2 && <p className="mt-2 text-slate-700">In the lesson you can ask Professor Marine questions out loud, or type them in the chat.</p>}
           {test ? (
             <div className="mt-5 flex flex-wrap gap-3">
               <span className="w-full text-sm text-amber-700">Test run: pick the group to try.</span>

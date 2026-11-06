@@ -29,10 +29,9 @@ export default function Home() {
           <p className="text-lg md:text-xl text-slate-300 mb-10 max-w-xl">
             A short, hands-on lesson about the giant fish that&apos;s changing the Chesapeake Bay.
           </p>
-          {/* The main study, static vs adaptive (in person: app/study2, consent first). Was: the classmates study (/study);
-              before that, the lesson itself (/presentation) */}
+          {/* The main study, static vs adaptive (in person: app/study, consent first) */}
           <Link
-            href="/study2"
+            href="/study"
             className="inline-block px-10 py-5 rounded-2xl bg-cyan-400 hover:bg-cyan-300 text-slate-900 text-2xl font-bold shadow-[0_10px_40px_rgba(34,211,238,0.35)] transition-colors"
           >
             ▶ Start the lesson

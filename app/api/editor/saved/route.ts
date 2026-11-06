@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { isLessonId } from '@/lib/canvas/store';
-import { STUDY_LESSON } from '@/lib/study/content';
+import { STUDIES, STUDY_LESSON } from '@/lib/study/content';
 import { getStudyVersion } from '@/lib/study/version';
 import { cleanName, deleteSaved, listSaved, nameTaken, readSaved, slugOf } from '@/lib/canvas/saved';
 
@@ -35,7 +35,7 @@ export async function DELETE(req: Request) {
   for (const n of [1, 2] as const) {
     const study = await getStudyVersion(n).catch(() => null);
     if (lesson === STUDY_LESSON && study?.slug === slug) {
-      return NextResponse.json({ error: `“${study.name}” is the lesson ${n === 2 ? 'static vs adaptive' : 'the classmates study'} plays. Pick another one on its results page first.` }, { status: 409 });
+      return NextResponse.json({ error: `“${study.name}” is the lesson ${STUDIES[n].name} plays. Pick another one on its results page first.` }, { status: 409 });
     }
   }
   await deleteSaved(lesson, slug);

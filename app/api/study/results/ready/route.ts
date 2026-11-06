@@ -3,7 +3,7 @@ import { readSaved } from '@/lib/canvas/saved';
 import { needsAudio, needsIntroAudio, speaksAtAll, storedHere } from '@/lib/canvas/aiFields';
 import { AUTH_COOKIE, verifyToken } from '@/lib/editorAuth';
 import { setupMissing } from '@/lib/setupCheck';
-import { CONSENT, STUDY_LESSON, STUDY_LESSON_TITLE, studyOf } from '@/lib/study/content';
+import { CONSENT_ADAPTIVE, STUDY_LESSON, STUDY_LESSON_TITLE, STUDY_TABLES_SETUP, studyOf } from '@/lib/study/content';
 import { readDeck } from '@/lib/canvas/store';
 import { getStudyVersion } from '@/lib/study/version';
 import { lazySupabaseAdmin } from '@/lib/supabase/admin';
@@ -16,7 +16,7 @@ import type { Deck, SlideElement } from '@/lib/canvas/types';
  * (kept in study_settings.manual, migration 015, so everyone editing sees the same ticks).
  *   GET                  → { ready, items }
  *   POST { id, done }    → tick or untick one of the people's checks
- * ?study=2 / { study: 2 }: static vs adaptive's own (its frozen version, test runs and ticks: study_settings row 2, 020)
+ * Each study its own (its frozen version, test runs and ticks: study_settings row = its id): ?study=2 / { study: 2 }, the classmates study
  */
 const supabase = lazySupabaseAdmin();
 
@@ -86,7 +86,7 @@ export async function GET(req: NextRequest) {
     run(async () => {
       if (!version.slug) return { ok: false, detail: 'Freeze the lesson first: test runs count on that version' };
       const { data, error } = await supabase.from(S.table).select('study_group').eq('is_test', true).not('finished_at', 'is', null).like('lesson_version', `${version.slug}:%`);
-      if (error) throw new Error(/study2/.test(error.message) ? `Run setup file ${S.setup}` : error.message);
+      if (error) throw new Error(/_participants/.test(error.message) ? `Run setup file ${STUDY_TABLES_SETUP}` : error.message);
       const groups = new Set((data ?? []).map((r: { study_group: string | null }) => r.study_group));
       const missing = S.groups.filter((g) => !groups.has(g)).map((g) => S.names[g]);
       return missing.length
@@ -115,8 +115,8 @@ export async function GET(req: NextRequest) {
       detail: !gaps ? 'Freeze the lesson first' : gaps.pictures ? `${gaps.pictures} pointing at the deleted project: see Lesson backup for which` : 'All there' },
     { id: 'knowledge', group: 'The lesson', label: 'The knowledge base is loaded', ...knowledge },
     { id: 'tests', group: 'The study', label: 'A test run finished in every group', ...tests },
-    { id: 'contact', group: 'The study', label: 'The consent page has your contact', ok: CONSENT.contact !== CONTACT_PLACEHOLDER,
-      detail: CONSENT.contact !== CONTACT_PLACEHOLDER ? CONSENT.contact : 'Still "Contact the research team": put a real email or name in lib/study/content.ts (CONSENT.contact)' },
+    { id: 'contact', group: 'The study', label: 'The consent page has your contact', ok: CONSENT_ADAPTIVE.contact !== CONTACT_PLACEHOLDER,
+      detail: CONSENT_ADAPTIVE.contact !== CONTACT_PLACEHOLDER ? CONSENT_ADAPTIVE.contact : 'Still "Contact the research team": put a real email or name in lib/study/content.ts (CONSENT_CLASSMATES.contact: both studies use it)' },
     ...MANUAL.map((m) => ({
       id: m.id, group: m.group, label: m.label, manual: true, ok: !!manual[m.id],
       detail: manualMissing ? 'Run setup file 015 to tick these' : manual[m.id] ? `Ticked by ${manual[m.id].by}, ${new Date(manual[m.id].at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}` : m.hint,
@@ -137,6 +137,6 @@ export async function POST(req: NextRequest) {
   if (body.done) manual[body.id] = { by: editor, at: new Date().toISOString() };
   else delete manual[body.id];
   const { error: upError } = await supabase.from('study_settings').upsert({ id: S.id, manual }, { onConflict: 'id' });
-  if (upError) return NextResponse.json({ error: S.id === 2 && /check|constraint/i.test(upError.message) ? 'Run setup file 020 (supabase/migrations/020_study2_settings.sql) first.' : upError.message }, { status: 500 });
+  if (upError) return NextResponse.json({ error: /check|constraint/i.test(upError.message) ? `Run setup file ${STUDY_TABLES_SETUP} first.` : upError.message }, { status: 500 });
   return NextResponse.json({ ok: true });
 }

@@ -1,7 +1,7 @@
 import type { Deck } from './types';
 import { shownWords, spokenText } from './queue';
 
-/** The lesson's words, slide by slide (what's shown and what's said): what the professor answers from in study 2 */
+/** The lesson's words, slide by slide (what's shown and what's said): what the professor answers from in static vs adaptive */
 export function lessonText(deck: Deck, max = 14000): string {
   return deck.slides.map((s, i) => {
     const parts = s.elements.flatMap((el) => {

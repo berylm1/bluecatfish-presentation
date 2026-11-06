@@ -446,10 +446,10 @@ const welcomeBack = (name: string) => `Welcome back${name ? `, ${name}` : ''}! L
 
 function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; preview: boolean; startAt?: number; study?: StudyRecord | null }) {
   // The study's group without the classmates: no Maya, Finn or Leo anywhere (and no switch to bring them in).
-  // Study 2's adaptive group has them; its static group has nothing that responds (isStatic)
+  // Static vs adaptive's adaptive group has them; its static group has nothing that responds (isStatic)
   const matesAllowed = !study || study.group === 'classmates' || study.group === 'adaptive';
   /*
-   * Study 2, static: the professor reads the slides and nothing responds. Pause, Repeat and moving between slides
+   * Static vs adaptive, the static group: the professor reads the slides and nothing responds. Pause, Repeat and moving between slides
    * stay (like a video); asking (Talk, typing, said commands), "I'm lost", "simpler please", the camera, the
    * classmates, the meter's reactions, helper slides and plain words are off. A hands-on box keeps its own right and
    * wrong, with no hints, no professor stepping in and no praise. "How did that section go?" is asked, and nothing
@@ -555,8 +555,8 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
   // during the hello) or a helper ("I'm lost" during the hello). Was: the lesson started the
   // moment the hello ended, over them. Once begun it stays begun (later on, those pause the
   // lesson themselves, and it carries on after them).
-  // Study 2: the professor answers from the lesson's own words, read by the server (both groups were taught the same)
-  const tutor = useTutor(study?.study === 2);
+  // Static vs adaptive (study 1): the professor answers from the lesson's own words, read by the server (both groups were taught the same)
+  const tutor = useTutor(!!study && (study.study ?? 1) === 1);
   const [begun, setBegun] = useState(false);
   const busyElsewhere = tutor.thinking || tutor.speaking || !!variant;
   useEffect(() => { if (started && introDone && !busyElsewhere) setBegun(true); }, [started, introDone, busyElsewhere]);
