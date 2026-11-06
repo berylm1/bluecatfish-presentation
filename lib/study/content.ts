@@ -33,30 +33,26 @@ const abcd = (...texts: string[]): Choice[] => texts.map((text, i) => ({ id: 'ab
 /** The classmates study (study 2): its consent page */
 export const CONSENT_CLASSMATES = {
   heading: 'Before you start',
+  // (shortened from 7 paragraphs to 4, before the first participants)
   paragraphs: [
-    'We are graduate students studying how people learn from an interactive, AI-narrated lesson. In this study you will go through a short lesson about blue catfish in the Chesapeake Bay, taught by an AI professor. Some people will also have AI classmates in the lesson and some won’t. Which one you get is picked at random.',
-    `It takes about ${STUDY_MINUTES} minutes: a quick sound and microphone check, a few questions about you, a 5-question quiz, the lesson, a second quiz, and two short questionnaires about how it went. You’ll see how you did on the quizzes at the end.`,
-    'The lesson uses the microphone, so you can ask the professor questions out loud (you can also type), and the camera if you allow it (it’s optional). Your browser may ask to allow them.',
-    'Nothing from the microphone or camera is recorded or saved. The camera is used only inside the browser, to notice things like a raised hand or a puzzled look; only short labels, such as "looked confused on slide 4", are saved. What you say to the professor is turned into text so it can answer you, and those questions are saved as text.',
-    'You’ll be asked for a first name or nickname, so the professor can greet you. It stays on this computer and is not saved with your answers: they’re saved under a participant number. Your answers are stored securely and used only for this research project. Results may appear in our thesis, only as group totals or without anything that could identify you.',
-    'Taking part is voluntary. You can stop at any time. Answers you gave up to that point may be kept, without anything that identifies you. There are no known risks beyond normal computer use, and no direct benefit other than learning about blue catfish.',
-    'Please don’t tell anyone else what the lesson is like until they’ve done it too.',
+    'We’re graduate students studying how people learn from an AI-taught lesson about blue catfish in the Chesapeake Bay. Some people have AI classmates in the lesson and some don’t, picked at random.',
+    `It takes about ${STUDY_MINUTES} minutes: a sound check, a few questions about you, a short quiz, the lesson, a second quiz, and two short questionnaires.`,
+    'The lesson may use your microphone (to ask questions out loud) and, if you allow it, your camera (to notice a raised hand or a puzzled look). No video, picture or sound is recorded: only short labels, such as "looked confused on slide 4", and your questions, as text, are saved. Your first name stays on this computer; your answers are saved under a participant number and reported only as group results.',
+    'Taking part is voluntary, and you can stop at any time; answers you gave up to then may be kept, without anything that identifies you. There are no risks beyond normal computer use, and no direct benefit other than learning about blue catfish. Please don’t tell others about the lesson until they’ve taken part.',
   ],
   // (v1: "We don't ask for your name or email, and nothing you answer is linked to who you are." The name is asked
   // now, and kept on the computer only)
   // Questions about the study: put the research team's or the professor's contact here
   contact: 'Questions about this study? Contact the research team: kfrancis@umes.edu',
-  agree: 'I am 18 or older, I have read the above, and I agree to take part, including the use of the microphone and (if I allow it) the camera as described.',
+  agree: 'I am 18 or older, I have read the above, and I agree to take part.',
 };
 
 /** Static vs adaptive (study 1): the same, but what its two lessons are */
 export const CONSENT_ADAPTIVE = {
   ...CONSENT_CLASSMATES,
   paragraphs: [
-    'We are graduate students studying how people learn from an AI-narrated lesson. In this study you will go through a short lesson about blue catfish in the Chesapeake Bay, taught by an AI professor. Some people get a lesson that responds to them: they can ask the professor questions, and AI classmates join in. Others get a lesson that plays like a video. Which one you get is picked at random.',
-    CONSENT_CLASSMATES.paragraphs[1],
-    'In the lesson that responds, the microphone lets you ask the professor questions out loud (you can also type), and the camera can be used if you allow it (it’s optional). Your browser may ask to allow them.',
-    ...CONSENT_CLASSMATES.paragraphs.slice(3),
+    'We’re graduate students studying how people learn from an AI-taught lesson about blue catfish in the Chesapeake Bay. You’ll get one of two versions, picked at random: one that responds to you (you can ask the professor questions, and AI classmates join in), or one that plays like a video.',
+    ...CONSENT_CLASSMATES.paragraphs.slice(1),
   ],
 };
 
