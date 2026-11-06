@@ -45,7 +45,7 @@ export const CONSENT_CLASSMATES = {
   // (v1: "We don't ask for your name or email, and nothing you answer is linked to who you are." The name is asked
   // now, and kept on the computer only)
   // Questions about the study: put the research team's or the professor's contact here
-  contact: 'Questions about this study? Contact the research team.',
+  contact: 'Questions about this study? Contact the research team: kfrancis@umes.edu',
   agree: 'I am 18 or older, I have read the above, and I agree to take part, including the use of the microphone and (if I allow it) the camera as described.',
 };
 
