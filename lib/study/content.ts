@@ -5,7 +5,7 @@
 // DRAFT: written from what the Blue Catfish lesson teaches. Check every question against the final
 // lesson before the study starts, and keep ids the same once real people have answered.
 
-export const QUESTIONS_VERSION = 'v3';   // the questions' version, saved with each person's answers: change it when the questions change
+export const QUESTIONS_VERSION = 'v4';   // the questions' version, saved with each person's answers: change it when the questions change
 // (v2: in person; the name first, the pilot's demographic questions, the UEQ-S, post-condition and post-study questionnaires)
 export const STUDY_TITLE = 'Learning with AI: the Blue Catfish lesson';
 export const STUDY_MINUTES = '25–35';
@@ -113,7 +113,7 @@ export const QUIZ_SAME: ChoiceQuestion[] = [
 
 export const QUIZ_NEW: ChoiceQuestion[] = [
   { id: 'q6', kind: 'choice', q: 'About how long can a blue catfish live?',
-    choices: abcd('About 2 years', 'About 5 years', 'Over 100 years', '20 years or more') },
+    choices: abcd('About 2 years', 'About 5 years', 'Over 100 years', 'Up to 20 years') },   // (v3: '20 years or more')
   // (removed from Quiz 2, v3)
   // { id: 'q7', kind: 'choice', q: 'What do a blue catfish’s long whiskers (barbels) do?',
   //   choices: abcd('They are covered in taste buds that help it find food', 'They sting other fish', 'They help it breathe air', 'They glow so it can see in the dark') },
