@@ -3,7 +3,7 @@ import { readSaved } from '@/lib/canvas/saved';
 import { needsAudio, needsIntroAudio, speaksAtAll, storedHere } from '@/lib/canvas/aiFields';
 import { AUTH_COOKIE, verifyToken } from '@/lib/editorAuth';
 import { setupMissing } from '@/lib/setupCheck';
-import { CONSENT, STUDIES, STUDY_LESSON, STUDY_LESSON_TITLE } from '@/lib/study/content';
+import { CONSENT, STUDY_LESSON, STUDY_LESSON_TITLE, studyOf } from '@/lib/study/content';
 import { readDeck } from '@/lib/canvas/store';
 import { getStudyVersion } from '@/lib/study/version';
 import { lazySupabaseAdmin } from '@/lib/supabase/admin';
@@ -16,6 +16,7 @@ import type { Deck, SlideElement } from '@/lib/canvas/types';
  * (kept in study_settings.manual, migration 015, so everyone editing sees the same ticks).
  *   GET                  → { ready, items }
  *   POST { id, done }    → tick or untick one of the people's checks
+ * ?study=2 / { study: 2 }: static vs adaptive's own (its frozen version, test runs and ticks: study_settings row 2, 020)
  */
 const supabase = lazySupabaseAdmin();
 
@@ -59,7 +60,8 @@ function lessonGaps(deck: Deck): { audio: number; pictures: number } {
 
 export async function GET(req: NextRequest) {
   if (!(await verifyToken(req.cookies.get(AUTH_COOKIE)?.value))) return NextResponse.json({ error: 'Locked' }, { status: 401 });
-  const version = await getStudyVersion();
+  const S = studyOf(new URL(req.url).searchParams.get('study'));
+  const version = await getStudyVersion(S.id);
   const frozen = version.slug ? await readSaved(STUDY_LESSON, version.slug) : null;
 
   const [setup, services, knowledge, tests, studyLesson, manualRow] = await Promise.all([
@@ -80,23 +82,20 @@ export async function GET(req: NextRequest) {
       if (error) throw new Error(error.message);
       return count ? { ok: true, detail: `${count} pieces` } : { ok: false, detail: 'Empty: upload it on /textIngest, or the professor answers from the slides only' };
     }),
-    // a finished test run in each group of each study, on the frozen version
+    // a finished test run in each of the study's groups, on its frozen version
     run(async () => {
       if (!version.slug) return { ok: false, detail: 'Freeze the lesson first: test runs count on that version' };
-      const missing: string[] = [];
-      for (const S of [STUDIES[2], STUDIES[1]]) {
-        const { data, error } = await supabase.from(S.table).select('study_group').eq('is_test', true).not('finished_at', 'is', null).like('lesson_version', `${version.slug}:%`);
-        if (error) { missing.push(`${S.path} (${/study2/.test(error.message) ? `run setup file ${S.setup}` : error.message})`); continue; }
-        const groups = new Set((data ?? []).map((r: { study_group: string | null }) => r.study_group));
-        for (const g of S.groups) if (!groups.has(g)) missing.push(`${S.names[g]} (${S.path})`);
-      }
+      const { data, error } = await supabase.from(S.table).select('study_group').eq('is_test', true).not('finished_at', 'is', null).like('lesson_version', `${version.slug}:%`);
+      if (error) throw new Error(/study2/.test(error.message) ? `Run setup file ${S.setup}` : error.message);
+      const groups = new Set((data ?? []).map((r: { study_group: string | null }) => r.study_group));
+      const missing = S.groups.filter((g) => !groups.has(g)).map((g) => S.names[g]);
       return missing.length
-        ? { ok: false, detail: `No finished test run on "${version.name}" yet: ${missing.join(', ')}. Try it, and pick the group` }
-        : { ok: true, detail: `Finished in every group of both studies on "${version.name}"` };
+        ? { ok: false, detail: `No finished test run on "${version.name}" yet: ${missing.join(', ')} (${S.path}?test=1, and pick the group)` }
+        : { ok: true, detail: `Finished in every group on "${version.name}"` };
     }),
     // the study's lesson: made from the original yet? (app/api/editor/study-lesson)
     Promise.all([readDeck(STUDY_LESSON, 'draft'), readDeck(STUDY_LESSON, 'live')]).then(([d, l]) => ({ draft: !!d?.slides?.length, live: !!l?.slides?.length }), () => ({ draft: false, live: false })),
-    supabase.from('study_settings').select('manual').eq('id', 1).maybeSingle().then((r) => r, () => ({ data: null, error: { message: 'unreachable' } })),
+    supabase.from('study_settings').select('manual').eq('id', S.id).maybeSingle().then((r) => r, () => ({ data: null, error: { message: 'unreachable' } })),
   ]);
 
   const gaps = frozen ? lessonGaps(frozen) : null;
@@ -131,12 +130,13 @@ export async function POST(req: NextRequest) {
   if (!editor) return NextResponse.json({ error: 'Locked' }, { status: 401 });
   const body = await req.json().catch(() => ({}));
   if (!MANUAL.some((m) => m.id === body?.id) || typeof body?.done !== 'boolean') return NextResponse.json({ error: 'Bad check' }, { status: 400 });
-  const { data, error } = await supabase.from('study_settings').select('manual').eq('id', 1).maybeSingle();
+  const S = studyOf(body?.study);
+  const { data, error } = await supabase.from('study_settings').select('manual').eq('id', S.id).maybeSingle();
   if (error) return NextResponse.json({ error: /manual/.test(error.message) ? 'Run setup file 015 (supabase/migrations/015_study_checklist.sql) first.' : error.message }, { status: 500 });
   const manual = { ...((data?.manual ?? {}) as Record<string, unknown>) };
   if (body.done) manual[body.id] = { by: editor, at: new Date().toISOString() };
   else delete manual[body.id];
-  const { error: upError } = await supabase.from('study_settings').upsert({ id: 1, manual }, { onConflict: 'id' });
-  if (upError) return NextResponse.json({ error: upError.message }, { status: 500 });
+  const { error: upError } = await supabase.from('study_settings').upsert({ id: S.id, manual }, { onConflict: 'id' });
+  if (upError) return NextResponse.json({ error: S.id === 2 && /check|constraint/i.test(upError.message) ? 'Run setup file 020 (supabase/migrations/020_study2_settings.sql) first.' : upError.message }, { status: 500 });
   return NextResponse.json({ ok: true });
 }

@@ -7,6 +7,7 @@ import { shownWords, spokenText } from '@/lib/canvas/queue';
 import { POST_QUIZ, STUDY_LESSON } from '@/lib/study/content';
 import { ANSWERS, RUBRIC } from '@/lib/study/key';
 import { getStudyVersion } from '@/lib/study/version';
+import { studyOf } from '@/lib/study/content';
 import type { Deck } from '@/lib/canvas/types';
 
 export const maxDuration = 120;
@@ -36,7 +37,9 @@ function lessonText(deck: Deck): string {
 export async function POST(req: NextRequest) {
   if (!(await verifyToken(req.cookies.get(AUTH_COOKIE)?.value))) return NextResponse.json({ error: 'Locked' }, { status: 401 });
   try {
-    const version = await getStudyVersion();
+    // (the study's frozen version: { study: 2 } for static vs adaptive)
+    const body = await req.json().catch(() => ({}));
+    const version = await getStudyVersion(studyOf(body?.study).id);
     const frozen = version.slug ? await readSaved(STUDY_LESSON, version.slug) : null;
     const deck = frozen ?? (await readDeck(STUDY_LESSON, 'live'));
     if (!deck?.slides?.length) return NextResponse.json({ error: 'The study’s lesson has no slides yet' }, { status: 400 });

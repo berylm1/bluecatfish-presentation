@@ -70,7 +70,7 @@ export default function StudyFlow({ which }: { which: StudyId }) {
   }, []);
 
   // The lesson loads while they do the checks, the questions about them and quiz 1 (and the camera's files, once it's allowed)
-  useEffect(() => { if (['checks', 'about', 'pre', 'start'].includes(step)) preloadLesson(STUDY_LESSON); }, [step]);
+  useEffect(() => { if (['checks', 'about', 'pre', 'start'].includes(step)) preloadLesson(STUDY_LESSON, which); }, [step, which]);
   useEffect(() => { if (rec?.camera && step !== 'done') preloadCamera(); }, [rec?.camera, step]);
 
   /** Run a save; on success go to the next step */

@@ -3,9 +3,11 @@ import { AUTH_COOKIE, verifyToken } from '@/lib/editorAuth';
 import { THRESHOLDS } from '@/lib/confusion';
 import { buildReport, type ReportPerson, type ReportTopic } from '@/lib/study/report';
 import { lazySupabaseAdmin } from '@/lib/supabase/admin';
+import { studyOf, type StudyDef } from '@/lib/study/content';
 
 /*
- * The pilot report (/studyResults/report; editors only: under /api/study/results in lib/editorAuth.ts)
+ * The pilot report (at the bottom of each study's results page; editors only: under /api/study/results in lib/editorAuth.ts).
+ * ?study=2 / { study: 2 }: static vs adaptive's (its table; its snapshots, study_reports.study, migration 020)
  *   GET [?tests=1]        → the report now (lib/study/report.ts), and the saved snapshots (their names)
  *   GET ?snapshot=<id>    → one saved snapshot
  *   POST { name, tests }  → save the report now as a snapshot (migration 016)
@@ -24,9 +26,9 @@ async function all<T>(query: () => any): Promise<T[]> {
   }
 }
 
-async function reportNow(tests: boolean) {
+async function reportNow(tests: boolean, S: StudyDef) {
   const people = await all<ReportPerson & { lesson_session: string | null }>(() => {
-    const q = supabase.from('study_participants')
+    const q = supabase.from(S.table)
       .select('id, step, study_group, is_test, consent_at, lesson_started_at, lesson_finished_at, finished_at, sound_ok, mic_ok, camera_ok, pre_quiz, post_quiz, survey, lesson_session')
       .order('created_at').order('id');
     return tests ? q : q.eq('is_test', false);
@@ -51,7 +53,7 @@ async function reportNow(tests: boolean) {
       latest.set(key, { partial: !!v.partial, t: { score: v.score, beforeCheck: before, signals: v.signals && typeof v.signals === 'object' ? v.signals : {} } });
     }
   }
-  return buildReport(people, [...latest.values()].map((x) => x.t), { tests, current: { unsure: THRESHOLDS.topic[0], confused: THRESHOLDS.topic[1] } });
+  return buildReport(people, [...latest.values()].map((x) => x.t), { tests, groups: S.groups, current: { unsure: THRESHOLDS.topic[0], confused: THRESHOLDS.topic[1] } });
 }
 
 const missingTable = (msg: string) => /study_reports/.test(msg);
@@ -59,6 +61,7 @@ const missingTable = (msg: string) => /study_reports/.test(msg);
 export async function GET(req: NextRequest) {
   if (!(await verifyToken(req.cookies.get(AUTH_COOKIE)?.value))) return NextResponse.json({ error: 'Locked' }, { status: 401 });
   const q = new URL(req.url).searchParams;
+  const S = studyOf(q.get('study'));
   try {
     const snapshot = q.get('snapshot');
     if (snapshot) {
@@ -67,10 +70,15 @@ export async function GET(req: NextRequest) {
       if (!data) return NextResponse.json({ error: 'No such snapshot' }, { status: 404 });
       return NextResponse.json({ snapshot: data }, { headers: { 'Cache-Control': 'no-store' } });
     }
-    const [report, list] = await Promise.all([
-      reportNow(q.get('tests') === '1'),
-      supabase.from('study_reports').select('id, name, created_at, created_by, report->people').order('created_at', { ascending: false }),
-    ]);
+    // (each study's own snapshots; before migration 020 there's no study column: all are the classmates study's)
+    const listOf = async () => {
+      const r = await supabase.from('study_reports').select('id, name, created_at, created_by, report->people').eq('study', S.id).order('created_at', { ascending: false });
+      if (r.error && /column/i.test(r.error.message)) {   // (the study column: 020 not run yet)
+        return S.id === 1 ? supabase.from('study_reports').select('id, name, created_at, created_by, report->people').order('created_at', { ascending: false }) : { data: [], error: null };
+      }
+      return r;
+    };
+    const [report, list] = await Promise.all([reportNow(q.get('tests') === '1', S), listOf()]);
     return NextResponse.json({
       report,
       snapshots: list.error ? [] : list.data,
@@ -88,9 +96,10 @@ export async function POST(req: NextRequest) {
   const name = typeof body?.name === 'string' ? body.name.replace(/\s+/g, ' ').trim().slice(0, MAX_NAME) : '';
   if (!name) return NextResponse.json({ error: 'Give the snapshot a name' }, { status: 400 });
   try {
-    const report = await reportNow(body?.tests === true);
-    const { data, error } = await supabase.from('study_reports').insert({ name, created_by: editor, report }).select('id').single();
-    if (error) throw new Error(missingTable(error.message) ? 'Run setup file 016 (supabase/migrations/016_study_reports.sql) first.' : error.message);
+    const S = studyOf(body?.study);
+    const report = await reportNow(body?.tests === true, S);
+    const { data, error } = await supabase.from('study_reports').insert({ name, created_by: editor, report, ...(S.id === 2 ? { study: 2 } : {}) }).select('id').single();
+    if (error) throw new Error(missingTable(error.message) ? 'Run setup file 016 (supabase/migrations/016_study_reports.sql) first.' : /column/i.test(error.message) ? 'Run setup file 020 (supabase/migrations/020_study2_settings.sql) first.' : error.message);
     return NextResponse.json({ ok: true, id: data.id });
   } catch (e) {
     return NextResponse.json({ error: e instanceof Error ? e.message : String(e) }, { status: 500 });

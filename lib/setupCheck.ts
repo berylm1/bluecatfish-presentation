@@ -16,6 +16,8 @@ export async function setupMissing(admin: SupabaseClient): Promise<string[]> {
   // the columns later setup files add to a table (017: the study in person)
   const { error: colError } = await admin.from('study_participants').select('participant_no, demographics, interview_notes').limit(0);
   if (colError && !missing.includes('table study_participants')) missing.push('study_participants columns (setup file 017)');
+  const { error: repError } = await admin.from('study_reports').select('study').limit(0);
+  if (repError && !missing.includes('table study_reports')) missing.push('study_reports.study (setup file 020)');
   // (the two searches: asked for nothing, so they change nothing)
   const zero = `[${new Array(1536).fill(0).join(',')}]`;
   await Promise.all(['match_documents3', 'match_images2'].map(async (fn) => {

@@ -16,7 +16,7 @@ let lessonCache: { at: number; text: string } | null = null;
 async function studyLessonText(): Promise<string> {
   if (lessonCache && Date.now() - lessonCache.at < 60_000) return lessonCache.text;
   try {
-    const frozen = (await studyDeck(null)).deck;
+    const frozen = (await studyDeck(null, 2)).deck;   // (study 2's frozen version)
     const deck = frozen ?? (await readDeck(STUDY_LESSON, 'live'));
     const text = deck?.slides?.length ? lessonText(deck) : '';
     lessonCache = { at: Date.now(), text };

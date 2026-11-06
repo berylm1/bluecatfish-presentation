@@ -6,6 +6,7 @@
  */
 
 import { useCallback, useEffect, useState } from 'react';
+import type { StudyId } from '@/lib/study/content';
 
 type Item = { id: string; group: string; label: string; ok: boolean; detail: string; manual?: boolean };
 type State = { ready: boolean; items: Item[] };
@@ -13,7 +14,9 @@ type QuizCheck = { lesson: string; slides: number; results: { id: string; q: str
 type ExtrasCheck = { lesson: string; slides: number; extras: number; results: { id: string; kind: 'bank' | 'helper'; where: string; label: string; added: string[] | null }[] };
 const VERDICT = { taught: { icon: '✓', text: 'Taught', tone: 'bg-emerald-600' }, partly: { icon: '~', text: 'Only partly', tone: 'bg-amber-500' }, not: { icon: '✗', text: 'Not in the lesson', tone: 'bg-red-600' } } as const;
 
-export default function StudyChecklist({ refreshKey = 0 }: { refreshKey?: number }) {
+/** which: the study (each has its own frozen version, test runs and ticks) */
+export default function StudyChecklist({ refreshKey = 0, which = 1 }: { refreshKey?: number; which?: StudyId }) {
+  const post = (path: string) => fetch(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ study: which }) });
   const [state, setState] = useState<State | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -25,7 +28,7 @@ export default function StudyChecklist({ refreshKey = 0 }: { refreshKey?: number
   const checkExtras = async () => {
     setExtrasBusy(true);
     try {
-      const r = await fetch('/api/study/results/extrascheck', { method: 'POST' });
+      const r = await post('/api/study/results/extrascheck');
       const d = await r.json();
       if (!r.ok) setError(d.error ?? `Error ${r.status}`);
       else { setExtras(d); setError(null); }
@@ -53,7 +56,7 @@ export default function StudyChecklist({ refreshKey = 0 }: { refreshKey?: number
   const checkQuiz = async () => {
     setQuizBusy(true);
     try {
-      const r = await fetch('/api/study/results/quizcheck', { method: 'POST' });
+      const r = await post('/api/study/results/quizcheck');
       const d = await r.json();
       if (!r.ok) setError(d.error ?? `Error ${r.status}`);
       else { setQuiz(d); setError(null); }
@@ -67,7 +70,7 @@ export default function StudyChecklist({ refreshKey = 0 }: { refreshKey?: number
   const load = useCallback(async () => {
     setBusy(true);
     try {
-      const r = await fetch('/api/study/results/ready');
+      const r = await fetch(`/api/study/results/ready${which === 2 ? '?study=2' : ''}`);
       const d = await r.json();
       if (!r.ok) setError(d.error ?? `Error ${r.status}`);
       else { setState(d); setError(null); }
@@ -76,12 +79,12 @@ export default function StudyChecklist({ refreshKey = 0 }: { refreshKey?: number
     } finally {
       setBusy(false);
     }
-  }, []);
+  }, [which]);
   useEffect(() => { load(); }, [load, refreshKey]);
 
   const tick = async (id: string, done: boolean) => {
     setState((s) => (s ? { ...s, items: s.items.map((i) => (i.id === id ? { ...i, ok: done } : i)) } : s));
-    const r = await fetch('/api/study/results/ready', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id, done }) });
+    const r = await fetch('/api/study/results/ready', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id, done, study: which }) });
     if (!r.ok) setError((await r.json().catch(() => ({}))).error ?? `Error ${r.status}`);
     load();
   };

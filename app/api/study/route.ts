@@ -155,7 +155,7 @@ export async function POST(request: NextRequest) {
         }
       }
       // the lesson version they'll see (the one the study is frozen to now), recorded once (migration 014)
-      const { version } = await studyDeck(null).catch(() => ({ version: null }));
+      const { version } = await studyDeck(null, S.id).catch(() => ({ version: null }));
       if (version) {
         const { error: vError } = await supabase.from(S.table).update({ lesson_version: version }).eq('id', id).is('lesson_version', null);
         if (vError && !/lesson_version/.test(vError.message)) throw vError;   // (column missing: migration 014 not run yet)

@@ -1,6 +1,6 @@
 /**
  * /studyResults/adaptive: study 2, static vs adaptive (editors only, under /studyResults in lib/editorAuth.ts): its
- * results (components/study/StudyResultsView), then how the two groups differ. People take it at /study2.
+ * results (components/study/StudyResultsView), then how the two groups differ, then its pilot report. People take it at /study2.
  */
 
 import StudyResultsView from '@/components/study/StudyResultsView';
@@ -23,7 +23,7 @@ const FEATURES: { what: string; static: string; adaptive: string }[] = [
 /** Keeping it fair: the extras re-explain the same lesson, and are counted */
 const FAIR: { title: string; text: string }[] = [
   { title: 'The extras only re-explain', text: 'In this study the professor answers from the lesson’s own words (not the whole knowledge base), so the adaptive group isn’t taught anything the static group wasn’t.' },
-  { title: 'Quiz 2 tests the base lesson', text: 'Check it with “✨ Check them against the lesson” on the classmates study’s page: the same lesson, its base slides only.' },
+  { title: 'Quiz 2 tests the base lesson', text: 'Check it with “✨ Check them against the lesson” in Ready for the study? above: its base slides only. “✨ Check the extras against the slides” checks the classmates’ answers and helper slides.' },
   { title: 'Each person’s extras are counted', text: 'Questions asked, classmate turns, helper slides and minutes in the lesson are in the table and the spreadsheet.' },
 ];
 

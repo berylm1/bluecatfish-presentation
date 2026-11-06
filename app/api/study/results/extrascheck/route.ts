@@ -7,6 +7,7 @@ import { lessonText } from '@/lib/canvas/lessonText';
 import { shownWords, spokenText } from '@/lib/canvas/queue';
 import { STUDY_LESSON } from '@/lib/study/content';
 import { getStudyVersion } from '@/lib/study/version';
+import { studyOf } from '@/lib/study/content';
 import type { Deck, SlideElement } from '@/lib/canvas/types';
 
 export const maxDuration = 120;
@@ -40,7 +41,9 @@ function extrasOf(deck: Deck): Extra[] {
 export async function POST(req: NextRequest) {
   if (!(await verifyToken(req.cookies.get(AUTH_COOKIE)?.value))) return NextResponse.json({ error: 'Locked' }, { status: 401 });
   try {
-    const version = await getStudyVersion();
+    // (the study's frozen version: { study: 2 } for static vs adaptive)
+    const body = await req.json().catch(() => ({}));
+    const version = await getStudyVersion(studyOf(body?.study).id);
     const frozen = version.slug ? await readSaved(STUDY_LESSON, version.slug) : null;
     const live = frozen ? null : await readDeck(STUDY_LESSON, 'live');
     const deck = frozen ?? (live?.slides?.length ? live : await readDeck(STUDY_LESSON, 'draft'));

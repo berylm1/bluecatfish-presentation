@@ -12,6 +12,7 @@ import ConfusionGraph, { type Curve } from '@/components/study/ConfusionGraph';
 import StudyVersionPicker from '@/components/study/StudyVersionPicker';
 import StudyChecklist from '@/components/study/StudyChecklist';
 import StudyTabs from '@/components/study/StudyTabs';
+import PilotReport from '@/components/study/PilotReport';
 import { STUDIES, type StudyId } from '@/lib/study/content';
 
 type Summary = {
@@ -26,9 +27,9 @@ const STEPS = ['checks', 'about', 'pre', 'start', 'lesson', 'post', 'survey', 'd
 const show = (v: unknown) => (v == null ? '–' : String(v));
 
 /**
- * One study's results (app/studyResults: 1, the classmates study; app/studyResults/adaptive: 2, static vs adaptive).
- * The lesson version and "Ready for the study?" are the classmates study's own (study 2 plays the same frozen version).
- * children: more of the page, after the results.
+ * One study's results (app/studyResults: 1, the classmates study; app/studyResults/adaptive: 2, static vs adaptive), each
+ * with its own lesson version, "Ready for the study?" and, at the bottom, pilot report (components/study/PilotReport).
+ * children: more of the page, after the results. Print: the pilot report alone.
  */
 export default function StudyResultsView({ which, children }: { which: StudyId; children?: React.ReactNode }) {
   const S = STUDIES[which];
@@ -63,25 +64,20 @@ export default function StudyResultsView({ which, children }: { which: StudyId; 
   };
 
   return (
-    <main className="min-h-screen bg-slate-50 text-slate-900 p-6">
-      <div className="max-w-6xl mx-auto flex flex-col gap-6">
+    <main className="min-h-screen bg-slate-50 text-slate-900 p-6 print:bg-white print:p-0">
+      {/* (print: the pilot report alone) */}
+      <div className="max-w-6xl mx-auto flex flex-col gap-6 print:[&>*:not(#pilot-report)]:hidden">
         <StudyTabs current={which === 2 ? 'adaptive' : 'classmates'} />
         <header className="flex flex-wrap items-center gap-4">
           <h1 className="text-2xl font-bold flex-1">{which === 2 ? 'Static vs adaptive' : 'Classmates study'}</h1>
           <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={tests} onChange={(e) => setTests(e.target.checked)} /> Include test runs</label>
           <a href={`/api/study/results${q(`format=csv${tests ? '&tests=1' : ''}`)}`} className="px-4 py-2 rounded-lg bg-cyan-600 hover:bg-cyan-500 text-white font-semibold">⬇ Download spreadsheet (CSV)</a>
-          {/* (the pilot report: the classmates study's for now) */}
-          {which === 1 && <Link href="/studyResults/report" className="px-4 py-2 rounded-lg border bg-white hover:bg-slate-50 font-semibold">📋 Pilot report</Link>}
+          <a href="#pilot-report" className="px-4 py-2 rounded-lg border bg-white hover:bg-slate-50 font-semibold">📋 Pilot report ↓</a>
           <Link href={`${S.path}?test=1`} className="text-sm underline text-cyan-700">Try it (test run)</Link>
         </header>
-        {which === 1 ? (
-          <>
-            <StudyVersionPicker onChange={() => setReadyKey((k) => k + 1)} />
-            <StudyChecklist refreshKey={readyKey} />
-          </>
-        ) : (
-          <p className="text-sm text-slate-600">Plays the same lesson version as the classmates study (picked on its page). Its link: <b>{S.path}</b>.</p>
-        )}
+        <p className="text-sm text-slate-600 -mt-3">People take it at <b>{S.path}</b> (test runs: <b>{S.path}?test=1</b>).</p>
+        <StudyVersionPicker which={which} onChange={() => setReadyKey((k) => k + 1)} />
+        <StudyChecklist which={which} refreshKey={readyKey} />
         {error && <p className="rounded-lg bg-red-100 text-red-900 px-4 py-3">{error}</p>}
         {data && (
           <>
@@ -151,6 +147,7 @@ export default function StudyResultsView({ which, children }: { which: StudyId; 
           </>
         )}
         {children}
+        <PilotReport which={which} />
       </div>
     </main>
   );

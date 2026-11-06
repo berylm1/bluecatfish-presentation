@@ -6,19 +6,21 @@
  */
 
 import { useEffect, useState } from 'react';
+import type { StudyId } from '@/lib/study/content';
 
 type Version = { slug: string; name: string; savedAt: string; slides: number };
 type State = { lesson: string; current: { slug: string | null; name: string | null; setAt: string | null; setBy: string | null }; versions: Version[]; seen: Record<string, number> };
 
 const day = (iso: string | null) => (iso ? new Date(iso).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : '');
 
-export default function StudyVersionPicker({ onChange }: { onChange?: () => void }) {
+/** which: the study (each freezes its own version: study_settings row 1 or 2) */
+export default function StudyVersionPicker({ onChange, which = 1 }: { onChange?: () => void; which?: StudyId }) {
   const [state, setState] = useState<State | null>(null);
   const [pick, setPick] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const load = () => fetch('/api/study/results/version').then(async (r) => {
+  const load = () => fetch(`/api/study/results/version${which === 2 ? '?study=2' : ''}`).then(async (r) => {
     const d = await r.json();
     if (!r.ok) { setError(d.error ?? `Error ${r.status}`); return; }
     setState(d);
@@ -33,7 +35,7 @@ export default function StudyVersionPicker({ onChange }: { onChange?: () => void
     if (already && !window.confirm(`${already} ${already === 1 ? 'person has' : 'people have'} already taken part. From now on, new people get "${name}". Each person's row keeps the version they saw. Change it?`)) return;
     setBusy(true); setError(null);
     try {
-      const r = await fetch('/api/study/results/version', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ slug: pick || null }) });
+      const r = await fetch('/api/study/results/version', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ slug: pick || null, study: which }) });
       const d = await r.json().catch(() => ({}));
       if (!r.ok) setError(d.error ?? `Error ${r.status}`);
       else { await load(); onChange?.(); }
@@ -60,7 +62,7 @@ export default function StudyVersionPicker({ onChange }: { onChange?: () => void
       </div>
       {now.slug
         ? <p className="text-sm">Now playing: <b>{now.name}</b>, since {day(now.setAt)}{now.setBy ? ` (${now.setBy})` : ''}. Editing or publishing the lesson doesn&apos;t change it.</p>
-        : <p className="text-sm rounded-lg bg-amber-100 text-amber-900 px-3 py-2">Not frozen: the study plays the live lesson, so an edit or a publish changes what people see. Save a version in the editor (Publish, then name it) and pick it here before the study starts.</p>}
+        : <p className="text-sm rounded-lg bg-amber-100 text-amber-900 px-3 py-2">Not frozen: the study plays the live “{state.lesson}”, so an edit or a publish changes what people see. Publish it in the editor (and name the version), then pick that version here before the study starts.</p>}
       {state.versions.length === 0 && <p className="text-sm text-slate-500">No saved versions of “{state.lesson}” yet.</p>}
       {seen.length > 0 && <p className="text-sm text-slate-500">Seen so far (not test runs): {seen.map(([k, n]) => `${k}: ${n}`).join(' · ')}</p>}
       {error && <p className="rounded-lg bg-red-100 text-red-900 px-4 py-2 text-sm">{error}</p>}

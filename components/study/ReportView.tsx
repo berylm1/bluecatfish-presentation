@@ -6,6 +6,7 @@
  */
 
 import type { Report } from '@/lib/study/report';
+import { STUDIES } from '@/lib/study/content';
 
 const BAR = '#2a78d6';   // one series: the people who got this far
 const ANSWER: Record<string, string> = { got: '😀 Got it', kind: '😐 Kind of', lost: '😕 Lost me' };
@@ -24,7 +25,8 @@ function Card({ title, children, note }: { title: string; children: React.ReactN
   );
 }
 
-export default function ReportView({ report, compact = false }: { report: Report; compact?: boolean }) {
+/** names: the study's groups, as shown (default: the classmates study's) */
+export default function ReportView({ report, compact = false, names = STUDIES[1].names }: { report: Report; compact?: boolean; names?: Record<string, string> }) {
   const first = report.funnel[0]?.reached || 0;
   const g = report.groups;
   const comments = Object.entries(report.comments.reduce<Record<string, Report['comments']>>((m, c) => ((m[c.question] ??= []).push(c), m), {}));
@@ -33,7 +35,7 @@ export default function ReportView({ report, compact = false }: { report: Report
     <div className="flex flex-col gap-4">
       <p className="text-sm text-slate-600">
         <b className="text-slate-900">{report.people} {report.people === 1 ? 'person' : 'people'}</b>
-        {' '}({g.classmates} with classmates, {g.no_classmates} without{g.none ? `, ${g.none} not started yet` : ''})
+        {' '}({Object.entries(g).filter(([k]) => k !== 'none').map(([k, n]) => `${n} ${(names[k] ?? k).toLowerCase()}`).join(', ')}{g.none ? `, ${g.none} not started yet` : ''})
         {report.tests ? ', test runs included' : ''} · as of {when(report.at)}
       </p>
 
@@ -118,7 +120,7 @@ export default function ReportView({ report, compact = false }: { report: Report
                   {list.map((c) => (
                     <li key={c.id} className="text-sm rounded-lg border-l-4 border-slate-200 bg-slate-50 px-3 py-1.5 break-inside-avoid">
                       “{c.text}”
-                      <span className="ml-2 text-xs text-slate-500">{c.group === 'classmates' ? 'with classmates' : c.group === 'no_classmates' ? 'without' : ''}</span>
+                      <span className="ml-2 text-xs text-slate-500">{c.group ? (names[c.group] ?? c.group).toLowerCase() : ''}</span>
                     </li>
                   ))}
                 </ul>

@@ -113,11 +113,12 @@ const DECK_FRESH_MS = 3 * 3600_000;
 let deckLoading = false;
 let cameraLoading = false;
 
-export function preloadLesson(lesson: string) {
+/** (study: which study's frozen version; the lesson checks it against the one recorded for them at Start) */
+export function preloadLesson(lesson: string, study: StudyId = 1) {
   if (deckLoading) return;
   try { if (preloadedDeck(lesson)) return; } catch { /* fine */ }
   deckLoading = true;
-  fetch(`/api/deck?lesson=${encodeURIComponent(lesson)}&study=1`)   // (the version the study is frozen to)
+  fetch(`/api/deck?lesson=${encodeURIComponent(lesson)}&study=${study}`)   // (the version the study is frozen to)
     .then((r) => (r.ok ? r.json() : null))
     .then((d) => {
       const deck = d?.deck;

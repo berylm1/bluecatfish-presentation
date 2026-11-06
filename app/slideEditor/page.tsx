@@ -971,8 +971,8 @@ function Editor({
               <MenuItem onClick={() => { close(); window.open(`/lessonReview?lesson=${encodeURIComponent(lessonId)}&preview=1`, '_blank', 'noopener'); }} hint="The saved draft as a readable page, to print">📖 Lesson review ↗</MenuItem>
               {/* the admin pages (editors only, like this one); the studies, as components/study/StudyTabs lists them */}
               <MenuHeading>Studies</MenuHeading>
+              <MenuItem onClick={() => { close(); window.open('/studyResults/adaptive', '_blank', 'noopener'); }} hint="The main study: results, its lesson version, checklist and pilot report (people take it at /study2)">⚖️ Static vs adaptive ↗</MenuItem>
               <MenuItem onClick={() => { close(); window.open('/studyResults', '_blank', 'noopener'); }} hint="With or without the AI classmates: results, the spreadsheet, the lesson version it plays">📊 Classmates study ↗</MenuItem>
-              <MenuItem onClick={() => { close(); window.open('/studyResults/adaptive', '_blank', 'noopener'); }} hint="Study 2, static vs adaptive: results (people take it at /study2)">⚖️ Static vs adaptive ↗</MenuItem>
               <MenuHeading>Admin</MenuHeading>
               <MenuItem onClick={() => { close(); window.open('/lessonBackup', '_blank', 'noopener'); }} hint="Copy every lesson into Supabase; pictures to upload again">💾 Lesson backup ↗</MenuItem>
               {lessonId !== DEFAULT_LESSON.id && (
