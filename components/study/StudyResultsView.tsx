@@ -13,7 +13,7 @@ import StudyVersionPicker from '@/components/study/StudyVersionPicker';
 import StudyChecklist from '@/components/study/StudyChecklist';
 import StudyTabs from '@/components/study/StudyTabs';
 import PilotReport from '@/components/study/PilotReport';
-import { STUDIES, type StudyId } from '@/lib/study/content';
+import { POST_QUIZ, STUDIES, type StudyId } from '@/lib/study/content';
 
 type Summary = {
   group: string | null; people: number; finished: number;
@@ -90,7 +90,7 @@ export default function StudyResultsView({ which, children }: { which: StudyId; 
                     <dt>Pre-quiz (of 5)</dt><dd className="font-semibold">{show(s.pre)}</dd>
                     <dt>Same 5 after</dt><dd className="font-semibold">{show(s.postSame)}</dd>
                     <dt>Gain on those 5</dt><dd className="font-semibold">{show(s.gain)}</dd>
-                    <dt>Post-quiz (of 10)</dt><dd className="font-semibold">{show(s.post)}</dd>
+                    <dt>Post-quiz (of {POST_QUIZ.filter((q) => q.kind === 'choice').length})</dt><dd className="font-semibold">{show(s.post)}</dd>
                     <dt>Lesson minutes</dt><dd className="font-semibold">{show(s.lessonMinutes)}</dd>
                     <dt>Questions asked</dt><dd className="font-semibold">{show(s.questions)}</dd>
                     <dt>“Kept me engaged” (1–5)</dt><dd className="font-semibold">{show(s.engaged)}</dd>

@@ -5,7 +5,7 @@
 // DRAFT: written from what the Blue Catfish lesson teaches. Check every question against the final
 // lesson before the study starts, and keep ids the same once real people have answered.
 
-export const QUESTIONS_VERSION = 'v2';   // the questions' version, saved with each person's answers: change it when the questions change
+export const QUESTIONS_VERSION = 'v3';   // the questions' version, saved with each person's answers: change it when the questions change
 // (v2: in person; the name first, the pilot's demographic questions, the UEQ-S, post-condition and post-study questionnaires)
 export const STUDY_TITLE = 'Learning with AI: the Blue Catfish lesson';
 export const STUDY_MINUTES = '25–35';
@@ -97,7 +97,7 @@ export function demographicAnswer(d: Demographic, raw: unknown): string | null {
 
 /* -------------------------------------------------------------------- quiz */
 
-// The pre-quiz: these 5. The post-quiz: the same 5 (shuffled in with the rest), 5 harder ones, and 3 short answers.
+// The pre-quiz: these 5. The post-quiz: the same 5 (shuffled in with the rest), 4 harder ones, and 1 written answer.
 export const QUIZ_SAME: ChoiceQuestion[] = [
   { id: 'q1', kind: 'choice', q: 'Where do blue catfish originally come from?',
     choices: abcd('The Chesapeake Bay', 'The Mississippi River basin', 'The Atlantic Ocean', 'The Great Lakes') },
@@ -114,8 +114,9 @@ export const QUIZ_SAME: ChoiceQuestion[] = [
 export const QUIZ_NEW: ChoiceQuestion[] = [
   { id: 'q6', kind: 'choice', q: 'About how long can a blue catfish live?',
     choices: abcd('About 2 years', 'About 5 years', 'Over 100 years', '20 years or more') },
-  { id: 'q7', kind: 'choice', q: 'What do a blue catfish’s long whiskers (barbels) do?',
-    choices: abcd('They are covered in taste buds that help it find food', 'They sting other fish', 'They help it breathe air', 'They glow so it can see in the dark') },
+  // (removed from Quiz 2, v3)
+  // { id: 'q7', kind: 'choice', q: 'What do a blue catfish’s long whiskers (barbels) do?',
+  //   choices: abcd('They are covered in taste buds that help it find food', 'They sting other fish', 'They help it breathe air', 'They glow so it can see in the dark') },
   { id: 'q8', kind: 'choice', q: 'How heavy can the biggest blue catfish get?',
     choices: abcd('More than 1,000 pounds', 'About 5 pounds', 'About 20 pounds', 'More than 100 pounds') },
   { id: 'q9', kind: 'choice', q: 'Which of these is a way people are trying to control blue catfish in the Bay?',
@@ -131,13 +132,16 @@ export const QUIZ_NEW: ChoiceQuestion[] = [
 
 export const QUIZ_SHORT: TextQuestion[] = [
   { id: 's1', kind: 'text', q: 'In your own words, why are blue catfish a problem for the Chesapeake Bay?', hint: 'A few sentences is plenty.' },
-  { id: 's2', kind: 'text', q: 'Pick one thing about blue catfish (their size, what they eat, how long they live, or the water they can live in). How does it help them spread or survive in the Bay?' },
-  { id: 's3', kind: 'text', q: 'If you were in charge of the Bay, what would you do about blue catfish, and why?' },
+  // (removed from Quiz 2, v3: only the first written question is asked)
+  // { id: 's2', kind: 'text', q: 'Pick one thing about blue catfish (their size, what they eat, how long they live, or the water they can live in). How does it help them spread or survive in the Bay?' },
+  // { id: 's3', kind: 'text', q: 'If you were in charge of the Bay, what would you do about blue catfish, and why?' },
 ];
 
 export const PRE_QUIZ: QuizQuestion[] = QUIZ_SAME;
-/** The post-quiz: the 5 from before shuffled in with the 5 new ones (a fixed order, the same for everyone), then the short answers */
-export const POST_QUIZ: QuizQuestion[] = [QUIZ_NEW[0], QUIZ_SAME[2], QUIZ_NEW[1], QUIZ_SAME[0], QUIZ_NEW[2], QUIZ_SAME[4], QUIZ_NEW[3], QUIZ_SAME[1], QUIZ_NEW[4], QUIZ_SAME[3], ...QUIZ_SHORT];
+/** The post-quiz: the 5 from before shuffled in with the 4 new ones (a fixed order, the same for everyone), then the written question */
+const quizQ = (id: string) => [...QUIZ_SAME, ...QUIZ_NEW].find((q) => q.id === id)!;
+export const POST_QUIZ: QuizQuestion[] = [...['q6', 'q3', 'q1', 'q8', 'q5', 'q9', 'q2', 'q10', 'q4'].map(quizQ), ...QUIZ_SHORT];
+// (v2: q6, q3, q7, q1, q8, q5, q9, q2, q10, q4, then s1, s2, s3)
 
 /* ------------------------------------------------------------ questionnaire */
 
