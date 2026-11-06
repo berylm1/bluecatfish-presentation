@@ -30,10 +30,10 @@ export const SIGNALS = {
   again: { points: 1, sure: 'medium' },           // "explain that again" (could be a missed sentence)
   wrong_move: { points: 1, sure: 'high' },        // hands-on: a wrong move
   wrong_again: { points: 2, sure: 'high' },       // ...the same item wrong again
-  stepped_in: { points: 1, sure: 'high' },        // hands-on: the professor explains an item
+  stepped_in: { points: 0, sure: 'high' },        // hands-on: the professor explains an item (was 1: it follows the item wrong twice, already counted)
   hint: { points: 1, sure: 'high' },              // hands-on: stuck, the hand shows how again
   puzzled: { points: 1, sure: 'low' },            // a puzzled face on camera (held a few seconds)
-  helper_watched: { points: 1, sure: 'medium' },  // "another way to see it": watched (8 s or to the end)
+  helper_watched: { points: 0, sure: 'medium' },  // "another way to see it": watched (8 s or to the end) (was 1: using the help they asked for isn't more confusion)
   helper_left: { points: 0, sure: 'none' },       // ...left within 8 s: just looking
   check_got: { points: -2, sure: 'high', topicOnly: true },   // "How did that section go?": Got it
   check_kind: { points: 2, sure: 'high', topicOnly: true },   // ...Kind of
