@@ -70,7 +70,8 @@ export default function ConceptsPanel({ deck, onChange, onDraft, onGoTo }: Props
   const [state, setState] = useState<{ busy: boolean; error?: string }>({ busy: false });
   const [mapOpen, setMapOpen] = useState(false);
   const [selected, setSelected] = useState<string | null>(null);
-  const concepts = deck.concepts;
+  // (whole, whatever was stored: see conceptMap)
+  const concepts = useMemo(() => (deck.concepts ? { ...deck.concepts, ideas: (deck.concepts.ideas ?? []).map((i) => ({ ...i, needs: i.needs ?? [] })), questions: deck.concepts.questions ?? {} } : undefined), [deck.concepts]);
   const ideas = useMemo(() => concepts?.ideas ?? [], [concepts]);
   const slideOf = useMemo(() => (concepts ? conceptSlides(deck, concepts) : new Map<string, number>()), [deck, concepts]);
   const issues = useMemo(() => (concepts ? conceptIssues(deck, concepts) : []), [deck, concepts]);
