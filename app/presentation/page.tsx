@@ -2008,7 +2008,11 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
   /** The end of a topic: "How did that section go?", or (outside the study, when the meter is sure: ADAPTIVE_SECTION_CHECK) not */
   function askSectionCheck(from: number, to: number) {
     const topic = topicOf[from] ?? 0;
-    if (ADAPTIVE_SECTION_CHECK && !study) {
+    // In the study the check was always asked, so the meter's own call was for outside it only. With the check hidden
+    // (SELF_CHECK), the study's adaptive lesson goes by the meter too: a topic it reads as confusing gets the offer.
+    // (was: with the check hidden, nobody in the study was ever offered "another way" at a topic's end)
+    const studyByMeter = !!study && !SELF_CHECK && !isStatic;
+    if (ADAPTIVE_SECTION_CHECK && (!study || studyByMeter)) {
       const t = meter.current.topic(topic);
       const confusion = (Object.entries(t.signals) as [keyof typeof SIGNALS, number][]).some(([k, n]) => n > 0 && SIGNALS[k].points > 0);
       const good = (t.signals.solved ?? 0) + (t.signals.finn_caught ?? 0) > 0;
@@ -2020,7 +2024,7 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
         cuesRef.current?.play({ text: REPLAY_ASK_SKIPPED });
         return;
       }
-      if (t.score === 0 && good && !confusion) {
+      if (!studyByMeter && t.score === 0 && good && !confusion) {
         // clearly fine: a quick word, and on (no signs at all isn't "fine": a quiet learner is still asked)
         checked.current.add(from);
         tracking.track('tutor_decision', { action: 'section_check_skipped', why: 'clear', ...meterNow(topic) });
@@ -2219,7 +2223,8 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
     // Their call on Finn's mistake (a command, like "next", calls it off and is done instead)
     addLine('you', text);
     // "Anything else, or shall we go on?": "no" / "go on" carries on; anything else is their next question (or a command)
-    if (moreNext.current) { if (GO_ON.test(text.trim())) { endMore(true, 'typed'); return; } endMore(false, 'typed'); }
+    // (a few words only: "ok so why do they…" is their next question, not "go on")
+    if (moreNext.current) { if (text.trim().split(/\s+/).length <= 4 && GO_ON.test(text.trim())) { endMore(true, 'typed'); return; } endMore(false, 'typed'); }
     if (finnCheck.current) { if (!parseCanvasCommand(text)) { finnVerdict(text, 'typed', true); return; } finnVerdict(null, 'typed'); }
     takeOverFromFinn();   // the learner's own question or command during Finn's turn: theirs goes first
     if (replayOffer) {
