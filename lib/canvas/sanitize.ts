@@ -290,6 +290,29 @@ export function bank(raw: any): Deck['bank'] {
   return { questions, from, off: bool(raw.off) };
 }
 
+/** The concept map: known fields only, capped; an idea needs a name and a slide, and builds only on ideas that exist. */
+export function concepts(raw: any): Deck['concepts'] {
+  if (!raw || typeof raw !== 'object' || !Array.isArray(raw.ideas)) return undefined;
+  const seen = new Set<string>();
+  const ideas = raw.ideas.slice(0, 60).flatMap((c: any, i: number) => {
+    const name = str(c?.name, 80);
+    const at = typeof c?.slide === 'string' && /^[\w-]{1,64}$/.test(c.slide) ? c.slide : null;
+    if (!name || !at) return [];
+    let cid = id(c?.id, `c${i}`);
+    if (seen.has(cid)) cid = `${cid}-${i}`;
+    seen.add(cid);
+    return [{ id: cid, name, means: str(c?.means, 240) ?? '', slide: at, needs: (Array.isArray(c?.needs) ? c.needs : []).filter((n: unknown): n is string => typeof n === 'string' && /^[\w-]{1,64}$/.test(n)).slice(0, 12) as string[], byAI: bool(c?.byAI) }];
+  });
+  for (const c of ideas) c.needs = [...new Set<string>(c.needs)].filter((n) => n !== c.id && seen.has(n));
+  const map = (m: any): Record<string, string> => {
+    const out: Record<string, string> = {};
+    if (m && typeof m === 'object') for (const [k, v] of Object.entries(m).slice(0, 200)) if (/^[\w-]{1,64}$/.test(k) && typeof v === 'string' && seen.has(v)) out[k] = v;
+    return out;
+  };
+  const quiz = map(raw.quiz);
+  return { ideas, questions: map(raw.questions), quiz: Object.keys(quiz).length ? quiz : undefined, at: str(raw.at, 40), off: bool(raw.off) };
+}
+
 export function sanitizeDeck(raw: any, lessonId: string, source: Deck['source']): Deck {
   if (!raw || typeof raw !== 'object' || !Array.isArray(raw.slides)) throw new Error('Not a deck: missing slides');
   if (raw.slides.length > MAX_SLIDES) throw new Error(`Too many slides (max ${MAX_SLIDES})`);
@@ -307,6 +330,7 @@ export function sanitizeDeck(raw: any, lessonId: string, source: Deck['source'])
     recapByAI: bool(raw.recapByAI),
     quiz: quiz(raw.quiz),
     bank: bank(raw.bank),
+    concepts: concepts(raw.concepts),
     checks: checks(raw.checks),
     editRev: typeof raw.editRev === 'string' && /^[a-z0-9]{1,24}$/.test(raw.editRev) ? raw.editRev : undefined,
     basedOn: typeof raw.basedOn === 'string' && /^(bluecatfish_|canvas_ai:)[\w:.-]{1,120}$/.test(raw.basedOn) ? raw.basedOn : undefined,

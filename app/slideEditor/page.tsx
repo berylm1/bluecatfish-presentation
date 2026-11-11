@@ -18,6 +18,7 @@ import { answerState, countTodo, needsBank, openPictureIdeas, pictureBasis, pict
 import { startsTopic } from '@/lib/canvas/intro';
 import { applyRepeatFix, type RepeatSuggestion } from '@/lib/canvas/repeats';
 import RepeatsPanel from '@/components/editor/RepeatsPanel';
+import ConceptsPanel from '@/components/editor/ConceptsPanel';
 import Menu, { MenuHeading, MenuItem } from '@/components/editor/Menu';
 import PullFromOriginal from '@/components/editor/PullFromOriginal';
 import { pullSlides } from '@/lib/canvas/studyLesson';
@@ -176,7 +177,7 @@ function Editor({
   const baseRev = useRef<string | undefined>(initial.editRev);
   const [conflict, setConflict] = useState<{ by: string; at: string | null; then: 'save' | 'publish' } | null>(null);
   const { deck, slide, slideIdx, element } = ed;
-  const [panel, setPanel] = useState<'props' | 'images' | 'background' | 'repeats' | 'check'>('props');
+  const [panel, setPanel] = useState<'props' | 'images' | 'background' | 'repeats' | 'check' | 'ideas'>('props');
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState<{ at?: string; by?: string }>({ at: initialSavedAt, by: initialSavedBy });
   const [notice, setNotice] = useState<{ text: string; tone: 'ok' | 'warn' | 'error' } | null>(null);
@@ -1094,6 +1095,7 @@ function Editor({
               ['images', '🖼', 'Images', 'Add a picture from the library'],
               ['repeats', '🔁', 'Repeats', 'Where the lesson says the same thing twice'],
               ['check', '🔎', 'Check', 'Facts against the knowledge base; pictures without a description; story order'],
+              ['ideas', '◎', 'Ideas', 'The concept map: the ideas the slides teach and which build on which'],
             ] as const).map(([id, icon, name, hint]) => {
               const on = panel === id || (id === 'images' && panel === 'background');
               const badge = id === 'check' ? checkBadge : 0;
@@ -1113,6 +1115,11 @@ function Editor({
                 onChecked={(from, found, slides) => ed.annotate((d) => { d.checks = { ...d.checks, repeats: { from, at: new Date().toISOString(), found, slides } }; })}
                 onSkip={(key) => ed.annotate((d) => { d.checks = { ...d.checks, repeatSkips: [...new Set([...(d.checks?.repeatSkips ?? []), key])] }; })} />
             </div>
+            {panel === 'ideas' && (
+              <ConceptsPanel deck={deck} onGoTo={(i) => ed.setSlideIdx(i)}
+                onChange={(fn, group) => ed.change((d) => { d.concepts ??= { ideas: [], questions: {} }; fn(d.concepts); }, group)}
+                onDraft={(c) => ed.change((d) => { d.concepts = c; })} />
+            )}
             {/* kept mounted too: each slide's results stay */}
             <div className={panel === 'check' ? '' : 'hidden'}>
               <CheckPanel deck={deck} slideIndex={slideIdx} lessonTitle={deck.title} active={panel === 'check'} runSignal={factRun} describeSignal={describeRun}
@@ -1125,7 +1132,7 @@ function Editor({
                   d.checks = { ...d.checks, pictures: rest };
                 }); flash('This slide’s pictures are checked again when you save'); }} />
             </div>
-            {panel === 'repeats' || panel === 'check' ? null : panel === 'props' ? (
+            {panel === 'repeats' || panel === 'check' || panel === 'ideas' ? null : panel === 'props' ? (
               element ? (
                 <ElementInspector
                   el={element}

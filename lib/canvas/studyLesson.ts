@@ -16,7 +16,7 @@ export function studySlide(s: Slide): Slide {
 
 /** The whole original, as the study's lesson starts: its slides and recap, none of its extras or checks */
 export function studyCopy(original: Deck, lessonId: string, title: string): Deck {
-  const { bank: _bank, checks: _checks, quiz: _quiz, ...rest } = original;
+  const { bank: _bank, checks: _checks, quiz: _quiz, concepts: _concepts, ...rest } = original;   // (the concept map tags the bank's questions: the study's lesson drafts its own)
   return { ...structuredClone(rest), lessonId, title, slides: original.slides.map(studySlide) };
 }
 
