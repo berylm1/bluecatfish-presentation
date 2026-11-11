@@ -186,7 +186,7 @@ const BACK_AGAIN_S = 2.5;        // ⏮ this early in a part: the part before (l
 // After the learner's own question is answered: back to where the lesson stopped (false: on to the slide's end, as before)
 const RESUME_AFTER_ANSWER = true;
 const MORE_WAIT_MS = 6000;       // "Anything else, or shall we go on?": this long with no answer = go on
-const GO_ON = /^(?:no|nope|nah|go on|let'?s go on|carry on|continue|keep going|move on|next|that'?s (?:all|it)|nothing(?: else)?|i'?m (?:good|fine|ok(?:ay)?)|all good)\b/i;
+const GO_ON = /^(?:no|nope|nah|no thanks?|ok(?:ay)?|go on|let'?s go on|carry on|continue|keep going|move on|next|that'?s (?:all|it)|nothing(?: else)?|i'?m (?:good|fine|ok(?:ay)?)|all good)\b/i;
 // The hybrid classmates: the questions and their answer slides are the reviewed, pre-written ones (the same pool for
 // everyone in the study); what's written live is how a classmate says their question, and their short reply when the
 // learner talks to them by name. Each live line is checked on the server (/api/classmate); false: all as written.
@@ -208,6 +208,7 @@ function addressed(text: string): { who: ClassmateId; text: string } | null {
 const DISCUSSION = true;
 const DISCUSS_MAX = 2;             // per lesson (each adds about a minute)
 const ROOM_REACT = ['Ooh, I was thinking something like that too.', 'Hmm, I wasn’t sure about that one either.', 'I was wondering the same thing!'];
+const ROOM_WAIT_MS = 45_000;       // the learner says nothing for this long: the discussion goes on without their answer
 const ROOM_TO_ANSWER = 'Good thinking, everyone. Here’s the answer.';
 const HEADS_UP_MS = 900;         // "Maya has a question": a moment before a classmate speaks
 const MORPH_BACK_MS = 950;   // a morph back finishes before the lesson moves to another slide
@@ -1875,12 +1876,22 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
             finnCheck.current = resolve;
             setFinnWaiting('open');
             if (interruptOn) { resumeAfterTurn.current = false; micRef.current.talk(); }   // listen for it too
+            // no answer at all: on with the discussion (was nothing: a learner who said nothing held the lesson for good)
+            setTimeout(() => {
+              if (finnCheck.current !== resolve) return;
+              finnCheck.current = null;
+              setFinnWaiting(false);
+              setFinnReply('');
+              finnHow.current = 'button';
+              resolve('');
+            }, ROOM_WAIT_MS);
           });
           if (mine === null || over()) { done(); return; }   // moved on
+          tracking.track('tutor_decision', { action: 'discussion_answer', how: mine ? finnHow.current : 'none', answer: mine.slice(0, 200) });
           setRoom((r) => (r ? { ...r, stage: 'react', mine } : r));
           const other: ClassmateId = line.who === 'maya' ? 'leo' : 'maya';
           let react: string | null = null;
-          if (finnHow.current !== 'button') {
+          if (mine && finnHow.current !== 'button') {
             try {
               const res = await fetch('/api/classmate', {
                 method: 'POST', headers: learnerHeaders({ 'Content-Type': 'application/json' }),
@@ -1893,7 +1904,7 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
           if (over()) { done(); return; }
           tracking.track('tutor_decision', { action: 'classmate_live', kind: 'react', who: other, used: !!react, line: (react ?? '').slice(0, 200), to: mine.slice(0, 200) }, { classmate_turns: 1 });
           classmateWho.current.push(other);
-          const reacted = await mateSays(other, react ?? (finnHow.current === 'button' ? ROOM_REACT[1] : pickOne(ROOM_REACT)));
+          const reacted = await mateSays(other, react ?? (finnHow.current === 'button' || !mine ? ROOM_REACT[1] : pickOne(ROOM_REACT)));
           if (!reacted || over()) { done(); return; }
           const on = await cues.play({ text: ROOM_TO_ANSWER });
           done();
