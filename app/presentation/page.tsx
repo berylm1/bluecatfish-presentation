@@ -210,6 +210,9 @@ const DISCUSS_MAX = 2;             // per lesson (each adds about a minute)
 const ROOM_REACT = ['Ooh, I was thinking something like that too.', 'Hmm, I wasn’t sure about that one either.', 'I was wondering the same thing!'];
 const ROOM_WAIT_MS = 45_000;       // the learner says nothing for this long: the discussion goes on without their answer
 const ROOM_TO_ANSWER = 'Good thinking, everyone. Here’s the answer.';
+// After a "Show another way" slide is heard to its end: on to the next slide (false: back to the slide it came from)
+const HELPER_THEN_NEXT = true;
+const HEADS_UP_SOUND = false;      // two soft notes before a classmate speaks (off: it was heard as an odd noise at the topics' ends)
 const HEADS_UP_MS = 900;         // "Maya has a question": a moment before a classmate speaks
 const MORPH_BACK_MS = 950;   // a morph back finishes before the lesson moves to another slide
 const HAND_RING_MS = 2500;   // how long the camera bubble stays yellow after a raised hand
@@ -647,7 +650,7 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
     setToast(`${CLASSMATES[who].name} has a question`);
     if (toastTimer.current) clearTimeout(toastTimer.current);
     toastTimer.current = setTimeout(() => setToast(null), 2500);
-    if (soundsOnRef.current) playSound('ask');
+    if (HEADS_UP_SOUND && soundsOnRef.current) playSound('ask');
     setClassmateSaying(who);
     await new Promise((r) => setTimeout(r, HEADS_UP_MS));
   }, []);
@@ -1124,14 +1127,14 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
         if (!played || seq !== helperSeq.current) { setHelperActive(null); return; }   // closed or talked over
       }
       setHelperActive(null);
-      if (boxes.length && seq === helperSeq.current) closeVariant();
+      if (boxes.length && seq === helperSeq.current) closeVariant(true);
       return;   // nothing to say: it stays up until "Got it, back to the lesson"
     }
     // A live explanation (the professor teaches from the slide) beats the stored clip
     const ok = await cues.play(found.live_narration
       ? { text: found.live_narration }
       : { text: found.narration, url: found.audio_url });
-    if (ok) closeVariant();
+    if (ok) closeVariant(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cues]);
 
@@ -1208,7 +1211,8 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
   // 'narrated': the professor explains the slide itself. 'answer': it's up while
   // the professor answers a question, and goes away with the answer.
   const variantMode = useRef<'narrated' | 'answer'>('narrated');
-  function closeVariant() {
+  /** heard: the "another way" slide was said to its end (not closed by the learner, or with ⏮) */
+  function closeVariant(heard = false) {
     if (variantMode.current === 'answer') { setVariant(null); return; }   // the answer carries on; the lesson resumes after it
     // Answer slides (the question bank): the answers stop, and the lesson moves on to what comes next
     // (was: back to the slide it came from, where the learner heard again what had just been answered)
@@ -1233,6 +1237,19 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
       // back at once (they didn't stay for the answers): the slide they asked on picks up where it was
       if (Date.now() - detourAt.current < BACK_QUICK_MS) setTimeout(() => playerRef.current.resume(), MORPH_BACK_MS);
       else setTimeout(moveOn, MORPH_BACK_MS);
+    }
+    else if (heard === true && HELPER_THEN_NEXT) {
+      // "Another way to see it" was heard to its end: on from there (was: back to the slide it came from, which was
+      // then said again from where it stopped). Its hands-on box, if it has one still to do; the topic's end (the
+      // classmates' turn decides what's next); else straight to the next slide
+      const p = playerRef.current;
+      const at = p.slideIndex;
+      const box = deck.slides[at]?.elements.find((e) => e.type === 'activity' && activityReady(e) && !activitiesDone.current.has(e.id));
+      const lastOfTopic = at + 1 >= deck.slides.length || topicOf[at + 1] !== topicOf[at];
+      tracking.track('tutor_decision', { action: 'helper_then', to: box && p.clipOf(box.id) >= 0 ? 'hands_on' : lastOfTopic ? 'topic_end' : 'next_slide' });
+      if (box && p.clipOf(box.id) >= 0) p.jumpTo(box.id);
+      else if (lastOfTopic) p.endSlide();
+      else p.goToSlide(at + 1);
     }
     else playerRef.current.resume();
   }
