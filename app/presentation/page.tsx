@@ -28,7 +28,8 @@ import { CLASSMATE_NAME } from '@/lib/voice';
 import { CLASSMATES, classmateNamed, type ClassmateId } from '@/lib/classmates';
 import { playSound } from '@/lib/canvas/sounds';
 import Icon, { type IconName } from '@/components/Icon';
-import { conceptMap, conceptsForTutor, questionSlides } from '@/lib/canvas/concepts';
+import { builtOn, conceptMap, conceptsForTutor, questionSlides } from '@/lib/canvas/concepts';
+import { lessonText } from '@/lib/canvas/lessonText';
 import type { ActivityMistake, FinnEvent, FinnMove } from '@/components/canvas/Activity';
 import { focusSlide, helperSlide, ownHelper } from '@/lib/canvas/morph';
 import { isIntroId } from '@/lib/canvas/intro';
@@ -184,6 +185,21 @@ const BACK_AGAIN_S = 2.5;        // ⏮ this early in a part: the part before (l
 const RESUME_AFTER_ANSWER = true;
 const MORE_WAIT_MS = 6000;       // "Anything else, or shall we go on?": this long with no answer = go on
 const GO_ON = /^(?:no|nope|nah|go on|let'?s go on|carry on|continue|keep going|move on|next|that'?s (?:all|it)|nothing(?: else)?|i'?m (?:good|fine|ok(?:ay)?)|all good)\b/i;
+// The hybrid classmates: the questions and their answer slides are the reviewed, pre-written ones (the same pool for
+// everyone in the study); what's written live is how a classmate says their question, and their short reply when the
+// learner talks to them by name. Each live line is checked on the server (/api/classmate); false: all as written.
+const LIVE_CLASSMATES = true;
+const LIVE_WORDS_WAIT_MS = 2500;   // a rewording not ready by then: the question as written
+const SAID_FRESH_MS = 120_000;     // what the learner said this recently can be tied into a classmate's question
+const MATE_UNSURE = () => pickOne(['Hmm, I’m not sure. Professor Marine?', 'Good question. I don’t know! Professor Marine?']);
+/** "Maya, why is that?" / "what do you think, Leo?": the classmate the learner is talking to, and what they said to them */
+function addressed(text: string): { who: ClassmateId; text: string } | null {
+  const t = text.trim();
+  const front = t.match(/^(?:(?:hey|hi|ok|okay|so|um|and)[\s,]+)?(maya|finn|leo)\b[\s,:!?.-]*(.*)$/i);
+  if (front) return { who: front[1].toLowerCase() as ClassmateId, text: front[2].trim().length > 3 ? front[2].trim() : t };
+  const back = t.match(/^(.{4,}?)[,\s]+(maya|finn|leo)[?.!]*$/i);
+  return back ? { who: back[2].toLowerCase() as ClassmateId, text: back[1].trim() } : null;
+}
 const HEADS_UP_MS = 900;         // "Maya has a question": a moment before a classmate speaks
 const MORPH_BACK_MS = 950;   // a morph back finishes before the lesson moves to another slide
 const HAND_RING_MS = 2500;   // how long the camera bubble stays yellow after a raised hand
@@ -1247,6 +1263,31 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
   }, [deck, bankList]);
   /** The lesson has got to this question's slide (its topic isn't in the lesson: never) */
   const taught = useCallback((q: BankQuestion) => (homeSlide.get(q.id) ?? Infinity) <= playerRef.current.slideIndex, [homeSlide]);
+  // A classmate's question in their own words (the hybrid classmates, LIVE_CLASSMATES): asked for as soon as the
+  // question is a candidate, so it's ready (and voiced) by their turn; not ready or not approved: as written
+  const liveWords = useRef(new Map<string, Promise<string>>());
+  const lastSaid = useRef<{ text: string; at: number } | null>(null);   // the learner's last question (tied in, if related)
+  const prepLine = useCallback((q: BankQuestion): Promise<string> => {
+    if (!LIVE_CLASSMATES) return Promise.resolve(q.q);
+    let p = liveWords.current.get(q.id);
+    if (!p) {
+      const said = lastSaid.current && Date.now() - lastSaid.current.at < SAID_FRESH_MS ? lastSaid.current.text : '';
+      p = fetch('/api/classmate', {
+        method: 'POST', headers: learnerHeaders({ 'Content-Type': 'application/json' }),
+        body: JSON.stringify({ reword: { who: q.asker, question: q.q, said } }), signal: AbortSignal.timeout(9000),
+      }).then((res) => (res.ok ? res.json() : null)).then((d) => {
+        const line = typeof d?.line === 'string' && d.line.trim() ? d.line.trim() : null;
+        // (every live line is logged, used or not: what each person heard can be reported)
+        tracking.track('tutor_decision', { action: 'classmate_live', kind: 'reword', who: q.asker, used: !!line, line: (line ?? '').slice(0, 220), from: q.q.slice(0, 160) });
+        if (line) cuesRef.current.preload(line, q.asker);
+        return line ?? q.q;
+      }).catch(() => q.q);
+      liveWords.current.set(q.id, p);
+    }
+    return p;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  const lineFor = useCallback((q: BankQuestion) => Promise.race([prepLine(q), new Promise<string>((r) => setTimeout(() => r(q.q), LIVE_WORDS_WAIT_MS))]), [prepLine]);
   /** The bank question closest to the learner's (close enough to answer it), and related ones for the classmates to ask */
   const matchBank = useCallback(async (question: string, followUps = BANK_FOLLOW_UPS): Promise<{ best: BankQuestion | null; related: BankQuestion[] }> => {
     const none = { best: null, related: [] };
@@ -1310,9 +1351,10 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
       if (!live()) return false;
       bankAsked.current.add(q.id);
       if (ask) {
+        void prepLine(q);
         await headsUp(q.asker);
         if (!live()) { setClassmateSaying(null); return false; }
-        const ok = await cues.play({ text: q.q, who: q.asker });
+        const ok = await cues.play({ text: await lineFor(q), who: q.asker });
         setClassmateSaying(null);
         if (!ok || !live()) return false;
       }
@@ -1408,9 +1450,10 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
         tracking.track('tutor_decision', { action: 'classmate_follow_up', q: q.q.slice(0, 120), who: q.asker }, { classmate_turns: 1 });
         classmateWho.current.push(q.asker);   // (counts for who has spoken least)
         mateTalkAt.current = Date.now();
+        void prepLine(q);
         await headsUp(q.asker);
         if (!live()) { setClassmateSaying(null); return false; }
-        const ok = await cues.play({ text: q.q, who: q.asker });
+        const ok = await cues.play({ text: await lineFor(q), who: q.asker });
         setClassmateSaying(null);
         if (!ok || !live()) return false;
       }
@@ -1579,7 +1622,11 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
     const overall = meter.current.overall();
     const every = overall.level === 'clear' && overall.topics > 0 ? MIX_UP_EVERY_CLEAR : MIX_UP_EVERY;
     if (!plan.struggling && overall.level !== 'confused' && plan.why !== 'curious' && turn - lastMixUp.current >= every && classmateWho.current[turn - 1] !== 'finn') {
-      const mix = await fetchClassmate(name, taught, true, 'finn');
+      // (with a concept map: he mixes up two linked ideas of this topic, both already taught)
+      const map = conceptMap(deck);
+      const ids = new Set(slides.map((i) => deck.slides[i].id));
+      const pair = map ? [...map.ideas].reverse().flatMap((c) => (ids.has(c.slide) ? c.needs.map((n) => [map.ideas.find((x) => x.id === n), c] as const) : [])).find(([a]) => !!a) : null;
+      const mix = await fetchClassmate(name, taught, true, 'finn', pair ? [`${pair[0]!.name}: ${pair[0]!.means}`, `${pair[1].name}: ${pair[1].means}`] : undefined);
       if (mix) return mix;
     }
     // A question: a curious moment is Maya's kind; otherwise whoever has spoken least asks one of theirs
@@ -1614,7 +1661,7 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
     }).then((res) => (res.ok ? res.json() : null)).then((d) => {
       const top = d?.scores?.[0];
       const q = top && open.find((x) => x.id === top.id);
-      if (q) midMatch.current.set(i, { q, score: top.score });
+      if (q) { midMatch.current.set(i, { q, score: top.score }); if (homeSlide.get(q.id) === i) void prepLine(q); }
     }).catch(() => { /* no curious moment on this slide */ });
   }, [started, classmateOn, player.slideIndex, deck, topicOf, openQuestions, topicName, slideText]);
   midRef.current = {
@@ -1665,7 +1712,13 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
         // the open question closest to what they struggled with: a checking (Finn) or curious (Maya) one first, it clears it up
         const hot = meter.current.hotPoint(mid.from, Date.now(), at);
         const el = hot?.box ? deck.slides[at]?.elements.find((e) => e.id === hot.box) : null;
-        const ranked = await closestTo((el && shownWords(el)) || struggles.current.get(mid.from)?.join('; ') || slideText(at), openQuestions(topicName(mid.from)));
+        // (with a concept map: a question about an idea of the slide they're stuck on, or one it builds on, first)
+        const open = openQuestions(topicName(mid.from));
+        const map = conceptMap(deck);
+        const hotIdeas = map && hot ? map.ideas.filter((c) => c.slide === deck.slides[hot.slide]?.id) : [];
+        const near = map ? new Set(hotIdeas.flatMap((c) => [c.id, ...builtOn(map, c.id).map((n) => n.id)])) : new Set<string>();
+        const about = map ? open.filter((x) => near.has(map.questions[x.id])) : [];
+        const ranked = await closestTo((el && shownWords(el)) || struggles.current.get(mid.from)?.join('; ') || slideText(at), about.length ? about : open);
         q = ranked.find((x) => x.asker !== 'leo') ?? ranked[0] ?? null;
       }
       if (!q || bankAsked.current.has(q.id) || playerRef.current.slideIndex !== at) { go(); return; }
@@ -1673,7 +1726,7 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
       classmateWho.current.push(q.asker);
       tracking.track('tutor_decision', { action: 'classmate_mid', why: mid.why, question: q.q.slice(0, 300), who: q.asker, byMeter: mid.why === 'struggle', ...meterNow(mid.from) }, { classmate_turns: 1 });
       midResume.current = true;
-      const said = await mateSays(q.asker, q.q, true);
+      const said = await mateSays(q.asker, await lineFor(q), true);
       if (!said || playerRef.current.slideIndex !== at) {
         // cut off (the learner spoke, asked, or moved): what they did decides; nothing taking over: on with the lesson
         midResume.current = false;
@@ -1698,7 +1751,12 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
     // (picked again when the learner started struggling since: what helps them is different now)
     if (finnReady.current.get(topic)?.struggling !== plan.struggling) {
       finnReady.current.set(topic, { struggling: plan.struggling, line: classmateLine(topic, plan)
-        .then((line) => { if (line) cuesRef.current.preload(line.question, line.who); return line; }) });
+        .then(async (line) => {
+          // a bank question: said the asker's own way (the same question: its answer slide still answers it)
+          if (line?.bank) { const q = line.bank; line = { ...line, question: await Promise.race([prepLine(q), new Promise<string>((r) => setTimeout(() => r(q.q), 5000))]) }; }
+          if (line) cuesRef.current.preload(line.question, line.who);
+          return line;
+        }) });
     }
     return finnReady.current.get(topic)!.line;
   }, [classmateLine]);
@@ -1948,13 +2006,13 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
   }, [selfCheck, cancelAnswer]);
 
   /** Finn's line about what was just taught (a question, or a mistake to catch), or null (none, too slow, or rate-limited). */
-  const fetchClassmate = useCallback(async (topic: string, taught: string, mistake: boolean, who: ClassmateId): Promise<FinnLine | null> => {
+  const fetchClassmate = useCallback(async (topic: string, taught: string, mistake: boolean, who: ClassmateId, mix?: string[]): Promise<FinnLine | null> => {
     if (mistake) who = 'finn';   // (only Finn makes mix-ups)
     try {
       const res = await fetch('/api/classmate', {
         method: 'POST',
         headers: learnerHeaders({ 'Content-Type': 'application/json' }),
-        body: JSON.stringify({ topic, slideText: taught.slice(0, 2000), asked: classmateAsked.current, mistake, who }),
+        body: JSON.stringify({ topic, slideText: taught.slice(0, 2000), asked: classmateAsked.current, mistake, who, ...(mistake && mix && LIVE_CLASSMATES ? { mix } : {}) }),
         signal: AbortSignal.timeout(10000),
       });
       const d = res.ok ? await res.json() : null;
@@ -2046,6 +2104,37 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
     setAskingHelp(null);
   }, [tracking]);
 
+  /**
+   * The learner talks to a classmate by name ("Maya, why is that?"): the classmate answers in a sentence or two, from
+   * the lesson so far only (written live, checked on the server). They don't know, or the line isn't approved: they
+   * pass it to the professor, who answers as usual.
+   */
+  const askMate = useCallback(async (who: ClassmateId, text: string) => {
+    learnerQuestions.current++;
+    mateTalkAt.current = Date.now();
+    tracking.track('tutor_question', { question: text.slice(0, 300), to: who }, { questions: 1 });
+    const quiet = finishThenPause();
+    const my = askTurn.current;
+    const upTo = playerRef.current.slideIndex;
+    let reply: string | null = null;
+    try {
+      const res = await fetch('/api/classmate', {
+        method: 'POST', headers: learnerHeaders({ 'Content-Type': 'application/json' }),
+        body: JSON.stringify({ reply: { who, text, slide: slideText(upTo), taught: lessonText({ ...deck, slides: deck.slides.slice(0, upTo + 1) }, 8000) } }), signal: AbortSignal.timeout(10000),
+      });
+      const d = res.ok ? await res.json() : null;
+      reply = typeof d?.reply === 'string' && d.reply.trim() ? d.reply.trim() : null;
+    } catch { /* they pass it to the professor */ }
+    await quiet;
+    if (my !== askTurn.current) return;   // another question (or a command) came meanwhile
+    tracking.track('tutor_decision', { action: 'classmate_live', kind: 'reply', who, used: !!reply, line: (reply ?? '').slice(0, 320), to: text.slice(0, 200) }, reply ? { classmate_turns: 1 } : undefined);
+    classmateWho.current.push(who);
+    const said = await mateSays(who, reply ?? MATE_UNSURE());
+    if (!said || my !== askTurn.current) return;
+    if (!reply) { void answer(text, { counted: true }); return; }
+    void offerMore(() => playerRef.current.resume());
+  }, [deck, tracking, finishThenPause, mateSays, answer, offerMore, slideText]);
+
   const handleText = useCallback((text: string) => {
     if (isStatic) return;   // (static: nothing to ask or tell; there's no box or mic for it either)
     // Their call on Finn's mistake (a command, like "next", calls it off and is done instead)
@@ -2069,7 +2158,14 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
     const cmd = parseCanvasCommand(text);
     if (variant && variantMode.current === 'narrated') { cues.stop(); setVariant(null); variantAfter.current = null; }
     askTurn.current++;   // (a newer turn: an older question's follow-ups stop)
-    if (!cmd) { feel(questionSignal(text)); askClass(text); return; }   // (a question: curiosity, unless it asks what something means)
+    if (!cmd) {
+      feel(questionSignal(text));
+      lastSaid.current = { text: text.slice(0, 240), at: Date.now() };
+      // said to a classmate by name: they answer (not in a hands-on box: the professor's hint is what helps there)
+      const to = LIVE_CLASSMATES && classmateOnRef.current && !yourTurnRef.current ? addressed(text) : null;
+      if (to) void askMate(to.who, to.text); else askClass(text);
+      return;
+    }   // (a question: curiosity, unless it asks what something means)
     if (tutorBusy) tutor.cancel();   // a command ends the answer
     const command = (kind: string, patch?: Parameters<typeof tracking.track>[2]) => {
       if (kind.startsWith('next')) feel('skip');   // (skipping ahead: disengagement, not confusion)
@@ -2115,7 +2211,7 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
         break;
       }
     }
-  }, [deck, player, act, askClass, confused, showSlide, tutor, tutorBusy, tracking, variant, cues, selfCheck, answerSelfCheck, finnVerdict, replayOffer, answerReplay, noteStruggle, feel]);
+  }, [askMate, deck, player, act, askClass, confused, showSlide, tutor, tutorBusy, tracking, variant, cues, selfCheck, answerSelfCheck, finnVerdict, replayOffer, answerReplay, noteStruggle, feel]);
 
   // Barge-in: with interruptions on, starting to talk over the professor (or
   // over an answer) makes them finish the sentence, then stop and listen.

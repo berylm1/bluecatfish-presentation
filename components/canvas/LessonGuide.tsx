@@ -14,7 +14,7 @@ const ITEMS: { icon: IconName; title: string; text: string; mates?: boolean }[] 
   { icon: 'confused', title: 'Lost? Say so', text: '“I’m lost” shows that part another way. There are no wrong questions.' },
   { icon: 'raised-hand', title: 'The camera, if it’s on', text: 'Raise your hand to ask a question. The professor also notices if you look puzzled. Nothing is recorded.' },
   { icon: 'hands-on-activity', title: 'Hands-on activities', text: 'Sort, drag, flip and try things yourself. Stuck? The professor helps.' },
-  { icon: 'classmates', title: 'Your classmates Maya, Finn and Leo', text: 'They ask questions too. Finn sometimes gets things wrong: see if you can catch him!', mates: true },
+  { icon: 'classmates', title: 'Your classmates Maya, Finn and Leo', text: 'They ask questions too, and you can ask them: “Maya, why is that?” Finn sometimes gets things wrong: see if you can catch him!', mates: true },
   { icon: 'chat-bubble', title: 'After each part', text: 'You may be asked how it went. Answer honestly: it helps the lesson help you.' },
 ];
 /** The static lesson (static vs adaptive): it plays like a video */
