@@ -178,6 +178,8 @@ const SPEAKING: string[] = ['playing', 'loading', 'finishing', 'waiting'];
 const MORPH_HELPERS = true;
 // The lesson's buttons (after the first participants: "so many buttons"). Hidden, not removed:
 const SHOW_SOURCES_UNDER_LESSON = false;   // "View sources" under the slide
+const SELF_CHECK = false;        // "How did that section go?" between topics (Got it / Kind of / Lost me)
+const SHOW_OPTION_ICONS = false; // the little icons beside Options (what's switched on)
 const SHOW_NEXT_SLIDE = false;   // ⏩ Next slide (⏭ Next part moves through the lesson)
 const SHOW_REPEAT = false;       // ⟲ Repeat (⏮ Back starts the part again)
 const BACK_AGAIN_S = 2.5;        // ⏮ this early in a part: the part before (later: this part from its start), like a music player
@@ -2010,6 +2012,13 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
         return;
       }
     }
+    // (hidden: 28 of the first participants' 29 answers were "Got it", from people who then missed the quiz too)
+    if (!SELF_CHECK) {
+      checked.current.add(from);
+      tracking.track('tutor_decision', { action: 'section_check_skipped', why: 'off' });
+      playerRef.current.goToSlide(to);
+      return;
+    }
     setSelfCheck({ from, to });
     cuesRef.current?.play('cue_selfCheck');
   }
@@ -3263,8 +3272,8 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
         </div>
         <div className={group} role="group" aria-label="Help">
           {SHOW_REPEAT && ctl('repeat', 'Repeat', { onClick: () => { feel('again'); player.repeat(); } })}
-          {!isStatic && ctl('simpler', 'Simpler please', { onClick: () => handleText('simpler please'), title: 'Say it again in simpler words' })}
-          {!isStatic && ctl('confused', 'I\'m lost', { onClick: () => confused(), title: 'Another way to see it' })}
+          {!isStatic && ctl('simpler', 'Simpler words', { onClick: () => handleText('simpler please'), title: 'This part again, said in simpler words' })}
+          {!isStatic && ctl('confused', 'Show another way', { onClick: () => confused(), title: 'A different slide that explains this part another way' })}
         </div>
         {/* (static: no asking) */}
         {!isStatic && <div className={group} role="group" aria-label="Ask the professor">
@@ -3274,7 +3283,7 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
           disabled={micStatus === 'processing'}
           aria-label={micStatus === 'listening' ? 'Listening' : 'Talk'}
         >
-          {micStatus === 'listening' ? <>●<span className={label}> Listening…</span></> : micStatus === 'processing' ? '…' : <><Icon name="microphone" /><span className={label}> Talk</span></>}
+          {micStatus === 'listening' ? <>●<span className={label}> Listening…</span></> : micStatus === 'processing' ? '…' : <><Icon name="microphone" /><span className={label}> Ask</span></>}
         </button>
         {(interruptOn || micStatus === 'listening') && <MicMeter levelRef={levelRef} listening={micStatus === 'listening'} />}
         {/* (with the class chat beside the slide, its own box is where to type) */}
@@ -3301,7 +3310,7 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
         {/* What they can do (the page before the start, again) */}
         <button className={btn} aria-label="What you can do" title="What you can do in the lesson"
           onClick={() => { const wasPlaying = player.status === 'playing'; if (wasPlaying) player.pause(); setGuideOpen({ wasPlaying }); }}>
-          <Icon name="help" /><span className={label}> Help</span>
+          <Icon name="help" /><span className={label}> Guide</span>
         </button>
         {/* The on/off switches, in one menu (was: five more buttons, so the controls took two rows) */}
         <div className="relative" ref={optionsRef}>
@@ -3309,7 +3318,7 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
             title="Voice speed, interrupt, camera, classmates, sounds, class chat" aria-label="Options">
             <Icon name="settings" /><span className={label}> Options</span>
             {/* what's on, at a glance */}
-            <span className="ml-1.5 text-xs opacity-80">{([interruptOn && 'microphone', cameraOn && 'camera', classmateOn && 'classmates', soundsOn && 'bell', chatOpen && 'chat-bubble'] as (IconName | false)[]).map((n) => n && <Icon key={n} name={n} className="mr-0.5" />)}{voiceSpeed !== 1 && ` ${voiceSpeed}×`}</span>
+            <span className="ml-1.5 text-xs opacity-80">{SHOW_OPTION_ICONS && ([interruptOn && 'microphone', cameraOn && 'camera', classmateOn && 'classmates', soundsOn && 'bell', chatOpen && 'chat-bubble'] as (IconName | false)[]).map((n) => n && <Icon key={n} name={n} className="mr-0.5" />)}{voiceSpeed !== 1 && ` ${voiceSpeed}×`}</span>
           </button>
           {optionsOpen && (
             <div className="absolute bottom-full mb-2 right-0 z-30 w-72 rounded-xl bg-slate-900/95 border border-white/15 shadow-2xl p-2 flex flex-col gap-1" role="menu">
