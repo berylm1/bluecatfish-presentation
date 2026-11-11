@@ -20,7 +20,7 @@ type Summary = {
   pre: number | null; postSame: number | null; gain: number | null; post: number | null;
   lessonMinutes: number | null; questions: number | null; engaged: number | null; ueq: number | null;
 };
-type Data = { summary: Summary[]; steps: Record<string, number>; rows: Record<string, unknown>[]; confusion?: { topics: string[]; curves: Curve[] } };
+type Data = { summary: Summary[]; steps: Record<string, number>; rows: Record<string, unknown>[]; ideas?: { name: string; slide: number; questions: number; groups: Record<string, { right: number; of: number }> }[]; confusion?: { topics: string[]; curves: Curve[] } };
 
 const NOT_STARTED = 'Not started yet';
 const STEPS = ['checks', 'about', 'pre', 'start', 'lesson', 'post', 'survey', 'done'];
@@ -105,6 +105,24 @@ export default function StudyResultsView({ which, children }: { which: StudyId; 
               <p className="text-sm text-slate-500 mb-3">From the lesson&apos;s confusion meter, per topic. Click someone in the table below to see their own line.</p>
               <ConfusionGraph groups={S.groups.map((g) => ({ group: g, name: S.names[g] }))} topics={data.confusion?.topics ?? []} curves={data.confusion?.curves ?? []} person={person} onClearPerson={() => setPerson(null)} />
             </section>
+            {(data.ideas?.length ?? 0) > 0 && (
+              <section className="rounded-2xl bg-white border p-5">
+                <h2 className="font-semibold">Quiz 2 by idea</h2>
+                <p className="text-sm text-slate-500 mb-3">From the lesson&apos;s concept map (the editor&apos;s Ideas): the share of right answers on each idea&apos;s questions, among people who finished.</p>
+                <table className="w-full text-sm">
+                  <thead><tr className="text-left text-slate-500"><th className="py-1 pr-3 font-medium">Idea</th><th className="py-1 pr-3 font-medium">Slide</th>{S.groups.map((g) => <th key={g} className="py-1 pr-3 font-medium">{S.names[g]}</th>)}</tr></thead>
+                  <tbody>
+                    {data.ideas!.map((i) => (
+                      <tr key={i.name} className="border-t">
+                        <td className="py-1.5 pr-3">{i.name}{i.questions > 1 && <span className="text-slate-400"> ({i.questions} questions)</span>}</td>
+                        <td className="py-1.5 pr-3 text-slate-500">{i.slide || '–'}</td>
+                        {S.groups.map((g) => { const v = i.groups[g]; return <td key={g} className="py-1.5 pr-3">{v?.of ? `${Math.round((v.right / v.of) * 100)}% (${v.right} of ${v.of})` : '–'}</td>; })}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </section>
+            )}
             <section className="rounded-2xl bg-white border p-5">
               <h2 className="font-semibold">Where people are (or stopped)</h2>
               <div className="mt-3 flex flex-wrap gap-2 text-sm">
