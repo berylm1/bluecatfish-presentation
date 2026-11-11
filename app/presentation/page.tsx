@@ -2802,7 +2802,16 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
   /** ⏮ / ←: back a slide (into the meter: maybe unclear, maybe just curious) */
   // ⏮ Back, like a music player: this part from its start; pressed again (or early in the part), the part before
   // (was: Previous slide, the whole slide over again)
+  /** The learner moves the lesson themselves (⏮ ⏭): a classmate's turn, a discussion or an answer going on is over (was: only on a change of slide, so ⏮ on the same slide left its answer box up and the classmates waiting for good) */
+  function settleTurn() {
+    if (finnBusy.current) { finnVerdict(null, 'button'); takeOverFromFinn(); finnTurn.current++; finnBusy.current = false; }
+    if (tutorBusyRef.current || tutor.speaking || tutor.thinking) cancelAnswer();
+    cues.stop();
+  }
   function goBack() {
+    // an answer or "another way" slide is up: back to the lesson (it picks up where it was)
+    if (variant) { closeVariant(); return; }
+    settleTurn();
     const p = playerRef.current;
     const a = p.getAudio();
     const early = !a || !Number.isFinite(a.currentTime) || a.currentTime < BACK_AGAIN_S;
@@ -2815,6 +2824,7 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
   /** ⏭ ⏩ / →: skipping ahead (into the meter, apart: disengagement, not confusion) */
   function skipTo(move: () => void, part = true) {
     if (skipLock && (part ? !playerRef.current.heard : playerRef.current.slideIndex + 1 > playerRef.current.furthest())) { hearFirst(); return; }
+    settleTurn();
     feel('skip');
     move();
   }
@@ -3297,7 +3307,7 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
           className={`${btn} ${micStatus === 'listening' ? 'bg-red-500/80 hover:bg-red-500' : ''}`}
           onClick={talk}
           disabled={micStatus === 'processing'}
-          aria-label={micStatus === 'listening' ? 'Listening' : 'Talk'}
+          aria-label={micStatus === 'listening' ? 'Listening' : 'Ask'}
         >
           {micStatus === 'listening' ? <>●<span className={label}> Listening…</span></> : micStatus === 'processing' ? '…' : <><Icon name="microphone" /><span className={label}> Ask</span></>}
         </button>
