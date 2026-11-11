@@ -181,7 +181,7 @@ export default function ConceptsPanel({ deck, onChange, onDraft, onGoTo }: Props
       <div className="flex flex-wrap gap-2">
         <button className={`${btn} font-semibold`} disabled={state.busy} onClick={draft}>{state.busy ? 'Reading the slides…' : ideas.length ? '✨ Draft again' : '✨ Draft with AI'}</button>
         {ideas.length > 0 && <button className={btn} onClick={() => setMapOpen(true)}>◎ Open the map</button>}
-        {concepts && <button className={btn} onClick={addIdea}>＋ Idea</button>}
+        <button className={btn} onClick={addIdea} disabled={!deck.slides.length}>＋ Idea</button>
       </div>
       {state.error && <p className="text-rose-700">{state.error}</p>}
       {!ideas.length && !state.busy && <p className="text-slate-500">No map yet. “Draft with AI” reads the slides and writes one for you to check (about half a minute).</p>}

@@ -197,7 +197,8 @@ const MATE_UNSURE = () => pickOne(['Hmm, I’m not sure. Professor Marine?', 'Go
 /** "Maya, why is that?" / "what do you think, Leo?": the classmate the learner is talking to, and what they said to them */
 function addressed(text: string): { who: ClassmateId; text: string } | null {
   const t = text.trim();
-  const front = t.match(/^(?:(?:hey|hi|ok|okay|so|um|and)[\s,]+)?(maya|finn|leo)\b[\s,:!?.-]*(.*)$/i);
+  // (the name, then a comma or a question word: "Finn is wrong because…" is about Finn, not said to him)
+  const front = t.match(/^(?:(?:hey|hi|ok|okay|so|um|and)[\s,]+)?(maya|finn|leo)\b(?:[,:!?]+\s*|\s+(?=(?:what|why|how|when|where|who|can|could|do|does|did|is it|are|tell|explain|help|please)\b))(.*)$/i);
   if (front) return { who: front[1].toLowerCase() as ClassmateId, text: front[2].trim().length > 3 ? front[2].trim() : t };
   const back = t.match(/^(.{4,}?)[,\s]+(maya|finn|leo)[?.!]*$/i);
   return back ? { who: back[2].toLowerCase() as ClassmateId, text: back[1].trim() } : null;
@@ -1285,8 +1286,6 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
         body: JSON.stringify({ reword: { who: q.asker, question: q.q, said } }), signal: AbortSignal.timeout(9000),
       }).then((res) => (res.ok ? res.json() : null)).then((d) => {
         const line = typeof d?.line === 'string' && d.line.trim() ? d.line.trim() : null;
-        // (every live line is logged, used or not: what each person heard can be reported)
-        tracking.track('tutor_decision', { action: 'classmate_live', kind: 'reword', who: q.asker, used: !!line, line: (line ?? '').slice(0, 220), from: q.q.slice(0, 160) });
         if (line) cuesRef.current.preload(line, q.asker);
         return line ?? q.q;
       }).catch(() => q.q);
@@ -1295,7 +1294,13 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
     return p;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-  const lineFor = useCallback((q: BankQuestion) => Promise.race([prepLine(q), new Promise<string>((r) => setTimeout(() => r(q.q), LIVE_WORDS_WAIT_MS))]), [prepLine]);
+  const lineFor = useCallback(async (q: BankQuestion) => {
+    const line = await Promise.race([prepLine(q), new Promise<string>((r) => setTimeout(() => r(q.q), LIVE_WORDS_WAIT_MS))]);
+    // (logged as it's said: what each person heard can be reported; used: false = said as written)
+    if (LIVE_CLASSMATES) tracking.track('tutor_decision', { action: 'classmate_live', kind: 'reword', who: q.asker, used: line !== q.q, line: line.slice(0, 220), from: q.q.slice(0, 160) });
+    return line;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [prepLine]);
   /** The bank question closest to the learner's (close enough to answer it), and related ones for the classmates to ask */
   const matchBank = useCallback(async (question: string, followUps = BANK_FOLLOW_UPS): Promise<{ best: BankQuestion | null; related: BankQuestion[] }> => {
     const none = { best: null, related: [] };
@@ -1395,6 +1400,9 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
    */
   const moveOn = useCallback(() => {
     const p = playerRef.current;
+    // back to where the lesson stopped for the question: the sentence that was cut off is said again, and the rest
+    // of the slide follows (was: on to its hands-on box or past the rest of the slide, so what came between was never heard)
+    if (RESUME_AFTER_ANSWER) { p.resume(); return; }
     const box = deck.slides[p.slideIndex]?.elements.find((e) => e.type === 'activity' && activityReady(e) && !activitiesDone.current.has(e.id));
     if (box && p.clipOf(box.id) >= 0) {
       const st = tracking.state();
@@ -1404,9 +1412,6 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
       if (getsIt) queueLine(() => playCue({ text: QUICK_TURN }));
       return;
     }
-    // back to where the lesson stopped for the question: the sentence that was cut off is said again, and the rest
-    // of the slide follows (was: on past the rest of the slide, so what came after the question was never heard)
-    if (RESUME_AFTER_ANSWER) { p.resume(); return; }
     p.endSlide();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [deck, tracking]);
@@ -2878,7 +2883,7 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
             </ol>
           </div>
         )}
-        <p className="text-slate-300 text-center max-w-md"><Icon name="speaker" /> Turn your sound on. Ask the professor anything, or say &quot;next&quot;, &quot;next slide&quot;, &quot;repeat&quot; or &quot;simpler please&quot; at any time.</p>
+        <p className="text-slate-300 text-center max-w-md"><Icon name="speaker" /> Turn your sound on. {isStatic ? 'The professor takes you through the slides.' : <>Ask the professor anything, or say &quot;repeat&quot; or &quot;simpler please&quot; at any time.</>}</p>
         {/* (the study: the name was asked on its own page before, app/study) */}
         {!study && <label className="flex flex-col items-center gap-1 text-sm text-slate-300">
           What should Professor Marine call you? (optional)
