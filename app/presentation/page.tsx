@@ -1871,11 +1871,15 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
         if (line.truth) cues.preload(turnTo);   // ready by the time Finn finishes
         // (not for a learner who's struggling: they get the answer straight away)
         const discuss = DISCUSSION && LIVE_CLASSMATES && !!line.bank && !line.truth && !plan.struggling && roomCount.current < DISCUSS_MAX;
+        // (the discussion: "What do you think, Kai?" is said with the question, as one line. Was a clip of its own: a
+        // few words in a classmate's voice came out as an odd noise, heard at the end of the two topics with a discussion)
+        const sayQ = discuss ? `${q} ${name ? `What do you think, ${name}?` : 'What do you think?'}` : q;
+        if (discuss) cues.preload(sayQ, line.who);
         await headsUp(line.who);
         if (over()) { setClassmateSaying(null); return; }
         if (discuss) setRoom({ asker: line.who, question: q, stage: 'ask' });
         setClassmateSaying(line.who);
-        const said = await cues.play({ text: q, who: line.who });
+        const said = await cues.play({ text: sayQ, who: line.who });
         setClassmateSaying(null);
         if (discuss && !(said && !over())) setRoom(null);
         if (discuss && said && !over()) {
@@ -1884,10 +1888,6 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
           roomCount.current++;
           tracking.track('tutor_decision', { action: 'discussion', who: line.who, question: q.slice(0, 200) });
           const done = () => { setRoom(null); };
-          setClassmateSaying(line.who);
-          const turned = await cues.play({ text: name ? `What do you think, ${name}?` : 'What do you think?', who: line.who });
-          setClassmateSaying(null);
-          if (!turned || over()) { done(); return; }
           setRoom((r) => (r ? { ...r, stage: 'you' } : r));
           const mine = await new Promise<string | null>((resolve) => {
             finnCheck.current = resolve;
