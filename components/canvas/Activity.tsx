@@ -6,6 +6,7 @@ import { contentRect } from '@/lib/canvas/laser';
 import { PALETTE } from './Visuals';
 import { activityReady } from '@/lib/canvas/queue';
 import { playSound, type HandsOnSound } from '@/lib/canvas/sounds';
+import Icon from '@/components/Icon';
 
 /**
  * Words as big as fit their box, between `min` and `max` (% of the slide's height). A card's words were one fixed
@@ -123,14 +124,14 @@ export default function ActivityView({ el, interactive, onDone, hintNonce = 0, s
     <div data-activity={el.kind} style={{ position: 'absolute', inset: '1.2cqh 1.4cqh', display: 'flex', flexDirection: 'column', gap: '1.2cqh' }}>   {/* (inset was 0: the box's padding doesn't reach an absolute child, so the cards sat on its edge) */}
       {el.prompt && (
         <div style={{ fontSize: '3.8cqh', fontWeight: 800, color: INK, textAlign: 'center', lineHeight: 1.15 }}>
-          <span aria-hidden>🖐 </span>{el.prompt}
+          <Icon name="hands-on-activity" /> {el.prompt}
         </div>
       )}
       <div ref={setArea} style={{ position: 'relative', flex: 1, minHeight: 0 }}>
         {!ready ? (
           <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', border: '0.4cqh dashed #94a3b8',
             borderRadius: '1.6cqh', color: '#64748b', fontSize: '2.8cqh', textAlign: 'center', padding: '2cqh' }}>
-            🖐 Hands-on box: not finished yet (fill it in on the right)
+            Hands-on box: not finished yet (fill it in on the right)
           </div>
         ) : el.kind === 'sort' ? <Sort el={el} kit={kit} />
           : el.kind === 'order' ? <Order el={el} kit={kit} />
@@ -142,7 +143,7 @@ export default function ActivityView({ el, interactive, onDone, hintNonce = 0, s
       {justDone && (
         <div role="status" style={{ position: 'absolute', left: '50%', top: '50%', zIndex: 6, padding: '1.2cqh 2.6cqh', borderRadius: '99cqh', background: '#16a34a',
           color: '#fff', fontSize: '4cqh', fontWeight: 900, boxShadow: '0 1cqh 3cqh rgba(22,163,74,0.45)', animation: 'done-pop 600ms ease both, fade-in 400ms ease 2400ms reverse forwards',
-          pointerEvents: 'none' }}>✓ Nice!</div>
+          pointerEvents: 'none' }}><Icon name="check-mark" /> Nice!</div>
       )}
     </div>
   );
@@ -203,7 +204,7 @@ function HintHand({ area, mode }: { area: HTMLDivElement; mode: 'drag' | 'tap' }
       animation: mode === 'drag' ? 'hint-drag 2.4s ease-in-out 600ms infinite both' : 'hint-tap 1.4s ease-in-out 400ms infinite',
     }}>
       {/* the fingertip sits on the point */}
-      <span style={{ display: 'block', fontSize: '6cqh', lineHeight: 1, transform: 'translate(-35%, -8%)', filter: 'drop-shadow(0 0.4cqh 0.6cqh rgba(0,0,0,0.35))' }}>👆</span>
+      <span style={{ display: 'block', fontSize: '6cqh', lineHeight: 1, transform: 'translate(-35%, -8%)', color: '#0f172a', filter: 'drop-shadow(0 0 0.3cqh #fff) drop-shadow(0 0.4cqh 0.6cqh rgba(0,0,0,0.35))' }}><Icon name="hands-on-activity" /></span>
     </span>
   );
 }
@@ -341,10 +342,10 @@ function Sort({ el, kit }: { el: ActivityElement; kit: Kit }) {
               <button key={i} type="button" disabled={!kit.interactive} data-bin={b} data-finn-pick=""
                 data-hint-from={i === hintItem ? '' : undefined} title={`Finn put this here. Is he right?`}
                 {...movable(i, '#f59e0b', { borderStyle: 'dashed', background: '#fffbeb', fontSize: '3.2cqh', animation: wrong?.item === i ? 'shake 450ms ease' : 'pop-in 450ms ease both' })}>
-                🙋 {it.text}
+                <Icon name="raised-hand" /> {it.text}
               </button>
             ) : (
-              <div key={i} data-bin={b} style={chip(PALETTE[b % PALETTE.length], { animation: 'pop-in 350ms ease both', fontSize: '3.2cqh' })}>✓ {it.text}</div>
+              <div key={i} data-bin={b} style={chip(PALETTE[b % PALETTE.length], { animation: 'pop-in 350ms ease both', fontSize: '3.2cqh' })}><Icon name="check-mark" /> {it.text}</div>
             ))}
           </div>
         ))}
@@ -460,7 +461,7 @@ function Cards({ el, kit }: { el: ActivityElement; kit: Kit }) {
         <div role="status" data-think style={{ position: 'absolute', left: '50%', top: '50%', transform: 'translate(-50%, -50%)', zIndex: 8, padding: '1.4cqh 3cqh 1.8cqh',
           borderRadius: '2cqh', background: 'rgba(15,23,42,0.88)', color: '#fff', fontSize: '3.6cqh', fontWeight: 800, textAlign: 'center', pointerEvents: 'none',
           boxShadow: '0 1cqh 3cqh rgba(0,0,0,0.35)', animation: 'pop-in 300ms ease both' }}>
-          🤔 Think of your guesses first…
+          Think of your guesses first…
           {/* the wait, running out */}
           <div style={{ marginTop: '1cqh', height: '0.7cqh', borderRadius: '99cqh', background: 'rgba(255,255,255,0.2)', overflow: 'hidden' }}>
             <div style={{ height: '100%', background: '#67e8f9', transformOrigin: 'left', animation: `think-bar ${THINK_MS}ms linear both` }} />
@@ -478,18 +479,18 @@ function Cards({ el, kit }: { el: ActivityElement; kit: Kit }) {
               ...(kit.hint && !open ? glow(true) : {}) }}>
             <div style={{ position: 'absolute', inset: 0, transformStyle: 'preserve-3d', transition: 'transform 600ms cubic-bezier(0.4, 0.2, 0.2, 1)', transform: open ? 'rotateY(180deg)' : 'none' }}>
               <FitBox fitKey={`${it.text}|${items.length}`} style={{ ...face, background: PALETTE[i % PALETTE.length], color: '#fff', fontWeight: 800, boxShadow: '0 0.8cqh 2cqh rgba(15,23,42,0.18)' }}>
-                {it.text}<span aria-hidden style={{ position: 'absolute', right: '1.2cqh', bottom: '0.8cqh', fontSize: '2.2cqh', opacity: 0.8 }}>↻</span>
+                {it.text}<span aria-hidden style={{ position: 'absolute', right: '1.2cqh', bottom: '0.8cqh', fontSize: '2.2cqh', opacity: 0.8 }}><Icon name="repeat" /></span>
                 {finn?.item === i && (
                   // Finn's sticky note: his (wrong) guess, before the learner checks
                   <span data-finn-pick="" style={{ position: 'absolute', left: '6%', right: '6%', top: '5%', padding: '0.6cqh 1cqh', background: '#fef08a', color: INK,
                     fontSize: '2.6cqh', fontWeight: 700, borderRadius: '0.6cqh', transform: 'rotate(-3deg)', boxShadow: '0 0.4cqh 1cqh rgba(0,0,0,0.25)',
-                    animation: 'pop-in 450ms ease both' }}>🙋 Finn: “{finn.guess}”</span>
+                    animation: 'pop-in 450ms ease both' }}><Icon name="raised-hand" /> Finn: “{finn.guess}”</span>
                 )}
               </FitBox>
               <FitBox fitKey={`${it.back ?? it.text}|${items.length}|${finn?.item === i}`} style={{ ...face, background: '#fff', color: INK, fontWeight: 700, transform: 'rotateY(180deg)', border: `0.45cqh solid ${PALETTE[i % PALETTE.length]}` }}>
                 <span>
                   {it.back ?? it.text}
-                  {finn?.item === i && <span style={{ display: 'block', marginTop: '0.8cqh', fontSize: '2.4cqh', fontWeight: 600, color: '#b45309' }}>🙋 Finn guessed “{finn.guess}”</span>}
+                  {finn?.item === i && <span style={{ display: 'block', marginTop: '0.8cqh', fontSize: '2.4cqh', fontWeight: 600, color: '#b45309' }}><Icon name="raised-hand" /> Finn guessed “{finn.guess}”</span>}
                 </span>
               </FitBox>
             </div>
@@ -542,7 +543,7 @@ function Hotspots({ el, kit }: { el: ActivityElement; kit: Kit }) {
               style={{ position: 'absolute', left: `${left}%`, top: `${top}%`, width: '4.4cqh', height: '4.4cqh', margin: '-2.2cqh 0 0 -2.2cqh', borderRadius: '50%',
                 border: '0.5cqh solid #fff', background: seen ? '#16a34a' : '#f97316', color: '#fff', fontSize: '2.4cqh', fontWeight: 900, zIndex: 4,
                 cursor: kit.interactive ? 'pointer' : 'default', boxShadow: '0 0.4cqh 1cqh rgba(0,0,0,0.3)',
-                animation: !seen && kit.interactive ? 'hint-pulse 1.6s ease-in-out infinite' : undefined }}>{seen ? '✓' : i + 1}</button>
+                animation: !seen && kit.interactive ? 'hint-pulse 1.6s ease-in-out infinite' : undefined }}>{seen ? <Icon name="check-mark" /> : i + 1}</button>
             {active === i && (
               <div role="status" style={{ position: 'absolute', left: `${Math.min(70, Math.max(2, left - 14))}%`, top: top > 55 ? undefined : `${top + 5}%`,
                 // under the spots and see-through to taps: it never blocks the next spot

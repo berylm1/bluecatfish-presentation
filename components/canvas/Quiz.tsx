@@ -1,5 +1,7 @@
 'use client';
 
+import Icon from '@/components/Icon';
+
 import { useEffect, useRef, useState } from 'react';
 import type { QuizQuestion } from '@/lib/canvas/types';
 
@@ -69,7 +71,7 @@ export default function Quiz({ questions, width, say, onAnswer, onDone, onSkip }
     <div className="relative flex flex-col justify-center gap-3 sm:gap-4 bg-gradient-to-b from-cyan-50 to-white text-slate-900 rounded-2xl p-5 sm:p-8 max-sm:!aspect-auto [@media(max-height:500px)]:!aspect-auto [@media(max-height:500px)]:p-4"
       style={{ width, aspectRatio: '16 / 9' }} data-quiz role="region" aria-label="Quiz">
       <div className="flex items-center gap-3 text-sm whitespace-nowrap">
-        <span className="font-semibold text-cyan-800">🧠 Quick quiz</span>
+        <span className="font-semibold text-cyan-800"><Icon name="help" /> Quick quiz</span>
         <span className="text-slate-500"><span className="max-sm:hidden">Question </span>{at + 1} of {questions.length}</span>
         <span className="flex gap-1 max-sm:hidden" aria-hidden>
           {questions.map((_, i) => <span key={i} className={`w-5 h-1.5 rounded-full ${i < at || (i === at && picked !== null) ? 'bg-cyan-500' : i === at ? 'bg-cyan-300' : 'bg-slate-200'}`} />)}
@@ -89,7 +91,7 @@ export default function Quiz({ questions, width, say, onAnswer, onDone, onSkip }
               className={`flex items-center gap-3 text-left rounded-xl border-2 px-3 py-2.5 sm:py-3 text-base font-medium transition-colors ${tone}`}
               data-choice={k} data-right={picked !== null && isRight ? '' : undefined}>
               <span className={`shrink-0 w-7 h-7 rounded-full text-sm font-bold flex items-center justify-center ${picked !== null && isRight ? 'bg-emerald-500 text-white' : picked === k ? 'bg-red-400 text-white' : 'bg-slate-100 text-slate-600'}`}>
-                {picked !== null && isRight ? '✓' : picked === k ? '✗' : String.fromCharCode(65 + k)}
+                {picked !== null && isRight ? <Icon name="check-mark" /> : picked === k ? <Icon name="cross" /> : String.fromCharCode(65 + k)}
               </span>
               <span>{c}</span>
             </button>
@@ -99,7 +101,7 @@ export default function Quiz({ questions, width, say, onAnswer, onDone, onSkip }
       {picked !== null && (
         <div className="flex flex-wrap items-center gap-3 animate-[pop-in_300ms_ease-out_both]" role="status">
           <p className={`flex-1 min-w-[12rem] text-sm sm:text-base ${picked === q.answer ? 'text-emerald-700 font-semibold' : 'text-slate-700'}`}>
-            {picked === q.answer ? '✓ That\'s right!' : <>Not quite. The answer is: <b>{q.choices[q.answer]}</b>.{q.why ? ` ${q.why}` : ''}</>}
+            {picked === q.answer ? <><Icon name="check-mark" /> That’s right!</> : <>Not quite. The answer is: <b>{q.choices[q.answer]}</b>.{q.why ? ` ${q.why}` : ''}</>}
           </p>
           <button onClick={next} className="px-5 py-2.5 rounded-xl bg-cyan-500 hover:bg-cyan-400 font-semibold" autoFocus>
             {last ? 'See how you did →' : 'Next question →'}

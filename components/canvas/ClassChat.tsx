@@ -1,5 +1,7 @@
 'use client';
 
+import Icon from '@/components/Icon';
+
 import { useEffect, useRef, useState } from 'react';
 import { splitSentences, sentenceStops } from './useDeckPlayer';
 import { CLASSMATES, CLASSMATE_IDS, type ClassmateId } from '@/lib/classmates';
@@ -118,7 +120,7 @@ export default function ClassChat({ entries, learnerName, liveSlide, getAudio, t
         <div className="flex -space-x-1.5" aria-label={mates ? 'In the class: Professor Marine, you, Maya, Finn and Leo' : 'In the class: Professor Marine and you'}>
           {(['professor', 'you', ...(mates ? CLASSMATE_IDS : [])] as Speaker[]).map((w) => <Avatar key={w} who={w} learnerName={learnerName} size={22} speaking={speaking === w} />)}
         </div>
-        {onClose && <button className="ml-1 w-7 h-7 rounded-full hover:bg-white/10 text-white/60 hover:text-white" onClick={onClose} aria-label={closeLabel} title={closeLabel}>✕</button>}
+        {onClose && <button className="ml-1 w-7 h-7 rounded-full hover:bg-white/10 text-white/60 hover:text-white" onClick={onClose} aria-label={closeLabel} title={closeLabel}><Icon name="close" /></button>}
       </header>
       <div ref={box} className="flex-1 min-h-0 overflow-y-auto px-3 py-3 flex flex-col gap-2.5 text-sm leading-snug" aria-live="polite"
         onScroll={(e) => { const b = e.currentTarget; stick.current = b.scrollHeight - b.scrollTop - b.clientHeight < 40; }}>
@@ -134,7 +136,7 @@ export default function ClassChat({ entries, learnerName, liveSlide, getAudio, t
                 <button className={`w-full flex items-center gap-2 px-2.5 py-1 text-left text-[11px] uppercase tracking-wider hover:text-cyan-100 ${live ? 'text-cyan-200/80' : 'text-white/35'}`}
                   onClick={() => setOpen((s) => { const n = new Set(s); if (n.has(e.id)) n.delete(e.id); else n.add(e.id); return n; })}
                   aria-expanded={live ? undefined : shown} disabled={live && !earlier}>
-                  <span aria-hidden>{live ? '🔊' : shown ? '▾' : '▸'}</span>
+                  <span aria-hidden>{live ? <Icon name="speaker" /> : shown ? '▾' : '▸'}</span>
                   <span className="flex-1 truncate">Slide {e.slide + 1}{e.title ? ` · ${e.title}` : ''}</span>
                   {!live && <span className="normal-case tracking-normal text-white/40">{e.lines.length} line{e.lines.length === 1 ? '' : 's'}</span>}
                   {live && earlier > 0 && <span className="normal-case tracking-normal text-white/40">+{earlier} earlier</span>}
@@ -199,7 +201,7 @@ export function ClassmatesPanel({ entries, speaking, onClose, className = '', so
     <section className={`flex flex-col min-h-0 rounded-2xl ${solid ? 'bg-slate-950/95' : 'bg-slate-950/70'} backdrop-blur border border-white/10 shadow-2xl text-white ${className}`} aria-label="Classmates" data-bubble-avoid data-classmates>
       <header className="flex items-center gap-2 px-3 py-2.5 border-b border-white/10">
         <h2 className="font-semibold text-sm flex-1">Classmates</h2>
-        {onClose && <button className="w-7 h-7 rounded-full hover:bg-white/10 text-white/60 hover:text-white" onClick={onClose} aria-label="Hide the classmates" title="Hide the classmates">✕</button>}
+        {onClose && <button className="w-7 h-7 rounded-full hover:bg-white/10 text-white/60 hover:text-white" onClick={onClose} aria-label="Hide the classmates" title="Hide the classmates"><Icon name="close" /></button>}
       </header>
       <div className="flex-1 min-h-0 overflow-y-auto p-3 flex flex-col gap-3 text-sm">
         {CLASSMATE_IDS.map((id) => {

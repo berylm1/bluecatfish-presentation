@@ -25,6 +25,15 @@ const ICONS = {
   'simpler': '<path d="M12 20v-8m0 3C7 15 4 12 4 7c5 0 8 3 8 8Zm0-2c0-5 3-8 8-8 0 5-3 8-8 8ZM8 20h8"/>',
   'speaker': '<path d="M4 9h4l4-4v14l-4-4H4zM15.5 9a4.25 4.25 0 0 1 0 6m2.75-8.75a8.15 8.15 0 0 1 0 11.5"/>',
   'start-over': '<path d="M4 4.5V10h5.5M4.15 9.8A8.5 8.5 0 1 1 5.6 17.6"/>',
+  // (drawn to match the set, for what it had no icon for)
+  'smile': '<circle cx="12" cy="12" r="9"/><path d="M8.5 10h.01M15.5 10h.01M8 14.5c1 1.4 2.4 2 4 2s3-.6 4-2"/>',
+  'meh': '<circle cx="12" cy="12" r="9"/><path d="M8.5 10h.01M15.5 10h.01M8.5 15h7"/>',
+  'frown': '<circle cx="12" cy="12" r="9"/><path d="M8.5 10h.01M15.5 10h.01M8 16.5c1-1.4 2.4-2 4-2s3 .6 4 2"/>',
+  'home': '<path d="M4 11l8-7 8 7M6 10v9h12v-9M10 19v-5h4v5"/>',
+  'phone': '<rect x="7" y="3" width="10" height="18" rx="2"/><path d="M11 18h2"/>',
+  'warning': '<path d="M12 4l9 16H3zM12 10v4M12 17h.01"/>',
+  'person': '<circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 3.6-7 8-7s8 3 8 7"/>',
+  'eye': '<path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>',
 } as const;
 
 export type IconName = keyof typeof ICONS;

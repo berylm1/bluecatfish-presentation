@@ -285,7 +285,7 @@ function slideEntryAt(c: ChatEntry[]): number {
   while (j >= 0 && c[j].kind === 'line' && (c[j] as { who: Speaker }).who === 'professor') j--;
   return j >= 0 && c[j].kind === 'slide' ? j : -1;
 }
-const SELF_CHECK_SAID: Record<SelfCheckRating, string> = { got: '😀 Got it', kind: '😐 Kind of', lost: '😕 Lost me' };
+const SELF_CHECK_SAID: Record<SelfCheckRating, string> = { got: 'Got it', kind: 'Kind of', lost: 'Lost me' };
 // The question + answer box under the slide: off, the transcript (top right) shows them instead
 // (was: it made the page taller than the screen, so it scrolled). Still shown with the transcript off.
 const ANSWER_BOX_UNDER_SLIDE = false;
@@ -2405,7 +2405,7 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
       slideContext() + (order
         ? `\nThe learner is doing the hands-on activity and has tapped "${m.item}" too early ${n} times; what comes next is "${m.correct}". They're stuck, so this time it's fine to say it: in 1-2 short, kind sentences, explain why "${m.correct}" has to happen before "${m.item}". No question at the end.`
         : `\nThe learner is doing the hands-on activity and has put "${m.item}" in "${m.chosen}" ${n} times; it belongs in "${m.correct}". They're stuck, so this time it's fine to say where it goes: in 1-2 short, kind sentences, explain WHY "${m.item}" belongs in "${m.correct}" (the reason, from the lesson). No question at the end.`),
-      { asker: '🖐 Hands-on', remember: `(The learner kept getting "${m.item}" wrong in the hands-on activity; the professor explained it.)` })
+      { asker: 'Hands-on', remember: `(The learner kept getting "${m.item}" wrong in the hands-on activity; the professor explained it.)` })
       .finally(() => { if (stepInFor.current === id) stepInFor.current = null; });
   }, [track, deck, tutor, slideContext, noteStruggle, feel]);
   const stepInFor = useRef<string | null>(null);   // the box the professor is explaining right now (after repeated mistakes)
@@ -2711,7 +2711,7 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
             </ol>
           </div>
         )}
-        <p className="text-slate-300 text-center max-w-md">🔊 Turn your sound on. Ask the professor anything, or say &quot;next&quot;, &quot;next slide&quot;, &quot;repeat&quot; or &quot;simpler please&quot; at any time.</p>
+        <p className="text-slate-300 text-center max-w-md"><Icon name="speaker" /> Turn your sound on. Ask the professor anything, or say &quot;next&quot;, &quot;next slide&quot;, &quot;repeat&quot; or &quot;simpler please&quot; at any time.</p>
         {/* (the study: the name was asked on its own page before, app/study) */}
         {!study && <label className="flex flex-col items-center gap-1 text-sm text-slate-300">
           What should Professor Marine call you? (optional)
@@ -2757,18 +2757,18 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
   const hardestSlide = HARDEST_FROM_METER && hardestStart >= 0 ? meter.current.topic(topicOf[hardestStart] ?? 0).hardest?.slide : undefined;
   const finishedHardest = hardestName ? { name: hardestName, index: hardestSlide !== undefined && topicOf[hardestSlide] === topicOf[hardestStart] ? hardestSlide : hardestStart } : null;
   // What the learner did, for the end screen
-  const achievements: { icon: string; text: React.ReactNode }[] = [];
+  const achievements: { icon: IconName; text: React.ReactNode }[] = [];
   if (player.status === 'finished') {
     const topics = lessonLength(deck.slides).topics.map((t) => deck.slides[t.start]?.topic?.trim()).filter(Boolean);
-    achievements.push({ icon: '📚', text: topics.length > 1 ? <>You finished every part: <b>{topics.join(', ')}</b></> : <>You finished the lesson{topics[0] ? <>: <b>{topics[0]}</b></> : ''}</> });
+    achievements.push({ icon: 'book', text: topics.length > 1 ? <>You finished every part: <b>{topics.join(', ')}</b></> : <>You finished the lesson{topics[0] ? <>: <b>{topics[0]}</b></> : ''}</> });
     const handsOn = [...activitiesSolved.current].filter((id) => !activitiesRevealed.current.has(id)).length;
-    if (handsOn) achievements.push({ icon: '🖐', text: <>You solved <b>{handsOn}</b> hands-on activit{handsOn === 1 ? 'y' : 'ies'} yourself</> });
-    if (quiz.state === 'done') achievements.push({ icon: '🧠', text: <>Quiz: <b>{quiz.right}</b> of <b>{quiz.questions.length}</b> right{quiz.right === quiz.questions.length ? '. Perfect!' : ''}</> });
-    if (finnSummary) achievements.push({ icon: '🙋', text: finnSummary });
+    if (handsOn) achievements.push({ icon: 'hands-on-activity', text: <>You solved <b>{handsOn}</b> hands-on activit{handsOn === 1 ? 'y' : 'ies'} yourself</> });
+    if (quiz.state === 'done') achievements.push({ icon: 'check-mark', text: <>Quiz: <b>{quiz.right}</b> of <b>{quiz.questions.length}</b> right{quiz.right === quiz.questions.length ? '. Perfect!' : ''}</> });
+    if (finnSummary) achievements.push({ icon: 'classmates', text: finnSummary });
     const asked = learnerQuestions.current;
-    if (asked) achievements.push({ icon: '✋', text: <>You asked <b>{asked}</b> question{asked === 1 ? '' : 's'}: curious minds learn more</> });
+    if (asked) achievements.push({ icon: 'raised-hand', text: <>You asked <b>{asked}</b> question{asked === 1 ? '' : 's'}: curious minds learn more</> });
     const minutes = lessonStartedAt.current ? Math.max(1, Math.round((Date.now() - lessonStartedAt.current) / 60000)) : 0;
-    if (minutes) achievements.push({ icon: '⏱', text: <>You stuck with it for <b>{minutes}</b> minute{minutes === 1 ? '' : 's'}</> });
+    if (minutes) achievements.push({ icon: 'clock', text: <>You stuck with it for <b>{minutes}</b> minute{minutes === 1 ? '' : 's'}</> });
   }
   const btn = 'px-2.5 py-2 rounded-lg bg-white/10 hover:bg-white/20 text-sm font-medium transition-colors disabled:opacity-40';
   const group = 'flex items-center gap-1 p-1 rounded-xl bg-white/[0.04] border border-white/10';
@@ -2817,7 +2817,7 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
       {/* left: the chat (when it isn't showing) and start over; right: the classmates (when they aren't showing) */}
       <div className="flex-1 flex items-center gap-1 min-w-0">
         {!chatShown && (
-          <button className={edgeBtn} onClick={openChat} aria-label="Open the class chat" title="The class chat">💬<span className={label}> Chat</span>{chatUnread && dot}</button>
+          <button className={edgeBtn} onClick={openChat} aria-label="Open the class chat" title="The class chat"><Icon name="chat-bubble" /><span className={label}> Chat</span>{chatUnread && dot}</button>
         )}
         {/* Start over from the first slide: small and out of the way (the lesson may have picked up where they left off).
             (was: fixed at the top left, where the chat now goes on a wide screen) */}
@@ -2839,7 +2839,7 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
       </div>
       <div className="flex-1 flex items-center justify-end min-w-0">
         {!matesShown && matesAllowed && (
-          <button className={edgeBtn} onClick={() => setPulled('mates')} aria-label="Open the classmates" title="Your classmates: Maya, Finn and Leo">🙋<span className={label}> Classmates</span>{matesUnread && dot}</button>
+          <button className={edgeBtn} onClick={() => setPulled('mates')} aria-label="Open the classmates" title="Your classmates: Maya, Finn and Leo"><Icon name="classmates" /><span className={label}> Classmates</span>{matesUnread && dot}</button>
         )}
       </div>
       </div>
@@ -2851,9 +2851,9 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
           Shown again when a hands-on box starts, if it was closed */}
       {phonePortrait && !rotateClosed.has(yourTurn ?? 'lesson') && player.status !== 'finished' && (
         <div className="flex items-center gap-2 pl-3 pr-1 py-1 rounded-full bg-white/10 border border-white/15 text-sm" role="note" data-rotate-hint>
-          <span aria-hidden className="inline-block animate-[rotate-hint_2.4s_ease-in-out_infinite]">📱</span>
+          <span aria-hidden className="inline-block animate-[rotate-hint_2.4s_ease-in-out_infinite]"><Icon name="phone" /></span>
           <span>{yourTurn ? 'Turn your phone sideways: the hands-on box gets bigger' : 'Turn your phone sideways for a bigger slide'}</span>
-          <button className="w-7 h-7 rounded-full hover:bg-white/15 text-white/70" onClick={() => setRotateClosed((c) => new Set(c).add(yourTurn ?? 'lesson'))} aria-label="Close">✕</button>
+          <button className="w-7 h-7 rounded-full hover:bg-white/15 text-white/70" onClick={() => setRotateClosed((c) => new Set(c).add(yourTurn ?? 'lesson'))} aria-label="Close"><Icon name="close" /></button>
         </div>
       )}
       <div className="relative" data-bubble-avoid data-bubble-slide>
@@ -2870,14 +2870,14 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
             className="flex flex-col items-center justify-center gap-4 bg-gradient-to-b from-cyan-50 to-white text-slate-900 rounded-2xl p-6 sm:p-10 text-center max-sm:!aspect-auto [@media(max-height:500px)]:!aspect-auto [@media(max-height:500px)]:p-4"
             style={{ width: SLIDE_WIDTH, aspectRatio: '16 / 9' }} data-end-screen
           >
-            <div aria-hidden className="text-4xl sm:text-5xl animate-[pop-in_500ms_ease-out_both]">🎉</div>
+            <div aria-hidden className="text-4xl sm:text-5xl animate-[pop-in_500ms_ease-out_both] text-cyan-600"><Icon name="celebration" /></div>
             <h2 className="text-2xl sm:text-3xl font-bold">That&apos;s the lesson{learnerName.trim() ? `, ${learnerName.trim()}` : ''}!</h2>
             {SHOW_RECAP_ON_END && deck.recap && <p className="text-lg max-w-2xl">{deck.recap}</p>}
             <ul className="w-full max-w-lg flex flex-col gap-2 text-left">
               {achievements.map((a, i) => (
                 <li key={i} className="flex items-start gap-3 rounded-xl bg-white border border-cyan-100 shadow-sm px-4 py-2.5 animate-[pop-in_450ms_ease-out_both]"
                   style={{ animationDelay: `${300 + i * 350}ms` }}>
-                  <span aria-hidden className="text-2xl leading-none mt-0.5">{a.icon}</span>
+                  <span className="text-2xl leading-none mt-0.5 text-cyan-700"><Icon name={a.icon} /></span>
                   <span className="text-sm sm:text-base">{a.text}</span>
                 </li>
               ))}
@@ -2894,8 +2894,8 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
               <Link href={STUDIES[study.study ?? 1].path} onClick={() => cues.stop()} className="px-6 py-3 rounded-xl bg-cyan-500 hover:bg-cyan-400 font-semibold" data-study-next>Continue to Quiz 2 →</Link>
             ) : (
             <div className="flex flex-wrap gap-3 justify-center">
-              <button onClick={startOver} className="px-6 py-3 rounded-xl bg-cyan-500 hover:bg-cyan-400 font-semibold">↺ Start over</button>
-              <Link href="/" onClick={() => cues.stop()} className="px-6 py-3 rounded-xl bg-slate-200 hover:bg-slate-300 font-semibold">⌂ Back to home</Link>
+              <button onClick={startOver} className="px-6 py-3 rounded-xl bg-cyan-500 hover:bg-cyan-400 font-semibold"><Icon name="start-over" /> Start over</button>
+              <Link href="/" onClick={() => cues.stop()} className="px-6 py-3 rounded-xl bg-slate-200 hover:bg-slate-300 font-semibold"><Icon name="home" /> Back to home</Link>
             </div>
             )}
             {!study && <Link href="/sources" target="_blank" className="text-sm underline text-slate-500 hover:text-slate-700">Where the lesson’s facts come from: view sources</Link>}
@@ -2931,9 +2931,9 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
             <div className="bg-white text-slate-900 rounded-2xl p-8 text-center shadow-2xl">
               <h3 className="text-2xl font-bold mb-6">How did that section go?</h3>
               <div className="flex gap-4 justify-center">
-                {([['got', '😀', 'Got it'], ['kind', '😐', 'Kind of'], ['lost', '😕', 'Lost me']] as const).map(([r, emoji, label]) => (
+                {([['got', 'smile', 'Got it'], ['kind', 'meh', 'Kind of'], ['lost', 'frown', 'Lost me']] as const).map(([r, emoji, label]) => (
                   <button key={r} onClick={() => answerSelfCheck(r)} className="flex flex-col items-center gap-1 px-5 py-4 rounded-xl border-2 border-slate-200 hover:border-cyan-500 hover:bg-cyan-50">
-                    <span className="text-4xl">{emoji}</span>
+                    <span className="text-4xl text-slate-700"><Icon name={emoji} /></span>
                     <span className="font-semibold">{label}</span>
                     <kbd className="text-[10px] text-slate-400 font-mono">{r === 'got' ? 1 : r === 'kind' ? 2 : 3}</kbd>
                   </button>
@@ -2975,7 +2975,7 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
         {yourTurn && !variant && !selfCheck && (
           <div className="absolute top-full left-1/2 -translate-x-1/2 mt-1 z-20 flex items-center gap-2 pl-4 pr-1 py-1 rounded-full bg-cyan-950/90 border border-cyan-300/30 text-white text-sm shadow-lg whitespace-nowrap
             [@media(max-height:500px)]:fixed [@media(max-height:500px)]:top-2 [@media(max-height:500px)]:right-2 [@media(max-height:500px)]:left-auto [@media(max-height:500px)]:translate-x-0 [@media(max-height:500px)]:mt-0" role="status" data-your-turn>
-            <span>🖐 Your turn: try it on the slide</span>
+            <span><Icon name="hands-on-activity" /> Your turn: try it on the slide</span>
             <button className="px-3 py-1 rounded-full bg-white/15 hover:bg-white/25" onClick={skipActivity}>Skip</button>
           </div>
         )}
@@ -2983,7 +2983,7 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
         <div className="absolute top-3 left-3 z-20 flex flex-col items-start gap-1.5 pointer-events-none">
           {classmateSaying && (
             <div className="flex items-center gap-2 px-3 py-1.5 rounded-full text-white text-sm font-semibold shadow-lg animate-pulse" style={{ background: CLASSMATES[classmateSaying].color }} role="status">
-              <span aria-hidden>🙋</span> {CLASSMATES[classmateSaying].name} {yourTurn ? 'is having a go…' : 'asks…'}
+              <Icon name="raised-hand" /> {CLASSMATES[classmateSaying].name} {yourTurn ? 'is having a go…' : 'asks…'}
             </div>
           )}
         </div>
@@ -3039,7 +3039,7 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
           <button onClick={openChat} className="w-full max-w-3xl h-[3.25rem] flex items-center gap-2.5 px-3 rounded-xl bg-white/[0.06] hover:bg-white/10 border border-white/10 text-left text-sm" data-chat-peek aria-label="Open the class chat">
             <Avatar who={who} learnerName={learnerName.trim()} size={26} speaking={talking === who} />
             <span className="flex-1 min-w-0 line-clamp-2 leading-snug"><b className="font-semibold" style={{ color: who === 'professor' ? '#67e8f9' : speakerOf(who, learnerName.trim()).color }}>{speakerOf(who, learnerName.trim()).name}:</b> {text}</span>
-            <span className="shrink-0 text-xs text-white/50">💬{chatUnread && <span className="ml-1 inline-block w-2 h-2 rounded-full bg-amber-400" />}</span>
+            <span className="shrink-0 text-xs text-white/50"><Icon name="chat-bubble" />{chatUnread && <span className="ml-1 inline-block w-2 h-2 rounded-full bg-amber-400" />}</span>
           </button>
         );
       })()}
@@ -3055,7 +3055,7 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
       {/* (the chat has it: beside the slide, or its latest line under the slide. Was: shown here with the transcript off) */}
       {tutor.exchange && ANSWER_BOX_UNDER_SLIDE && (
         <div className="w-full max-w-3xl rounded-xl bg-white/10 border border-white/15 px-4 py-3 text-sm relative" role="status" data-bubble-avoid>
-          <button className="absolute top-2 right-3 text-white/50 hover:text-white" onClick={tutor.clearExchange} aria-label="Close">✕</button>
+          <button className="absolute top-2 right-3 text-white/50 hover:text-white" onClick={tutor.clearExchange} aria-label="Close"><Icon name="close" /></button>
           <p className={tutor.exchange.asker ? 'text-amber-200' : 'text-cyan-200/90'}><b>{tutor.exchange.asker ?? 'You'}:</b> {tutor.exchange.question}</p>
           <p className="mt-1 text-white/90">
             <b>Professor Marine:</b>{' '}
@@ -3109,8 +3109,8 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
         </div>}
         {cameraOn && (
           <span className="text-xs text-white/70">
-            {emotionError || presenceError ? `⚠ camera unavailable (${emotionError || presenceError})` : !emotionReady ? 'starting…' : present ? '👤 here' : '🚫 away'}
-            {mood && ` · ${mood === 'confused' ? '😕 puzzled' : mood === 'bored' ? '😐 quiet' : '🙂'}`}
+            {emotionError || presenceError ? `camera unavailable (${emotionError || presenceError})` : !emotionReady ? 'starting…' : present ? 'here' : 'away'}
+            {mood && ` · ${mood === 'confused' ? 'puzzled' : mood === 'bored' ? 'quiet' : 'watching'}`}
           </span>
         )}
         {/* What they can do (the page before the start, again) */}
@@ -3124,13 +3124,13 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
             title="Voice speed, interrupt, camera, classmates, sounds, class chat" aria-label="Options">
             <Icon name="settings" /><span className={label}> Options</span>
             {/* what's on, at a glance */}
-            <span className="ml-1.5 text-xs opacity-80">{[interruptOn && '🎙', cameraOn && '📷', classmateOn && '🙋', soundsOn && '🔔', chatOpen && '💬'].filter(Boolean).join('')}{voiceSpeed !== 1 && ` ${voiceSpeed}×`}</span>
+            <span className="ml-1.5 text-xs opacity-80">{([interruptOn && 'microphone', cameraOn && 'camera', classmateOn && 'classmates', soundsOn && 'bell', chatOpen && 'chat-bubble'] as (IconName | false)[]).map((n) => n && <Icon key={n} name={n} className="mr-0.5" />)}{voiceSpeed !== 1 && ` ${voiceSpeed}×`}</span>
           </button>
           {optionsOpen && (
             <div className="absolute bottom-full mb-2 right-0 z-30 w-72 rounded-xl bg-slate-900/95 border border-white/15 shadow-2xl p-2 flex flex-col gap-1" role="menu">
               {/* Voice speed: three steps, not a switch */}
               <div className="px-2.5 pt-1.5 pb-2 border-b border-white/10 mb-1">
-                <span className="block text-sm font-medium" id="speed-label">🗣 Voice speed</span>
+                <span className="block text-sm font-medium" id="speed-label"><Icon name="speaker" /> Voice speed</span>
                 <div className="mt-1.5 grid grid-cols-3 gap-1 rounded-lg bg-white/10 p-0.5" role="radiogroup" aria-labelledby="speed-label">
                   {VOICE_SPEEDS.map((v) => (
                     <button key={v} role="radio" aria-checked={voiceSpeed === v} onClick={() => chooseSpeed(v)}
@@ -3142,22 +3142,22 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
                 </div>
               </div>
               {([
-                ...(isStatic ? [] : [['🎙', 'Interrupt', 'Talk over the professor any time (uses the microphone)', interruptOn, () => {
+                ...(isStatic ? [] : [['microphone', 'Interrupt', 'Talk over the professor any time (uses the microphone)', interruptOn, () => {
                   setInterruptOn((on) => !on);
                   if (!interruptOn) say('Interrupt on: just start talking and the professor will finish the sentence and listen.');
                 }],
-                ['📷', 'Camera', 'Raise your hand to ask; the professor notices if you look lost or step away. Stays on this device.', cameraOn, () => {
+                ['camera', 'Camera', 'Raise your hand to ask; the professor notices if you look lost or step away. Stays on this device.', cameraOn, () => {
                   setCameraOn((on) => !on);
                   if (!cameraOn) say('Camera on: raise your hand to ask, and the professor notices if you look lost or step away. Nothing leaves your device.');
                 }]] as const),   // (static: nothing to interrupt or notice)
                 // (not in the study: the group decides)
-                ...(study ? [] : [['🙋', 'Classmates', 'Maya, Finn and Leo: they ask questions, and Finn has a go at the hands-on activities', classmateOn, () => setClassmateOn((v) => !v)] as const]),
-                ['🔔', 'Sounds', 'Little sounds in the hands-on activities', soundsOn, toggleSounds],
-                ['💬', 'Class chat', desk ? 'The conversation beside the slide' : 'The latest line under the slide (tap it for the whole chat)', chatOpen, () => setChatOpen((v) => !v)],
+                ...(study ? [] : [['classmates', 'Classmates', 'Maya, Finn and Leo: they ask questions, and Finn has a go at the hands-on activities', classmateOn, () => setClassmateOn((v) => !v)] as const]),
+                ['bell', 'Sounds', 'Little sounds in the hands-on activities', soundsOn, toggleSounds],
+                ['chat-bubble', 'Class chat', desk ? 'The conversation beside the slide' : 'The latest line under the slide (tap it for the whole chat)', chatOpen, () => setChatOpen((v) => !v)],
               ] as const).map(([icon, name, hint, on, toggle]) => (
                 <button key={name} role="menuitemcheckbox" aria-checked={on} onClick={toggle}
                   className="flex items-center gap-2 px-2.5 py-2 rounded-lg hover:bg-white/10 text-left">
-                  <span className="text-lg" aria-hidden>{icon}</span>
+                  <span className="text-lg"><Icon name={icon as IconName} /></span>
                   <span className="flex-1 min-w-0">
                     <span className="block text-sm font-medium">{name}</span>
                     <span className="block text-[11px] text-white/55 leading-tight">{hint}</span>
