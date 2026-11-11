@@ -23,6 +23,8 @@ export type ChatEntry =
   /** The professor's answer to a question (written as it streams in) */
   | { id: number; kind: 'answer'; exchange: number; text: string; done: boolean };
 
+// Professor Marine is a crab: his initials until his crab picture is in (public/avatars/professor-marine.png is a person, not used)
+const PROFESSOR_PICTURE = false;
 const PROFESSOR = { name: 'Professor Marine', short: 'PM', color: '#0891b2' };
 
 export function speakerOf(who: Speaker, learnerName: string) {
@@ -39,7 +41,7 @@ export function Avatar({ who, learnerName = '', size = 28, speaking = false }: {
       style={{ width: size, height: size, background: s.color, fontSize: size * 0.4 }}>
       {/* (the professor's and the classmates' pictures; the learner keeps their initials. Was: initials for all) */}
       {/* eslint-disable-next-line @next/next/no-img-element */}
-      {who === 'you' ? s.short : <img src={`/avatars/${who === 'professor' ? 'professor-marine' : who}.png`} alt="" width={size} height={size} className="rounded-full w-full h-full object-cover" />}
+      {who === 'you' || (who === 'professor' && !PROFESSOR_PICTURE) ? s.short : <img src={`/avatars/${who === 'professor' ? 'professor-marine' : who}.png`} alt="" width={size} height={size} className="rounded-full w-full h-full object-cover" />}
     </span>
   );
 }
