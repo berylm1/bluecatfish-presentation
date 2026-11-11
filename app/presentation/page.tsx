@@ -27,6 +27,7 @@ import { learnerHeaders } from '@/lib/learnerSession';
 import { CLASSMATE_NAME } from '@/lib/voice';
 import { CLASSMATES, classmateNamed, type ClassmateId } from '@/lib/classmates';
 import { playSound } from '@/lib/canvas/sounds';
+import Icon, { type IconName } from '@/components/Icon';
 import type { ActivityMistake, FinnEvent, FinnMove } from '@/components/canvas/Activity';
 import { focusSlide, helperSlide, ownHelper } from '@/lib/canvas/morph';
 import { isIntroId } from '@/lib/canvas/intro';
@@ -2773,9 +2774,9 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
   const group = 'flex items-center gap-1 p-1 rounded-xl bg-white/[0.04] border border-white/10';
   // a button's name: hidden (but read out) on a phone, and on a phone turned sideways
   const label = 'max-sm:sr-only [@media(max-height:500px)]:sr-only';
-  const ctl = (icon: string, name: string, props: { onClick: () => void; disabled?: boolean; title?: string }) => (
+  const ctl = (icon: IconName, name: string, props: { onClick: () => void; disabled?: boolean; title?: string }) => (
     <button className={btn} onClick={props.onClick} disabled={props.disabled} title={props.title ?? name} aria-label={name}>
-      <span aria-hidden>{icon}</span><span className={label}> {name}</span>
+      <Icon name={icon} /><span className={label}> {name}</span>
     </button>
   );
 
@@ -2822,7 +2823,7 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
             (was: fixed at the top left, where the chat now goes on a wide screen) */}
         {player.status !== 'finished' && !study && (
           <button onClick={() => { if (window.confirm('Start the lesson over from the first slide?')) startOver(); }} className={edgeBtn}
-            title="Start the lesson over from the first slide" aria-label="↺ Start over">↺<span className={label}> Start over</span></button>
+            title="Start the lesson over from the first slide" aria-label="Start over"><Icon name="start-over" /><span className={label}> Start over</span></button>
         )}
       </div>
       <div className="text-xs uppercase tracking-widest text-cyan-200/70 text-center">
@@ -2950,7 +2951,7 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
             <button className="px-3 py-1 rounded-full bg-white/15 hover:bg-white/25" onClick={() => answerReplay(false, 'button')}>No, keep going</button>
             <button className={`w-8 h-8 rounded-full ${micStatus === 'listening' ? 'bg-red-500 animate-pulse' : 'bg-white/15 hover:bg-white/25'}`}
               onClick={talk} disabled={micStatus === 'processing'} title="Or say it: “yes” or “no”" aria-label={micStatus === 'listening' ? 'Listening' : 'Or say it'}>
-              {micStatus === 'listening' ? '●' : '🎤'}
+              {micStatus === 'listening' ? '●' : <Icon name="microphone" />}
             </button>
           </div>
         )}
@@ -3002,7 +3003,7 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
                 className="flex-1 min-w-0 bg-transparent outline-none placeholder:text-white/45" />
               <button type="button" className={`w-8 h-8 shrink-0 rounded-full ${micStatus === 'listening' ? 'bg-red-500 animate-pulse' : 'bg-white/15 hover:bg-white/25'}`}
                 onClick={talk} disabled={micStatus === 'processing'} aria-label={micStatus === 'listening' ? 'Listening' : 'Say it'} title="Say it instead">
-                {micStatus === 'listening' ? '●' : '🎤'}
+                {micStatus === 'listening' ? '●' : <Icon name="microphone" />}
               </button>
               <button className="px-3 py-1.5 shrink-0 rounded-full bg-cyan-500 hover:bg-cyan-400 text-slate-900 font-semibold disabled:opacity-40" disabled={!finnReply.trim()}>Send</button>
             </form>
@@ -3018,7 +3019,7 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
               className="flex-1 min-w-0 bg-transparent outline-none placeholder:text-white/45" />
             <button type="button" className={`w-8 h-8 shrink-0 rounded-full ${micStatus === 'listening' ? 'bg-red-500 animate-pulse' : 'bg-white/15 hover:bg-white/25'}`}
               onClick={talk} disabled={micStatus === 'processing'} aria-label={micStatus === 'listening' ? 'Listening' : 'Say it'} title="Say it instead">
-              {micStatus === 'listening' ? '●' : '🎤'}
+              {micStatus === 'listening' ? '●' : <Icon name="microphone" />}
             </button>
             <button className="px-3 py-1.5 shrink-0 rounded-full bg-cyan-500 hover:bg-cyan-400 text-slate-900 font-semibold disabled:opacity-40" disabled={!finnReply.trim()}>Send</button>
           </form>
@@ -3067,18 +3068,18 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
           or a phone turned sideways, just the icons (the names are still there for screen readers) */}
       <div className="flex flex-wrap items-center justify-center gap-2" data-bubble-avoid>
         <div className={group} role="group" aria-label="Move through the lesson">
-          {ctl('⏮', 'Back', { onClick: goBack, title: 'Back to the start of this part (again: the part before)' })}
+          {ctl('back', 'Back', { onClick: goBack, title: 'Back to the start of this part (again: the part before)' })}
           {/* (no Resume while it's the learner's turn: the hands-on box moves the lesson on. Was: a greyed-out ▶ Resume) */}
           {player.status === 'paused'
-            ? !yourTurn && ctl('▶', 'Resume', { onClick: resumeLesson })
-            : ctl('⏸', 'Pause', { onClick: player.pause, disabled: player.status === 'finished' })}
-          {ctl('⏭', 'Next part', { onClick: () => skipTo(player.nextClip), disabled: !canSkipPart, title: canSkipPart ? 'On to the next part' : 'Once this part has played' })}
-          {SHOW_NEXT_SLIDE && ctl('⏩', 'Next slide', { onClick: () => skipTo(player.nextSlide, false) })}
+            ? !yourTurn && ctl('play', 'Resume', { onClick: resumeLesson })
+            : ctl('pause', 'Pause', { onClick: player.pause, disabled: player.status === 'finished' })}
+          {ctl('next', 'Next', { onClick: () => skipTo(player.nextClip), disabled: !canSkipPart, title: canSkipPart ? 'On to the next part' : 'Once this part has played' })}
+          {SHOW_NEXT_SLIDE && ctl('next', 'Next slide', { onClick: () => skipTo(player.nextSlide, false) })}
         </div>
         <div className={group} role="group" aria-label="Help">
-          {SHOW_REPEAT && ctl('⟲', 'Repeat', { onClick: () => { feel('again'); player.repeat(); } })}
-          {!isStatic && ctl('🌱', 'Simpler please', { onClick: () => handleText('simpler please'), title: 'Say it again in simpler words' })}
-          {!isStatic && ctl('😕', 'I\'m lost', { onClick: () => confused(), title: 'Another way to see it' })}
+          {SHOW_REPEAT && ctl('repeat', 'Repeat', { onClick: () => { feel('again'); player.repeat(); } })}
+          {!isStatic && ctl('simpler', 'Simpler please', { onClick: () => handleText('simpler please'), title: 'Say it again in simpler words' })}
+          {!isStatic && ctl('confused', 'I\'m lost', { onClick: () => confused(), title: 'Another way to see it' })}
         </div>
         {/* (static: no asking) */}
         {!isStatic && <div className={group} role="group" aria-label="Ask the professor">
@@ -3088,7 +3089,7 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
           disabled={micStatus === 'processing'}
           aria-label={micStatus === 'listening' ? 'Listening' : 'Talk'}
         >
-          {micStatus === 'listening' ? <>●<span className={label}> Listening…</span></> : micStatus === 'processing' ? '…' : <>🎤<span className={label}> Talk</span></>}
+          {micStatus === 'listening' ? <>●<span className={label}> Listening…</span></> : micStatus === 'processing' ? '…' : <><Icon name="microphone" /><span className={label}> Talk</span></>}
         </button>
         {(interruptOn || micStatus === 'listening') && <MicMeter levelRef={levelRef} listening={micStatus === 'listening'} />}
         {/* (with the class chat beside the slide, its own box is where to type) */}
@@ -3115,13 +3116,13 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
         {/* What they can do (the page before the start, again) */}
         <button className={btn} aria-label="What you can do" title="What you can do in the lesson"
           onClick={() => { const wasPlaying = player.status === 'playing'; if (wasPlaying) player.pause(); setGuideOpen({ wasPlaying }); }}>
-          ❓<span className={label}> Help</span>
+          <Icon name="help" /><span className={label}> Help</span>
         </button>
         {/* The on/off switches, in one menu (was: five more buttons, so the controls took two rows) */}
         <div className="relative" ref={optionsRef}>
           <button className={`${btn} ${optionsOpen ? 'bg-white/25' : ''}`} onClick={() => setOptionsOpen((o) => !o)} aria-expanded={optionsOpen}
             title="Voice speed, interrupt, camera, classmates, sounds, class chat" aria-label="Options">
-            ⚙<span className={label}> Options</span>
+            <Icon name="settings" /><span className={label}> Options</span>
             {/* what's on, at a glance */}
             <span className="ml-1.5 text-xs opacity-80">{[interruptOn && '🎙', cameraOn && '📷', classmateOn && '🙋', soundsOn && '🔔', chatOpen && '💬'].filter(Boolean).join('')}{voiceSpeed !== 1 && ` ${voiceSpeed}×`}</span>
           </button>

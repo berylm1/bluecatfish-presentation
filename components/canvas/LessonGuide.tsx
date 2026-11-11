@@ -1,26 +1,28 @@
 'use client';
 
+import Icon, { type IconName } from '@/components/Icon';
+
 /**
  * "Here's what you can do": what a learner can do in the lesson, before its start screen (a page of its own, in the
  * lesson's look) and again from ❓ during it (over the slide). The study's two groups see the same words, apart from
  * the classmates (only for the group with them). The static lesson has its own, shorter list (nothing to ask).
  */
 
-const ITEMS: { icon: string; title: string; text: string; mates?: boolean }[] = [
-  { icon: '🎤', title: 'Ask the professor anything', text: 'Press Talk and ask out loud, or type your question in the chat.' },
-  { icon: '🗣', title: 'Just say it', text: '“Repeat”, “simpler please” or “I’m lost”. There are buttons under the slide too, with Pause, Back and Next part.' },
-  { icon: '😕', title: 'Lost? Say so', text: '“I’m lost” shows that part another way. There are no wrong questions.' },
-  { icon: '✋', title: 'The camera, if it’s on', text: 'Raise your hand to ask a question. The professor also notices if you look puzzled. Nothing is recorded.' },
-  { icon: '🧩', title: 'Hands-on activities', text: 'Sort, drag, flip and try things yourself. Stuck? The professor helps.' },
-  { icon: '🙋', title: 'Your classmates Maya, Finn and Leo', text: 'They ask questions too. Finn sometimes gets things wrong: see if you can catch him!', mates: true },
-  { icon: '💬', title: 'After each part', text: 'You may be asked how it went. Answer honestly: it helps the lesson help you.' },
+const ITEMS: { icon: IconName; title: string; text: string; mates?: boolean }[] = [
+  { icon: 'microphone', title: 'Ask the professor anything', text: 'Press Talk and ask out loud, or type your question in the chat.' },
+  { icon: 'speaker', title: 'Just say it', text: '“Repeat”, “simpler please” or “I’m lost”. There are buttons under the slide too, with Pause, Back and Next.' },
+  { icon: 'confused', title: 'Lost? Say so', text: '“I’m lost” shows that part another way. There are no wrong questions.' },
+  { icon: 'raised-hand', title: 'The camera, if it’s on', text: 'Raise your hand to ask a question. The professor also notices if you look puzzled. Nothing is recorded.' },
+  { icon: 'hands-on-activity', title: 'Hands-on activities', text: 'Sort, drag, flip and try things yourself. Stuck? The professor helps.' },
+  { icon: 'classmates', title: 'Your classmates Maya, Finn and Leo', text: 'They ask questions too. Finn sometimes gets things wrong: see if you can catch him!', mates: true },
+  { icon: 'chat-bubble', title: 'After each part', text: 'You may be asked how it went. Answer honestly: it helps the lesson help you.' },
 ];
 /** The static lesson (static vs adaptive): it plays like a video */
 const STATIC_ITEMS: typeof ITEMS = [
-  { icon: '▶️', title: 'Watch and listen', text: 'The professor goes through the slides. Keep your sound on.' },
-  { icon: '⏸', title: 'Pause any time', text: 'Pause, and carry on when you’re ready.' },
-  { icon: '⏮', title: 'Hear a part again', text: 'Back starts the part again. Press it twice for the part before. Next part works once a part has played.' },
-  { icon: '🧩', title: 'Hands-on activities', text: 'Sort, drag, flip and try things yourself. Each one shows you what’s right.' },
+  { icon: 'play', title: 'Watch and listen', text: 'The professor goes through the slides. Keep your sound on.' },
+  { icon: 'pause', title: 'Pause any time', text: 'Pause, and carry on when you’re ready.' },
+  { icon: 'back', title: 'Hear a part again', text: 'Back starts the part again. Press it twice for the part before. Next works once a part has played.' },
+  { icon: 'hands-on-activity', title: 'Hands-on activities', text: 'Sort, drag, flip and try things yourself. Each one shows you what’s right.' },
   ITEMS[ITEMS.length - 1],
 ];
 
@@ -35,7 +37,7 @@ export default function LessonGuide({ mates, onDone, overlay = false, isStatic =
       <ul className="w-full grid sm:grid-cols-2 gap-3">
         {items.map((it) => (
           <li key={it.title} className="flex gap-3 rounded-2xl bg-white/5 border border-white/10 px-4 py-3">
-            <span className="text-2xl leading-none mt-0.5" aria-hidden>{it.icon}</span>
+            <span className="text-2xl leading-none mt-0.5 text-cyan-300"><Icon name={it.icon} /></span>
             <span>
               <span className="block font-semibold text-cyan-100">{it.title}</span>
               <span className="block text-sm text-slate-300 leading-snug mt-0.5">{it.text}</span>

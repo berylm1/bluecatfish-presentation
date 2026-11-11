@@ -35,7 +35,9 @@ export function Avatar({ who, learnerName = '', size = 28, speaking = false }: {
   return (
     <span aria-hidden className={`shrink-0 inline-flex items-center justify-center rounded-full font-bold text-white ${speaking ? 'ring-2 ring-white animate-pulse' : ''}`}
       style={{ width: size, height: size, background: s.color, fontSize: size * 0.4 }}>
-      {s.short}
+      {/* (the professor's and the classmates' pictures; the learner keeps their initials. Was: initials for all) */}
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      {who === 'you' ? s.short : <img src={`/avatars/${who === 'professor' ? 'professor-marine' : who}.png`} alt="" width={size} height={size} className="rounded-full w-full h-full object-cover" />}
     </span>
   );
 }
