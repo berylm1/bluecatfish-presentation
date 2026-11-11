@@ -70,7 +70,8 @@ export default function ConceptsPanel({ deck, onChange, onDraft, onGoTo }: Props
   const [state, setState] = useState<{ busy: boolean; error?: string }>({ busy: false });
   const [mapOpen, setMapOpen] = useState(false);
   const [selected, setSelected] = useState<string | null>(null);
-  const concepts = deck.concepts;
+  // (whole, whatever was stored: see conceptMap)
+  const concepts = useMemo(() => (deck.concepts ? { ...deck.concepts, ideas: (deck.concepts.ideas ?? []).map((i) => ({ ...i, needs: i.needs ?? [] })), questions: deck.concepts.questions ?? {} } : undefined), [deck.concepts]);
   const ideas = useMemo(() => concepts?.ideas ?? [], [concepts]);
   const slideOf = useMemo(() => (concepts ? conceptSlides(deck, concepts) : new Map<string, number>()), [deck, concepts]);
   const issues = useMemo(() => (concepts ? conceptIssues(deck, concepts) : []), [deck, concepts]);
@@ -181,7 +182,7 @@ export default function ConceptsPanel({ deck, onChange, onDraft, onGoTo }: Props
       <div className="flex flex-wrap gap-2">
         <button className={`${btn} font-semibold`} disabled={state.busy} onClick={draft}>{state.busy ? 'Reading the slides…' : ideas.length ? '✨ Draft again' : '✨ Draft with AI'}</button>
         {ideas.length > 0 && <button className={btn} onClick={() => setMapOpen(true)}>◎ Open the map</button>}
-        {concepts && <button className={btn} onClick={addIdea}>＋ Idea</button>}
+        <button className={btn} onClick={addIdea} disabled={!deck.slides.length}>＋ Idea</button>
       </div>
       {state.error && <p className="text-rose-700">{state.error}</p>}
       {!ideas.length && !state.busy && <p className="text-slate-500">No map yet. “Draft with AI” reads the slides and writes one for you to check (about half a minute).</p>}

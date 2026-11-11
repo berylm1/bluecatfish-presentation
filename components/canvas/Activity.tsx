@@ -204,7 +204,7 @@ function HintHand({ area, mode }: { area: HTMLDivElement; mode: 'drag' | 'tap' }
       animation: mode === 'drag' ? 'hint-drag 2.4s ease-in-out 600ms infinite both' : 'hint-tap 1.4s ease-in-out 400ms infinite',
     }}>
       {/* the fingertip sits on the point */}
-      <span style={{ display: 'block', fontSize: '6cqh', lineHeight: 1, transform: 'translate(-35%, -8%)', color: '#0f172a', filter: 'drop-shadow(0 0 0.3cqh #fff) drop-shadow(0 0.4cqh 0.6cqh rgba(0,0,0,0.35))' }}><Icon name="hands-on-activity" /></span>
+      <span style={{ display: 'block', fontSize: '6cqh', lineHeight: 1, transform: 'translate(-48%, -30%)', color: '#0f172a', filter: 'drop-shadow(0 0 0.3cqh #fff) drop-shadow(0 0.4cqh 0.6cqh rgba(0,0,0,0.35))' }}><Icon name="hands-on-activity" /></span>
     </span>
   );
 }

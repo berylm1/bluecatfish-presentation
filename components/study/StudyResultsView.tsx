@@ -112,8 +112,8 @@ export default function StudyResultsView({ which, children }: { which: StudyId; 
                 <table className="w-full text-sm">
                   <thead><tr className="text-left text-slate-500"><th className="py-1 pr-3 font-medium">Idea</th><th className="py-1 pr-3 font-medium">Slide</th>{S.groups.map((g) => <th key={g} className="py-1 pr-3 font-medium">{S.names[g]}</th>)}</tr></thead>
                   <tbody>
-                    {data.ideas!.map((i) => (
-                      <tr key={i.name} className="border-t">
+                    {data.ideas!.map((i, n) => (
+                      <tr key={`${n}-${i.name}`} className="border-t">
                         <td className="py-1.5 pr-3">{i.name}{i.questions > 1 && <span className="text-slate-400"> ({i.questions} questions)</span>}</td>
                         <td className="py-1.5 pr-3 text-slate-500">{i.slide || '–'}</td>
                         {S.groups.map((g) => { const v = i.groups[g]; return <td key={g} className="py-1.5 pr-3">{v?.of ? `${Math.round((v.right / v.of) * 100)}% (${v.right} of ${v.of})` : '–'}</td>; })}
