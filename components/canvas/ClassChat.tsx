@@ -23,8 +23,8 @@ export type ChatEntry =
   /** The professor's answer to a question (written as it streams in) */
   | { id: number; kind: 'answer'; exchange: number; text: string; done: boolean };
 
-// Professor Marine is a crab: his initials until his crab picture is in (public/avatars/professor-marine.png is a person, not used)
-const PROFESSOR_PICTURE = false;
+// Professor Marine is a crab (public/avatars/professor-marine.png); false: his initials
+const PROFESSOR_PICTURE = true;
 const PROFESSOR = { name: 'Professor Marine', short: 'PM', color: '#0891b2' };
 
 export function speakerOf(who: Speaker, learnerName: string) {
