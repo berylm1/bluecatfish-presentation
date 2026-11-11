@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   CONSENT_ADAPTIVE, CONSENT_CLASSMATES, DEMOGRAPHICS, STUDIES, demographicAnswer, PAIR_POINTS, POST_QUIZ, PRE_QUIZ, SCALE, STUDY_LESSON, STUDY_TITLE, surveyFor,
   type DemographicId, type QuizQuestion, type StudyGroup, type StudyId, type SurveyItem,
+  IDK, IDK_TEXT,
 } from '@/lib/study/content';
 import { freshStart, isComputer, preloadCamera, preloadLesson, readStudy, seenBefore, studyPost, writeStudy, type StudyRecord } from '@/lib/study/client';
 import { learnerHeaders } from '@/lib/learnerSession';
@@ -162,8 +163,8 @@ export default function StudyFlow({ which }: { which: StudyId }) {
       )}
 
       {step === 'pre' && rec && (
-        <Quiz key="pre" title="Quiz 1 of 2" intro="5 quick questions before the lesson. It’s fine not to know: just pick your best guess. You’ll see how you did at the very end."
-          questions={PRE_QUIZ} busy={busy}
+        <Quiz key="pre" title="Quiz 1 of 2" intro="5 quick questions before the lesson. It’s fine not to know: if you don’t, pick “I don’t know” rather than guessing. You’ll see how you did at the very end."
+          questions={PRE_QUIZ} busy={busy} idk
           onDone={(answers, times, ms) => go('start', () => post('pre', { id: rec.id, answers, times, ms }))} />
       )}
 
@@ -305,8 +306,10 @@ function About({ busy, onDone }: { busy: boolean; onDone: (about: Partial<Record
 }
 
 /** One question at a time, no going back and no right/wrong shown (the answers come at the very end) */
-function Quiz({ title, intro, questions, busy, onDone }: {
+function Quiz({ title, intro, questions, busy, onDone, idk = false }: {
   title: string; intro: string; questions: QuizQuestion[]; busy: boolean;
+  /** A last choice on every question: "I don't know" (quiz 1) */
+  idk?: boolean;
   onDone: (answers: Record<string, string>, times: Record<string, number>, ms: number) => void;
 }) {
   const [i, setI] = useState(-1);   // -1: the intro
@@ -348,6 +351,12 @@ function Quiz({ title, intro, questions, busy, onDone }: {
               <span className="font-semibold mr-2 uppercase text-slate-400">{c.id}</span>{c.text}
             </button>
           ))}
+          {idk && (
+            <button onClick={() => setAnswers({ ...answers, [q.id]: IDK })} aria-pressed={answer === IDK}
+              className={`text-left px-4 py-3 rounded-xl border-2 border-dashed ${answer === IDK ? 'border-cyan-600 bg-cyan-50' : 'border-slate-300 hover:border-cyan-400'} text-slate-600`}>
+              {IDK_TEXT}
+            </button>
+          )}
         </div>
       ) : (
         <>
@@ -695,6 +704,7 @@ function Done({ rec, results, setResults, onNextPerson }: { rec: StudyRecord; re
         </p>
       )}
       <p className="mt-4 text-sm text-slate-500">You can close this page now.</p>
+      <p className="mt-1 text-sm text-slate-500"><a href="/sources" target="_blank" rel="noreferrer" className="underline hover:text-slate-700">Where the lesson’s facts come from</a></p>
       {onNextPerson && <button className={`${quiet} mt-2 underline`} onClick={onNextPerson}>Someone else wants to take part on this computer</button>}
     </div>
   );

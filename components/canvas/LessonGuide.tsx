@@ -8,7 +8,7 @@
 
 const ITEMS: { icon: string; title: string; text: string; mates?: boolean }[] = [
   { icon: '🎤', title: 'Ask the professor anything', text: 'Press Talk and ask out loud, or type your question in the chat.' },
-  { icon: '🗣', title: 'Just say it', text: '“Next”, “repeat”, “simpler please” or “I’m lost”. They’re buttons under the slide too, with Pause.' },
+  { icon: '🗣', title: 'Just say it', text: '“Repeat”, “simpler please” or “I’m lost”. There are buttons under the slide too, with Pause, Back and Next part.' },
   { icon: '😕', title: 'Lost? Say so', text: '“I’m lost” shows that part another way. There are no wrong questions.' },
   { icon: '✋', title: 'The camera, if it’s on', text: 'Raise your hand to ask a question. The professor also notices if you look puzzled. Nothing is recorded.' },
   { icon: '🧩', title: 'Hands-on activities', text: 'Sort, drag, flip and try things yourself. Stuck? The professor helps.' },
@@ -18,8 +18,8 @@ const ITEMS: { icon: string; title: string; text: string; mates?: boolean }[] = 
 /** The static lesson (static vs adaptive): it plays like a video */
 const STATIC_ITEMS: typeof ITEMS = [
   { icon: '▶️', title: 'Watch and listen', text: 'The professor goes through the slides. Keep your sound on.' },
-  { icon: '⏸', title: 'Pause and repeat', text: 'Pause any time, or hear a part again with Repeat.' },
-  { icon: '⏩', title: 'Move between slides', text: 'Go back a slide, or on to the next one.' },
+  { icon: '⏸', title: 'Pause any time', text: 'Pause, and carry on when you’re ready.' },
+  { icon: '⏮', title: 'Hear a part again', text: 'Back starts the part again. Press it twice for the part before. Next part works once a part has played.' },
   { icon: '🧩', title: 'Hands-on activities', text: 'Sort, drag, flip and try things yourself. Each one shows you what’s right.' },
   ITEMS[ITEMS.length - 1],
 ];

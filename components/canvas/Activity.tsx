@@ -7,6 +7,35 @@ import { PALETTE } from './Visuals';
 import { activityReady } from '@/lib/canvas/queue';
 import { playSound, type HandsOnSound } from '@/lib/canvas/sounds';
 
+/**
+ * Words as big as fit their box, between `min` and `max` (% of the slide's height). A card's words were one fixed
+ * size: small in a big card (three cards across a wide box), and hanging out of a small one (six cards, long answers).
+ */
+function FitBox({ fitKey, min = 2.2, max = 6.4, style, children }: { fitKey: string; min?: number; max?: number; style: CSSProperties; children: React.ReactNode }) {
+  const ref = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    const box = ref.current;
+    if (!box) return;
+    const fits = () => box.scrollHeight <= box.clientHeight + 1 && box.scrollWidth <= box.clientWidth + 1;
+    const fit = () => {
+      let lo = min, hi = max;
+      box.style.fontSize = `${hi}cqh`;
+      if (fits()) return;
+      for (let n = 0; n < 6; n++) {
+        const mid = (lo + hi) / 2;
+        box.style.fontSize = `${mid}cqh`;
+        if (fits()) lo = mid; else hi = mid;
+      }
+      box.style.fontSize = `${lo}cqh`;
+    };
+    fit();
+    const ro = new ResizeObserver(fit);
+    ro.observe(box);
+    return () => ro.disconnect();
+  }, [fitKey, min, max]);
+  return <div ref={ref} style={{ fontSize: `${(min + max) / 2}cqh`, ...style }}>{children}</div>;
+}
+
 /*
  * A hands-on box (see ActivityElement): sort into groups, tap in order, flip
  * cards, explore spots on a picture, or move a slider. Until the learner
@@ -91,7 +120,7 @@ export default function ActivityView({ el, interactive, onDone, hintNonce = 0, s
   // A half-made box: the editor shows what's missing; learners see nothing (it isn't waited on either)
   if (!ready && interactive) return null;
   return (
-    <div data-activity={el.kind} style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', gap: '1cqh' }}>
+    <div data-activity={el.kind} style={{ position: 'absolute', inset: '1.2cqh 1.4cqh', display: 'flex', flexDirection: 'column', gap: '1.2cqh' }}>   {/* (inset was 0: the box's padding doesn't reach an absolute child, so the cards sat on its edge) */}
       {el.prompt && (
         <div style={{ fontSize: '3.8cqh', fontWeight: 800, color: INK, textAlign: 'center', lineHeight: 1.15 }}>
           <span aria-hidden>🖐 </span>{el.prompt}
@@ -448,7 +477,7 @@ function Cards({ el, kit }: { el: ActivityElement; kit: Kit }) {
             style={{ position: 'relative', border: 0, padding: 0, background: 'none', cursor: kit.interactive && !open ? 'pointer' : 'default', borderRadius: '1.6cqh',
               ...(kit.hint && !open ? glow(true) : {}) }}>
             <div style={{ position: 'absolute', inset: 0, transformStyle: 'preserve-3d', transition: 'transform 600ms cubic-bezier(0.4, 0.2, 0.2, 1)', transform: open ? 'rotateY(180deg)' : 'none' }}>
-              <div style={{ ...face, background: PALETTE[i % PALETTE.length], color: '#fff', fontSize: '4cqh', fontWeight: 800, boxShadow: '0 0.8cqh 2cqh rgba(15,23,42,0.18)' }}>
+              <FitBox fitKey={`${it.text}|${items.length}`} style={{ ...face, background: PALETTE[i % PALETTE.length], color: '#fff', fontWeight: 800, boxShadow: '0 0.8cqh 2cqh rgba(15,23,42,0.18)' }}>
                 {it.text}<span aria-hidden style={{ position: 'absolute', right: '1.2cqh', bottom: '0.8cqh', fontSize: '2.2cqh', opacity: 0.8 }}>↻</span>
                 {finn?.item === i && (
                   // Finn's sticky note: his (wrong) guess, before the learner checks
@@ -456,13 +485,13 @@ function Cards({ el, kit }: { el: ActivityElement; kit: Kit }) {
                     fontSize: '2.6cqh', fontWeight: 700, borderRadius: '0.6cqh', transform: 'rotate(-3deg)', boxShadow: '0 0.4cqh 1cqh rgba(0,0,0,0.25)',
                     animation: 'pop-in 450ms ease both' }}>🙋 Finn: “{finn.guess}”</span>
                 )}
-              </div>
-              <div style={{ ...face, background: '#fff', color: INK, fontSize: '3.6cqh', fontWeight: 700, transform: 'rotateY(180deg)', border: `0.45cqh solid ${PALETTE[i % PALETTE.length]}` }}>
+              </FitBox>
+              <FitBox fitKey={`${it.back ?? it.text}|${items.length}|${finn?.item === i}`} style={{ ...face, background: '#fff', color: INK, fontWeight: 700, transform: 'rotateY(180deg)', border: `0.45cqh solid ${PALETTE[i % PALETTE.length]}` }}>
                 <span>
                   {it.back ?? it.text}
                   {finn?.item === i && <span style={{ display: 'block', marginTop: '0.8cqh', fontSize: '2.4cqh', fontWeight: 600, color: '#b45309' }}>🙋 Finn guessed “{finn.guess}”</span>}
                 </span>
-              </div>
+              </FitBox>
             </div>
           </button>
         );
