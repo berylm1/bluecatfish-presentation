@@ -5,7 +5,10 @@
 // DRAFT: written from what the Blue Catfish lesson teaches. Check every question against the final
 // lesson before the study starts, and keep ids the same once real people have answered.
 
-export const QUESTIONS_VERSION = 'v4';   // the questions' version, saved with each person's answers: change it when the questions change
+export const QUESTIONS_VERSION = 'v5';   // the questions' version, saved with each person's answers: change it when the questions change
+/** Quiz 1's fifth choice on every question: "I don't know" (v5: a guess that happens to be right looks like knowing; never right) */
+export const IDK = 'idk';
+export const IDK_TEXT = 'I don’t know';
 // (v2: in person; the name first, the pilot's demographic questions, the UEQ-S, post-condition and post-study questionnaires)
 export const STUDY_TITLE = 'Learning with AI: the Blue Catfish lesson';
 export const STUDY_MINUTES = '25–40';

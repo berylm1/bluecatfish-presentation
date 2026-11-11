@@ -12,7 +12,7 @@ import type { Pointer } from '@/lib/canvas/types';
 // its size relative to the slide on any screen.
 const STYLE_SIZE: Record<TextStyle, number> = { title: 7.5, body: 4.6, caption: 3.2, bigNumber: 14 };
 const STYLE_WEIGHT: Record<TextStyle, number> = { title: 800, body: 500, caption: 500, bigNumber: 900 };
-const MIN_SCALE = 0.6;   // text that doesn't fit shrinks, but never below 60%
+const MIN_SCALE = 0.5;   // text that doesn't fit shrinks, but never below half (was 60%: long text was still cut off at the box's edge)
 
 /** Text that wraps in its box and shrinks a little if it still overflows. */
 function FitText({ el }: { el: TextElement }) {

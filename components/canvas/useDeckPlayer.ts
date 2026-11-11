@@ -134,6 +134,10 @@ export function useDeckPlayer(
   const introsHeard = useRef(new Set<string>());
   // The position (by token) jumpTo asked to start without saying it: straight to the learner's turn
   const quietToken = useRef(-1);
+  // Parts heard to their end ("slide:element"), and the furthest slide reached: what the study's skip lock goes by
+  // (Next part only once this part has played; no jumping ahead of where the lesson has got to)
+  const heardRef = useRef(new Set<string>());
+  const furthestRef = useRef(0);
 
   // A topic's first slide opens with its introduction (lib/canvas/intro.ts), played like the slide's first clip
   const orders = useMemo(() => deck.slides.map((s, i) => {
@@ -180,6 +184,7 @@ export function useDeckPlayer(
       return;
     }
     let cancelled = false;
+    furthestRef.current = Math.max(furthestRef.current, pos.slide);
     pausedRef.current = false;   // a new position always plays
     replayRef.current = null;    // (and has nothing to replay)
     waitingRef.current = false;
@@ -226,6 +231,7 @@ export function useDeckPlayer(
       if (cancelled) return;
       const next = () => {
         if (cancelled) return;
+        heardRef.current.add(`${pos.slide}:${el.id}`);
         // Interrupted and the clip ran out while finishing its sentence: stop here
         if (holdRef.current) { stopFinishing(); return; }
         // The learner's turn (a hands-on box): wait here until the page says go on
@@ -306,6 +312,16 @@ export function useDeckPlayer(
     nextClip: () => setPos((p) => ({ ...p, clip: p.clip + 1, mode: 'normal', token: p.token + 1 })),
     nextSlide: () => goToSlide(pos.slide + 1),
     prevSlide: () => goToSlide(Math.max(0, pos.slide - 1)),
+    /** Back a part: the one before on this slide, else the previous slide's last (a topic introduction already heard is passed over) */
+    prevClip: () => setPos((p) => {
+      const here = orders[p.slide] ?? [];
+      const at = Math.min(p.clip, here.length);
+      const first = isIntroId(here[0]?.id) ? 1 : 0;
+      if (at > first) return { ...p, clip: at - 1, mode: 'normal', token: p.token + 1 };
+      if (p.slide <= 0) return { ...p, clip: Math.min(first, Math.max(0, here.length - 1)), mode: 'normal', token: p.token + 1 };
+      const before = orders[p.slide - 1] ?? [];
+      return { slide: p.slide - 1, clip: Math.max(0, before.length - 1), mode: 'normal', token: p.token + 1 };
+    }),
     goToSlide,
     nextTopic: () => {
       const i = topics.findIndex((t, idx) => idx > pos.slide && t > topics[pos.slide]);
@@ -406,10 +422,12 @@ export function useDeckPlayer(
     restart: () => {
       setStatus('loading');
       introsHeard.current.clear();
+      heardRef.current.clear();
+      furthestRef.current = 0;
       setPos((p) => ({ slide: 0, clip: 0, mode: 'normal', token: p.token + 1 }));
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }), [goToSlide, pos.slide, topics, deck.slides.length, clampedClip, order]);
+  }), [goToSlide, pos.slide, topics, deck.slides.length, clampedClip, order, orders]);
 
   return {
     slideIndex: Math.min(pos.slide, deck.slides.length - 1),
@@ -424,6 +442,10 @@ export function useDeckPlayer(
     /** Words of the clip being spoken (for the transcript), and its audio for timing */
     captionText: speaking && current ? (playing === 'plain' ? current.plain?.trim() || spokenText(current) : spokenText(current)) : '',
     getAudio,
+    /** This part has played to its end once (or the slide has nothing left to say): the skip lock lets Next part through */
+    heard: pos.clip >= order.length || !current || heardRef.current.has(`${pos.slide}:${current.id}`),
+    /** The furthest slide the lesson has got to (the skip lock: no jumping past it) */
+    furthest: () => furthestRef.current,
     status,
     ...controls,
   };

@@ -1,5 +1,7 @@
 'use client';
 
+import Icon, { type IconName } from '@/components/Icon';
+
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { camDebug, camDebugOn } from '@/lib/camDebug';
 import { acquireCamera, releaseCamera } from '@/lib/sharedCamera';
@@ -23,16 +25,16 @@ import { acquireCamera, releaseCamera } from '@/lib/sharedCamera';
 
 export type CameraSees = 'starting' | 'learning' | 'error' | 'hand' | 'away' | 'confused' | 'bored' | 'here';
 
-const LOOK: Record<CameraSees | 'nocam', { ring: string; label: string }> = {
-  hand: { ring: '#facc15', label: '✋ hand up' },
-  confused: { ring: '#fb923c', label: '😕 puzzled?' },
-  bored: { ring: '#a78bfa', label: '😐 gone quiet' },
-  away: { ring: '#f87171', label: '🚫 away' },
-  here: { ring: '#34d399', label: '🙂 watching' },
+const LOOK: Record<CameraSees | 'nocam', { ring: string; label: string; icon?: IconName }> = {
+  hand: { ring: '#facc15', label: 'hand up', icon: 'raised-hand' },
+  confused: { ring: '#fb923c', label: 'puzzled?', icon: 'confused' },
+  bored: { ring: '#a78bfa', label: 'gone quiet', icon: 'meh' },
+  away: { ring: '#f87171', label: 'away', icon: 'cross' },
+  here: { ring: '#34d399', label: 'watching', icon: 'smile' },
   starting: { ring: '#94a3b8', label: 'starting…' },
-  learning: { ring: '#38bdf8', label: '👀 getting to know you…' },
-  error: { ring: '#94a3b8', label: '⚠ detection off' },   // the picture works, the face/hand models didn't load
-  nocam: { ring: '#94a3b8', label: '⚠ no camera' },
+  learning: { ring: '#38bdf8', label: 'getting to know you…', icon: 'eye' },
+  error: { ring: '#94a3b8', label: 'detection off', icon: 'warning' },   // the picture works, the face/hand models didn't load
+  nocam: { ring: '#94a3b8', label: 'no camera', icon: 'warning' },
 };
 
 const MAX = 140;     // largest circle (px)
@@ -136,14 +138,14 @@ export default function CameraBubble({ sees, progress = 0 }: { sees: CameraSees;
         className="absolute -top-2 right-0 px-2 py-0.5 rounded-full text-[10px] font-semibold text-slate-900 whitespace-nowrap shadow"
         style={{ background: raising ? LOOK.hand.ring : look.ring }}
       >
-        {raising ? '✋ hand going up…' : look.label}
+        {raising ? <><Icon name="raised-hand" /> hand going up…</> : <>{look.icon && <Icon name={look.icon} />} {look.label}</>}
       </span>
       {debug && (
         <div className="absolute right-full bottom-0 mr-2 w-80 rounded-lg bg-black/85 text-[11px] leading-snug text-white p-2 font-mono space-y-1">
           <div>ring: <b>{raising ? `hand going up ${Math.round(progress * 100)}%` : state}</b></div>
-          <div>✋ {debug.hand ?? '(hand detector not running)'}</div>
-          <div>👤 {debug.face ?? '(face finder not running)'}</div>
-          <div>🙂 {debug.mood ?? '(expression reader not running)'}</div>
+          <div>hand: {debug.hand ?? '(hand detector not running)'}</div>
+          <div>face: {debug.face ?? '(face finder not running)'}</div>
+          <div>mood: {debug.mood ?? '(expression reader not running)'}</div>
         </div>
       )}
     </div>
