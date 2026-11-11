@@ -200,6 +200,12 @@ function addressed(text: string): { who: ClassmateId; text: string } | null {
   const back = t.match(/^(.{4,}?)[,\s]+(maya|finn|leo)[?.!]*$/i);
   return back ? { who: back[2].toLowerCase() as ClassmateId, text: back[1].trim() } : null;
 }
+// The discussion room: at a topic's end, now and then, the classmate's question goes to the learner first ("What do
+// you think?"), another classmate reacts, and then the professor gives the reviewed answer (the question's own slide).
+const DISCUSSION = true;
+const DISCUSS_MAX = 2;             // per lesson (each adds about a minute)
+const ROOM_REACT = ['Ooh, I was thinking something like that too.', 'Hmm, I wasn’t sure about that one either.', 'I was wondering the same thing!'];
+const ROOM_TO_ANSWER = 'Good thinking, everyone. Here’s the answer.';
 const HEADS_UP_MS = 900;         // "Maya has a question": a moment before a classmate speaks
 const MORPH_BACK_MS = 950;   // a morph back finishes before the lesson moves to another slide
 const HAND_RING_MS = 2500;   // how long the camera bubble stays yellow after a raised hand
@@ -1785,6 +1791,11 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
   // asked them to say more: no one-click answers, just their words, typed or said)
   const [finnWaiting, setFinnWaiting] = useState<false | 'buttons' | 'open'>(false);
   const [finnReply, setFinnReply] = useState('');
+  // The discussion room (DISCUSSION): who asked, their question, whose turn it is, and what the learner said
+  const [room, setRoom] = useState<{ asker: ClassmateId; question: string; stage: 'ask' | 'you' | 'react'; mine?: string } | null>(null);
+  const roomCount = useRef(0);
+  // (the discussion room never stays up over a lesson that's playing again)
+  useEffect(() => { if (room && player.status === 'playing') setRoom(null); }, [room, player.status]);
   const finnHow = useRef<'voice' | 'button' | 'typed'>('button');   // how the last answer came (a button has no reasons in it)
   const finnVerdict = useCallback((verdict: string | null, how: 'voice' | 'button' | 'typed', inChat = false) => {
     const done = finnCheck.current;
@@ -1833,11 +1844,54 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
         const name = learnerName.trim();
         const turnTo = name ? `Hmm. ${name}, what do you think? Is ${CLASSMATE_NAME} right?` : `Hmm. What do you think, is ${CLASSMATE_NAME} right?`;
         if (line.truth) cues.preload(turnTo);   // ready by the time Finn finishes
+        // (not for a learner who's struggling: they get the answer straight away)
+        const discuss = DISCUSSION && LIVE_CLASSMATES && !!line.bank && !line.truth && !plan.struggling && roomCount.current < DISCUSS_MAX;
         await headsUp(line.who);
         if (over()) { setClassmateSaying(null); return; }
+        if (discuss) setRoom({ asker: line.who, question: q, stage: 'ask' });
         setClassmateSaying(line.who);
         const said = await cues.play({ text: q, who: line.who });
         setClassmateSaying(null);
+        if (discuss && !(said && !over())) setRoom(null);
+        if (discuss && said && !over()) {
+          // The discussion: the classmate turns to the learner, the learner answers (said, typed, or "I'm not sure"),
+          // another classmate reacts (never a verdict), then the professor's reviewed answer, below
+          roomCount.current++;
+          tracking.track('tutor_decision', { action: 'discussion', who: line.who, question: q.slice(0, 200) });
+          const done = () => { setRoom(null); };
+          setClassmateSaying(line.who);
+          const turned = await cues.play({ text: name ? `What do you think, ${name}?` : 'What do you think?', who: line.who });
+          setClassmateSaying(null);
+          if (!turned || over()) { done(); return; }
+          setRoom((r) => (r ? { ...r, stage: 'you' } : r));
+          const mine = await new Promise<string | null>((resolve) => {
+            finnCheck.current = resolve;
+            setFinnWaiting('open');
+            if (interruptOn) { resumeAfterTurn.current = false; micRef.current.talk(); }   // listen for it too
+          });
+          if (mine === null || over()) { done(); return; }   // moved on
+          setRoom((r) => (r ? { ...r, stage: 'react', mine } : r));
+          const other: ClassmateId = line.who === 'maya' ? 'leo' : 'maya';
+          let react: string | null = null;
+          if (finnHow.current !== 'button') {
+            try {
+              const res = await fetch('/api/classmate', {
+                method: 'POST', headers: learnerHeaders({ 'Content-Type': 'application/json' }),
+                body: JSON.stringify({ react: { who: other, question: line.bank!.q, answer: mine } }), signal: AbortSignal.timeout(6000),
+              });
+              const d = res.ok ? await res.json() : null;
+              react = typeof d?.line === 'string' && d.line.trim() ? d.line.trim() : null;
+            } catch { /* a ready-made line */ }
+          }
+          if (over()) { done(); return; }
+          tracking.track('tutor_decision', { action: 'classmate_live', kind: 'react', who: other, used: !!react, line: (react ?? '').slice(0, 200), to: mine.slice(0, 200) }, { classmate_turns: 1 });
+          classmateWho.current.push(other);
+          const reacted = await mateSays(other, react ?? (finnHow.current === 'button' ? ROOM_REACT[1] : pickOne(ROOM_REACT)));
+          if (!reacted || over()) { done(); return; }
+          const on = await cues.play({ text: ROOM_TO_ANSWER });
+          done();
+          if (!on || over()) return;
+        }
         if (said && !over() && line.bank) {
           // a bank question: its answer slide (cut short: whatever cut it decides what's next)
           if (!(await runDetour([{ q: line.bank, ask: false }]))) return;
@@ -2753,6 +2807,7 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
     setClassmateSaying(null);
     if (variant) { variantAfter.current = null; variantMode.current = 'answer'; setVariant(null); helperSeq.current++; setHelperActive(null); }
     checked.current.clear(); activitiesDone.current.clear(); activitiesSolved.current.clear(); activitiesRevealed.current.clear(); classmateTopics.current.clear(); classmateAsked.current = []; finnReady.current.clear(); finnResults.current.clear();
+    roomCount.current = 0; setRoom(null);
     classmateWho.current = []; lastMixUp.current = -2; curious.current.clear(); struggles.current.clear();
     midTopics.current.clear(); shaky.current.clear(); carried.current.clear(); helperUsed.current.clear(); midMatch.current.clear(); midPending.current = null; midResume.current = false; struggleSlide.current = -1; mateTalkAt.current = 0;
     finnSpoken.current.clear(); mistakeCounts.current.clear(); steppedIn.current.clear();
@@ -3113,6 +3168,33 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
           </div>
         )}
         {/* The professor asked them to say more: their own words now (typed, or the mic; talking over works too) */}
+        {room && !variant && !selfCheck && (() => {
+          const speaker: Speaker | null = room.stage === 'you' ? 'you' : classmateSaying;
+          return (
+            <div className="absolute inset-0 z-10 rounded-2xl bg-slate-950/85 backdrop-blur-sm flex flex-col items-center justify-center gap-4 p-5 pb-20 text-white text-center" role="dialog" aria-label="Class discussion">
+              <p className="text-xs uppercase tracking-[0.25em] text-cyan-300/80">Class discussion</p>
+              <div className="flex items-end justify-center gap-4 sm:gap-6">
+                {(['maya', 'finn', 'leo', 'you'] as Speaker[]).map((w) => (
+                  <div key={w} className={`flex flex-col items-center gap-1 transition-opacity ${speaker && speaker !== w ? 'opacity-60' : ''}`}>
+                    <Avatar who={w} learnerName={learnerName.trim()} size={speaker === w ? 76 : 54} speaking={speaker === w} />
+                    <span className="text-xs">{speakerOf(w, learnerName.trim()).name}</span>
+                  </div>
+                ))}
+              </div>
+              <div className="max-w-xl rounded-2xl bg-white/10 border border-white/15 px-5 py-3">
+                <p className="text-xs text-cyan-200 mb-1">{CLASSMATES[room.asker].name} asks</p>
+                <p className="text-base sm:text-lg font-semibold leading-snug">{room.question}</p>
+              </div>
+              {room.mine && <p className="max-w-xl text-sm text-slate-200">You: “{room.mine}”</p>}
+              {room.stage === 'you' && (
+                <div className="flex flex-wrap items-center justify-center gap-3 text-sm">
+                  <span>Your turn: say it, or type it below. There’s no wrong answer.</span>
+                  <button className="px-3 py-1 rounded-full bg-white/15 hover:bg-white/25" onClick={() => finnVerdict('I’m not sure', 'button')}>I’m not sure</button>
+                </div>
+              )}
+            </div>
+          );
+        })()}
         {finnWaiting === 'open' && (
           <form className="absolute bottom-4 left-1/2 -translate-x-1/2 z-20 w-[min(36rem,92%)] flex items-center gap-2 pl-4 pr-1.5 py-1.5 rounded-full bg-slate-900/90 text-white text-sm shadow-lg max-sm:rounded-2xl"
             role="dialog" aria-label="Tell the professor what you think"
