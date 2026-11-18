@@ -17,7 +17,7 @@ import { POST_QUIZ, STUDIES, type StudyId } from '@/lib/study/content';
 
 type Summary = {
   group: string | null; people: number; finished: number;
-  pre: number | null; postSame: number | null; gain: number | null; post: number | null;
+  pre: number | null; postSame: number | null; gain: number | null; normGain?: number | null; post: number | null;
   lessonMinutes: number | null; questions: number | null; engaged: number | null; ueq: number | null;
 };
 type Data = { summary: Summary[]; steps: Record<string, number>; rows: Record<string, unknown>[]; ideas?: { name: string; slide: number; questions: number; groups: Record<string, { right: number; of: number }> }[]; confusion?: { topics: string[]; curves: Curve[] } };
@@ -90,6 +90,7 @@ export default function StudyResultsView({ which, children }: { which: StudyId; 
                     <dt>Pre-quiz (of 5)</dt><dd className="font-semibold">{show(s.pre)}</dd>
                     <dt>Same 5 after</dt><dd className="font-semibold">{show(s.postSame)}</dd>
                     <dt>Gain on those 5</dt><dd className="font-semibold">{show(s.gain)}</dd>
+                    <dt title="(after − before) ÷ (5 − before), averaged over people: the share of what they could still learn that they did. People with 5/5 before are left out">Normalized gain (0–1)</dt><dd className="font-semibold">{show(s.normGain ?? null)}</dd>
                     <dt>Post-quiz (of {POST_QUIZ.filter((q) => q.kind === 'choice').length})</dt><dd className="font-semibold">{show(s.post)}</dd>
                     <dt>Lesson minutes</dt><dd className="font-semibold">{show(s.lessonMinutes)}</dd>
                     <dt>Questions asked</dt><dd className="font-semibold">{show(s.questions)}</dd>
@@ -132,7 +133,7 @@ export default function StudyResultsView({ which, children }: { which: StudyId; 
             <section className="rounded-2xl bg-white border p-5 overflow-x-auto">
               <h2 className="font-semibold">Everyone ({data.rows.length})</h2>
               <table className="mt-3 text-sm w-full">
-                <thead><tr className="text-left text-slate-500">{['Code', 'Started', 'Group', 'Version', 'Step', 'Age', 'Pre', 'Post', 'Lesson min', 'Questions', 'Confusion at the end', 'Confused topics', 'Camera', 'Test', 'Interview notes'].map((h) => <th key={h} className="pr-4 pb-2 font-medium">{h}</th>)}</tr></thead>
+                <thead><tr className="text-left text-slate-500">{['Code', 'Started', 'Group', 'Version', 'AI model', 'Step', 'Age', 'Pre', 'Post', 'Lesson min', 'Questions', 'Confusion at the end', 'Confused topics', 'Camera', 'Test', 'Interview notes'].map((h) => <th key={h} className="pr-4 pb-2 font-medium">{h}</th>)}</tr></thead>
                 <tbody>
                   {data.rows.slice().reverse().map((r) => (
                     <tr key={String(r.id)} onClick={() => setPerson(person === r.id ? null : String(r.id))} title="Show their line on the confusion graph"
@@ -141,6 +142,7 @@ export default function StudyResultsView({ which, children }: { which: StudyId; 
                       <td className="pr-4 py-1.5 whitespace-nowrap">{new Date(String(r.created_at)).toLocaleString()}</td>
                       <td className="pr-4">{groupName(r.group)}</td>
                       <td className="pr-4">{show(r.lesson_version)}</td>
+                      <td className="pr-4 whitespace-nowrap text-xs">{show(r.ai_model)}</td>
                       <td className="pr-4">{show(r.step)}</td>
                       <td className="pr-4">{show(r.about_age)}</td>
                       <td className="pr-4">{show(r.pre_score)}</td>

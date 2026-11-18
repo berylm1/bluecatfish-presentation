@@ -3,6 +3,7 @@
 import { useCallback, useRef, useState } from 'react';
 import { useSpeechQueue } from '@/components/hooks/useSpeechQueue';
 import { learnerHeaders } from '@/lib/learnerSession';
+import { reportError } from '@/lib/reportError';
 
 // Questions for the professor on the canvas page: the learner's question goes
 // to /api/conversational/respond (knowledge base + what's on the slide), the
@@ -17,7 +18,9 @@ const HISTORY_TURNS = 6;   // earlier questions the tutor still remembers
 
 const VOICE =
   'You are "Professor Marine", a marine biologist teaching 10 to 14 year olds about the blue catfish invasion of the Chesapeake Bay. ' +
-  'Answer the question in 2 to 4 short spoken sentences, like a teacher answering a hand that went up mid-lesson. ' +
+  // (1 or 2: the learner can ask for more, "Tell me more" (SHORT_ANSWERS, app/presentation/page.tsx). Was: 2 to 4)
+  'Answer the question in 1 or 2 short spoken sentences, like a teacher answering a hand that went up mid-lesson ' +
+  '(unless what follows asks for a different length). ' +
   'Talk in the same voice as the slides: funny, a bit goofy, lightly sarcastic about the fish and the problem (never about the student), ' +
   'with the facts kept exactly right. No lists or headings: this is read out loud. If you don\'t know, say so.';
 
@@ -113,6 +116,7 @@ export function useTutor(lessonOnly = false) {
       setHistory((h) => [...h.slice(-19), { id: seq, question, asker: opts.asker, answer: full, done: true }]);
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
+      reportError('tutor', msg);
       setExchange({ id: seq, question, asker: opts.asker, answer: msg, done: true });
       decision = null;
     } finally {

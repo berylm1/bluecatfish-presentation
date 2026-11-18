@@ -34,6 +34,7 @@ import type { ActivityMistake, FinnEvent, FinnMove } from '@/components/canvas/A
 import { focusSlide, helperSlide, ownHelper } from '@/lib/canvas/morph';
 import { isIntroId } from '@/lib/canvas/intro';
 import { activityReady, shownWords, speakingOrder, spokenText } from '@/lib/canvas/queue';
+import { splitSentences } from '@/components/canvas/useDeckPlayer';
 import { answerBasis, currentAudio, QUIZ_ASKED } from '@/lib/canvas/aiFields';
 import { activePointer } from '@/lib/canvas/laser';
 import type { ActivityElement, BankQuestion, Pointer, QuizQuestion, Slide, SlideElement } from '@/lib/canvas/types';
@@ -42,6 +43,14 @@ import { lessonLength } from '@/lib/canvas/lessonLength';
 import Quiz, { pickQuiz } from '@/components/canvas/Quiz';
 import { lessonParts } from '@/lib/canvas/parts';
 import { answerGist, areaIds, setAreaText, togetherSlide, TOGETHER_ID } from '@/lib/canvas/together';
+// (the lesson's switches and timings, in one place)
+import {
+  SHOW_SOURCES_UNDER_LESSON, SHOW_OPTION_ICONS, SHOW_NEXT_SLIDE, SHOW_REPEAT, BACK_AGAIN_S, SHOW_FLOATING_TRANSCRIPT, ANSWER_BOX_UNDER_SLIDE,
+  MORPH_HELPERS, HELPER_THEN_NEXT, SHORT_ANSWERS, RESUME_AFTER_ANSWER, MORE_WAIT_MS, MORE_WAIT_WITH_MORE_MS, HOLD_MIN_MS, CONFUSED_PAUSE_MS,
+  METER_CHECK_IN, CHECK_IN_EVERY_MS, SELF_CHECK, OFFER_AFTER_GOT, ADAPTIVE_SECTION_CHECK, HARDEST_FROM_METER, SHOW_RECAP_ON_END, SPOKEN_FULL_RECAP,
+  LIVE_CLASSMATES, LIVE_WORDS_WAIT_MS, SAID_FRESH_MS, FOLLOW_UPS_MAX, FOLLOW_UP_COOLDOWN_MS, REACT_CHANCE, CURIOUS_CHANCE, CONFUSED_CURIOUS,
+  DISCUSSION, DISCUSS_MAX, ROOM_WAIT_MS, HEADS_UP_SOUND, MIX_UP_EVERY, MIX_UP_EVERY_CLEAR, FINN_WAIT_MS, FINN_REMEMBERS,
+} from '@/lib/settings';
 import { LIVE_VERSION, preloadedDeck, studyLesson, studyPost, writeStudy, type StudyRecord } from '@/lib/study/client';
 import { STUDIES } from '@/lib/study/content';
 import { signals } from '@/lib/signals';
@@ -172,27 +181,7 @@ async function judgeFinn(mistake: string, truth: string, turns: { who: 'professo
 const YES = /^(?:yes|yeah|yep|yup|sure|ok(?:ay)?|please|uh[- ]huh|definitely|go ahead|do it|mhm)\b/i;
 const NO = /^(?:no|nope|nah|not really|i'?m (?:good|fine|ok(?:ay)?)|all good|keep going|carry on)\b/i;
 const SPEAKING: string[] = ['playing', 'loading', 'finishing', 'waiting'];
-// The slide itself turns into the helper ("another way to see it") and into
-// the focused plain-words version ("simpler please"), instead of a popup.
-// false = the old popup (VariantOverlay) and no focus.
-const MORPH_HELPERS = true;
-// The lesson's buttons (after the first participants: "so many buttons"). Hidden, not removed:
-const SHOW_SOURCES_UNDER_LESSON = false;   // "View sources" under the slide
-const SELF_CHECK = false;        // "How did that section go?" between topics (Got it / Kind of / Lost me)
-const SHOW_OPTION_ICONS = false; // the little icons beside Options (what's switched on)
-const SHOW_NEXT_SLIDE = false;   // ⏩ Next slide (⏭ Next part moves through the lesson)
-const SHOW_REPEAT = false;       // ⟲ Repeat (⏮ Back starts the part again)
-const BACK_AGAIN_S = 2.5;        // ⏮ this early in a part: the part before (later: this part from its start), like a music player
-// After the learner's own question is answered: back to where the lesson stopped (false: on to the slide's end, as before)
-const RESUME_AFTER_ANSWER = true;
-const MORE_WAIT_MS = 6000;       // "Anything else, or shall we go on?": this long with no answer = go on
 const GO_ON = /^(?:no|nope|nah|no thanks?|ok(?:ay)?|go on|let'?s go on|carry on|continue|keep going|move on|next|that'?s (?:all|it)|nothing(?: else)?|i'?m (?:good|fine|ok(?:ay)?)|all good)\b/i;
-// The hybrid classmates: the questions and their answer slides are the reviewed, pre-written ones (the same pool for
-// everyone in the study); what's written live is how a classmate says their question, and their short reply when the
-// learner talks to them by name. Each live line is checked on the server (/api/classmate); false: all as written.
-const LIVE_CLASSMATES = true;
-const LIVE_WORDS_WAIT_MS = 2500;   // a rewording not ready by then: the question as written
-const SAID_FRESH_MS = 120_000;     // what the learner said this recently can be tied into a classmate's question
 const MATE_UNSURE = () => pickOne(['Hmm, I’m not sure. Professor Marine?', 'Good question. I don’t know! Professor Marine?']);
 /** "Maya, why is that?" / "what do you think, Leo?": the classmate the learner is talking to, and what they said to them */
 function addressed(text: string): { who: ClassmateId; text: string } | null {
@@ -203,17 +192,8 @@ function addressed(text: string): { who: ClassmateId; text: string } | null {
   const back = t.match(/^(.{4,}?)[,\s]+(maya|finn|leo)[?.!]*$/i);
   return back ? { who: back[2].toLowerCase() as ClassmateId, text: back[1].trim() } : null;
 }
-// The discussion room: at a topic's end, now and then, the classmate's question goes to the learner first ("What do
-// you think?"), another classmate reacts, and then the professor gives the reviewed answer (the question's own slide).
-const DISCUSSION = true;
-const DISCUSS_MAX = 2;             // per lesson (each adds about a minute)
 const ROOM_REACT = ['Ooh, I was thinking something like that too.', 'Hmm, I wasn’t sure about that one either.', 'I was wondering the same thing!'];
-const ROOM_WAIT_MS = 45_000;       // the learner says nothing for this long: the discussion goes on without their answer
-const FINN_WAIT_MS = 30_000;       // Finn's mix-up: no answer for this long, and the professor explains it (as "not sure") and goes on
 const ROOM_TO_ANSWER = 'Good thinking, everyone. Here’s the answer.';
-// After a "Show another way" slide is heard to its end: on to the next slide (false: back to the slide it came from)
-const HELPER_THEN_NEXT = true;
-const HEADS_UP_SOUND = false;      // two soft notes before a classmate speaks (off: it was heard as an odd noise at the topics' ends)
 const HEADS_UP_MS = 900;         // "Maya has a question": a moment before a classmate speaks
 const MORPH_BACK_MS = 950;   // a morph back finishes before the lesson moves to another slide
 const HAND_RING_MS = 2500;   // how long the camera bubble stays yellow after a raised hand
@@ -256,17 +236,6 @@ function classmateBudget(questions: number, topics: number): { every: number; fo
  *     checking or curious one first, and never a mix-up; if it went well, now and then Finn's mix-up to catch
  *     (a challenge), else a question from whoever has spoken least
  */
-const CURIOUS_CHANCE = 0.25;   // a topic end that doesn't call for a classmate: how often one is curious anyway
-const MIX_UP_EVERY = 3;        // Finn's mix-ups: at most every 3rd classmate turn (from the 2nd on), and only when the topic went well
-// The confusion meter's overall level (lib/confusion.ts) steers the classmates: confused, more helping and less
-// curiosity, no mix-ups; clear (a topic or more in), more challenge: Finn's mix-up as often as every 2nd turn
-const MIX_UP_EVERY_CLEAR = 2;
-const CONFUSED_CURIOUS = 0.5;  // confused overall: curious moments (topic end, mid-topic) this much as often
-// ...and the professor: plain words first for the boxes not heard yet, and a little longer between slides
-const CONFUSED_PAUSE_MS = 1200;
-// A box gets confusing (its "now" score) without "I'm lost" (which has its own help): the professor checks in, at most this often
-const METER_CHECK_IN = true;   // false = only the camera's puzzled look checks in (as before the meter)
-const CHECK_IN_EVERY_MS = 60_000;
 const CHECK_IN_LINE = "Hmm, that part seems a little tricky. Want me to go over it a different way? Say yes, or tell me what's tripping you up.";
 /*
  * A classmate's moment in the middle of a topic (classmateMid), after a box's sentence is finished (the player waits there,
@@ -286,9 +255,10 @@ const MID_RELATED_MIN = 0.45;   // how close (meaning, 0-1) the slide and the qu
 const MID_CHANCE: Record<number, number> = { 1: 0.3, 2: 0.18, 3: 0.08 };   // per box, by classmateBudget's rhythm (every 1, 2 or 3 topics)
 // Short reactions, no AI: the classmates are in the room too
 const FINN_THANKS = ['Oh! Right, thanks!', 'Ohh, I mixed that up. Thanks!', 'Got it. Thanks for catching that!'];
+// Finn owning up to a caught mix-up at his next turn (FINN_REMEMBERS), when the AI's line isn't ready or added a fact
+const FINN_OWN_UP = ['Okay, okay, I won’t mix that one up again!', 'Don’t worry, I remember now. No more mix-ups from me!'];
 const FINN_OOPS = ['Oops, my bad!', 'Oh no, I got that one wrong. Sorry!'];
 const SAME_QUESTION = ['Ooh, I was wondering that too!', 'Thanks, that helped me too.', 'Oh, cool. I didn\'t know that!'];
-const REACT_CHANCE = 0.4;   // after the learner's question is answered (with no classmates' follow-ups), a classmate says so
 const MIN_VISUAL_MS = 3000;
 // The slide as big as fits with the header and the controls under it (was 80% of the screen height,
 // so on a 1366×768 laptop the controls pushed the top of the slide off the screen)
@@ -308,8 +278,6 @@ function useMedia(query: string): boolean {
 // (the two sizes are set in globals.css: wider on a phone, taller on a phone turned sideways)
 // (--slide-max-w is narrower with the class chat beside the slide; --peek-h is the chat's latest line under the slide)
 const SLIDE_WIDTH = 'min(var(--slide-max-w, 88vw), calc((100vh - var(--slide-chrome, 190px) - var(--peek-h, 0px)) * 16 / 9))';
-// The top-right transcript: off, the class chat (ClassChat) has everything that's said, as a conversation
-const SHOW_FLOATING_TRANSCRIPT = false;
 /** The chat's latest slide entry, skipping the professor's own lines after it (its index, or -1) */
 function slideEntryAt(c: ChatEntry[]): number {
   let j = c.length - 1;
@@ -317,13 +285,6 @@ function slideEntryAt(c: ChatEntry[]): number {
   return j >= 0 && c[j].kind === 'slide' ? j : -1;
 }
 const SELF_CHECK_SAID: Record<SelfCheckRating, string> = { got: 'Got it', kind: 'Kind of', lost: 'Lost me' };
-// The question + answer box under the slide: off, the transcript (top right) shows them instead
-// (was: it made the page taller than the screen, so it scrolled). Still shown with the transcript off.
-const ANSWER_BOX_UNDER_SLIDE = false;
-// The recap's text on the end screen: off, the achievements are there instead (the professor says the recap, and the transcript shows it)
-const SHOW_RECAP_ON_END = false;
-// The spoken ending: false = the quick one (what they covered, their achievements, "Marine out!"); true = the old long recap
-const SPOKEN_FULL_RECAP = false;
 
 /** What the learner covered, in one quick line: the lesson's recap if it's the short kind, else its parts by name */
 function shortRecap(deck: Deck): string {
@@ -356,12 +317,6 @@ const REPLAY_ASK_KIND = 'No problem. Want to see that part a different way?';
 const REPLAY_ASK_LOST = "That's okay, it happens. Want me to show you that part a different way?";
 // After "got it" on a topic the confusion meter says was confusing (lib/confusion.ts): offered anyway, lightly
 const REPLAY_ASK_GOT = 'Great! That part had a few tricky bits, though. Want a quick look at it a different way, just in case?';
-const OFFER_AFTER_GOT = true;   // false = "Got it" always moves on (as before the meter)
-// "How did that section go?" outside the study: asked only when the meter isn't sure. A confused topic goes straight to
-// "another way?"; a topic that clearly went well (a good sign, like a hands-on box solved first try or Finn's mix-up
-// caught, and no sign of confusion) gets a quick word and moves on. In the study it's always asked: it's a measure,
-// and it checks the meter. false = always asked, everywhere (as before)
-const ADAPTIVE_SECTION_CHECK = true;
 const SMOOTH_LINE = 'Nice, that part went smoothly!';
 const REPLAY_ASK_SKIPPED = 'That part looked a little tricky. Want me to show it to you a different way?';
 // Cards, when the instructions don't already ask for a guess (said once per box)
@@ -401,10 +356,25 @@ function meterHardest(deck: Deck, topicOf: number[], m: ConfusionMeter): string 
   }
   return best?.name ?? null;
 }
-const HARDEST_FROM_METER = true;   // false = the end screen's "trickiest part" from the old counts (hardestTopic)
 
 /** What a classmate says at a topic's end: a question, or (truth set: Finn) a mistake for the learner to catch. */
 type FinnLine = { question: string; truth?: string; who: ClassmateId; bank?: BankQuestion };
+
+/**
+ * An answer slide's short version (SHORT_ANSWERS): its first speaking part in its plain words (1-2 sentences, with
+ * their recording), else that part's first two sentences. null: nothing to say.
+ */
+function shortAnswer(slide: Slide): { text: string; url?: string } | null {
+  const el = speakingOrder(slide)[0];
+  if (!el) return null;
+  const plain = el.plain?.trim();
+  if (plain) return { text: plain, url: currentAudio(el, 'plain') };
+  const full = spokenText(el).trim();
+  const two = splitSentences(full).slice(0, 2).join('').trim();
+  return two && two.length < full.length ? { text: two } : { text: full, url: currentAudio(el, 'normal') };
+}
+/** What "Tell me more" can expand: a bank answer (its full narration), or the professor's live answer (a fuller one) */
+type MoreItem = { key: string; label: string; area?: number } & ({ kind: 'bank'; q: BankQuestion } | { kind: 'live'; question: string });
 
 /** What Finn says when he has a go in a hands-on box */
 function finnHandsOnLine(e: { item: string; group?: string; guess?: string }): string {
@@ -602,6 +572,12 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
   // lesson themselves, and it carries on after them).
   // Static vs adaptive (study 1): the professor answers from the lesson's own words, read by the server (both groups were taught the same)
   const tutor = useTutor(!!study && (study.study ?? 1) === 1);
+  // Who is about to answer while the AI writes it (a classmate's reply, the professor's answer slide): "… is thinking" in the chat
+  const [pendingWho, setPendingWho] = useState<Speaker | null>(null);
+  const waitingOn = useCallback(<T,>(who: Speaker, p: Promise<T>): Promise<T> => {
+    setPendingWho(who);
+    return p.finally(() => setPendingWho((w) => (w === who ? null : w)));
+  }, []);
   const [begun, setBegun] = useState(false);
   const busyElsewhere = tutor.thinking || tutor.speaking || !!variant;
   useEffect(() => { if (started && introDone && !busyElsewhere) setBegun(true); }, [started, introDone, busyElsewhere]);
@@ -674,7 +650,9 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
   const studyFinished = !!study && started && player.status === 'finished';
   useEffect(() => {
     if (!studyFinished || !study) return;
-    writeStudy({ ...study, step: 'post' });
+    // (and how they did on Finn's mix-ups, for the badge on the last screen: this browser only, not sent to the study)
+    const finn = [...finnResults.current.values()].filter((r) => r.kind !== 'other');
+    writeStudy({ ...study, step: 'post', ...(finn.length ? { finn: { caught: finn.filter((r) => r.kind === 'caught').length, of: finn.length } } : {}) });
     studyPost('save', { id: study.id, lessonFinished: true, step: 'post', study: study.study ?? 1 }).catch(() => { /* the study page carries on from the browser's step */ });
   }, [studyFinished, study]);
   // Async steps (an answer or a cue finished) must act on the latest player, not the one from when they began
@@ -952,10 +930,19 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
   const moreNext = useRef<(() => void) | null>(null);
   const moreMode = useRef<'asked' | 'waiting'>('asked');
   const moreTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // "Tell me more": what the last answer was about (one per question on a "Your questions" slide), shown as chips
+  const moreAbout = useRef<MoreItem[]>([]);
+  const answeredAt = useRef(0);   // when the last answer to the learner ended (FOLLOW_UP_COOLDOWN_MS)
+  const [moreChips, setMoreChips] = useState<{ key: string; label: string; area?: number }[]>([]);
+  const setMore = useCallback((items: MoreItem[]) => {
+    moreAbout.current = SHORT_ANSWERS ? items : [];
+    setMoreChips(SHORT_ANSWERS ? items.map(({ key, label, area }) => ({ key, label, area })) : []);
+  }, []);
   const endMore = useCallback((go: boolean, how: 'voice' | 'button' | 'typed' | 'timer') => {
     const next = moreNext.current;
     if (!next) return;
     moreNext.current = null;
+    setMore([]);
     if (moreTimer.current) clearTimeout(moreTimer.current);
     moreTimer.current = null;
     setMoreOffer(false);
@@ -969,10 +956,12 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
     if (go) next();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tracking]);
-  const offerMore = useCallback(async (next: () => void) => {
-    if (isStatic || yourTurnRef.current) { next(); return; }   // (in a hands-on box: straight back to it)
+  const offerMore = useCallback(async (next: () => void, again = false) => {
+    if (isStatic || yourTurnRef.current) { setMore([]); next(); return; }   // (in a hands-on box: straight back to it)
     const my = askTurn.current;
-    const ok = await cuesRef.current.play('cue_more');
+    answeredAt.current = Date.now();   // (an answer just ended: the follow-up cooldown starts)
+    // (again: after "Tell me more", the offer comes back without "Anything else?" said a second time)
+    const ok = again ? true : await cuesRef.current.play('cue_more');
     if (my !== askTurn.current) return;   // a newer question or a command took over: it decides
     if (!ok) { next(); return; }
     moreNext.current = next;
@@ -980,9 +969,9 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
     setMoreOffer('asked');
     // the mic listens for the answer (nothing said: it gives up by itself, and the lesson goes on); else a timer
     if (interruptOn && micRef.current.status === 'idle') { resumeAfterTurn.current = false; micRef.current.talk(); }
-    else moreTimer.current = setTimeout(() => endMore(true, 'timer'), MORE_WAIT_MS);
+    else moreTimer.current = setTimeout(() => endMore(true, 'timer'), moreAbout.current.length ? MORE_WAIT_WITH_MORE_MS : MORE_WAIT_MS);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [endMore, interruptOn, isStatic]);
+  }, [endMore, interruptOn, isStatic, setMore]);
   // The lesson is playing again some other way (▶, Back, Next part): the offer is over
   useEffect(() => {
     if (!moreOffer || player.status !== 'playing') return;
@@ -1023,15 +1012,15 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
   const composeSlide = useCallback(async (question: string): Promise<Slide | null> => {
     if (parts.length < 2) return null;
     try {
-      const res = await fetch('/api/tutor/compose', {
+      const res = await waitingOn('professor', fetch('/api/tutor/compose', {
         method: 'POST', headers: learnerHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify({ question, parts }), signal: AbortSignal.timeout(12000),
-      });
+      }));
       return res.ok ? ((await res.json()).slide ?? null) : null;
     } catch {
       return null;
     }
-  }, [parts]);
+  }, [parts, waitingOn]);
 
   /** A question (not a command): the professor answers, then the lesson carries on. Resolves false if it was talked over. */
   const answer = useCallback(async (question: string, opts: {
@@ -1041,6 +1030,8 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
     resume?: boolean;
     /** Already counted (the question bank looked it up first) */
     counted?: boolean;
+    /** More for the professor to go on (a classmate's guess or opinion he follows on from) */
+    note?: string;
   } = {}): Promise<boolean> => {
     if (!opts.asker && !opts.counted) learnerQuestions.current++;
     if (!opts.counted) tracking.track('tutor_question', { question: question.slice(0, 300), ...(opts.asker ? { asker: opts.asker } : {}) }, opts.asker ? undefined : { questions: 1 });
@@ -1083,7 +1074,7 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
     const context = slideContext() + (opts.asker
       ? `\nThis question is from ${opts.asker}, a classmate (not the learner). Answer ${opts.asker} by name, as a teacher answers a student in class.` +
         (learnerName.trim() ? ` Don't call ${opts.asker} ${learnerName.trim()}: ${learnerName.trim()} is the learner, not who asked.` : '')
-      : '');
+      : '') + (opts.note ? `\n${opts.note}` : '');
     const { decision, superseded } = await tutor.ask(question, context, { holdUntil: quiet, asker: opts.asker });
     answering = false;
     // A drawing that arrived near the end of the answer stays up a moment before the slide turns back
@@ -1102,10 +1093,10 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
       else if (decision === 'repeat') now.repeat();
       else now.resume();
     };
-    // the learner's own question: "Anything else, or shall we go on?" first (a classmate's: straight on)
-    if (opts.asker) carryOn(); else void offerMore(carryOn);
+    // the learner's own question: "Anything else, or shall we go on?" first, with "Tell me more" (a classmate's: straight on)
+    if (opts.asker) carryOn(); else { setMore([{ key: 'live', label: '', kind: 'live', question }]); void offerMore(carryOn); }
     return true;
-  }, [tutor, slideContext, tracking, findVariant, finishThenPause, deck, slideText, learnerName, composeSlide, offerMore, skipLock]);
+  }, [tutor, slideContext, tracking, findVariant, finishThenPause, deck, slideText, learnerName, composeSlide, offerMore, skipLock, setMore]);
 
   /**
    * The learner is lost: show a reviewed variant slide for this topic if there
@@ -1371,12 +1362,13 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
    * answer and the professor says it, box by box. Resolves true when all were said; false when cut short
    * ("Back to the lesson", a question, a command). The caller ends it (endDetour) and says what's next.
    */
-  const runDetour = useCallback(async (steps: { q: BankQuestion; ask: boolean }[]): Promise<boolean> => {
+  const runDetour = useCallback(async (steps: { q: BankQuestion; ask: boolean }[], short = false): Promise<boolean> => {
     detourBusy.current = true;
-    try { return await detourSteps(steps); } finally { detourBusy.current = false; }
+    try { return await detourSteps(steps, short); } finally { detourBusy.current = false; }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cues, tracking]);
-  const detourSteps = async (steps: { q: BankQuestion; ask: boolean }[]): Promise<boolean> => {
+  /** short: the learner's own question (SHORT_ANSWERS: its short version, "Tell me more" for the rest) */
+  const detourSteps = async (steps: { q: BankQuestion; ask: boolean }[], short = false): Promise<boolean> => {
     const seq = ++helperSeq.current;
     const live = () => seq === helperSeq.current;
     for (const { q, ask } of steps) {
@@ -1395,7 +1387,12 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
       variantAfter.current = null;
       setVariant({ title: '', body: '', narration: '', slide: q.slide, variant: 'answer' });
       if (steps[0].q === q) detourAt.current = Date.now();   // (the clock for a quick "Back to the lesson")
-      for (const el of speakingOrder(q.slide)) {
+      const brief = short && SHORT_ANSWERS ? shortAnswer(q.slide) : null;
+      if (brief) {
+        setHelperActive(speakingOrder(q.slide)[0]?.id ?? null);
+        const ok = await cues.play(brief);
+        if (!ok || !live()) { setHelperActive(null); return false; }
+      } else for (const el of speakingOrder(q.slide)) {
         if (!live()) return false;
         setHelperActive(el.id);
         const ok = await cues.play({ text: spokenText(el), url: currentAudio(el, 'normal') });
@@ -1471,7 +1468,7 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
     // the live answer is written while the classmates ask, and said after them
     let release = () => {};
     const gate = new Promise<void>((r) => { release = r; });
-    const liveAnswer = best ? null : tutor.ask(question, slideContext() + (related.length ? '\nAnswer in 2 or 3 short sentences: classmates asked questions too, and you answer theirs next.' : ''), { holdUntil: gate });
+    const liveAnswer = best ? null : tutor.ask(question, slideContext() + (related.length ? '\nAnswer in 1 or 2 short sentences: classmates asked questions too, and you answer theirs next.' : ''), { holdUntil: gate });
     together.current = { question, live: !best };
     detourBusy.current = true;
     const turn = askTurn.current;
@@ -1507,6 +1504,8 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
         bankAsked.current.add(q.id);
         answerTo.current = to;
         setHelperActive(lit(i));
+        const brief = SHORT_ANSWERS ? shortAnswer(q.slide) : null;
+        if (brief) return (await cues.play(brief)) && live();
         for (const el of speakingOrder(q.slide)) {
           if (!live()) return false;
           if (!(await cues.play({ text: spokenText(el), url: currentAudio(el, 'normal') })) || !live()) return false;
@@ -1555,12 +1554,24 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
     const budget = classmateBudget(learnerQuestions.current - 1, topicsSeen.current.size);
     const exclude = deck.slides.flatMap((sl) => sl.elements.flatMap((e) => (e.type === 'image' ? [e.src] : [])));
     const picture = pictureFor(question, exclude);   // (only used if the bank has no answer for it)
-    const { best, related } = await matchBank(question, classmateOnRef.current ? budget.followUps : 0);
+    const cooling = Date.now() - answeredAt.current < FOLLOW_UP_COOLDOWN_MS;
+    const followUps = classmateOnRef.current && !cooling ? Math.min(FOLLOW_UPS_MAX, budget.followUps) : 0;
+    if (cooling && classmateOnRef.current && budget.followUps > 0) tracking.track('tutor_decision', { action: 'follow_up_cooldown' });
+    const { best, related } = await matchBank(question, followUps);
     if (my !== askTurn.current) return;   // another question (or command) came meanwhile
     if (best) tracking.track('tutor_decision', { action: 'bank_match', q: best.q.slice(0, 120) }, { bank_answers: 1 });
     await quiet;
     if (my !== askTurn.current) return;
-    const done = best && !related.length ? await runDetour([{ q: best, ask: false }]) : await runTogether(question, best, related, picture);
+    const done = best && !related.length ? await runDetour([{ q: best, ask: false }], true) : await runTogether(question, best, related, picture);
+    if (done) {
+      // what each answer was about ("Tell me more"): one per question; on a slide of several, each on its own area
+      const many = related.length > 0;
+      const you = learnerName.trim() || 'You';
+      setMore([
+        best ? { key: best.id, label: you, kind: 'bank' as const, q: best, ...(many ? { area: 0 } : {}) } : { key: 'live', label: you, kind: 'live' as const, question, ...(many ? { area: 0 } : {}) },
+        ...related.map((q, i) => ({ key: q.id, label: CLASSMATES[q.asker].name, kind: 'bank' as const, q, area: i + 1 })),
+      ]);
+    }
     if (my !== askTurn.current) return;
     if (!done) {
       // cut short by something that didn't take over (no new question, not "Back to the lesson"): the answer
@@ -1568,7 +1579,9 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
       if (variantNow.current?.variant === 'answer') { await endDetour(); if (my === askTurn.current) playerRef.current.resume(); }
       return;
     }
-    await endDetour();
+    // (SHORT_ANSWERS: the answer slide stays up while "Anything else?" is asked: "Tell me more" is on it)
+    const keepUp = SHORT_ANSWERS && moreAbout.current.length > 0 && variantNow.current?.variant === 'answer';
+    if (!keepUp) await endDetour();
     // now and then a classmate says it helped them too (not after their own follow-ups: they've spoken)
     if (my === askTurn.current && classmateOnRef.current && !related.length && Math.random() < REACT_CHANCE) {
       const who: ClassmateId = Math.random() < 0.5 ? 'maya' : 'leo';
@@ -1576,8 +1589,52 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
       tracking.track('tutor_decision', { action: 'classmate_react', who });
       await mateSays(who, pickOne(SAME_QUESTION));
     }
-    if (my === askTurn.current) void offerMore(moveOn);
-  }, [offerMore, bankList, answer, tracking, finishThenPause, matchBank, runDetour, runTogether, endDetour, moveOn, pictureFor, deck]);
+    if (my === askTurn.current) void offerMore(keepUp ? () => { void endDetour().then(moveOn); } : moveOn);
+  }, [offerMore, bankList, answer, tracking, finishThenPause, matchBank, runDetour, runTogether, endDetour, moveOn, pictureFor, deck, setMore, learnerName]);
+
+  /**
+   * "Tell me more" (SHORT_ANSWERS): the full answer to one of the questions just answered. A bank answer: its slide's
+   * whole narration (its area lit on a "Your questions" slide); the professor's live answer: a fuller one. Then
+   * "Anything else?" is back (without saying it again), with the other questions' chips.
+   */
+  const tellMore = useCallback(async (key: string) => {
+    const item = moreAbout.current.find((m) => m.key === key);
+    const next = moreNext.current;
+    if (!item || !next) return;
+    // the offer pauses (not ended: its "what's next" stays), this chip goes (each once)
+    moreNext.current = null;
+    if (moreTimer.current) clearTimeout(moreTimer.current);
+    moreTimer.current = null;
+    setMoreOffer(false);
+    const mic = micRef.current;
+    if (mic.status === 'listening' || mic.status === 'processing') { skipTranscript.current = true; if (mic.status === 'listening') mic.talk(); }
+    setMore(moreAbout.current.filter((m) => m.key !== key));
+    addLine('you', 'Tell me more' + (item.label && item.area !== undefined ? ` (${item.label}'s question)` : ''));
+    tracking.track('tutor_decision', { action: 'tell_more', kind: item.kind });
+    const my = ++askTurn.current;
+    if (item.kind === 'bank') {
+      const slide = variantNow.current?.variant === 'answer' ? variantNow.current.slide : null;
+      if (slide && item.area !== undefined) {
+        const ids = areaIds(item.area);
+        setHelperActive(slide.elements.some((e) => e.id === ids.text) ? ids.text : ids.media);
+      }
+      for (const el of speakingOrder(item.q.slide)) {
+        if (item.area === undefined) setHelperActive(el.id);
+        if (!(await cues.play({ text: spokenText(el), url: currentAudio(el, 'normal') })) || my !== askTurn.current) { setHelperActive(null); return; }
+      }
+      setHelperActive(null);
+    } else {
+      // (asked as the chat line above says it, so it shows once; the answer slide, if up, takes the fuller answer's words)
+      const onSlide = variantNow.current?.slide?.id === TOGETHER_ID;
+      if (onSlide) together.current = { question: 'Tell me more', live: true };
+      const { superseded } = await tutor.ask('Tell me more', slideContext() +
+        `\nThe learner asked: "${item.question.slice(0, 300)}". You gave a short answer. Now give the fuller answer: 3 or 4 short sentences, ` +
+        'adding what you left out (don\'t repeat the short answer).', { remember: 'Tell me more about that.' });
+      if (onSlide && together.current?.question === 'Tell me more') together.current = null;
+      if (superseded) return;
+    }
+    if (my === askTurn.current) void offerMore(next, true);
+  }, [addLine, tracking, cues, tutor, slideContext, offerMore, setMore]);
 
   /* --------------------------------------------- Finn, the AI classmate */
   // Topics the learner has been in (for how often they ask), and topic ends since a classmate last spoke
@@ -1775,6 +1832,8 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
   const classmateTopics = useRef(new Set<number>());   // topics a classmate already spoke at the end of
   const classmateAsked = useRef<string[]>([]);
   const finnResults = useRef(new Map<number, FinnResult>());   // topic → how the learner did on Finn's mistake there
+  // Finn remembers (FINN_REMEMBERS): the first mix-up the learner caught, and his line owning up to it (said once, at his next turn)
+  const ownUp = useRef<{ topic: number; line: Promise<string | null>; used: boolean } | null>(null);
   const classmateOnRef = useRef(classmateOn);
   classmateOnRef.current = classmateOn;
   // The classmate's line for a topic, fetched (and voiced) while its last slide plays, so they speak at once
@@ -1878,6 +1937,18 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
         if (discuss) cues.preload(sayQ, line.who);
         await headsUp(line.who);
         if (over()) { setClassmateSaying(null); return; }
+        // Finn remembers: at his first turn after the learner caught him (in a later topic), he owns up to it first
+        const own = ownUp.current;
+        if (FINN_REMEMBERS && line.who === 'finn' && own && !own.used && own.topic !== topic) {
+          own.used = true;
+          const made = await Promise.race([own.line, new Promise<null>((r) => setTimeout(() => r(null), 1500))]);
+          if (over()) { setClassmateSaying(null); return; }   // (the learner took over meanwhile: not over them)
+          const text = made ?? pickOne(FINN_OWN_UP);
+          tracking.track('tutor_decision', { action: 'finn_owns_up', line: text.slice(0, 200), live: !!made, caughtAt: own.topic });
+          setClassmateSaying('finn');
+          const ok = await cues.play({ text, who: 'finn' });
+          if (!ok || over()) { setClassmateSaying(null); return; }
+        }
         if (discuss) setRoom({ asker: line.who, question: q, stage: 'ask' });
         setClassmateSaying(line.who);
         const said = await cues.play({ text: sayQ, who: line.who });
@@ -1911,10 +1982,10 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
           let react: string | null = null;
           if (mine && finnHow.current !== 'button') {
             try {
-              const res = await fetch('/api/classmate', {
+              const res = await waitingOn(other, fetch('/api/classmate', {
                 method: 'POST', headers: learnerHeaders({ 'Content-Type': 'application/json' }),
                 body: JSON.stringify({ react: { who: other, question: line.bank!.q, answer: mine } }), signal: AbortSignal.timeout(6000),
-              });
+              }));
               const d = res.ok ? await res.json() : null;
               react = typeof d?.line === 'string' && d.line.trim() ? d.line.trim() : null;
             } catch { /* a ready-made line */ }
@@ -1984,6 +2055,19 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
             const kind = silent ? 'unsure' : judged ?? finnVerdictKind(first);
             tracking.track('tutor_decision', { action: 'classmate_mistake_answer', answer: silent ? '(no answer)' : verdict.slice(0, 200), kind, ...(silent ? { timedOut: true } : {}) });
             finnResults.current.set(topic, { kind, truth: line.truth });   // for the ending
+            if (FINN_REMEMBERS && kind === 'caught' && !ownUp.current) {
+              ownUp.current = {
+                topic, used: false,
+                line: fetch('/api/classmate', {
+                  method: 'POST', headers: learnerHeaders({ 'Content-Type': 'application/json' }),
+                  body: JSON.stringify({ ownup: { mistake: q, truth: line.truth } }), signal: AbortSignal.timeout(12000),
+                }).then((res) => (res.ok ? res.json() : null)).then((d) => {
+                  const said = typeof d?.line === 'string' && d.line.trim() ? d.line.trim() : null;
+                  if (said) cuesRef.current.preload(said, 'finn');
+                  return said;
+                }).catch(() => null),
+              };
+            }
             if (kind !== 'other') feel(kind === 'caught' ? 'finn_caught' : kind === 'fooled' ? 'finn_fooled' : 'finn_unsure', { slide: from, box: null });
             // Fooled or unsure: after the explanation, the topic's helper ("another way to see it")
             const helper = kind === 'fooled' || kind === 'unsure' ? (MORPH_HELPERS ? helperFor(from) : null) : null;
@@ -2233,23 +2317,35 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
     const my = askTurn.current;
     const upTo = playerRef.current.slideIndex;
     let reply: string | null = null;
+    let pass = false;   // a guess or an opinion: they hand it to the professor after
+    let kind = '';
     try {
-      const res = await fetch('/api/classmate', {
+      const res = await waitingOn(who, fetch('/api/classmate', {
         method: 'POST', headers: learnerHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify({ reply: { who, text, slide: slideText(upTo), taught: lessonText({ ...deck, slides: deck.slides.slice(0, upTo + 1) }, 8000) } }), signal: AbortSignal.timeout(10000),
-      });
+      }));
       const d = res.ok ? await res.json() : null;
       reply = typeof d?.reply === 'string' && d.reply.trim() ? d.reply.trim() : null;
+      pass = !!d?.pass;
+      kind = typeof d?.kind === 'string' ? d.kind.toLowerCase() : '';
     } catch { /* they pass it to the professor */ }
     await quiet;
     if (my !== askTurn.current) return;   // another question (or a command) came meanwhile
-    tracking.track('tutor_decision', { action: 'classmate_live', kind: 'reply', who, used: !!reply, line: (reply ?? '').slice(0, 320), to: text.slice(0, 200) }, reply ? { classmate_turns: 1 } : undefined);
+    tracking.track('tutor_decision', { action: 'classmate_live', kind: 'reply', who, used: !!reply, line: (reply ?? '').slice(0, 320), to: text.slice(0, 200), ...(kind ? { reply_kind: kind } : {}) }, reply ? { classmate_turns: 1 } : undefined);
     classmateWho.current.push(who);
     const said = await mateSays(who, reply ?? MATE_UNSURE());
     if (!said || my !== askTurn.current) return;
     if (!reply) { void answer(text, { counted: true }); return; }
+    // a guess or an opinion: the professor follows on from what they said (was: only "I don't know" went to him)
+    if (pass) {
+      const mate = CLASSMATES[who].name;
+      void answer(text, { counted: true, note: kind === 'opinion'
+        ? `${mate}, a classmate, was asked this and gave an opinion: "${reply}". Answer the learner, and nod to what ${mate} said in a few words (an opinion, not right or wrong).`
+        : `${mate}, a classmate, was asked this and guessed: "${reply}". Answer the learner, and start by saying what ${mate} got right (or kindly what wasn't quite right).` });
+      return;
+    }
     void offerMore(() => playerRef.current.resume());
-  }, [deck, tracking, finishThenPause, mateSays, answer, offerMore, slideText]);
+  }, [deck, tracking, finishThenPause, mateSays, answer, offerMore, slideText, waitingOn]);
 
   const handleText = useCallback((text: string) => {
     if (isStatic) return;   // (static: nothing to ask or tell; there's no box or mic for it either)
@@ -2257,7 +2353,11 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
     addLine('you', text);
     // "Anything else, or shall we go on?": "no" / "go on" carries on; anything else is their next question (or a command)
     // (a few words only: "ok so why do they…" is their next question, not "go on")
-    if (moreNext.current) { if (text.trim().split(/\s+/).length <= 4 && GO_ON.test(text.trim())) { endMore(true, 'typed'); return; } endMore(false, 'typed'); }
+    if (moreNext.current) {
+      if (text.trim().split(/\s+/).length <= 4 && GO_ON.test(text.trim())) { endMore(true, 'typed'); return; }
+      endMore(false, 'typed');
+      if (variantNow.current?.variant === 'answer') void endDetour();   // (the answer slide kept up for "Tell me more": it goes)
+    }
     if (finnCheck.current) { if (!parseCanvasCommand(text)) { finnVerdict(text, 'typed', true); return; } finnVerdict(null, 'typed'); }
     takeOverFromFinn();   // the learner's own question or command during Finn's turn: theirs goes first
     if (replayOffer) {
@@ -2340,11 +2440,17 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
       resumeAfterTurn.current = playerRef.current.status !== 'paused' || checkIn.current !== null;
       // (while answers to class questions are being given, a noise as the answer is still being written doesn't
       // cancel it: was the answer slide left up on "…". Words they actually say still take over, as a new question)
-      if (tutor.speaking || (tutor.thinking && !detourBusy.current)) tutor.finishSentence();
-      else if (SPEAKING.includes(playerRef.current.status)) {
-        tracking.track('barge_in', {}, { barge_ins: 1 });
-        playerRef.current.interrupt();
-      }
+      const takeOver = () => {
+        if (tutor.speaking || (tutor.thinking && !detourBusy.current)) tutor.finishSentence();
+        else if (SPEAKING.includes(playerRef.current.status)) {
+          tracking.track('barge_in', {}, { barge_ins: 1 });
+          playerRef.current.interrupt();
+        }
+      };
+      // Hold to talk: the professor stops only once it's a real hold (a tap by mistake doesn't cut him off)
+      const wait = heldSince.current ? HOLD_MIN_MS - (Date.now() - heldSince.current) : 0;
+      if (wait > 0) { setTimeout(() => { if (heldSince.current) takeOver(); }, wait); return; }
+      takeOver();
     },
     onTranscript: (text) => {
       if (skipTranscript.current) { skipTranscript.current = false; return; }
@@ -2367,6 +2473,40 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
     },
   });
   micRef.current = { status: micStatus, talk };
+  // Hold to talk (the Ask button): listening while held; let go to send. Shorter than HOLD_MIN_MS: what was heard is
+  // dropped (a tap by mistake isn't a question) and "Hold to talk" shows
+  const heldSince = useRef(0);
+  const [holdHint, setHoldHint] = useState<string | null>(null);
+  // The microphone's permission ('prompt': the browser will ask, on the first press; that press isn't a tap by mistake)
+  const micPermission = useRef<string>('unknown');
+  useEffect(() => {
+    let status: PermissionStatus | null = null;
+    const set = () => { micPermission.current = status?.state ?? 'unknown'; };
+    navigator.permissions?.query({ name: 'microphone' as PermissionName }).then((s) => { status = s; set(); s.addEventListener('change', set); }).catch(() => {});
+    return () => status?.removeEventListener('change', set);
+  }, []);
+  const holdHintTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pressAsk = () => {
+    if (micRef.current.status === 'processing') return;
+    if (micRef.current.status === 'listening' && !heldSince.current) { talk(); return; }   // (already listening on its own: that turn is sent)
+    heldSince.current = Date.now();
+    setHoldHint(null);
+    talk({ hold: true });
+  };
+  const releaseAsk = () => {
+    if (!heldSince.current) return;
+    const held = Date.now() - heldSince.current;
+    heldSince.current = 0;
+    if (held >= HOLD_MIN_MS) { talk(); return; }   // let go: send what was said
+    // a tap: nothing is sent (the turn, if it began, is ended and its words dropped; if not, it's called off)
+    talk({ drop: true });
+    // (the browser asking for the microphone took the press: not a tap by mistake, so a different word)
+    const asking = micPermission.current === 'prompt' && micRef.current.status !== 'listening';
+    tracking.track('tutor_decision', { action: asking ? 'ask_permission' : 'ask_tap' });
+    setHoldHint(asking ? 'Allow the microphone, then hold Ask again' : 'Hold to talk: press, say it, let go');
+    if (holdHintTimer.current) clearTimeout(holdHintTimer.current);
+    holdHintTimer.current = setTimeout(() => setHoldHint(null), asking ? 6000 : 2500);
+  };
 
   // The end, first: the quiz (if the lesson has one, and it hasn't been done or skipped this time through)
   // (not in the study: its own quizzes come after the lesson, and this one would show answers to them)
@@ -2879,7 +3019,7 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
     cancelAnswer();
     setClassmateSaying(null);
     if (variant) { variantAfter.current = null; variantMode.current = 'answer'; setVariant(null); helperSeq.current++; setHelperActive(null); }
-    checked.current.clear(); activitiesDone.current.clear(); activitiesSolved.current.clear(); activitiesRevealed.current.clear(); classmateTopics.current.clear(); classmateAsked.current = []; finnReady.current.clear(); finnResults.current.clear();
+    checked.current.clear(); activitiesDone.current.clear(); activitiesSolved.current.clear(); activitiesRevealed.current.clear(); classmateTopics.current.clear(); classmateAsked.current = []; finnReady.current.clear(); finnResults.current.clear(); ownUp.current = null;
     roomCount.current = 0; setRoom(null);
     classmateWho.current = []; lastMixUp.current = -2; curious.current.clear(); struggles.current.clear();
     midTopics.current.clear(); shaky.current.clear(); carried.current.clear(); helperUsed.current.clear(); midMatch.current.clear(); midPending.current = null; midResume.current = false; struggleSlide.current = -1; mateTalkAt.current = 0;
@@ -3181,14 +3321,30 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
             <button className="px-3 py-1 rounded-full bg-cyan-500 hover:bg-cyan-400 text-slate-900 font-semibold" onClick={() => answerReplay(true, 'button')}>Yes, show me</button>
             <button className="px-3 py-1 rounded-full bg-white/15 hover:bg-white/25" onClick={() => answerReplay(false, 'button')}>No, keep going</button>
             <button className={`w-8 h-8 rounded-full ${micStatus === 'listening' ? 'bg-red-500 animate-pulse' : 'bg-white/15 hover:bg-white/25'}`}
-              onClick={talk} disabled={micStatus === 'processing'} title="Or say it: “yes” or “no”" aria-label={micStatus === 'listening' ? 'Listening' : 'Or say it'}>
+              onClick={() => talk()} disabled={micStatus === 'processing'} title="Or say it: “yes” or “no”" aria-label={micStatus === 'listening' ? 'Listening' : 'Or say it'}>
               {micStatus === 'listening' ? '●' : <Icon name="microphone" />}
             </button>
           </div>
         )}
+        {/* "Tell me more" on each question of a "Your questions" slide (top right of its area) */}
+        {moreOffer === 'asked' && !selfCheck && variant?.variant === 'answer' && moreChips.some((c) => c.area !== undefined) && moreChips.map((c) => {
+          if (c.area === undefined) return null;
+          const lab = variant.slide?.elements.find((e) => e.id === areaIds(c.area!).label);
+          if (!lab) return null;
+          return (
+            <button key={c.key} onClick={() => void tellMore(c.key)} data-tell-more={c.area}
+              className="absolute z-20 -translate-x-full -translate-y-[115%] px-2.5 py-1 rounded-full bg-cyan-500/90 hover:bg-cyan-400 text-slate-950 text-xs font-semibold shadow-md inline-flex items-center gap-1 animate-[fade-in_300ms_ease]"
+              style={{ left: `${lab.x + lab.w}%`, top: `${lab.y}%` }} aria-label={`Tell me more: ${c.label}'s question`}>
+              <Icon name="plus" /> Tell me more
+            </button>
+          );
+        })}
         {moreOffer && !selfCheck && (
           <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-20 flex items-center gap-2 px-4 py-2 rounded-full bg-slate-900/90 text-white text-sm shadow-lg whitespace-nowrap max-sm:whitespace-normal max-sm:flex-wrap max-sm:justify-center" role="dialog" aria-label="Anything else?">
             <span>{moreOffer === 'waiting' ? 'Go ahead: say it or type it' : 'Anything else?'}</span>
+            {moreOffer === 'asked' && moreChips.length === 1 && moreChips[0].area === undefined && (
+              <button className="px-3 py-1 rounded-full bg-white/15 hover:bg-white/25 inline-flex items-center gap-1" onClick={() => void tellMore(moreChips[0].key)}><Icon name="plus" /> Tell me more</button>
+            )}
             {moreOffer === 'asked' && <button className="px-3 py-1 rounded-full bg-white/15 hover:bg-white/25" onClick={askAnother}>Ask another</button>}
             <button className="px-3 py-1 rounded-full bg-cyan-500 hover:bg-cyan-400 text-slate-900 font-semibold" onClick={() => endMore(true, 'button')}>Go on</button>
           </div>
@@ -3220,7 +3376,8 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
         </div>
         {/* "Is Finn right?": a quick answer, or their own words (typed, or the mic). Was: only the three buttons */}
         {finnWaiting === 'buttons' && (
-          <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-20 w-[min(36rem,92%)] flex flex-col gap-2 px-3 py-2.5 rounded-2xl bg-slate-900/90 text-white text-sm shadow-lg" role="dialog" aria-label={`Is ${CLASSMATE_NAME} right?`}>
+          // (a shine runs round its edge so it's hard to miss; it stops once they start answering in their own words)
+          <div className={`absolute bottom-4 left-1/2 -translate-x-1/2 z-20 w-[min(36rem,92%)] flex flex-col gap-2 px-3 py-2.5 rounded-2xl bg-slate-900/90 text-white text-sm shadow-lg ${finnReply.trim() || micStatus === 'listening' ? '' : 'shine-edge'}`} role="dialog" aria-label={`Is ${CLASSMATE_NAME} right?`}>
             <div className="flex flex-wrap items-center justify-center gap-2">
               <span>Is {CLASSMATE_NAME} right?</span>
               <button className="px-3 py-1 rounded-full bg-amber-400 hover:bg-amber-300 text-slate-900 font-semibold" onClick={() => finnVerdict(`Not quite, ${CLASSMATE_NAME} is wrong.`, 'button')}>Not quite!</button>
@@ -3233,7 +3390,7 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
                 placeholder="Or say what you think, and why…" aria-label="Your answer"
                 className="flex-1 min-w-0 bg-transparent outline-none placeholder:text-white/45" />
               <button type="button" className={`w-8 h-8 shrink-0 rounded-full ${micStatus === 'listening' ? 'bg-red-500 animate-pulse' : 'bg-white/15 hover:bg-white/25'}`}
-                onClick={talk} disabled={micStatus === 'processing'} aria-label={micStatus === 'listening' ? 'Listening' : 'Say it'} title="Say it instead">
+                onClick={() => talk()} disabled={micStatus === 'processing'} aria-label={micStatus === 'listening' ? 'Listening' : 'Say it'} title="Say it instead">
                 {micStatus === 'listening' ? '●' : <Icon name="microphone" />}
               </button>
               <button className="px-3 py-1.5 shrink-0 rounded-full bg-cyan-500 hover:bg-cyan-400 text-slate-900 font-semibold disabled:opacity-40" disabled={!finnReply.trim()}>Send</button>
@@ -3276,7 +3433,7 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
               placeholder="Type what you think…" aria-label="Your answer"
               className="flex-1 min-w-0 bg-transparent outline-none placeholder:text-white/45" />
             <button type="button" className={`w-8 h-8 shrink-0 rounded-full ${micStatus === 'listening' ? 'bg-red-500 animate-pulse' : 'bg-white/15 hover:bg-white/25'}`}
-              onClick={talk} disabled={micStatus === 'processing'} aria-label={micStatus === 'listening' ? 'Listening' : 'Say it'} title="Say it instead">
+              onClick={() => talk()} disabled={micStatus === 'processing'} aria-label={micStatus === 'listening' ? 'Listening' : 'Say it'} title="Say it instead">
               {micStatus === 'listening' ? '●' : <Icon name="microphone" />}
             </button>
             <button className="px-3 py-1.5 shrink-0 rounded-full bg-cyan-500 hover:bg-cyan-400 text-slate-900 font-semibold disabled:opacity-40" disabled={!finnReply.trim()}>Send</button>
@@ -3341,14 +3498,27 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
         </div>
         {/* (static: no asking) */}
         {!isStatic && <div className={group} role="group" aria-label="Ask the professor">
-        <button
-          className={`${btn} ${micStatus === 'listening' ? 'bg-red-500/80 hover:bg-red-500' : ''}`}
-          onClick={talk}
-          disabled={micStatus === 'processing'}
-          aria-label={micStatus === 'listening' ? 'Listening' : 'Ask'}
-        >
-          {micStatus === 'listening' ? <>●<span className={label}> Listening…</span></> : micStatus === 'processing' ? '…' : <><Icon name="microphone" /><span className={label}> Ask</span></>}
-        </button>
+        {/* Hold to talk: press, say it, let go (a quick tap isn't sent: "Hold to talk"). Its own colour: the way to talk to the class */}
+        <span className="relative inline-flex">
+          <button
+            className={`${btn} select-none touch-none ${micStatus === 'listening' ? '!bg-red-500/85 hover:!bg-red-500 !text-white' : '!bg-cyan-500/90 hover:!bg-cyan-400 !text-slate-950 font-semibold'}`}
+            onPointerDown={(e) => { e.currentTarget.setPointerCapture?.(e.pointerId); pressAsk(); }}
+            onPointerUp={releaseAsk} onPointerCancel={releaseAsk} onLostPointerCapture={releaseAsk}
+            onKeyDown={(e) => { if ((e.key === ' ' || e.key === 'Enter') && !e.repeat) { e.preventDefault(); pressAsk(); } }}
+            onKeyUp={(e) => { if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); releaseAsk(); } }}
+            onContextMenu={(e) => e.preventDefault()}
+            disabled={micStatus === 'processing'}
+            aria-label={micStatus === 'listening' ? 'Listening: let go to send' : 'Hold to ask'}
+            title="Hold to talk: press, say it, let go"
+          >
+            {micStatus === 'listening' ? <>●<span className={label}> Listening… let go to send</span></> : micStatus === 'processing' ? '…' : <><Icon name="microphone" /><span className={label}> Hold to ask</span></>}
+          </button>
+          {holdHint && (
+            <span role="status" className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 whitespace-nowrap rounded-lg bg-slate-900/95 px-2.5 py-1 text-xs text-white shadow-lg animate-[fade-in_200ms_ease]">
+              {holdHint}
+            </span>
+          )}
+        </span>
         {(interruptOn || micStatus === 'listening') && <MicMeter levelRef={levelRef} listening={micStatus === 'listening'} />}
         {/* (with the class chat beside the slide, its own box is where to type) */}
         {!chatDocked && <form
@@ -3439,12 +3609,12 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
       {/* The class chat and the classmates (see chatDocked above) */}
       {chatDocked ? (
         <ClassChat className={`fixed top-3 bottom-3 z-30 w-[22rem] ${wide ? 'left-3' : 'right-3'}`} entries={chat} learnerName={learnerName.trim()} liveSlide={liveSlide}
-          getAudio={player.getAudio} thinking={tutor.thinking} speaking={talking} onSend={isStatic ? undefined : handleText} mates={matesAllowed} onClose={() => setChatOpen(false)} />
+          getAudio={player.getAudio} thinking={pendingWho ?? (tutor.thinking ? 'professor' : null)} speaking={talking} onSend={isStatic ? undefined : handleText} mates={matesAllowed} onClose={() => setChatOpen(false)} />
       ) : (
         <div className={`fixed inset-y-0 left-0 z-50 w-[min(22rem,90vw)] p-2 transition-transform duration-300 ${pulled === 'chat' ? 'translate-x-0' : '-translate-x-[105%]'}`}
           inert={pulled !== 'chat'} data-pullout="chat">
           <ClassChat className="h-full" solid entries={chat} learnerName={learnerName.trim()} liveSlide={liveSlide}
-            getAudio={player.getAudio} thinking={tutor.thinking} speaking={talking} onSend={isStatic ? undefined : handleText} mates={matesAllowed} onClose={() => setPulled(null)} closeLabel="Put the chat away" />
+            getAudio={player.getAudio} thinking={pendingWho ?? (tutor.thinking ? 'professor' : null)} speaking={talking} onSend={isStatic ? undefined : handleText} mates={matesAllowed} onClose={() => setPulled(null)} closeLabel="Put the chat away" />
         </div>
       )}
       {!matesAllowed ? null : matesDocked ? (

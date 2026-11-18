@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import './globals.css';
+import ErrorReporter from '@/components/ErrorReporter';
 
 export const metadata: Metadata = {
   title: 'Blue Catfish AI Presentation',
@@ -14,6 +15,7 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body className="antialiased">
+        <ErrorReporter />
         {children}
       </body>
     </html>

@@ -5,10 +5,11 @@ import Icon from '@/components/Icon';
 import {
   CONSENT_ADAPTIVE, CONSENT_CLASSMATES, DEMOGRAPHICS, STUDIES, demographicAnswer, PAIR_POINTS, POST_QUIZ, PRE_QUIZ, SCALE, STUDY_LESSON, STUDY_TITLE, surveyFor,
   type DemographicId, type QuizQuestion, type StudyGroup, type StudyId, type SurveyItem,
-  IDK, IDK_TEXT,
+  IDK, IDK_TEXT, QUIZ_WHY, FAMILY_THINGS, LEARN_MORE,
 } from '@/lib/study/content';
 import { freshStart, isComputer, preloadCamera, preloadLesson, readStudy, seenBefore, studyPost, writeStudy, type StudyRecord } from '@/lib/study/client';
 import { learnerHeaders } from '@/lib/learnerSession';
+import { CAMERA_CHECK_AFTER_GROUP, SHOW_QR } from '@/lib/settings';
 
 /*
  * The study (in person, v2): consent → their name (kept in this browser only) → sound, mic and camera checks → about you
@@ -105,6 +106,17 @@ export default function StudyFlow({ which }: { which: StudyId }) {
     window.location.href = `${S.path}?test=1`;
   };
   // Family sharing one computer: the next person starts fresh (this browser has seen the lesson: noted with their answers)
+  // Static vs adaptive (CAMERA_CHECK_AFTER_GROUP): the camera isn't in the setup checks; it's checked once the group is
+  // picked, for the adaptive group only. So picking the group stays on this step, and the static group goes straight on
+  const cameraLater = which === 1 && CAMERA_CHECK_AFTER_GROUP;
+  const assign = (g?: string | null) => {
+    if (!rec) return;
+    const pick = async () => ({ group: (await post('assign', g === undefined ? { id: rec.id } : { id: rec.id, group: g })).group });
+    void go(cameraLater ? 'start' : 'lesson', pick);
+  };
+  useEffect(() => {
+    if (step === 'start' && cameraLater && rec?.group && (rec.group !== 'adaptive' || rec.camera !== undefined)) void go('lesson', async () => ({}));
+  }, [step, cameraLater, rec?.group, rec?.camera, go]);
   const nextPerson = () => {
     if (!window.confirm('Start the study for someone else on this computer? (Your answers are already saved.)')) return;
     forget();
@@ -153,7 +165,7 @@ export default function StudyFlow({ which }: { which: StudyId }) {
       )}
 
       {step === 'checks' && rec && rec.named && (
-        <Checks busy={busy} onDone={(checks) => go('about', async () => {
+        <Checks busy={busy} camera={!cameraLater} onDone={(checks) => go('about', async () => {
           await post('save', { id: rec.id, checks, step: 'about' });
           return { camera: checks.camera_ok };
         })} />
@@ -169,7 +181,17 @@ export default function StudyFlow({ which }: { which: StudyId }) {
           onDone={(answers, times, ms) => go('start', () => post('pre', { id: rec.id, answers, times, ms }))} />
       )}
 
-      {step === 'start' && rec && (
+      {/* (static vs adaptive: the adaptive group's camera check, now that the group is known; the static lesson has no camera) */}
+      {step === 'start' && rec && cameraLater && rec.group === 'adaptive' && rec.camera === undefined && (
+        <div className={card}>
+          <CameraCheck busy={busy} onDone={(ok) => go('lesson', async () => {
+            await post('save', { id: rec.id, checks: { camera_ok: ok } });
+            return { camera: ok };
+          })} />
+        </div>
+      )}
+
+      {step === 'start' && rec && !(cameraLater && rec.group) && (
         <div className={card}>
           <h1 className="text-2xl font-bold">Ready for the lesson</h1>
           <p className="mt-3 text-slate-700">The lesson starts next. It takes about 15–20 minutes. Find a quiet spot and keep your sound on.</p>
@@ -179,12 +201,12 @@ export default function StudyFlow({ which }: { which: StudyId }) {
               <span className="w-full text-sm text-amber-700">Test run: pick the group to try.</span>
               {[...S.groups.map((g) => [g, S.names[g]] as const), [null, 'Random'] as const].map(([g, label]) => (
                 <button key={label} className={primary} disabled={busy}
-                  onClick={() => go('lesson', async () => ({ group: (await post('assign', { id: rec.id, group: g })).group }))}>{label}</button>
+                  onClick={() => assign(g)}>{label}</button>
               ))}
             </div>
           ) : (
             <button className={`${primary} mt-5`} disabled={busy}
-              onClick={() => go('lesson', async () => ({ group: (await post('assign', { id: rec.id })).group }))}>Start the lesson</button>
+              onClick={() => assign()}>Start the lesson</button>
           )}
         </div>
       )}
@@ -379,17 +401,18 @@ function Quiz({ title, intro, questions, busy, onDone, idk = false }: {
 const WORDS = ['river', 'crab', 'boat', 'island', 'shell', 'storm'];
 
 /** Sound and microphone together (hear the word, say it back), then the camera (optional, a preview) */
-function Checks({ busy, onDone }: { busy: boolean; onDone: (c: { sound_ok: boolean; mic_ok: boolean; camera_ok: boolean }) => void }) {
+/** camera: false = sound and microphone only (the camera is checked later, for the group that has it) */
+function Checks({ busy, camera = true, onDone }: { busy: boolean; camera?: boolean; onDone: (c: { sound_ok: boolean; mic_ok: boolean; camera_ok?: boolean }) => void }) {
   const [part, setPart] = useState<'soundmic' | 'camera'>('soundmic');
   const [result, setResult] = useState({ sound_ok: false, mic_ok: false });
   return (
     <div className={card}>
       <div className="flex gap-2 text-sm">
-        {(['soundmic', 'camera'] as const).map((p) => (
+        {(camera ? ['soundmic', 'camera'] as const : ['soundmic'] as const).map((p) => (
           <span key={p} className={`px-3 py-1 rounded-full ${p === part ? 'bg-cyan-600 text-white' : 'bg-slate-100 text-slate-500'}`}>{p === 'soundmic' ? <><Icon name="speaker" /> Sound and <Icon name="microphone" /> microphone</> : <><Icon name="camera" /> Camera</>}</span>
         ))}
       </div>
-      {part === 'soundmic' && <SoundMicCheck onDone={(r) => { setResult(r); setPart('camera'); }} />}
+      {part === 'soundmic' && <SoundMicCheck onDone={(r) => { if (camera) { setResult(r); setPart('camera'); } else onDone(r); }} />}
       {part === 'camera' && <CameraCheck busy={busy} onDone={(ok) => onDone({ ...result, camera_ok: ok })} />}
     </div>
   );
@@ -688,10 +711,21 @@ function Done({ rec, results, setResults, onNextPerson }: { rec: StudyRecord; re
               <li key={r.id} className={`rounded-xl px-4 py-3 text-sm ${r.correct ? 'bg-emerald-50' : 'bg-amber-50'}`}>
                 <div className="font-medium">{r.correct ? <Icon name="check-mark" className="text-emerald-600" /> : <Icon name="cross" className="text-rose-600" />} {r.q}</div>
                 {!r.correct && <div className="text-slate-600 mt-1">You said: {r.yours ?? '(nothing)'} · Answer: <b>{r.right}</b></div>}
+                {/* why the answer is right, folded so the list stays short */}
+                {!r.correct && QUIZ_WHY[r.id] && (
+                  <details className="group mt-1.5">
+                    <summary className="inline-flex items-center gap-1 cursor-pointer list-none text-xs font-semibold text-amber-800 hover:text-amber-900 select-none">
+                      <span className="inline-block transition-transform group-open:rotate-90">›</span> Why?
+                    </summary>
+                    <p className="mt-1 pl-3 border-l-2 border-amber-300 text-slate-700">{QUIZ_WHY[r.id]}</p>
+                  </details>
+                )}
               </li>
             ))}
           </ul>
           <p className="mt-4 text-xs text-slate-500">Your written answers are read by the research team.</p>
+          {rec.finn && rec.finn.caught > 0 && <FinnBadge caught={rec.finn.caught} of={rec.finn.of} />}
+          <FamilyCard />
         </>
       ) : failed ? (
         <p className="mt-4 text-sm text-slate-500">Your answers are saved. (We couldn’t load your scores just now.)</p>
@@ -708,5 +742,60 @@ function Done({ rec, results, setResults, onNextPerson }: { rec: StudyRecord; re
       <p className="mt-1 text-sm text-slate-500"><a href="/sources" target="_blank" rel="noreferrer" className="underline hover:text-slate-700">Where the lesson’s facts come from</a></p>
       {onNextPerson && <button className={`${quiet} mt-2 underline`} onClick={onNextPerson}>Someone else wants to take part on this computer</button>}
     </div>
+  );
+}
+
+/** Three things to tell your family (the take-home card), and where to learn more */
+function FamilyCard() {
+  return (
+    <section className="mt-6 rounded-2xl border border-cyan-100 bg-gradient-to-br from-cyan-50 to-sky-50 p-5" aria-label="Three things to tell your family">
+      <div className="flex items-start gap-5 max-sm:flex-col">
+        <div className="flex-1">
+          <h2 className="font-semibold text-slate-900 flex items-center gap-2"><Icon name="home" className="text-cyan-700" /> 3 things to tell your family</h2>
+          <ol className="mt-3 flex flex-col gap-2.5">
+            {FAMILY_THINGS.map((t, i) => (
+              <li key={i} className="flex gap-3 text-sm text-slate-700">
+                <span className="shrink-0 w-6 h-6 rounded-full bg-cyan-600 text-white text-xs font-bold flex items-center justify-center">{i + 1}</span>
+                <span>{t}</span>
+              </li>
+            ))}
+          </ol>
+          {!SHOW_QR && (
+            <p className="mt-4 text-sm text-slate-600">Learn more: <a href={LEARN_MORE.url} target="_blank" rel="noreferrer" className="font-medium text-cyan-700 underline hover:text-cyan-800">{LEARN_MORE.label}</a></p>
+          )}
+        </div>
+        {SHOW_QR && (
+          <a href={LEARN_MORE.url} target="_blank" rel="noreferrer" className="shrink-0 flex flex-col items-center gap-1.5 rounded-xl bg-white p-3 shadow-sm hover:shadow-md transition-shadow max-sm:self-center">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={LEARN_MORE.qr} alt={`QR code: ${LEARN_MORE.label}`} width={112} height={112} className="w-28 h-28 [image-rendering:pixelated]" />
+            <span className="text-[11px] text-slate-500 text-center leading-tight">Scan to learn more<br /><span className="text-cyan-700 underline">{LEARN_MORE.label}</span></span>
+          </a>
+        )}
+      </div>
+    </section>
+  );
+}
+
+/** The badges (public/badges): one of Finn's mix-ups caught, or all of them (two or more) */
+const BADGES = {
+  spotted: { src: '/badges/mix-up-spotted.webp', name: 'Mix-up Spotted!', file: 'mix-up-spotted.webp' },
+  checker: { src: '/badges/fact-checker.webp', name: 'Fact Checker', file: 'fact-checker.webp' },
+};
+
+/** "I caught Finn!": a badge for catching Finn's mix-ups, to save (the adaptive lesson with the classmates only) */
+function FinnBadge({ caught, of }: { caught: number; of: number }) {
+  const badge = caught === of && of >= 2 ? BADGES.checker : BADGES.spotted;
+  const line = caught === of ? (of === 1 ? 'You caught Finn’s mix-up!' : of === 2 ? 'You caught both of Finn’s mix-ups!' : `You caught all ${of} of Finn’s mix-ups!`) : `You caught ${caught} of Finn’s ${of} mix-ups!`;
+  return (
+    <section className="mt-6 flex items-center gap-5 rounded-2xl border border-amber-200 bg-gradient-to-br from-amber-50 to-yellow-50 p-4 max-sm:flex-col max-sm:text-center" aria-label="Your badge">
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img src={badge.src} alt={`Badge: ${badge.name} I caught Finn!`} width={128} height={128} className="w-32 h-32 shrink-0 drop-shadow-md animate-[pop-in_500ms_ease_both]" />
+      <div className="flex-1">
+        <div className="text-xs font-semibold uppercase tracking-wide text-amber-700">Badge earned</div>
+        <div className="text-lg font-bold text-slate-900">{badge.name}</div>
+        <div className="text-sm text-slate-600">{line} Finn mixes things up on purpose, and you spotted it.</div>
+        <a href={badge.src} download={badge.file} className="mt-2 inline-flex items-center gap-1 text-sm font-semibold text-amber-800 underline hover:text-amber-900">Save the badge</a>
+      </div>
+    </section>
   );
 }

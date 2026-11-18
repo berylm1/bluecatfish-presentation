@@ -48,14 +48,17 @@ const LABEL = 12;    // room above the circle for its label
  * The largest circle on the right that stays clear of every data-bubble-avoid
  * box (the slide, the buttons, the transcript). Tries the bottom-right corner
  * and the strip beside the slide (level with its bottom), and takes whichever
- * fits the bigger circle. With the class chat down the right-hand side: the
- * corner just left of it (was: the window's corner, behind the chat).
+ * fits the bigger circle. With a panel down the right-hand side (the class chat or the classmates): the
+ * corner just left of it (was: the window's corner, behind it).
  */
 function fitPlace(): { d: number; top: number; right: number } {
   const w = window.innerWidth, h = window.innerHeight;
-  const chat = document.querySelector('[data-class-chat]')?.getBoundingClientRect();
-  const onRight = chat && chat.width > 0 && chat.left > w / 2;
-  const edge = onRight ? w - chat.left + GAP : EDGE;   // from the window's right edge to the circle's
+  // (whatever is docked down the right-hand side: the class chat, or the classmates panel with the chat on the left;
+  // was: the class chat only, so with the classmates panel there the circle went behind it, in the window's corner)
+  const docked = [...document.querySelectorAll('[data-class-chat], [data-classmates]')].map((el) => el.getBoundingClientRect())
+    .filter((r) => r.width > 0 && r.height > h / 2 && r.left > w / 2);
+  const dockLeft = docked.length ? Math.min(...docked.map((r) => r.left)) : null;
+  const edge = dockLeft !== null ? w - dockLeft + GAP : EDGE;   // from the window's right edge to the circle's
   const els = [...document.querySelectorAll('[data-bubble-avoid]')];
   const boxes = els.map((el) => el.getBoundingClientRect()).filter((b) => b.width > 0 && b.height > 0);
   const slide = document.querySelector('[data-bubble-slide]')?.getBoundingClientRect();

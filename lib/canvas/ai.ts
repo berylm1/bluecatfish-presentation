@@ -12,6 +12,15 @@ const supabase = lazySupabaseAdmin();
 export const LUNA = 'gpt-6-luna';
 export const SOL = 'gpt-6.1-sol';
 const MODEL = LUNA;
+/** The professor's live answers (app/api/conversational/respond) */
+export const PROFESSOR_MODEL = LUNA;
+/** What each study participant's lesson ran on, recorded on their row (migration 022: ai_model), by group: the static
+ *  lesson has no live AI; the lesson without classmates, the professor's answers only */
+export const AI_MODELS = `professor ${PROFESSOR_MODEL}, classmates ${MODEL}`;
+export function aiModelsFor(group: string): string {
+  return group === 'static' ? 'none (static lesson)' : group === 'no_classmates' ? `professor ${PROFESSOR_MODEL}` : AI_MODELS;
+}
+const MIN_COMPLETION_TOKENS = 1000;   // chat()'s floor for max_completion_tokens (see there)
 
 export const STYLE =
   'You are Professor Marine, a fun science teacher talking to 10 to 14 year olds about the blue catfish invasion ' +
@@ -43,7 +52,9 @@ export async function chat(system: string, user: string, json = false, maxTokens
       reasoning_effort: 'low',
       ...(json ? { response_format: { type: 'json_object' } } : {}),
       messages: [{ role: 'system', content: system }, { role: 'user', content: user }],
-      max_completion_tokens: maxTokens,
+      // (the model's reasoning counts in this too: a small cap meant for the reply alone (60, 120, 200) could be used up
+      // by the thinking, and the reply came back empty: the floor leaves room for both; only what's used is paid for)
+      max_completion_tokens: Math.max(maxTokens, MIN_COMPLETION_TOKENS),
     }),
   });
   const raw = await res.text();
