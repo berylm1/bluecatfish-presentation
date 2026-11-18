@@ -72,7 +72,9 @@ const REPLY_SYSTEM = (name: string, persona: string) =>
 const ADDS_SYSTEM =
   'A student\'s short reply to a classmate, and THE LESSON SO FAR. List every fact, number, name or claim about the world in the ' +
   'reply that the lesson so far does not say (a rewording or a simpler word is fine). Not facts: feelings, opinions, likes, ' +
-  'guess words ("I think", "maybe"), and a question to the teacher. None: an empty list. Reply as JSON: {"new":["..."]}';
+  'guess words ("I think", "maybe"), and a question to the teacher. The people in the class are not facts: the teacher, Professor ' +
+  'Marine, and the classmates Maya, Finn and Leo (was: "Professor Marine" itself was listed, and good replies were dropped). ' +
+  'None: an empty list. Reply as JSON: {"new":["..."]}';
 const REACT_SYSTEM = (name: string, persona: string) =>
   `You are ${name}, a friendly 12 year old in a class about blue catfish in the Chesapeake Bay. You are ${persona}. ` +
   'In a class discussion, a classmate asked the QUESTION below and the learner just gave THEIR ANSWER. React in ONE short sentence, ' +
@@ -83,8 +85,9 @@ const REACT_SYSTEM = (name: string, persona: string) =>
 const OWNUP_SYSTEM =
   `You are ${CLASSMATE_NAME}, a friendly, goofy 12 year old in a class about blue catfish in the Chesapeake Bay. Earlier you said ` +
   'the MIX-UP below (it was wrong), and your classmate caught it. Now, before your next question, own up to it in ONE short, ' +
-  'playful line, like a kid who learned: name what you mixed up in a few words, and promise not to again. Examples: "Okay, okay, I ' +
-  'won\'t mix up where they came from again!", "Don\'t worry, I remember now: it\'s the crabs that get eaten, not the catfish!". ' +
+  'playful line, like a kid who learned: name WHAT IT WAS ABOUT in 3 to 6 plain words (where they came from, who eats them, what ' +
+  'water they live in), not the whole fact, and promise not to again. Say it your own way. Examples: "Okay, okay, I ' +
+  'won\'t mix up where they came from again!", "Note to self: no more mixing up who eats who!". ' +
   'Under 16 words. Use only what the MIX-UP and WHAT\'S RIGHT say: no other fact, number or name. Not mean to yourself, no ' +
   'question. Reply with only your line.';
 const MIX_SYSTEM =
@@ -226,7 +229,10 @@ export async function POST(req: Request) {
       const reply = String(raw?.line ?? '').replace(/^["'“]|["'”]$/g, '').replace(/\s+/g, ' ').trim().slice(0, 320);
       // (why: what kept a line from being said, for testing (scratchpad mateTest); the lesson only reads reply)
       if (!kind || !reply || /\bUNSURE\b/.test(reply)) return NextResponse.json({ reply: null, why: { reason: String(raw?.kind ?? 'none').toLowerCase() } });
-      const check = JSON.parse(await chat(ADDS_SYSTEM, `THE LESSON SO FAR\n${taught}\n\nTHE REPLY\n${reply}`, true, 300));
+      // (an opinion may name what the learner asked about, "blue crabs or blue catfish?"; an answer or a guess only what the
+      // lesson says, so a false idea in the question isn't repeated back as true)
+      const asked = kind === 'OPINION' ? `\n(The learner asked: "${text}". Naming what they asked about is not a new fact.)` : '';
+      const check = JSON.parse(await chat(ADDS_SYSTEM, `THE LESSON SO FAR\n${taught}${asked}\n\nTHE REPLY\n${reply}`, true, 300));
       const added = Array.isArray(check?.new) ? check.new.filter((x: unknown) => typeof x === 'string' && x.trim()) : null;
       if (!added || added.length) return NextResponse.json({ reply: null, why: { reason: 'fact check', kind, line: reply, added } });   // (it added something, or the check didn't answer: not said)
       // (a guess or an opinion always goes on to the professor: they asked him)
