@@ -209,6 +209,7 @@ const DISCUSSION = true;
 const DISCUSS_MAX = 2;             // per lesson (each adds about a minute)
 const ROOM_REACT = ['Ooh, I was thinking something like that too.', 'Hmm, I wasn’t sure about that one either.', 'I was wondering the same thing!'];
 const ROOM_WAIT_MS = 45_000;       // the learner says nothing for this long: the discussion goes on without their answer
+const FINN_WAIT_MS = 30_000;       // Finn's mix-up: no answer for this long, and the professor explains it (as "not sure") and goes on
 const ROOM_TO_ANSWER = 'Good thinking, everyone. Here’s the answer.';
 // After a "Show another way" slide is heard to its end: on to the next slide (false: back to the slide it came from)
 const HELPER_THEN_NEXT = true;
@@ -1935,19 +1936,31 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
         else if (said && !over() && line.truth) {
           // The professor turns to the learner, and waits for their call (buttons, typing, or the mic)
           if (await cues.play({ text: turnTo }) && !over()) {
+            // (no answer at all: on after FINN_WAIT_MS, was never: a learner who missed the buttons held the lesson for good)
+            let quiet = false;
             const wait = (mode: 'buttons' | 'open') => new Promise<string | null>((resolve) => {
               finnCheck.current = resolve;
               setFinnWaiting(mode);
               if (interruptOn) { resumeAfterTurn.current = false; micRef.current.talk(); }   // listen for it too
+              setTimeout(() => {
+                if (finnCheck.current !== resolve) return;
+                finnCheck.current = null;
+                setFinnWaiting(false);
+                setFinnReply('');
+                finnHow.current = 'button';
+                quiet = true;
+                resolve('');
+              }, FINN_WAIT_MS);
             });
             const first = await wait('buttons');
             if (first === null) return;   // moved on: no answer, and no "How did that section go?" on another slide
+            const silent = quiet;   // no call at all: as "not sure" (the professor explains what's right), no follow-ups
             // A back-and-forth: a one-click answer, or one with nothing to go on, gets "What makes you say
             // that?"; the learner's words then decide if there's more to ask (up to FINN_FOLLOWUPS times)
-            const turns: { who: 'professor' | 'learner'; text: string }[] = [{ who: 'learner', text: first }];
+            const turns: { who: 'professor' | 'learner'; text: string }[] = silent ? [] : [{ who: 'learner', text: first }];
             let judged: FinnKind | null = null;
             let saidRight = false;   // they've already said what's actually right (the judge's read)
-            for (let round = 0; round < FINN_FOLLOWUPS && !over(); round++) {
+            for (let round = 0; round < FINN_FOLLOWUPS && !silent && !over(); round++) {
               let ask: string | undefined;
               if (round === 0 && finnHow.current === 'button') {
                 ask = pickOne(FINN_ASK[finnVerdictKind(first) === 'other' ? 'unsure' : finnVerdictKind(first) as FinnKind]);
@@ -1964,11 +1977,12 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
               if (!(await cues.play({ text: ask })) || over()) return;
               const more = await wait('open');
               if (more === null) return;
+              if (quiet) break;   // (said nothing more: what they said so far decides)
               turns.push({ who: 'learner', text: more });
             }
             const verdict = turns.filter((t) => t.who === 'learner').map((t) => t.text).join(' … ');
-            const kind = judged ?? finnVerdictKind(first);
-            tracking.track('tutor_decision', { action: 'classmate_mistake_answer', answer: verdict.slice(0, 200), kind });
+            const kind = silent ? 'unsure' : judged ?? finnVerdictKind(first);
+            tracking.track('tutor_decision', { action: 'classmate_mistake_answer', answer: silent ? '(no answer)' : verdict.slice(0, 200), kind, ...(silent ? { timedOut: true } : {}) });
             finnResults.current.set(topic, { kind, truth: line.truth });   // for the ending
             if (kind !== 'other') feel(kind === 'caught' ? 'finn_caught' : kind === 'fooled' ? 'finn_fooled' : 'finn_unsure', { slide: from, box: null });
             // Fooled or unsure: after the explanation, the topic's helper ("another way to see it")
@@ -1982,6 +1996,8 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
               : kind === 'fooled'
                 ? `The learner AGREED with ${CLASSMATE_NAME}, so they believe the mistake too. Start with "Actually${you}, that isn't true." Kindly explain what's right and why, ` +
                   `and say it's an easy mix-up, kindly to ${CLASSMATE_NAME} too. 3 or 4 short sentences.`
+                : kind === 'unsure' && silent
+                  ? `The learner DIDN'T ANSWER. Start with "Let's look at that one together${you}." Say ${CLASSMATE_NAME} wasn't right, then explain what's right and why. 3 or 4 short sentences.`
                 : kind === 'unsure'
                   ? `The learner WASN'T SURE. Start with "That's a tricky one${you}." Say ${CLASSMATE_NAME} wasn't right, then explain what's right and why. 3 or 4 short sentences.`
                   : `Decide from the answer whether the learner caught the mistake. If they did, start with "Good catch${you}!" and say why in a sentence. ` +
@@ -3106,7 +3122,7 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
             )}
             {study ? (
               // the study: on to the second quiz
-              <Link href={STUDIES[study.study ?? 1].path} onClick={() => cues.stop()} className="px-6 py-3 rounded-xl bg-cyan-500 hover:bg-cyan-400 font-semibold" data-study-next>Continue to Quiz 2 →</Link>
+              <Link href={STUDIES[study.study ?? 1].path} onClick={() => cues.stop()} className="mt-2 px-10 py-5 rounded-2xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 text-2xl font-bold shadow-lg shadow-cyan-500/40 ring-4 ring-cyan-300/40" data-study-next>Continue to Quiz 2 →</Link>
             ) : (
             <div className="flex flex-wrap gap-3 justify-center">
               <button onClick={startOver} className="px-6 py-3 rounded-xl bg-cyan-500 hover:bg-cyan-400 font-semibold"><Icon name="start-over" /> Start over</button>
