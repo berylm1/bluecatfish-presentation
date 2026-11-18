@@ -4,7 +4,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
  * Is everything the setup files (supabase/migrations) make in the Supabase project? Every table, the two
  * knowledge searches and the storage buckets. For /api/health and the study's checklist (/studyResults).
  */
-export const SETUP_TABLES = ['documents3', 'images2', 'slide_templates', 'learner_state', 'events', 'canvas_lessons', 'canvas_decks', 'canvas_deck_history', 'adaptive_participants', 'classmates_participants', 'section_difficulty', 'study_settings'];
+export const SETUP_TABLES = ['documents3', 'images2', 'slide_templates', 'learner_state', 'events', 'canvas_lessons', 'canvas_decks', 'canvas_deck_history', 'adaptive_participants', 'classmates_participants', 'section_difficulty', 'study_settings', 'client_errors'];
 export const SETUP_BUCKETS = ['slide-audio', 'slide-imagesv2'];   // (lesson-backups is made by the site the first time it's needed)
 
 export async function setupMissing(admin: SupabaseClient): Promise<string[]> {
@@ -18,6 +18,8 @@ export async function setupMissing(admin: SupabaseClient): Promise<string[]> {
   if (colError && !missing.includes('table classmates_participants')) missing.push('classmates_participants columns (setup file 017)');
   const { error: repError } = await admin.from('study_reports').select('study').limit(0);
   if (repError && !missing.includes('table study_reports')) missing.push('study_reports.study (setup file 021)');
+  const { error: modelError } = await admin.from('adaptive_participants').select('ai_model').limit(0);
+  if (modelError && !missing.includes('table adaptive_participants')) missing.push('adaptive_participants.ai_model (setup file 022)');
   // (the two searches: asked for nothing, so they change nothing)
   const zero = `[${new Array(1536).fill(0).join(',')}]`;
   await Promise.all(['match_documents3', 'match_images2'].map(async (fn) => {

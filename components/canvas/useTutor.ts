@@ -3,6 +3,7 @@
 import { useCallback, useRef, useState } from 'react';
 import { useSpeechQueue } from '@/components/hooks/useSpeechQueue';
 import { learnerHeaders } from '@/lib/learnerSession';
+import { reportError } from '@/lib/reportError';
 
 // Questions for the professor on the canvas page: the learner's question goes
 // to /api/conversational/respond (knowledge base + what's on the slide), the
@@ -115,6 +116,7 @@ export function useTutor(lessonOnly = false) {
       setHistory((h) => [...h.slice(-19), { id: seq, question, asker: opts.asker, answer: full, done: true }]);
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
+      reportError('tutor', msg);
       setExchange({ id: seq, question, asker: opts.asker, answer: msg, done: true });
       decision = null;
     } finally {

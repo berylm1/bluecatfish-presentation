@@ -43,6 +43,14 @@ import { lessonLength } from '@/lib/canvas/lessonLength';
 import Quiz, { pickQuiz } from '@/components/canvas/Quiz';
 import { lessonParts } from '@/lib/canvas/parts';
 import { answerGist, areaIds, setAreaText, togetherSlide, TOGETHER_ID } from '@/lib/canvas/together';
+// (the lesson's switches and timings, in one place)
+import {
+  SHOW_SOURCES_UNDER_LESSON, SHOW_OPTION_ICONS, SHOW_NEXT_SLIDE, SHOW_REPEAT, BACK_AGAIN_S, SHOW_FLOATING_TRANSCRIPT, ANSWER_BOX_UNDER_SLIDE,
+  MORPH_HELPERS, HELPER_THEN_NEXT, SHORT_ANSWERS, RESUME_AFTER_ANSWER, MORE_WAIT_MS, MORE_WAIT_WITH_MORE_MS, HOLD_MIN_MS, CONFUSED_PAUSE_MS,
+  METER_CHECK_IN, CHECK_IN_EVERY_MS, SELF_CHECK, OFFER_AFTER_GOT, ADAPTIVE_SECTION_CHECK, HARDEST_FROM_METER, SHOW_RECAP_ON_END, SPOKEN_FULL_RECAP,
+  LIVE_CLASSMATES, LIVE_WORDS_WAIT_MS, SAID_FRESH_MS, FOLLOW_UPS_MAX, FOLLOW_UP_COOLDOWN_MS, REACT_CHANCE, CURIOUS_CHANCE, CONFUSED_CURIOUS,
+  DISCUSSION, DISCUSS_MAX, ROOM_WAIT_MS, HEADS_UP_SOUND, MIX_UP_EVERY, MIX_UP_EVERY_CLEAR, FINN_WAIT_MS, FINN_REMEMBERS,
+} from '@/lib/settings';
 import { LIVE_VERSION, preloadedDeck, studyLesson, studyPost, writeStudy, type StudyRecord } from '@/lib/study/client';
 import { STUDIES } from '@/lib/study/content';
 import { signals } from '@/lib/signals';
@@ -173,35 +181,7 @@ async function judgeFinn(mistake: string, truth: string, turns: { who: 'professo
 const YES = /^(?:yes|yeah|yep|yup|sure|ok(?:ay)?|please|uh[- ]huh|definitely|go ahead|do it|mhm)\b/i;
 const NO = /^(?:no|nope|nah|not really|i'?m (?:good|fine|ok(?:ay)?)|all good|keep going|carry on)\b/i;
 const SPEAKING: string[] = ['playing', 'loading', 'finishing', 'waiting'];
-// The slide itself turns into the helper ("another way to see it") and into
-// the focused plain-words version ("simpler please"), instead of a popup.
-// false = the old popup (VariantOverlay) and no focus.
-const MORPH_HELPERS = true;
-// The lesson's buttons (after the first participants: "so many buttons"). Hidden, not removed:
-const SHOW_SOURCES_UNDER_LESSON = false;   // "View sources" under the slide
-const SELF_CHECK = false;        // "How did that section go?" between topics (Got it / Kind of / Lost me)
-const SHOW_OPTION_ICONS = false; // the little icons beside Options (what's switched on)
-const SHOW_NEXT_SLIDE = false;   // ⏩ Next slide (⏭ Next part moves through the lesson)
-const SHOW_REPEAT = false;       // ⟲ Repeat (⏮ Back starts the part again)
-const BACK_AGAIN_S = 2.5;        // ⏮ this early in a part: the part before (later: this part from its start), like a music player
-// After the learner's own question is answered: back to where the lesson stopped (false: on to the slide's end, as before)
-const RESUME_AFTER_ANSWER = true;
-const MORE_WAIT_MS = 6000;       // "Anything else, or shall we go on?": this long with no answer = go on
-const MORE_WAIT_WITH_MORE_MS = 10000;   // (the same, with "Tell me more" to pick: a little longer)
-// Classmates' follow-ups to the learner's question: at most this many, and none for this long after an answer
-// (a learner asking a few in a row gets just the professor; was: up to two follow-ups every time)
-const FOLLOW_UPS_MAX = 1;
-const FOLLOW_UP_COOLDOWN_MS = 45_000;
-// Answers to the learner's questions: 1-2 sentences, with "Tell me more" for the full answer (false: the full answer at once)
-const SHORT_ANSWERS = true;
-const HOLD_MIN_MS = 700;   // the Ask button: held shorter than this is a tap, and what was heard isn't sent
 const GO_ON = /^(?:no|nope|nah|no thanks?|ok(?:ay)?|go on|let'?s go on|carry on|continue|keep going|move on|next|that'?s (?:all|it)|nothing(?: else)?|i'?m (?:good|fine|ok(?:ay)?)|all good)\b/i;
-// The hybrid classmates: the questions and their answer slides are the reviewed, pre-written ones (the same pool for
-// everyone in the study); what's written live is how a classmate says their question, and their short reply when the
-// learner talks to them by name. Each live line is checked on the server (/api/classmate); false: all as written.
-const LIVE_CLASSMATES = true;
-const LIVE_WORDS_WAIT_MS = 2500;   // a rewording not ready by then: the question as written
-const SAID_FRESH_MS = 120_000;     // what the learner said this recently can be tied into a classmate's question
 const MATE_UNSURE = () => pickOne(['Hmm, I’m not sure. Professor Marine?', 'Good question. I don’t know! Professor Marine?']);
 /** "Maya, why is that?" / "what do you think, Leo?": the classmate the learner is talking to, and what they said to them */
 function addressed(text: string): { who: ClassmateId; text: string } | null {
@@ -212,17 +192,8 @@ function addressed(text: string): { who: ClassmateId; text: string } | null {
   const back = t.match(/^(.{4,}?)[,\s]+(maya|finn|leo)[?.!]*$/i);
   return back ? { who: back[2].toLowerCase() as ClassmateId, text: back[1].trim() } : null;
 }
-// The discussion room: at a topic's end, now and then, the classmate's question goes to the learner first ("What do
-// you think?"), another classmate reacts, and then the professor gives the reviewed answer (the question's own slide).
-const DISCUSSION = true;
-const DISCUSS_MAX = 2;             // per lesson (each adds about a minute)
 const ROOM_REACT = ['Ooh, I was thinking something like that too.', 'Hmm, I wasn’t sure about that one either.', 'I was wondering the same thing!'];
-const ROOM_WAIT_MS = 45_000;       // the learner says nothing for this long: the discussion goes on without their answer
-const FINN_WAIT_MS = 30_000;       // Finn's mix-up: no answer for this long, and the professor explains it (as "not sure") and goes on
 const ROOM_TO_ANSWER = 'Good thinking, everyone. Here’s the answer.';
-// After a "Show another way" slide is heard to its end: on to the next slide (false: back to the slide it came from)
-const HELPER_THEN_NEXT = true;
-const HEADS_UP_SOUND = false;      // two soft notes before a classmate speaks (off: it was heard as an odd noise at the topics' ends)
 const HEADS_UP_MS = 900;         // "Maya has a question": a moment before a classmate speaks
 const MORPH_BACK_MS = 950;   // a morph back finishes before the lesson moves to another slide
 const HAND_RING_MS = 2500;   // how long the camera bubble stays yellow after a raised hand
@@ -265,17 +236,6 @@ function classmateBudget(questions: number, topics: number): { every: number; fo
  *     checking or curious one first, and never a mix-up; if it went well, now and then Finn's mix-up to catch
  *     (a challenge), else a question from whoever has spoken least
  */
-const CURIOUS_CHANCE = 0.25;   // a topic end that doesn't call for a classmate: how often one is curious anyway
-const MIX_UP_EVERY = 3;        // Finn's mix-ups: at most every 3rd classmate turn (from the 2nd on), and only when the topic went well
-// The confusion meter's overall level (lib/confusion.ts) steers the classmates: confused, more helping and less
-// curiosity, no mix-ups; clear (a topic or more in), more challenge: Finn's mix-up as often as every 2nd turn
-const MIX_UP_EVERY_CLEAR = 2;
-const CONFUSED_CURIOUS = 0.5;  // confused overall: curious moments (topic end, mid-topic) this much as often
-// ...and the professor: plain words first for the boxes not heard yet, and a little longer between slides
-const CONFUSED_PAUSE_MS = 1200;
-// A box gets confusing (its "now" score) without "I'm lost" (which has its own help): the professor checks in, at most this often
-const METER_CHECK_IN = true;   // false = only the camera's puzzled look checks in (as before the meter)
-const CHECK_IN_EVERY_MS = 60_000;
 const CHECK_IN_LINE = "Hmm, that part seems a little tricky. Want me to go over it a different way? Say yes, or tell me what's tripping you up.";
 /*
  * A classmate's moment in the middle of a topic (classmateMid), after a box's sentence is finished (the player waits there,
@@ -295,9 +255,10 @@ const MID_RELATED_MIN = 0.45;   // how close (meaning, 0-1) the slide and the qu
 const MID_CHANCE: Record<number, number> = { 1: 0.3, 2: 0.18, 3: 0.08 };   // per box, by classmateBudget's rhythm (every 1, 2 or 3 topics)
 // Short reactions, no AI: the classmates are in the room too
 const FINN_THANKS = ['Oh! Right, thanks!', 'Ohh, I mixed that up. Thanks!', 'Got it. Thanks for catching that!'];
+// Finn owning up to a caught mix-up at his next turn (FINN_REMEMBERS), when the AI's line isn't ready or added a fact
+const FINN_OWN_UP = ['Okay, okay, I won’t mix that one up again!', 'Don’t worry, I remember now. No more mix-ups from me!'];
 const FINN_OOPS = ['Oops, my bad!', 'Oh no, I got that one wrong. Sorry!'];
 const SAME_QUESTION = ['Ooh, I was wondering that too!', 'Thanks, that helped me too.', 'Oh, cool. I didn\'t know that!'];
-const REACT_CHANCE = 0.4;   // after the learner's question is answered (with no classmates' follow-ups), a classmate says so
 const MIN_VISUAL_MS = 3000;
 // The slide as big as fits with the header and the controls under it (was 80% of the screen height,
 // so on a 1366×768 laptop the controls pushed the top of the slide off the screen)
@@ -317,8 +278,6 @@ function useMedia(query: string): boolean {
 // (the two sizes are set in globals.css: wider on a phone, taller on a phone turned sideways)
 // (--slide-max-w is narrower with the class chat beside the slide; --peek-h is the chat's latest line under the slide)
 const SLIDE_WIDTH = 'min(var(--slide-max-w, 88vw), calc((100vh - var(--slide-chrome, 190px) - var(--peek-h, 0px)) * 16 / 9))';
-// The top-right transcript: off, the class chat (ClassChat) has everything that's said, as a conversation
-const SHOW_FLOATING_TRANSCRIPT = false;
 /** The chat's latest slide entry, skipping the professor's own lines after it (its index, or -1) */
 function slideEntryAt(c: ChatEntry[]): number {
   let j = c.length - 1;
@@ -326,13 +285,6 @@ function slideEntryAt(c: ChatEntry[]): number {
   return j >= 0 && c[j].kind === 'slide' ? j : -1;
 }
 const SELF_CHECK_SAID: Record<SelfCheckRating, string> = { got: 'Got it', kind: 'Kind of', lost: 'Lost me' };
-// The question + answer box under the slide: off, the transcript (top right) shows them instead
-// (was: it made the page taller than the screen, so it scrolled). Still shown with the transcript off.
-const ANSWER_BOX_UNDER_SLIDE = false;
-// The recap's text on the end screen: off, the achievements are there instead (the professor says the recap, and the transcript shows it)
-const SHOW_RECAP_ON_END = false;
-// The spoken ending: false = the quick one (what they covered, their achievements, "Marine out!"); true = the old long recap
-const SPOKEN_FULL_RECAP = false;
 
 /** What the learner covered, in one quick line: the lesson's recap if it's the short kind, else its parts by name */
 function shortRecap(deck: Deck): string {
@@ -365,12 +317,6 @@ const REPLAY_ASK_KIND = 'No problem. Want to see that part a different way?';
 const REPLAY_ASK_LOST = "That's okay, it happens. Want me to show you that part a different way?";
 // After "got it" on a topic the confusion meter says was confusing (lib/confusion.ts): offered anyway, lightly
 const REPLAY_ASK_GOT = 'Great! That part had a few tricky bits, though. Want a quick look at it a different way, just in case?';
-const OFFER_AFTER_GOT = true;   // false = "Got it" always moves on (as before the meter)
-// "How did that section go?" outside the study: asked only when the meter isn't sure. A confused topic goes straight to
-// "another way?"; a topic that clearly went well (a good sign, like a hands-on box solved first try or Finn's mix-up
-// caught, and no sign of confusion) gets a quick word and moves on. In the study it's always asked: it's a measure,
-// and it checks the meter. false = always asked, everywhere (as before)
-const ADAPTIVE_SECTION_CHECK = true;
 const SMOOTH_LINE = 'Nice, that part went smoothly!';
 const REPLAY_ASK_SKIPPED = 'That part looked a little tricky. Want me to show it to you a different way?';
 // Cards, when the instructions don't already ask for a guess (said once per box)
@@ -410,7 +356,6 @@ function meterHardest(deck: Deck, topicOf: number[], m: ConfusionMeter): string 
   }
   return best?.name ?? null;
 }
-const HARDEST_FROM_METER = true;   // false = the end screen's "trickiest part" from the old counts (hardestTopic)
 
 /** What a classmate says at a topic's end: a question, or (truth set: Finn) a mistake for the learner to catch. */
 type FinnLine = { question: string; truth?: string; who: ClassmateId; bank?: BankQuestion };
@@ -1887,6 +1832,8 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
   const classmateTopics = useRef(new Set<number>());   // topics a classmate already spoke at the end of
   const classmateAsked = useRef<string[]>([]);
   const finnResults = useRef(new Map<number, FinnResult>());   // topic → how the learner did on Finn's mistake there
+  // Finn remembers (FINN_REMEMBERS): the first mix-up the learner caught, and his line owning up to it (said once, at his next turn)
+  const ownUp = useRef<{ topic: number; line: Promise<string | null>; used: boolean } | null>(null);
   const classmateOnRef = useRef(classmateOn);
   classmateOnRef.current = classmateOn;
   // The classmate's line for a topic, fetched (and voiced) while its last slide plays, so they speak at once
@@ -1990,6 +1937,17 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
         if (discuss) cues.preload(sayQ, line.who);
         await headsUp(line.who);
         if (over()) { setClassmateSaying(null); return; }
+        // Finn remembers: at his first turn after the learner caught him (in a later topic), he owns up to it first
+        const own = ownUp.current;
+        if (FINN_REMEMBERS && line.who === 'finn' && own && !own.used && own.topic !== topic) {
+          own.used = true;
+          const made = await Promise.race([own.line, new Promise<null>((r) => setTimeout(() => r(null), 1500))]);
+          const text = made ?? pickOne(FINN_OWN_UP);
+          tracking.track('tutor_decision', { action: 'finn_owns_up', line: text.slice(0, 200), live: !!made, caughtAt: own.topic });
+          setClassmateSaying('finn');
+          const ok = await cues.play({ text, who: 'finn' });
+          if (!ok || over()) { setClassmateSaying(null); return; }
+        }
         if (discuss) setRoom({ asker: line.who, question: q, stage: 'ask' });
         setClassmateSaying(line.who);
         const said = await cues.play({ text: sayQ, who: line.who });
@@ -2096,6 +2054,19 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
             const kind = silent ? 'unsure' : judged ?? finnVerdictKind(first);
             tracking.track('tutor_decision', { action: 'classmate_mistake_answer', answer: silent ? '(no answer)' : verdict.slice(0, 200), kind, ...(silent ? { timedOut: true } : {}) });
             finnResults.current.set(topic, { kind, truth: line.truth });   // for the ending
+            if (FINN_REMEMBERS && kind === 'caught' && !ownUp.current) {
+              ownUp.current = {
+                topic, used: false,
+                line: fetch('/api/classmate', {
+                  method: 'POST', headers: learnerHeaders({ 'Content-Type': 'application/json' }),
+                  body: JSON.stringify({ ownup: { mistake: q, truth: line.truth } }), signal: AbortSignal.timeout(12000),
+                }).then((res) => (res.ok ? res.json() : null)).then((d) => {
+                  const said = typeof d?.line === 'string' && d.line.trim() ? d.line.trim() : null;
+                  if (said) cuesRef.current.preload(said, 'finn');
+                  return said;
+                }).catch(() => null),
+              };
+            }
             if (kind !== 'other') feel(kind === 'caught' ? 'finn_caught' : kind === 'fooled' ? 'finn_fooled' : 'finn_unsure', { slide: from, box: null });
             // Fooled or unsure: after the explanation, the topic's helper ("another way to see it")
             const helper = kind === 'fooled' || kind === 'unsure' ? (MORPH_HELPERS ? helperFor(from) : null) : null;
@@ -3037,7 +3008,7 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
     cancelAnswer();
     setClassmateSaying(null);
     if (variant) { variantAfter.current = null; variantMode.current = 'answer'; setVariant(null); helperSeq.current++; setHelperActive(null); }
-    checked.current.clear(); activitiesDone.current.clear(); activitiesSolved.current.clear(); activitiesRevealed.current.clear(); classmateTopics.current.clear(); classmateAsked.current = []; finnReady.current.clear(); finnResults.current.clear();
+    checked.current.clear(); activitiesDone.current.clear(); activitiesSolved.current.clear(); activitiesRevealed.current.clear(); classmateTopics.current.clear(); classmateAsked.current = []; finnReady.current.clear(); finnResults.current.clear(); ownUp.current = null;
     roomCount.current = 0; setRoom(null);
     classmateWho.current = []; lastMixUp.current = -2; curious.current.clear(); struggles.current.clear();
     midTopics.current.clear(); shaky.current.clear(); carried.current.clear(); helperUsed.current.clear(); midMatch.current.clear(); midPending.current = null; midResume.current = false; struggleSlide.current = -1; mateTalkAt.current = 0;

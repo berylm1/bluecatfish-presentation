@@ -5,6 +5,7 @@ import Icon from '@/components/Icon';
 import { useEffect, useRef, useState } from 'react';
 import { splitSentences, sentenceStops } from './useDeckPlayer';
 import { CLASSMATES, CLASSMATE_IDS, type ClassmateId } from '@/lib/classmates';
+import { THINKING_AFTER_MS } from '@/lib/settings';
 
 /*
  * The class chat: everything said in the lesson, as one conversation. The learner's questions and
@@ -202,7 +203,6 @@ export default function ClassChat({ entries, learnerName, liveSlide, getAudio, t
   );
 }
 
-const THINKING_AFTER_MS = 500;   // the "… is thinking" bubble shows only for a wait longer than this
 
 function Dot({ d = 0 }: { d?: number }) {
   return <span className="w-1.5 h-1.5 rounded-full bg-white/60 animate-bounce" style={{ animationDelay: `${d}ms` }} />;

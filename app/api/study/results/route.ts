@@ -23,6 +23,7 @@ function db() {
   return client as any;
 }
 
+const PRE_MAX = PRE_QUIZ.filter((q) => q.kind === 'choice').length;   // the pre-quiz's points (the same 5 are in the post-quiz)
 type Row = Record<string, string | number | boolean | null>;
 /** Every row of a query, a page at a time (Supabase sends at most 1000 per request) */
 async function all(query: () => any): Promise<any[]> {
@@ -186,6 +187,9 @@ export async function GET(request: NextRequest) {
       lesson_minutes: minutes(p.lesson_started_at, p.lesson_finished_at),
       total_minutes: minutes(p.consent_at, p.finished_at),
       pre_score: p.pre_score, post_same_score: p.post_same_score, gain: p.pre_score != null && p.post_same_score != null ? p.post_same_score - p.pre_score : null,
+      // normalized gain: the share of the points they could still gain that they did gain, (after − before) ÷ (5 − before);
+      // fairer when people start at different levels. None for someone who had all 5 before (nothing left to gain)
+      norm_gain: p.pre_score != null && p.post_same_score != null && p.pre_score < PRE_MAX ? Math.round(((p.post_same_score - p.pre_score) / (PRE_MAX - p.pre_score)) * 100) / 100 : null,
       post_score: p.post_score,
     });
     // what they did in the lesson (all their sessions together)
@@ -250,7 +254,7 @@ export async function GET(request: NextRequest) {
     return {
       group: g, people: mine.length, finished: done.length,
       pre: avg(done.map((r) => r.pre_score as number)), postSame: avg(done.map((r) => r.post_same_score as number)),
-      gain: avg(done.map((r) => r.gain as number)), post: avg(done.map((r) => r.post_score as number)),
+      gain: avg(done.map((r) => r.gain as number)), normGain: avg(done.map((r) => r.norm_gain as number)), post: avg(done.map((r) => r.post_score as number)),
       lessonMinutes: avg(done.map((r) => r.lesson_minutes as number)), questions: avg(done.map((r) => r.lesson_questions as number)),
       engaged: avg(done.map((r) => r.survey_engaged as number)),   // ("The lecture kept me engaged", 1-5; v1: "I enjoyed it", survey_enjoy)
       ueq: avg(done.map((r) => r.ueq_overall as number)),

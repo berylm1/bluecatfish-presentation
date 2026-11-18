@@ -9,6 +9,7 @@ import {
 } from '@/lib/study/content';
 import { freshStart, isComputer, preloadCamera, preloadLesson, readStudy, seenBefore, studyPost, writeStudy, type StudyRecord } from '@/lib/study/client';
 import { learnerHeaders } from '@/lib/learnerSession';
+import { CAMERA_CHECK_AFTER_GROUP, SHOW_QR } from '@/lib/settings';
 
 /*
  * The study (in person, v2): consent → their name (kept in this browser only) → sound, mic and camera checks → about you
@@ -105,6 +106,17 @@ export default function StudyFlow({ which }: { which: StudyId }) {
     window.location.href = `${S.path}?test=1`;
   };
   // Family sharing one computer: the next person starts fresh (this browser has seen the lesson: noted with their answers)
+  // Static vs adaptive (CAMERA_CHECK_AFTER_GROUP): the camera isn't in the setup checks; it's checked once the group is
+  // picked, for the adaptive group only. So picking the group stays on this step, and the static group goes straight on
+  const cameraLater = which === 1 && CAMERA_CHECK_AFTER_GROUP;
+  const assign = (g?: string | null) => {
+    if (!rec) return;
+    const pick = async () => ({ group: (await post('assign', g === undefined ? { id: rec.id } : { id: rec.id, group: g })).group });
+    void go(cameraLater ? 'start' : 'lesson', pick);
+  };
+  useEffect(() => {
+    if (step === 'start' && cameraLater && rec?.group && rec.group !== 'adaptive') void go('lesson', async () => ({}));
+  }, [step, cameraLater, rec?.group, go]);
   const nextPerson = () => {
     if (!window.confirm('Start the study for someone else on this computer? (Your answers are already saved.)')) return;
     forget();
@@ -153,7 +165,7 @@ export default function StudyFlow({ which }: { which: StudyId }) {
       )}
 
       {step === 'checks' && rec && rec.named && (
-        <Checks busy={busy} onDone={(checks) => go('about', async () => {
+        <Checks busy={busy} camera={!cameraLater} onDone={(checks) => go('about', async () => {
           await post('save', { id: rec.id, checks, step: 'about' });
           return { camera: checks.camera_ok };
         })} />
@@ -169,7 +181,17 @@ export default function StudyFlow({ which }: { which: StudyId }) {
           onDone={(answers, times, ms) => go('start', () => post('pre', { id: rec.id, answers, times, ms }))} />
       )}
 
-      {step === 'start' && rec && (
+      {/* (static vs adaptive: the adaptive group's camera check, now that the group is known; the static lesson has no camera) */}
+      {step === 'start' && rec && cameraLater && rec.group === 'adaptive' && (
+        <div className={card}>
+          <CameraCheck busy={busy} onDone={(ok) => go('lesson', async () => {
+            await post('save', { id: rec.id, checks: { camera_ok: ok } });
+            return { camera: ok };
+          })} />
+        </div>
+      )}
+
+      {step === 'start' && rec && !(cameraLater && rec.group) && (
         <div className={card}>
           <h1 className="text-2xl font-bold">Ready for the lesson</h1>
           <p className="mt-3 text-slate-700">The lesson starts next. It takes about 15–20 minutes. Find a quiet spot and keep your sound on.</p>
@@ -179,12 +201,12 @@ export default function StudyFlow({ which }: { which: StudyId }) {
               <span className="w-full text-sm text-amber-700">Test run: pick the group to try.</span>
               {[...S.groups.map((g) => [g, S.names[g]] as const), [null, 'Random'] as const].map(([g, label]) => (
                 <button key={label} className={primary} disabled={busy}
-                  onClick={() => go('lesson', async () => ({ group: (await post('assign', { id: rec.id, group: g })).group }))}>{label}</button>
+                  onClick={() => assign(g)}>{label}</button>
               ))}
             </div>
           ) : (
             <button className={`${primary} mt-5`} disabled={busy}
-              onClick={() => go('lesson', async () => ({ group: (await post('assign', { id: rec.id })).group }))}>Start the lesson</button>
+              onClick={() => assign()}>Start the lesson</button>
           )}
         </div>
       )}
@@ -379,17 +401,18 @@ function Quiz({ title, intro, questions, busy, onDone, idk = false }: {
 const WORDS = ['river', 'crab', 'boat', 'island', 'shell', 'storm'];
 
 /** Sound and microphone together (hear the word, say it back), then the camera (optional, a preview) */
-function Checks({ busy, onDone }: { busy: boolean; onDone: (c: { sound_ok: boolean; mic_ok: boolean; camera_ok: boolean }) => void }) {
+/** camera: false = sound and microphone only (the camera is checked later, for the group that has it) */
+function Checks({ busy, camera = true, onDone }: { busy: boolean; camera?: boolean; onDone: (c: { sound_ok: boolean; mic_ok: boolean; camera_ok?: boolean }) => void }) {
   const [part, setPart] = useState<'soundmic' | 'camera'>('soundmic');
   const [result, setResult] = useState({ sound_ok: false, mic_ok: false });
   return (
     <div className={card}>
       <div className="flex gap-2 text-sm">
-        {(['soundmic', 'camera'] as const).map((p) => (
+        {(camera ? ['soundmic', 'camera'] as const : ['soundmic'] as const).map((p) => (
           <span key={p} className={`px-3 py-1 rounded-full ${p === part ? 'bg-cyan-600 text-white' : 'bg-slate-100 text-slate-500'}`}>{p === 'soundmic' ? <><Icon name="speaker" /> Sound and <Icon name="microphone" /> microphone</> : <><Icon name="camera" /> Camera</>}</span>
         ))}
       </div>
-      {part === 'soundmic' && <SoundMicCheck onDone={(r) => { setResult(r); setPart('camera'); }} />}
+      {part === 'soundmic' && <SoundMicCheck onDone={(r) => { if (camera) { setResult(r); setPart('camera'); } else onDone(r); }} />}
       {part === 'camera' && <CameraCheck busy={busy} onDone={(ok) => onDone({ ...result, camera_ok: ok })} />}
     </div>
   );
@@ -721,8 +744,6 @@ function Done({ rec, results, setResults, onNextPerson }: { rec: StudyRecord; re
     </div>
   );
 }
-
-const SHOW_QR = false;   // the QR code to the DNR page on the family card (off: the link only)
 
 /** Three things to tell your family (the take-home card), and where to learn more */
 function FamilyCard() {
