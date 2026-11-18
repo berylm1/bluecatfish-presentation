@@ -722,7 +722,9 @@ function Done({ rec, results, setResults, onNextPerson }: { rec: StudyRecord; re
   );
 }
 
-/** Three things to tell your family (the take-home card), and where to learn more (a QR code to scan with a phone) */
+const SHOW_QR = false;   // the QR code to the DNR page on the family card (off: the link only)
+
+/** Three things to tell your family (the take-home card), and where to learn more */
 function FamilyCard() {
   return (
     <section className="mt-6 rounded-2xl border border-cyan-100 bg-gradient-to-br from-cyan-50 to-sky-50 p-5" aria-label="Three things to tell your family">
@@ -737,42 +739,41 @@ function FamilyCard() {
               </li>
             ))}
           </ol>
+          {!SHOW_QR && (
+            <p className="mt-4 text-sm text-slate-600">Learn more: <a href={LEARN_MORE.url} target="_blank" rel="noreferrer" className="font-medium text-cyan-700 underline hover:text-cyan-800">{LEARN_MORE.label}</a></p>
+          )}
         </div>
-        <a href={LEARN_MORE.url} target="_blank" rel="noreferrer" className="shrink-0 flex flex-col items-center gap-1.5 rounded-xl bg-white p-3 shadow-sm hover:shadow-md transition-shadow max-sm:self-center">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={LEARN_MORE.qr} alt={`QR code: ${LEARN_MORE.label}`} width={112} height={112} className="w-28 h-28 [image-rendering:pixelated]" />
-          <span className="text-[11px] text-slate-500 text-center leading-tight">Scan to learn more<br /><span className="text-cyan-700 underline">{LEARN_MORE.label}</span></span>
-        </a>
+        {SHOW_QR && (
+          <a href={LEARN_MORE.url} target="_blank" rel="noreferrer" className="shrink-0 flex flex-col items-center gap-1.5 rounded-xl bg-white p-3 shadow-sm hover:shadow-md transition-shadow max-sm:self-center">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={LEARN_MORE.qr} alt={`QR code: ${LEARN_MORE.label}`} width={112} height={112} className="w-28 h-28 [image-rendering:pixelated]" />
+            <span className="text-[11px] text-slate-500 text-center leading-tight">Scan to learn more<br /><span className="text-cyan-700 underline">{LEARN_MORE.label}</span></span>
+          </a>
+        )}
       </div>
     </section>
   );
 }
 
-const BADGE_IMAGE = '/badges/caught-finn.png';   // (a designed badge, when there is one; else the medal drawn here)
+/** The badges (public/badges): one of Finn's mix-ups caught, or all of them (two or more) */
+const BADGES = {
+  spotted: { src: '/badges/mix-up-spotted.webp', name: 'Mix-up Spotted!', file: 'mix-up-spotted.webp' },
+  checker: { src: '/badges/fact-checker.webp', name: 'Fact Checker', file: 'fact-checker.webp' },
+};
 
 /** "I caught Finn!": a badge for catching Finn's mix-ups, to save (the adaptive lesson with the classmates only) */
 function FinnBadge({ caught, of }: { caught: number; of: number }) {
-  const [image, setImage] = useState<boolean | null>(null);   // the designed badge loaded (null: still checking)
-  useEffect(() => {
-    const img = new Image();
-    img.onload = () => setImage(true);
-    img.onerror = () => setImage(false);
-    img.src = BADGE_IMAGE;
-  }, []);
-  const line = caught === of ? (of === 1 ? 'Caught Finn’s mix-up!' : `Caught all ${of} of Finn’s mix-ups!`) : `Caught ${caught} of Finn’s ${of} mix-ups!`;
-  // the drawn medal, as a file to save too
-  const medal = `<svg xmlns="http://www.w3.org/2000/svg" width="480" height="480" viewBox="0 0 240 240"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#fde68a"/><stop offset="1" stop-color="#f59e0b"/></linearGradient></defs><path d="M84 150 62 232l40-18 18 24 18-88zM156 150l22 82-40-18-18 24-18-88z" fill="#0891b2"/><circle cx="120" cy="104" r="92" fill="url(#g)" stroke="#b45309" stroke-width="6"/><circle cx="120" cy="104" r="74" fill="none" stroke="#fff" stroke-opacity=".6" stroke-width="3" stroke-dasharray="6 6"/><text x="120" y="92" text-anchor="middle" font-family="Inter,Arial,sans-serif" font-size="25" font-weight="800" fill="#78350f">I caught</text><text x="120" y="124" text-anchor="middle" font-family="Inter,Arial,sans-serif" font-size="34" font-weight="900" fill="#78350f">Finn!</text><text x="120" y="150" text-anchor="middle" font-family="Inter,Arial,sans-serif" font-size="13" font-weight="700" fill="#92400e">${caught} of ${of} mix-ups</text></svg>`;
-  const href = image ? BADGE_IMAGE : `data:image/svg+xml;charset=utf-8,${encodeURIComponent(medal)}`;
+  const badge = caught === of && of >= 2 ? BADGES.checker : BADGES.spotted;
+  const line = caught === of ? (of === 1 ? 'You caught Finn’s mix-up!' : of === 2 ? 'You caught both of Finn’s mix-ups!' : `You caught all ${of} of Finn’s mix-ups!`) : `You caught ${caught} of Finn’s ${of} mix-ups!`;
   return (
-    <section className="mt-6 flex items-center gap-4 rounded-2xl border border-amber-200 bg-amber-50/70 p-4" aria-label="Your badge">
-      {image === null ? <div className="w-24 h-24" /> : (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img src={href} alt="Badge: I caught Finn!" width={96} height={96} className="w-24 h-24 shrink-0 drop-shadow animate-[pop-in_400ms_ease_both]" />
-      )}
+    <section className="mt-6 flex items-center gap-5 rounded-2xl border border-amber-200 bg-gradient-to-br from-amber-50 to-yellow-50 p-4 max-sm:flex-col max-sm:text-center" aria-label="Your badge">
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img src={badge.src} alt={`Badge: ${badge.name} I caught Finn!`} width={128} height={128} className="w-32 h-32 shrink-0 drop-shadow-md animate-[pop-in_500ms_ease_both]" />
       <div className="flex-1">
-        <div className="font-semibold text-slate-900">Badge earned</div>
+        <div className="text-xs font-semibold uppercase tracking-wide text-amber-700">Badge earned</div>
+        <div className="text-lg font-bold text-slate-900">{badge.name}</div>
         <div className="text-sm text-slate-600">{line} Finn mixes things up on purpose, and you spotted it.</div>
-        <a href={href} download={image ? 'caught-finn.png' : 'caught-finn.svg'} className="mt-2 inline-flex items-center gap-1 text-sm font-semibold text-amber-800 underline hover:text-amber-900">Save the badge</a>
+        <a href={badge.src} download={badge.file} className="mt-2 inline-flex items-center gap-1 text-sm font-semibold text-amber-800 underline hover:text-amber-900">Save the badge</a>
       </div>
     </section>
   );
