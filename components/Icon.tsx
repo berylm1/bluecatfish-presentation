@@ -34,6 +34,7 @@ const ICONS = {
   'warning': '<path d="M12 4l9 16H3zM12 10v4M12 17h.01"/>',
   'person': '<circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 3.6-7 8-7s8 3 8 7"/>',
   'eye': '<path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>',
+  'plus': '<path d="M12 5v14M5 12h14"/>',
 } as const;
 
 export type IconName = keyof typeof ICONS;

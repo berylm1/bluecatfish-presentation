@@ -129,6 +129,28 @@ export const QUIZ_NEW: ChoiceQuestion[] = [
     ) },
 ];
 
+// Why each answer is right: one line, shown under a missed answer on the last screen (after the quizzes: it doesn't
+// change what's measured)
+export const QUIZ_WHY: Record<string, string> = {
+  q1: 'Blue catfish are native to the Mississippi, Missouri and Ohio river basins, far from the Chesapeake Bay.',
+  q2: 'In the 1970s and 80s, people put them in Virginia rivers so anglers would have a big new fish to catch.',
+  q3: 'They eat almost anything they find: fish, crabs, clams and more, including the Bay’s blue crabs.',
+  q4: 'Once they’re grown, they’re too big for almost anything in the Bay to eat, so nothing keeps their numbers down.',
+  q5: 'They can handle brackish water (a little salty) for a while, so they can swim through the Bay to new rivers.',
+  q6: 'Many live for years, and some live 20 years or more: a long time to keep eating and growing.',
+  q8: 'The biggest can grow to about 5 feet long and weigh more than 100 pounds.',
+  q9: 'Catching and eating them is one of the main ways to keep their numbers down, so Maryland asks anglers to keep the ones they catch.',
+  q10: '“Invasive” means a living thing that isn’t from a place and harms it there, with little to keep it in check: just like blue catfish in the Bay.',
+};
+
+// The last screen's take-home card (after the quizzes): three things to tell your family, and where to learn more
+export const FAMILY_THINGS = [
+  'Blue catfish aren’t from here: people brought them to Virginia rivers in the 1970s, and they’ve spread across the Chesapeake Bay.',
+  'They eat almost anything, blue crabs included, and almost nothing eats the big ones.',
+  'One of the best ways to help: catch them and eat them. They’re tasty!',
+];
+export const LEARN_MORE = { url: 'https://dnr.maryland.gov/fisheries/Pages/blue-catfish/blue_catfish_main.aspx', label: 'Maryland DNR: blue catfish', qr: '/qr/dnr-blue-catfish.svg' };
+
 export const QUIZ_SHORT: TextQuestion[] = [
   { id: 's1', kind: 'text', q: 'In your own words, why are blue catfish a problem for the Chesapeake Bay?', hint: 'A few sentences is plenty.' },
   // (removed from Quiz 2, v3: only the first written question is asked)

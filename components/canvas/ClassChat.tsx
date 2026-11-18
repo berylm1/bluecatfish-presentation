@@ -77,8 +77,8 @@ export default function ClassChat({ entries, learnerName, liveSlide, getAudio, t
   liveSlide: number | null;
   /** The lesson's audio, to follow the line being said */
   getAudio?: () => HTMLAudioElement | null;
-  /** The professor is writing an answer */
-  thinking: boolean;
+  /** Who is about to answer (the professor writing an answer, a classmate writing their reply), or null: a "… is thinking" bubble */
+  thinking: Speaker | null;
   /** Who is talking now (a ring on their avatar at the top) */
   speaking: Speaker | null;
   /** What the learner types here goes to the professor (a question, or "next") */
@@ -93,6 +93,13 @@ export default function ClassChat({ entries, learnerName, liveSlide, getAudio, t
   mates?: boolean;
 }) {
   const [typed, setTyped] = useState('');
+  // "… is thinking": only once the wait is noticeable (a quick reply never flashes it)
+  const [shownThinking, setShownThinking] = useState<Speaker | null>(null);
+  useEffect(() => {
+    if (!thinking) { setShownThinking(null); return; }
+    const t = setTimeout(() => setShownThinking(thinking), THINKING_AFTER_MS);
+    return () => clearTimeout(t);
+  }, [thinking]);
   const [open, setOpen] = useState<ReadonlySet<number>>(new Set());   // folded slide entries opened
   const box = useRef<HTMLDivElement>(null);
   const stick = useRef(true);   // at the bottom: follow new lines (scrolled up to read: stay there)
@@ -112,7 +119,7 @@ export default function ClassChat({ entries, learnerName, liveSlide, getAudio, t
     // (again once it's laid out: a picture or a folded slide can grow it after this)
     const raf = requestAnimationFrame(() => { if (stick.current) b.scrollTop = b.scrollHeight; });
     return () => cancelAnimationFrame(raf);
-  }, [entries.length, lastText, thinking]);
+  }, [entries.length, lastText, shownThinking]);
 
   return (
     <section className={`flex flex-col min-h-0 rounded-2xl ${solid ? 'bg-slate-950/95' : 'bg-slate-950/70'} backdrop-blur border border-white/10 shadow-2xl text-white ${className}`} aria-label="Class chat" data-bubble-avoid data-class-chat>
@@ -124,7 +131,7 @@ export default function ClassChat({ entries, learnerName, liveSlide, getAudio, t
         </div>
         {onClose && <button className="ml-1 w-7 h-7 rounded-full hover:bg-white/10 text-white/60 hover:text-white" onClick={onClose} aria-label={closeLabel} title={closeLabel}><Icon name="close" /></button>}
       </header>
-      <div ref={box} className="flex-1 min-h-0 overflow-y-auto px-3 py-3 flex flex-col gap-2.5 text-sm leading-snug" aria-live="polite"
+      <div ref={box} className="flex-1 min-h-0 overflow-y-auto px-3 py-3 flex flex-col gap-2.5 text-[0.95rem] leading-snug" aria-live="polite"
         onScroll={(e) => { const b = e.currentTarget; stick.current = b.scrollHeight - b.scrollTop - b.clientHeight < 40; }}>
         {entries.length === 0 && <p className="text-white/45 text-xs text-center mt-6">What’s said in class shows up here.{onSend ? ' Ask the professor anything below.' : ''}</p>}
         {entries.map((e) => {
@@ -135,7 +142,7 @@ export default function ClassChat({ entries, learnerName, liveSlide, getAudio, t
             const earlier = live ? e.lines.length - 1 : 0;
             return (
               <div key={e.id} className={live ? 'rounded-xl border border-cyan-300/20 bg-white/[0.04]' : ''} data-chat-slide>
-                <button className={`w-full flex items-center gap-2 px-2.5 py-1 text-left text-[11px] uppercase tracking-wider hover:text-cyan-100 ${live ? 'text-cyan-200/80' : 'text-white/35'}`}
+                <button className={`w-full flex items-center gap-2 px-2.5 py-1 text-left text-[12px] uppercase tracking-wider hover:text-cyan-100 ${live ? 'text-cyan-200/80' : 'text-white/35'}`}
                   onClick={() => setOpen((s) => { const n = new Set(s); if (n.has(e.id)) n.delete(e.id); else n.add(e.id); return n; })}
                   aria-expanded={live ? undefined : shown} disabled={live && !earlier}>
                   <span aria-hidden>{live ? <Icon name="speaker" /> : shown ? '▾' : '▸'}</span>
@@ -164,27 +171,41 @@ export default function ClassChat({ entries, learnerName, liveSlide, getAudio, t
             <div key={e.id} className={`flex items-end gap-2 ${mine ? 'flex-row-reverse' : ''}`} data-chat-line={who}>
               <Avatar who={who} learnerName={learnerName} size={26} />
               <div className={`max-w-[85%] rounded-2xl px-3 py-2 ${mine ? 'bg-cyan-500/90 text-slate-950 rounded-br-md' : 'bg-white/10 rounded-bl-md'}`}>
-                {!mine && <div className="text-[11px] font-semibold mb-0.5" style={{ color: who === 'professor' ? '#67e8f9' : s.color }}>{s.name}{e.kind === 'line' && e.to && <span className="font-normal text-white/50"> → {e.to}</span>}</div>}
+                {!mine && <div className="text-[12px] font-semibold mb-0.5" style={{ color: who === 'professor' ? '#67e8f9' : s.color }}>{s.name}{e.kind === 'line' && e.to && <span className="font-normal text-white/50"> → {e.to}</span>}</div>}
                 {text || <span className="inline-flex gap-1 py-1" aria-label="thinking"><Dot /><Dot d={150} /><Dot d={300} /></span>}
               </div>
             </div>
           );
         })}
-        {thinking && last?.kind !== 'answer' && (
-          <div className="flex items-end gap-2"><Avatar who="professor" size={26} /><div className="rounded-2xl rounded-bl-md bg-white/10 px-3 py-2"><span className="inline-flex gap-1 py-1"><Dot /><Dot d={150} /><Dot d={300} /></span></div></div>
-        )}
+        {/* (the professor's answer already has its own entry, writing itself: no second bubble for him) */}
+        {shownThinking && shownThinking !== 'you' && !(shownThinking === 'professor' && last?.kind === 'answer' && !last.done) && (() => {
+          const s = speakerOf(shownThinking, learnerName);
+          return (
+            <div className="flex items-end gap-2 animate-[fade-in_300ms_ease]" data-chat-thinking={shownThinking} role="status" aria-label={`${s.name} is thinking`}>
+              <Avatar who={shownThinking} size={26} />
+              <div className="rounded-2xl rounded-bl-md bg-white/[0.07] px-3 py-2">
+                <div className="text-[12px] font-semibold mb-0.5" style={{ color: shownThinking === 'professor' ? '#67e8f9' : s.color }}>{s.name}</div>
+                <span className="inline-flex items-center gap-2 text-white/45 text-xs italic">
+                  <span className="inline-flex gap-1"><Dot /><Dot d={150} /><Dot d={300} /></span>thinking
+                </span>
+              </div>
+            </div>
+          );
+        })()}
       </div>
       {onSend && <form className="flex items-center gap-1.5 p-2 border-t border-white/10" onSubmit={(e) => { e.preventDefault(); if (typed.trim()) { onSend(typed.trim()); setTyped(''); stick.current = true; } }}>
         <input value={typed} onChange={(e) => setTyped(e.target.value)} maxLength={500} placeholder="Ask the professor anything…" aria-label="Type to the class"
-          className="flex-1 min-w-0 px-3 py-2 rounded-lg bg-white/10 placeholder:text-white/40 text-sm outline-none focus:bg-white/15" />
+          className="flex-1 min-w-0 px-3 py-2 rounded-lg bg-white/10 placeholder:text-white/40 text-[0.95rem] outline-none focus:bg-white/15" />
         <button className="px-3 py-2 rounded-lg bg-cyan-500/90 hover:bg-cyan-400 text-slate-950 text-sm font-semibold disabled:opacity-40" disabled={!typed.trim()}>Send</button>
       </form>}
     </section>
   );
 }
 
+const THINKING_AFTER_MS = 500;   // the "… is thinking" bubble shows only for a wait longer than this
+
 function Dot({ d = 0 }: { d?: number }) {
-  return <span className="w-1.5 h-1.5 rounded-full bg-white/70 animate-bounce" style={{ animationDelay: `${d}ms` }} />;
+  return <span className="w-1.5 h-1.5 rounded-full bg-white/60 animate-bounce" style={{ animationDelay: `${d}ms` }} />;
 }
 
 /** The classmates: who they are, and the last thing each said (the right-hand panel on wide screens, a pull-out on phones) */
@@ -205,7 +226,7 @@ export function ClassmatesPanel({ entries, speaking, onClose, className = '', so
         <h2 className="font-semibold text-sm flex-1">Classmates</h2>
         {onClose && <button className="w-7 h-7 rounded-full hover:bg-white/10 text-white/60 hover:text-white" onClick={onClose} aria-label="Hide the classmates" title="Hide the classmates"><Icon name="close" /></button>}
       </header>
-      <div className="flex-1 min-h-0 overflow-y-auto p-3 flex flex-col gap-3 text-sm">
+      <div className="flex-1 min-h-0 overflow-y-auto p-3 flex flex-col gap-3 text-[0.95rem]">
         {CLASSMATE_IDS.map((id) => {
           const c = CLASSMATES[id];
           const said = lastBy(id);
@@ -215,8 +236,8 @@ export function ClassmatesPanel({ entries, speaking, onClose, className = '', so
               <div className="flex items-center gap-2">
                 <Avatar who={id} size={30} speaking={speaking === id} />
                 <div className="min-w-0">
-                  <div className="font-semibold" style={{ color: c.color }}>{c.name}{speaking === id && <span className="ml-1.5 text-[11px] text-white/70 font-normal">talking…</span>}</div>
-                  <div className="text-[11px] text-white/55 leading-tight">{c.blurb}</div>
+                  <div className="font-semibold" style={{ color: c.color }}>{c.name}{speaking === id && <span className="ml-1.5 text-[12px] text-white/70 font-normal">talking…</span>}</div>
+                  <div className="text-[12px] text-white/55 leading-tight">{c.blurb}</div>
                 </div>
               </div>
               {said && <p className="mt-2 rounded-lg bg-white/[0.06] px-2.5 py-1.5 text-white/85">“{said}”</p>}

@@ -18,6 +18,8 @@ export type StudyRecord = {
   code?: string | null;
   /** They gave their name (kept in this browser as learnerName, for the professor; never sent to the study) */
   named?: boolean;
+  /** How they did on Finn's mix-ups in the lesson (for the badge on the last screen); absent: no mix-ups */
+  finn?: { caught: number; of: number };
   /** Which study (lib/study/content.ts STUDIES): 2, static vs adaptive; absent: 1, the classmates study */
   study?: StudyId;
 };

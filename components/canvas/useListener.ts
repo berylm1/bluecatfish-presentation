@@ -85,8 +85,9 @@ export function useListener({
   // Latest values for the audio callback
   const live = useRef({ bargeActive, onTranscript, onListenStart });
   live.current = { bargeActive, onTranscript, onListenStart };
-  const turnRef = useRef<{ chunks: Float32Array[]; startedAt: number; lastVoice: number; spoke: boolean; manual: boolean; stop?: boolean } | null>(null);
+  const turnRef = useRef<{ chunks: Float32Array[]; startedAt: number; lastVoice: number; spoke: boolean; manual: boolean; stop?: boolean; hold?: boolean; drop?: boolean } | null>(null);
   const manualRequest = useRef(false);
+  const holdRequest = useRef(false);   // the turn asked for is held (hold to talk): it ends when let go, not at a pause
 
   const open = armed || manual;
 
@@ -124,6 +125,8 @@ export function useListener({
 
         const finish = async (turn: NonNullable<typeof turnRef.current>) => {
           turnRef.current = null;
+          // (called off (talk({ drop })): nothing to send, not even to the transcriber; nothing said: nothing to send)
+          if (turn.drop) { setStatus('idle'); return; }   // (called off: as if it never happened, nothing reported)
           if (!turn.spoke) { setStatus('idle'); live.current.onTranscript(''); return; }
           setStatus('processing');
           try {
@@ -141,7 +144,8 @@ export function useListener({
         };
 
         const beginTurn = (isManual: boolean, now: number) => {
-          turnRef.current = { chunks: [...ring], startedAt: now, lastVoice: now, spoke: !isManual, manual: isManual };
+          turnRef.current = { chunks: [...ring], startedAt: now, lastVoice: now, spoke: !isManual, manual: isManual, hold: isManual && holdRequest.current };
+          holdRequest.current = false;
           ring.length = 0;
           ringLen = 0;
           setStatus('listening');
@@ -165,8 +169,9 @@ export function useListener({
             turn.chunks.push(input);
             if (rms > sustain) { turn.lastVoice = now; turn.spoke = true; }
             const quiet = now - turn.lastVoice;
-            if (turn.stop || (turn.spoke && quiet > END_SILENCE_MS) || now - turn.startedAt > MAX_TURN_MS ||
-                (!turn.spoke && now - turn.startedAt > NO_SPEECH_MS)) {
+            // (a held turn: only letting go, or the longest a turn can be, ends it; a pause to think doesn't)
+            if (turn.stop || now - turn.startedAt > MAX_TURN_MS ||
+                (!turn.hold && ((turn.spoke && quiet > END_SILENCE_MS) || (!turn.spoke && now - turn.startedAt > NO_SPEECH_MS)))) {
               finish(turn);
             }
             return;
@@ -216,13 +221,21 @@ export function useListener({
     if (manual && status === 'idle' && !turnRef.current && !manualRequest.current) setManual(false);
   }, [manual, status]);
 
-  /** Start a turn now (the Talk button). */
-  const talk = useCallback(() => {
-    if (turnRef.current) {   // already listening: stop and send what we have
+  /** Start a turn now (the Talk button). hold: it lasts until talk() again (hold to talk), not until a pause. */
+  /** drop: end the turn and throw away what was heard (a tap on hold to talk) */
+  const talk = useCallback((opts: { hold?: boolean; drop?: boolean } = {}) => {
+    if (turnRef.current) {   // already listening: stop and send what we have (drop: and don't)
       turnRef.current.stop = true;
+      if (opts.drop) turnRef.current.drop = true;
+      return;
+    }
+    if (opts.drop) { manualRequest.current = false; holdRequest.current = false; return; }   // not started yet: called off
+    if (manualRequest.current) {   // asked for, not started yet (the mic is still opening): let go before it began = never mind
+      if (!opts.hold) { manualRequest.current = false; holdRequest.current = false; }
       return;
     }
     manualRequest.current = true;
+    holdRequest.current = !!opts.hold;
     setManual(true);
   }, []);
 
