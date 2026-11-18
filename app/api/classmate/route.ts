@@ -60,7 +60,9 @@ const REPLY_SYSTEM = (name: string, persona: string) =>
   '- OPINION: it asks what you think, like, want or feel, even about the fish: "do you think they\'re scary / cool / gross?", ' +
   '"would you eat one?", "would you want to catch one?", "which do you like more?", "do you like this?". Always answer these: give ' +
   'your own feeling in kid words ("Kind of! I wouldn\'t want to bump into one!", "Ew, maybe? I\'d try it!") with NO facts in it ' +
-  '(no numbers, nothing about what the fish do or the Bay is), then end with "What do you think, Professor Marine?". pass: true.\n' +
+  '(no numbers, nothing about what the fish do or the Bay is), then end with "What do you think, Professor Marine?". pass: true. ' +
+  'The examples only show the kind of reply: say it your own way, in your own words (don\'t copy them, and don\'t start with ' +
+  '"Kind of!" every time).\n' +
   '- UNSURE: a question about facts that the lesson so far says nothing about (never an opinion question). line: "", pass: true.\n' +
   'In ANSWER and GUESS, use ONLY what THE LESSON SO FAR says: no other fact, number, name or example, and nothing from later in ' +
   'the lesson. Talk like a kid in class, never about "the lesson": no "the lesson says", "it doesn\'t say", "we learned that"; ' +
@@ -176,14 +178,16 @@ export async function POST(req: Request) {
     try {
       const line = (await chat(OWNUP_SYSTEM, `MIX-UP: ${mistake}\nWHAT'S RIGHT: ${truth}`, false, 120))
         .replace(/^["'“]|["'”]$/g, '').replace(/\s+/g, ' ').trim().slice(0, 160);
-      if (!line || line.split(' ').length > 20 || line.includes('?')) return NextResponse.json({ line: null });
-      const check = JSON.parse(await chat(ADDS_SYSTEM, `THE LESSON SO FAR\n${truth}\n(${CLASSMATE_NAME} had said, wrongly: ${mistake})\n\nTHE REPLY\n${line}`, true, 200));
+      if (!line || line.split(' ').length > 20 || line.includes('?')) return NextResponse.json({ line: null, why: { reason: 'shape', line } });
+      // (naming the mix-up, saying it was wrong, or promising not to again isn't a new fact: only a claim beyond WHAT'S RIGHT is)
+      const check = JSON.parse(await chat(ADDS_SYSTEM, `THE LESSON SO FAR\n${truth}\n(${CLASSMATE_NAME} had wrongly said: ${mistake}. ` +
+        `Saying he mixed that up, naming what it was about, or promising not to again is not a new fact.)\n\nTHE REPLY\n${line}`, true, 200));
       const added = Array.isArray(check?.new) ? check.new.filter((x: unknown) => typeof x === 'string' && x.trim()) : null;
-      if (!added || added.length) return NextResponse.json({ line: null });
+      if (!added || added.length) return NextResponse.json({ line: null, why: { reason: 'fact check', line, added } });
       return NextResponse.json({ line });
     } catch (e) {
       console.error('classmate ownup error:', e instanceof Error ? e.message : e);
-      return NextResponse.json({ line: null });
+      return NextResponse.json({ line: null, why: { reason: 'error' } });
     }
   }
 
@@ -220,10 +224,11 @@ export async function POST(req: Request) {
       const raw = JSON.parse(await chat(REPLY_SYSTEM(mate.name, mate.persona), `THE LESSON SO FAR\n${taught}${on ? `\n\nThe class is on this slide now: ${on}` : ''}\n\nThe learner said to you: "${text}"`, true, 400));
       const kind = ['ANSWER', 'GUESS', 'OPINION'].includes(raw?.kind) ? String(raw.kind) : null;
       const reply = String(raw?.line ?? '').replace(/^["'“]|["'”]$/g, '').replace(/\s+/g, ' ').trim().slice(0, 320);
-      if (!kind || !reply || /\bUNSURE\b/.test(reply)) return NextResponse.json({ reply: null });
+      // (why: what kept a line from being said, for testing (scratchpad mateTest); the lesson only reads reply)
+      if (!kind || !reply || /\bUNSURE\b/.test(reply)) return NextResponse.json({ reply: null, why: { reason: String(raw?.kind ?? 'none').toLowerCase() } });
       const check = JSON.parse(await chat(ADDS_SYSTEM, `THE LESSON SO FAR\n${taught}\n\nTHE REPLY\n${reply}`, true, 300));
       const added = Array.isArray(check?.new) ? check.new.filter((x: unknown) => typeof x === 'string' && x.trim()) : null;
-      if (!added || added.length) return NextResponse.json({ reply: null });   // (it added something, or the check didn't answer: not said)
+      if (!added || added.length) return NextResponse.json({ reply: null, why: { reason: 'fact check', kind, line: reply, added } });   // (it added something, or the check didn't answer: not said)
       // (a guess or an opinion always goes on to the professor: they asked him)
       return NextResponse.json({ reply, kind, pass: kind !== 'ANSWER' || raw?.pass === true });
     } catch (e) {
