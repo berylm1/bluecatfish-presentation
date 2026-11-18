@@ -1117,7 +1117,7 @@ function Editor({
             </div>
             {panel === 'ideas' && (
               <ConceptsPanel deck={deck} onGoTo={(i) => ed.setSlideIdx(i)}
-                onChange={(fn, group) => ed.change((d) => { d.concepts ??= { ideas: [], questions: {} }; fn(d.concepts); }, group)}
+                onChange={(fn, group) => ed.change((d) => { d.concepts ??= { ideas: [], questions: {} }; d.concepts.ideas ??= []; d.concepts.questions ??= {}; for (const i of d.concepts.ideas) i.needs ??= []; fn(d.concepts); }, group)}
                 onDraft={(c) => ed.change((d) => { d.concepts = c; })} />
             )}
             {/* kept mounted too: each slide's results stay */}

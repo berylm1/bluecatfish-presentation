@@ -3,6 +3,7 @@ import { createClient } from '@supabase/supabase-js';
 import { rateLimit } from '@/lib/rateLimit';
 import { createHash } from 'crypto';
 import { getValue, setValue } from '@/src/redisClient';
+import { LUNA } from '@/lib/canvas/ai';
 
 // Variant slide lookup — returns the best reviewed variant for a topic + learner state.
 let client: ReturnType<typeof createClient> | null = null;
@@ -89,8 +90,9 @@ async function generateExplanation(row: any, learnerState: string): Promise<stri
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${process.env.OPENAI_API_KEY}` },
       body: JSON.stringify({
-        model: 'gpt-4o-mini',
-        temperature: 0.7,
+        // (Luna, like the rest of the app: lib/canvas/ai.ts. Was gpt-4o-mini, temperature 0.7, max_tokens 220)
+        model: LUNA,
+        reasoning_effort: 'low',
         messages: [
           {
             role: 'system',
@@ -109,7 +111,7 @@ async function generateExplanation(row: any, learnerState: string): Promise<stri
               (row.source_quote ? `Factsheet backing: ${row.source_quote}` : ''),
           },
         ],
-        max_tokens: 220,
+        max_completion_tokens: 1500,
       }),
     });
     const data = await res.json();

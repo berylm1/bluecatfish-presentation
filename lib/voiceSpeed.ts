@@ -31,11 +31,12 @@ export function setVoiceSpeed(v: VoiceSpeed): void {
 const talking = new Set<HTMLAudioElement>();
 const MAX_WAIT_MS = 20000;   // a clip stuck loading can't hold the others up for ever
 const never = new Promise<void>(() => {});
-function quiet(o: HTMLAudioElement): Promise<void> {
-  return new Promise((resolve) => {
-    const done = () => { for (const ev of ['pause', 'ended', 'error', 'emptied']) o.removeEventListener(ev, done); resolve(); };
-    for (const ev of ['pause', 'ended', 'error', 'emptied']) o.addEventListener(ev, done);
-  });
+// Told whenever a voice stops talking (not left to the audio's own events: one paused before it began, or whose
+// play() was refused, fires none, and the next voice would wait out the whole MAX_WAIT_MS)
+const waiting = new Set<() => void>();
+function leave(a: HTMLAudioElement): void {
+  if (!talking.delete(a)) return;
+  for (const go of [...waiting]) go();
 }
 
 /** Plays this clip at the chosen speed (and keeps it there if the speed changes mid-clip), after any voice still talking. */
@@ -45,7 +46,7 @@ export function voiced(a: HTMLAudioElement): HTMLAudioElement {
   // the browser resets the rate when a new source loads
   a.defaultPlaybackRate = speed;
   a.addEventListener('play', () => { a.playbackRate = speed; playing.add(a); });
-  for (const ev of ['pause', 'ended', 'error', 'emptied']) a.addEventListener(ev, () => { playing.delete(a); talking.delete(a); });
+  for (const ev of ['pause', 'ended', 'error', 'emptied']) a.addEventListener(ev, () => { playing.delete(a); leave(a); });
   const play = a.play.bind(a);
   const pause = a.pause.bind(a);
   let asked = 0;
@@ -55,14 +56,18 @@ export function voiced(a: HTMLAudioElement): HTMLAudioElement {
     for (;;) {
       const others = [...talking].filter((o) => o !== a);
       if (!others.length || Date.now() >= until) break;
-      await Promise.race([Promise.all(others.map(quiet)), new Promise((r) => setTimeout(r, Math.max(0, until - Date.now())))]);
+      await new Promise<void>((resolve) => {
+        const go = () => { waiting.delete(go); clearTimeout(timer); resolve(); };
+        const timer = setTimeout(go, Math.max(0, until - Date.now()));
+        waiting.add(go);
+      });
       // paused (or asked again) while it waited: this play is withdrawn (it never settles, like a clip that never started)
       if (my !== asked) return never;
     }
     talking.add(a);
-    return play().catch((e) => { talking.delete(a); throw e; });
+    return play().catch((e) => { leave(a); throw e; });
   };
-  a.pause = () => { asked++; talking.delete(a); pause(); };
+  a.pause = () => { asked++; leave(a); pause(); };
   return a;
 }
 

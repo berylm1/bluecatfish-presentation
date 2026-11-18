@@ -14,9 +14,11 @@ import type { Concept, Deck, DeckConcepts } from './types';
 /** The map the lesson goes by: null when there is none, it's switched off, or it has no ideas on this lesson's slides */
 export function conceptMap(deck: Deck): DeckConcepts | null {
   const c = deck.concepts;
-  if (!c || c.off || !c.ideas.length) return null;
+  if (!c || c.off || !Array.isArray(c.ideas) || !c.ideas.length) return null;
   const ids = new Set(deck.slides.map((s) => s.id));
-  return c.ideas.some((i) => ids.has(i.slide)) ? c : null;
+  if (!c.ideas.some((i) => ids.has(i.slide))) return null;
+  // (whole, whatever was stored: a map saved without its question tags, or an idea without its links, must never stop a lesson)
+  return { ...c, ideas: c.ideas.map((i) => (Array.isArray(i.needs) ? i : { ...i, needs: [] })), questions: c.questions ?? {} };
 }
 
 /** Each idea's slide number (0-based); an idea whose slide is gone isn't in it */
@@ -31,7 +33,7 @@ export function conceptSlides(deck: Deck, concepts: DeckConcepts): Map<string, n
 export function questionSlides(deck: Deck, concepts: DeckConcepts): Map<string, number> {
   const slides = conceptSlides(deck, concepts);
   const out = new Map<string, number>();
-  for (const [q, c] of Object.entries(concepts.questions)) { const i = slides.get(c); if (i !== undefined) out.set(q, i); }
+  for (const [q, c] of Object.entries(concepts.questions ?? {})) { const i = slides.get(c); if (i !== undefined) out.set(q, i); }
   return out;
 }
 
@@ -94,7 +96,7 @@ export function conceptIssues(deck: Deck, concepts: DeckConcepts): { id: string;
       if (need && needAt !== undefined && needAt > at) out.push({ id: c.id, text: `“${c.name}” (slide ${at + 1}) builds on “${need.name}”, which is taught later (slide ${needAt + 1})` });
     }
   }
-  const untagged = (deck.bank?.questions ?? []).filter((q) => !concepts.questions[q.id]).length;
+  const untagged = (deck.bank?.questions ?? []).filter((q) => !concepts.questions?.[q.id]).length;
   if (untagged) out.push({ id: '', text: `${untagged} classmate question${untagged === 1 ? ' has' : 's have'} no idea yet (they fall back to matching words)` });
   return out;
 }

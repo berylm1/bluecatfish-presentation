@@ -34,7 +34,7 @@ export const LIMITS = {
   learnerState: { perSession: 60, perAddress: 1000, windowSec: 60, label: 'updates' },
   // Learner events (/api/signals/events), in batches of ~5: a lesson sends a few batches a minute
   events: { perSession: 60, perAddress: 1000, windowSec: 60, label: 'updates' },
-  classmate: { perSession: 10, perAddress: 80, windowSec: 60, perDay: 3000, label: 'classmate questions' },   // (a Finn turn can be 3: his line, and up to 2 follow-ups)
+  classmate: { perSession: 18, perAddress: 80, windowSec: 60, perDay: 3000, label: 'classmate questions' },   // (a Finn turn can be 3: his line, and up to 2 follow-ups)
   board: { perSession: 10, perAddress: 60, windowSec: 60, perDay: 3000, label: 'drawings' },
   // The question bank (/api/bank/match): one lookup per question asked (an embedding, cheap)
   bank: { perSession: 20, perAddress: 120, windowSec: 60, perDay: 5000, label: 'question lookups' },

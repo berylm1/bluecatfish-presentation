@@ -60,7 +60,8 @@ export function useTutor(lessonOnly = false) {
           stream: true,
           useKnowledgeBase: true,
           ...(lessonRef.current ? { lessonOnly: true } : {}),
-          systemPrompt: `${VOICE}\n\nWhat the learner is looking at right now:\n${slideContext}\n\nRelate the answer to this slide when it helps.`,
+          // (cut to fit the server's cap, MAX.systemPrompt 8000: over it the answer is refused outright)
+          systemPrompt: `${VOICE}\n\nWhat the learner is looking at right now:\n${slideContext.slice(0, Math.max(500, 7700 - VOICE.length))}\n\nRelate the answer to this slide when it helps.`,
           conversation: historyRef.current.slice(-HISTORY_TURNS * 2),
         }),
       });
