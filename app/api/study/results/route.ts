@@ -4,6 +4,11 @@ import { DEMOGRAPHICS, participantCode, studyOf, STUDY_TABLES_SETUP, POST_QUIZ, 
 import { ANSWERS } from '@/lib/study/key';
 import { AUTH_COOKIE, verifyToken } from '@/lib/editorAuth';
 import { TOPIC_MAX } from '@/lib/confusion';
+import { STUDY_LESSON } from '@/lib/study/content';
+import { getStudyVersion } from '@/lib/study/version';
+import { readSaved } from '@/lib/canvas/saved';
+import { readDeck } from '@/lib/canvas/store';
+import { conceptMap, conceptSlides } from '@/lib/canvas/concepts';
 
 /*
  * The study's results, for /studyResults (editors only: under PROTECTED_APIS in lib/editorAuth.ts).
@@ -262,5 +267,29 @@ export async function GET(request: NextRequest) {
       mates: m.mates.map((x) => ({ topic: x.topic, byMeter: x.byMeter, action: x.action })),
     }];
   });
-  return NextResponse.json({ summary, steps, rows, confusion: { topics: Array.from({ length: topicCount }, (_, t) => names[t] || `Topic ${t + 1}`), curves } });
+  // Quiz 2 by idea (the study lesson's concept map tags each quiz question: lib/canvas/concepts.ts): of the people who
+  // finished, how many answers on each idea's questions were right, per group. No map (or no tags): nothing.
+  let ideas: { name: string; slide: number; questions: number; groups: Record<string, { right: number; of: number }> }[] = [];
+  try {
+    const version = await getStudyVersion(S.id);
+    const deck = (version.slug ? await readSaved(STUDY_LESSON, version.slug) : null) ?? (await readDeck(STUDY_LESSON, 'live'));
+    const map = deck ? conceptMap(deck) : null;
+    if (deck && map?.quiz) {
+      const at = conceptSlides(deck, map);
+      const done = people.filter((p) => p.finished_at && p.post_quiz?.answers);
+      ideas = map.ideas.flatMap((c) => {
+        const qs = Object.entries(map.quiz!).filter(([, id]) => id === c.id).map(([q]) => q).filter((q) => ANSWERS[q]);
+        if (!qs.length) return [];
+        const groups: Record<string, { right: number; of: number }> = {};
+        for (const g of S.groups) {
+          const mine = done.filter((p) => p.study_group === g);
+          groups[g] = { right: mine.reduce((n, p) => n + qs.filter((q) => p.post_quiz.answers[q] === ANSWERS[q]).length, 0), of: mine.length * qs.length };
+        }
+        return [{ name: c.name, slide: (at.get(c.id) ?? -1) + 1, questions: qs.length, groups }];
+      }).sort((a, b) => a.slide - b.slide);
+    }
+  } catch (e) {
+    console.error('study results (by idea):', e);
+  }
+  return NextResponse.json({ summary, steps, rows, ideas, confusion: { topics: Array.from({ length: topicCount }, (_, t) => names[t] || `Topic ${t + 1}`), curves } });
 }

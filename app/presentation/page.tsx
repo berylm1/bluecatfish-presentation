@@ -28,6 +28,7 @@ import { CLASSMATE_NAME } from '@/lib/voice';
 import { CLASSMATES, classmateNamed, type ClassmateId } from '@/lib/classmates';
 import { playSound } from '@/lib/canvas/sounds';
 import Icon, { type IconName } from '@/components/Icon';
+import { conceptMap, conceptsForTutor, questionSlides } from '@/lib/canvas/concepts';
 import type { ActivityMistake, FinnEvent, FinnMove } from '@/components/canvas/Activity';
 import { focusSlide, helperSlide, ownHelper } from '@/lib/canvas/morph';
 import { isIntroId } from '@/lib/canvas/intro';
@@ -889,7 +890,7 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
       (learnerName ? ` The learner's name is ${learnerName}; use it now and then, not in every answer.` : '') +
       // the hands-on box's answers are on screen (above): the professor helps them get there, not past it
       (yourTurnRef.current ? ' The learner is in the middle of the hands-on activity on this slide: give a hint that helps them think, never the answers.' : '') +
-      describeForTutor(tracking.state()) + meterForTutor(p.slideIndex);
+      describeForTutor(tracking.state()) + meterForTutor(p.slideIndex) + conceptsForTutor(deck, p.slideIndex);
   }, [deck, slideText, tracking, learnerName, meterForTutor]);
 
   /** The best reviewed variant slide (e.g. an authored PDF deck slide) for a topic and some words, or null. */
@@ -1221,11 +1222,17 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
   // Each question's own slide: the one of its topic whose words are closest to it and its answer. A classmate only
   // asks what the lesson has got to (was: any question of the topic, or a related one from a topic still to come,
   // so a question could come up on a slide that had nothing to do with it)
+  // With a concept map (lib/canvas/concepts.ts): a question's slide is its idea's slide, as a person checked it in the
+  // editor. Questions with no idea (and lessons with no map) are matched by their words, as before.
   const homeSlide = useMemo(() => {
+    const map = conceptMap(deck);
+    const tagged = map ? questionSlides(deck, map) : new Map<string, number>();
     const words = (t: string) => new Set(t.toLowerCase().match(/[a-z]{4,}/g) ?? []);
     const slides = deck.slides.map((sl) => words(sl.elements.map((e) => `${shownWords(e)} ${e.silent ? '' : spokenText(e)}`).join(' ')));
     const home = new Map<string, number>();
     for (const q of bankList) {
+      const known = tagged.get(q.id);
+      if (known !== undefined) { home.set(q.id, known); continue; }
       const mine = words(`${q.q} ${q.slide.elements.map((e) => `${shownWords(e)} ${spokenText(e)}`).join(' ')}`);
       let best = -1, at = -1;
       deck.slides.forEach((sl, i) => {

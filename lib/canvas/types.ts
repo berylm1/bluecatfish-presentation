@@ -287,12 +287,45 @@ export interface DeckBank {
   off?: boolean;
 }
 
+/**
+ * The lesson's concept map (lib/canvas/concepts.ts): the ideas its slides teach, the slide that teaches each, and the
+ * ideas each one builds on. Drafted by the AI in the editor ("Ideas"), then a person's to correct. The lesson goes by
+ * it: a classmate asks a question only once its idea has been taught, and the professor knows what's been taught so far.
+ */
+export interface Concept {
+  id: string;
+  /** A few words: "Invasive species" */
+  name: string;
+  /** What it means, in one plain line */
+  means: string;
+  /** The slide that teaches it (its id) */
+  slide: string;
+  /** The ideas it builds on (their ids): taught on its slide or before */
+  needs: string[];
+  /** Written by the AI (a person's edit makes it theirs) */
+  byAI?: boolean;
+}
+
+export interface DeckConcepts {
+  ideas: Concept[];
+  /** The question bank: question id → the idea it's about */
+  questions: Record<string, string>;
+  /** The study's quiz (lib/study/content.ts): question id → the idea it tests */
+  quiz?: Record<string, string>;
+  /** When it was last drafted */
+  at?: string;
+  /** Not used by the lesson (the map stays in the editor) */
+  off?: boolean;
+}
+
 export interface Deck {
   lessonId: string;
   title: string;
   slides: Slide[];
   /** End-of-lesson recap, written by the AI on publish. */
   recap?: string;
+  /** The concept map: the ideas the slides teach and how they build on each other */
+  concepts?: DeckConcepts;
   source: 'hand' | 'ai';
   /** The AI lesson version (Redis key) this deck was copied from with "Start from AI". */
   basedOn?: string;
