@@ -145,7 +145,9 @@ export async function POST(request: NextRequest) {
         role: 'system',
         content: lessonFacts
           ? `${effectiveSystemPrompt}${intentLine}\n\nTHE LESSON (what the learner is taught, slide by slide). Answer ONLY from it: re-explain, give an ` +
-            'example from it, or point back to it. If the answer is not in the lesson, say kindly that the lesson doesn\'t cover that, and bring them back to what it does cover.\n' + lessonFacts
+            'example from it, or point back to it. If the answer is not in the lesson, say kindly that the lesson doesn\'t cover that, and bring them back to what it does cover. ' +
+            // (was: "Do blue catfish have teeth?" got "Yes, blue catfish eat plants as well as animals…", seen in a live test run)
+            'Always answer the question that was asked, never a nearby one, and don\'t start with "Yes" or "No" unless the lesson says so.\n' + lessonFacts
           : !useKnowledgeBase ? effectiveSystemPrompt : effectiveSystemPrompt + intentLine + ` 
 
       You MUST follow the knowledge base below.

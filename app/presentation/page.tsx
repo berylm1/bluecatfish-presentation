@@ -3333,7 +3333,7 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
           if (!lab) return null;
           return (
             <button key={c.key} onClick={() => void tellMore(c.key)} data-tell-more={c.area}
-              className="absolute z-20 -translate-x-full -translate-y-[115%] px-2.5 py-1 rounded-full bg-cyan-500/90 hover:bg-cyan-400 text-slate-950 text-xs font-semibold shadow-md inline-flex items-center gap-1 animate-[fade-in_300ms_ease]"
+              className="absolute z-20 -translate-x-full -translate-y-[115%] whitespace-nowrap px-2.5 py-1 rounded-full bg-cyan-500/90 hover:bg-cyan-400 text-slate-950 text-xs font-semibold shadow-md inline-flex items-center gap-1 animate-[fade-in_300ms_ease]"
               style={{ left: `${lab.x + lab.w}%`, top: `${lab.y}%` }} aria-label={`Tell me more: ${c.label}'s question`}>
               <Icon name="plus" /> Tell me more
             </button>
