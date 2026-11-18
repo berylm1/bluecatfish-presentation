@@ -230,10 +230,9 @@ export function useListener({
       return;
     }
     if (opts.drop) { manualRequest.current = false; holdRequest.current = false; return; }   // not started yet: called off
-    if (manualRequest.current) {   // asked for, not started yet (the mic is still opening): let go before it began = never mind
-      if (!opts.hold) { manualRequest.current = false; holdRequest.current = false; }
-      return;
-    }
+    // asked for, not started yet (the mic is still opening): a plain talk() makes it an ordinary turn (it ends at a pause),
+    // so a real hold let go before the mic was ready isn't lost (was: called off), and another caller can't cancel it
+    if (manualRequest.current) { if (!opts.hold) holdRequest.current = false; return; }
     manualRequest.current = true;
     holdRequest.current = !!opts.hold;
     setManual(true);

@@ -1942,6 +1942,7 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
         if (FINN_REMEMBERS && line.who === 'finn' && own && !own.used && own.topic !== topic) {
           own.used = true;
           const made = await Promise.race([own.line, new Promise<null>((r) => setTimeout(() => r(null), 1500))]);
+          if (over()) { setClassmateSaying(null); return; }   // (the learner took over meanwhile: not over them)
           const text = made ?? pickOne(FINN_OWN_UP);
           tracking.track('tutor_decision', { action: 'finn_owns_up', line: text.slice(0, 200), live: !!made, caughtAt: own.topic });
           setClassmateSaying('finn');
@@ -2475,13 +2476,21 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
   // Hold to talk (the Ask button): listening while held; let go to send. Shorter than HOLD_MIN_MS: what was heard is
   // dropped (a tap by mistake isn't a question) and "Hold to talk" shows
   const heldSince = useRef(0);
-  const [holdHint, setHoldHint] = useState(false);
+  const [holdHint, setHoldHint] = useState<string | null>(null);
+  // The microphone's permission ('prompt': the browser will ask, on the first press; that press isn't a tap by mistake)
+  const micPermission = useRef<string>('unknown');
+  useEffect(() => {
+    let status: PermissionStatus | null = null;
+    const set = () => { micPermission.current = status?.state ?? 'unknown'; };
+    navigator.permissions?.query({ name: 'microphone' as PermissionName }).then((s) => { status = s; set(); s.addEventListener('change', set); }).catch(() => {});
+    return () => status?.removeEventListener('change', set);
+  }, []);
   const holdHintTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pressAsk = () => {
     if (micRef.current.status === 'processing') return;
     if (micRef.current.status === 'listening' && !heldSince.current) { talk(); return; }   // (already listening on its own: that turn is sent)
     heldSince.current = Date.now();
-    setHoldHint(false);
+    setHoldHint(null);
     talk({ hold: true });
   };
   const releaseAsk = () => {
@@ -2491,10 +2500,12 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
     if (held >= HOLD_MIN_MS) { talk(); return; }   // let go: send what was said
     // a tap: nothing is sent (the turn, if it began, is ended and its words dropped; if not, it's called off)
     talk({ drop: true });
-    tracking.track('tutor_decision', { action: 'ask_tap' });
-    setHoldHint(true);
+    // (the browser asking for the microphone took the press: not a tap by mistake, so a different word)
+    const asking = micPermission.current === 'prompt' && micRef.current.status !== 'listening';
+    tracking.track('tutor_decision', { action: asking ? 'ask_permission' : 'ask_tap' });
+    setHoldHint(asking ? 'Allow the microphone, then hold Ask again' : 'Hold to talk: press, say it, let go');
     if (holdHintTimer.current) clearTimeout(holdHintTimer.current);
-    holdHintTimer.current = setTimeout(() => setHoldHint(false), 2500);
+    holdHintTimer.current = setTimeout(() => setHoldHint(null), asking ? 6000 : 2500);
   };
 
   // The end, first: the quiz (if the lesson has one, and it hasn't been done or skipped this time through)
@@ -3504,7 +3515,7 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
           </button>
           {holdHint && (
             <span role="status" className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 whitespace-nowrap rounded-lg bg-slate-900/95 px-2.5 py-1 text-xs text-white shadow-lg animate-[fade-in_200ms_ease]">
-              Hold to talk: press, say it, let go
+              {holdHint}
             </span>
           )}
         </span>

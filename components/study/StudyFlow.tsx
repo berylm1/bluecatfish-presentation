@@ -115,8 +115,8 @@ export default function StudyFlow({ which }: { which: StudyId }) {
     void go(cameraLater ? 'start' : 'lesson', pick);
   };
   useEffect(() => {
-    if (step === 'start' && cameraLater && rec?.group && rec.group !== 'adaptive') void go('lesson', async () => ({}));
-  }, [step, cameraLater, rec?.group, go]);
+    if (step === 'start' && cameraLater && rec?.group && (rec.group !== 'adaptive' || rec.camera !== undefined)) void go('lesson', async () => ({}));
+  }, [step, cameraLater, rec?.group, rec?.camera, go]);
   const nextPerson = () => {
     if (!window.confirm('Start the study for someone else on this computer? (Your answers are already saved.)')) return;
     forget();
@@ -182,7 +182,7 @@ export default function StudyFlow({ which }: { which: StudyId }) {
       )}
 
       {/* (static vs adaptive: the adaptive group's camera check, now that the group is known; the static lesson has no camera) */}
-      {step === 'start' && rec && cameraLater && rec.group === 'adaptive' && (
+      {step === 'start' && rec && cameraLater && rec.group === 'adaptive' && rec.camera === undefined && (
         <div className={card}>
           <CameraCheck busy={busy} onDone={(ok) => go('lesson', async () => {
             await post('save', { id: rec.id, checks: { camera_ok: ok } });

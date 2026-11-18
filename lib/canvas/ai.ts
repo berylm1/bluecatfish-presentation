@@ -14,8 +14,12 @@ export const SOL = 'gpt-6.1-sol';
 const MODEL = LUNA;
 /** The professor's live answers (app/api/conversational/respond) */
 export const PROFESSOR_MODEL = LUNA;
-/** What each study participant's lesson ran on, recorded on their row (migration 022: ai_model) */
+/** What each study participant's lesson ran on, recorded on their row (migration 022: ai_model), by group: the static
+ *  lesson has no live AI; the lesson without classmates, the professor's answers only */
 export const AI_MODELS = `professor ${PROFESSOR_MODEL}, classmates ${MODEL}`;
+export function aiModelsFor(group: string): string {
+  return group === 'static' ? 'none (static lesson)' : group === 'no_classmates' ? `professor ${PROFESSOR_MODEL}` : AI_MODELS;
+}
 const MIN_COMPLETION_TOKENS = 1000;   // chat()'s floor for max_completion_tokens (see there)
 
 export const STYLE =

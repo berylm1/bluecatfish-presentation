@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { createHash } from 'crypto';
-import { rateLimit } from '@/lib/rateLimit';
+import { editorOf, rateLimit } from '@/lib/rateLimit';
 import { getValue, setValue } from '@/src/redisClient';
 import { chat } from '@/lib/canvas/ai';
 import { CLASSMATE_NAME } from '@/lib/voice';
@@ -184,12 +184,12 @@ export async function POST(req: Request) {
     try {
       const line = (await chat(OWNUP_SYSTEM, `MIX-UP: ${mistake}\nWHAT'S RIGHT: ${truth}`, false, 120))
         .replace(/^["'“]|["'”]$/g, '').replace(/\s+/g, ' ').trim().slice(0, 160);
-      if (!line || line.split(' ').length > 20 || line.includes('?')) return NextResponse.json({ line: null, why: { reason: 'shape', line } });
+      if (!line || line.split(' ').length > 20 || line.includes('?')) return NextResponse.json({ line: null, why: { reason: 'shape' } });
       // (naming the mix-up, saying it was wrong, or promising not to again isn't a new fact: only a claim beyond WHAT'S RIGHT is)
       const check = JSON.parse(await chat(ADDS_SYSTEM, `THE LESSON SO FAR\n${truth}\n(${CLASSMATE_NAME} had wrongly said: ${mistake}. ` +
         `Saying he mixed that up, naming what it was about, or promising not to again is not a new fact.)\n\nTHE REPLY\n${line}`, true, 200));
       const added = Array.isArray(check?.new) ? check.new.filter((x: unknown) => typeof x === 'string' && x.trim()) : null;
-      if (!added || added.length) return NextResponse.json({ line: null, why: { reason: 'fact check', line, added } });
+      if (!added || added.length) return NextResponse.json({ line: null, why: { reason: 'fact check', ...(await editorOf(req) ? { line, added } : {}) } });
       return NextResponse.json({ line });
     } catch (e) {
       console.error('classmate ownup error:', e instanceof Error ? e.message : e);
@@ -230,14 +230,15 @@ export async function POST(req: Request) {
       const raw = JSON.parse(await chat(REPLY_SYSTEM(mate.name, mate.persona), `THE LESSON SO FAR\n${taught}${on ? `\n\nThe class is on this slide now: ${on}` : ''}\n\nThe learner said to you: "${text}"`, true, 400));
       const kind = ['ANSWER', 'GUESS', 'OPINION'].includes(raw?.kind) ? String(raw.kind) : null;
       const reply = String(raw?.line ?? '').replace(/^["'“]|["'”]$/g, '').replace(/\s+/g, ' ').trim().slice(0, 320);
-      // (why: what kept a line from being said, for testing (scratchpad mateTest); the lesson only reads reply)
+      // (why: what kept a line from being said, for testing; the dropped line itself only for an unlocked editor (it wasn't
+      // checked, so it doesn't leave the server for anyone else); the lesson only reads reply)
       if (!kind || !reply || /\bUNSURE\b/.test(reply)) return NextResponse.json({ reply: null, why: { reason: String(raw?.kind ?? 'none').toLowerCase() } });
       // (an opinion may name what the learner asked about, "blue crabs or blue catfish?"; an answer or a guess only what the
       // lesson says, so a false idea in the question isn't repeated back as true)
       const asked = kind === 'OPINION' ? `\n(The learner asked: "${text}". Naming what they asked about is not a new fact.)` : '';
       const check = JSON.parse(await chat(ADDS_SYSTEM, `THE LESSON SO FAR\n${taught}${asked}\n\nTHE REPLY\n${reply}`, true, 300));
       const added = Array.isArray(check?.new) ? check.new.filter((x: unknown) => typeof x === 'string' && x.trim()) : null;
-      if (!added || added.length) return NextResponse.json({ reply: null, why: { reason: 'fact check', kind, line: reply, added } });   // (it added something, or the check didn't answer: not said)
+      if (!added || added.length) return NextResponse.json({ reply: null, why: { reason: 'fact check', kind, ...(await editorOf(req) ? { line: reply, added } : {}) } });   // (it added something, or the check didn't answer: not said)
       // (a guess or an opinion always goes on to the professor: they asked him)
       return NextResponse.json({ reply, kind, pass: kind !== 'ANSWER' || raw?.pass === true });
     } catch (e) {

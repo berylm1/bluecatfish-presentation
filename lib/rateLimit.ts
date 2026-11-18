@@ -51,7 +51,8 @@ export const LIMITS = {
   // The editor's ✨ helper (/api/editor/assistant): limited for editors too (editorsToo), per editor
   assistant: { perSession: 12, perAddress: 30, windowSec: 60, perDay: 600, label: 'helper questions' },
   // The error log (/api/log-error): the browser sends at most 5 a page visit (lib/reportError.ts)
-  errors: { perSession: 20, perAddress: 200, windowSec: 60, perDay: 5000, label: 'error reports' },
+  // (tight per address and a big day: a script posting junk can't easily use up the day for everyone)
+  errors: { perSession: 10, perAddress: 30, windowSec: 60, perDay: 20000, label: 'error reports' },
   // Editor password tries: slows down guessing (no daily cap, so a guesser can't lock everyone out)
   unlock: { perSession: 10, perAddress: 10, windowSec: 600, label: 'password tries' },
 } satisfies Record<string, Rule>;
@@ -76,7 +77,7 @@ function address(req: Request): string {
 }
 
 /** The unlocked editor's name, or null. */
-async function editorOf(req: Request): Promise<string | null> {
+export async function editorOf(req: Request): Promise<string | null> {
   const m = (req.headers.get('cookie') ?? '').match(new RegExp(`(?:^|;\\s*)${AUTH_COOKIE}=([^;]*)`));
   return m ? (await verifyToken(decodeURIComponent(m[1]))) ?? null : null;
 }

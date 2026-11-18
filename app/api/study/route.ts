@@ -4,7 +4,7 @@ import { rateLimit } from '@/lib/rateLimit';
 import { DEMOGRAPHICS, demographicAnswer, participantCode, studyOf, STUDY_TABLES_SETUP, POST_QUIZ, PRE_QUIZ, QUESTIONS_VERSION, IDK, IDK_TEXT, surveyFor, PAIR_POINTS, type QuizQuestion } from '@/lib/study/content';
 import { ANSWERS, score } from '@/lib/study/key';
 import { studyDeck } from '@/lib/study/version';
-import { AI_MODELS } from '@/lib/canvas/ai';
+import { aiModelsFor } from '@/lib/canvas/ai';
 
 /*
  * The studies (app/study: static vs adaptive; app/study2, body.study 2: the classmates study): one row per person in
@@ -162,7 +162,7 @@ export async function POST(request: NextRequest) {
         if (vError && !/lesson_version/.test(vError.message)) throw vError;   // (column missing: migration 014 not run yet)
       }
       // and the AI models it runs on (migration 022; column missing: not run yet, skipped)
-      const { error: mError } = await supabase.from(S.table).update({ ai_model: AI_MODELS }).eq('id', id).is('ai_model', null);
+      const { error: mError } = await supabase.from(S.table).update({ ai_model: aiModelsFor(group ?? '') }).eq('id', id).is('ai_model', null);
       if (mError && !/ai_model/.test(mError.message)) throw mError;
       await update(forward('lesson'));
       return NextResponse.json({ group });

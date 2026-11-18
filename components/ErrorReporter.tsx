@@ -7,7 +7,7 @@ import { reportError } from '@/lib/reportError';
 export default function ErrorReporter() {
   useEffect(() => {
     const onError = (e: ErrorEvent) => {
-      if (!e.message) return;
+      if (!e.message || /^Script error\.?$/i.test(e.message)) return;   // (another site's script: the browser hides what and where)
       // (a browser extension's, or a script from elsewhere: not ours)
       if (e.filename && !e.filename.startsWith(location.origin)) return;
       reportError('crash', e.message, e.error instanceof Error ? e.error.stack : `${e.filename}:${e.lineno}:${e.colno}`);

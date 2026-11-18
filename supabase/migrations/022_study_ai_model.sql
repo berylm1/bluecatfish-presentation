@@ -11,6 +11,9 @@ begin
       -- (merged to main 2026-11-18 07:08 UTC, PR #70); the classmates were Luna from 2026-10-22 05:33 UTC (562b00f)
       execute format($q$update public.%I set ai_model = 'professor gpt-4o-mini, classmates gpt-6-luna'
         where ai_model is null and lesson_started_at >= '2026-10-22 05:33:08+00' and lesson_started_at < '2026-11-18 07:08:24+00'$q$, t);
+      -- What each group actually ran on: the static lesson has no live AI; without classmates, the professor only
+      execute format($q$update public.%I set ai_model = 'none (static lesson)' where study_group = 'static' and ai_model like 'professor%%'$q$, t);
+      execute format($q$update public.%I set ai_model = split_part(ai_model, ',', 1) where study_group = 'no_classmates' and ai_model like '%%, classmates%%'$q$, t);
     end if;
   end loop;
 end $$;
