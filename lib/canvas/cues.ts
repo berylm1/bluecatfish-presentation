@@ -6,6 +6,8 @@ import { COMMAND_ACK_TEXT } from '@/lib/deckCommands';
 export const CUE_TEXT = {
   ...COMMAND_ACK_TEXT,
   cmd_nextClip: 'Skipping that bit.',
+  cmd_hearFirst: 'Let’s hear this part first.',
+  cue_more: 'Anything else, or shall we go on?',
   cue_handRaise: 'Do you have a question?',
   cue_away: "Take your time. I'll wait.",
   cue_back: 'Alright, picking up where we left off.',

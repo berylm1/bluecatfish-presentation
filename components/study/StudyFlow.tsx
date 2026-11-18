@@ -1,9 +1,11 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
+import Icon from '@/components/Icon';
 import {
   CONSENT_ADAPTIVE, CONSENT_CLASSMATES, DEMOGRAPHICS, STUDIES, demographicAnswer, PAIR_POINTS, POST_QUIZ, PRE_QUIZ, SCALE, STUDY_LESSON, STUDY_TITLE, surveyFor,
   type DemographicId, type QuizQuestion, type StudyGroup, type StudyId, type SurveyItem,
+  IDK, IDK_TEXT,
 } from '@/lib/study/content';
 import { freshStart, isComputer, preloadCamera, preloadLesson, readStudy, seenBefore, studyPost, writeStudy, type StudyRecord } from '@/lib/study/client';
 import { learnerHeaders } from '@/lib/learnerSession';
@@ -162,8 +164,8 @@ export default function StudyFlow({ which }: { which: StudyId }) {
       )}
 
       {step === 'pre' && rec && (
-        <Quiz key="pre" title="Quiz 1 of 2" intro="5 quick questions before the lesson. It’s fine not to know: just pick your best guess. You’ll see how you did at the very end."
-          questions={PRE_QUIZ} busy={busy}
+        <Quiz key="pre" title="Quiz 1 of 2" intro="5 quick questions before the lesson. It’s fine not to know: if you don’t, pick “I don’t know” rather than guessing. You’ll see how you did at the very end."
+          questions={PRE_QUIZ} busy={busy} idk
           onDone={(answers, times, ms) => go('start', () => post('pre', { id: rec.id, answers, times, ms }))} />
       )}
 
@@ -305,8 +307,10 @@ function About({ busy, onDone }: { busy: boolean; onDone: (about: Partial<Record
 }
 
 /** One question at a time, no going back and no right/wrong shown (the answers come at the very end) */
-function Quiz({ title, intro, questions, busy, onDone }: {
+function Quiz({ title, intro, questions, busy, onDone, idk = false }: {
   title: string; intro: string; questions: QuizQuestion[]; busy: boolean;
+  /** A last choice on every question: "I don't know" (quiz 1) */
+  idk?: boolean;
   onDone: (answers: Record<string, string>, times: Record<string, number>, ms: number) => void;
 }) {
   const [i, setI] = useState(-1);   // -1: the intro
@@ -348,6 +352,12 @@ function Quiz({ title, intro, questions, busy, onDone }: {
               <span className="font-semibold mr-2 uppercase text-slate-400">{c.id}</span>{c.text}
             </button>
           ))}
+          {idk && (
+            <button onClick={() => setAnswers({ ...answers, [q.id]: IDK })} aria-pressed={answer === IDK}
+              className={`text-left px-4 py-3 rounded-xl border-2 border-dashed ${answer === IDK ? 'border-cyan-600 bg-cyan-50' : 'border-slate-300 hover:border-cyan-400'} text-slate-600`}>
+              {IDK_TEXT}
+            </button>
+          )}
         </div>
       ) : (
         <>
@@ -376,7 +386,7 @@ function Checks({ busy, onDone }: { busy: boolean; onDone: (c: { sound_ok: boole
     <div className={card}>
       <div className="flex gap-2 text-sm">
         {(['soundmic', 'camera'] as const).map((p) => (
-          <span key={p} className={`px-3 py-1 rounded-full ${p === part ? 'bg-cyan-600 text-white' : 'bg-slate-100 text-slate-500'}`}>{p === 'soundmic' ? '🔊 Sound and 🎙 microphone' : '📷 Camera'}</span>
+          <span key={p} className={`px-3 py-1 rounded-full ${p === part ? 'bg-cyan-600 text-white' : 'bg-slate-100 text-slate-500'}`}>{p === 'soundmic' ? <><Icon name="speaker" /> Sound and <Icon name="microphone" /> microphone</> : <><Icon name="camera" /> Camera</>}</span>
         ))}
       </div>
       {part === 'soundmic' && <SoundMicCheck onDone={(r) => { setResult(r); setPart('camera'); }} />}
@@ -500,15 +510,15 @@ function SoundMicCheck({ onDone }: { onDone: (r: { sound_ok: boolean; mic_ok: bo
       <h2 className="text-xl font-semibold">Can you hear the professor, and can the professor hear you?</h2>
       <p className="mt-1 text-slate-600">Turn your sound on and press play. Professor Marine says a word: <b>say it back out loud.</b> Allow the microphone when your browser asks.</p>
       {state === 'idle' && <button className={`${primary} mt-4`} onClick={go}>▶ Play</button>}
-      {state === 'playing' && <p className="mt-4 text-slate-600">🔊 Listen…</p>}
+      {state === 'playing' && <p className="mt-4 text-slate-600"><Icon name="speaker" /> Listen…</p>}
       {state === 'listening' && (
         <div className="mt-4">
-          <p className="font-medium">🎙 Now say the word!</p>
+          <p className="font-medium"><Icon name="microphone" /> Now say the word!</p>
           <div className="mt-2 h-4 rounded-full bg-slate-100 overflow-hidden"><div className="h-full bg-emerald-500 transition-[width] duration-75" style={{ width: `${level * 100}%` }} /></div>
         </div>
       )}
       {state === 'checking' && <p className="mt-4 text-slate-600">Checking what you said…</p>}
-      {state === 'heard' && <p className="mt-4 font-medium text-emerald-700">✓ We heard you say “{word}”. Sound and microphone work.</p>}
+      {state === 'heard' && <p className="mt-4 font-medium text-emerald-700"><Icon name="check-mark" /> We heard you say “{word}”. Sound and microphone work.</p>}
       {state === 'silent' && <p className="mt-4 text-sm text-red-700">We didn’t hear anything. Check that the right microphone is on and not muted, then try again.</p>}
       {state === 'again' && !tapping && <p className="mt-4 text-sm text-amber-800">{said ? <>We heard “{said}”. </> : <>We couldn’t make that out. </>}Listen again and say the word clearly.</p>}
       {tapping && (
@@ -523,7 +533,7 @@ function SoundMicCheck({ onDone }: { onDone: (r: { sound_ok: boolean; mic_ok: bo
         </div>
       )}
       <div className="mt-4 flex flex-wrap gap-3 items-center">
-        {(state === 'again' || state === 'silent') && <button className={primary} onClick={go}>↺ Play again</button>}
+        {(state === 'again' || state === 'silent') && <button className={primary} onClick={go}><Icon name="start-over" /> Play again</button>}
         {(state === 'again' || state === 'silent') && !tapping && <button className={quiet} onClick={() => { setNoMic(true); setTries(2); setState('again'); }}>My microphone isn’t working</button>}
         {state !== 'heard' && state !== 'idle' && <button className={quiet} onClick={() => finish(false)}>I can’t get sound to work, continue anyway</button>}
       </div>
@@ -553,7 +563,7 @@ function CameraCheck({ busy, onDone }: { busy: boolean; onDone: (ok: boolean) =>
       {state === 'on' && <video ref={video} muted playsInline className="mt-4 w-64 rounded-xl bg-slate-200 -scale-x-100" />}
       {state === 'denied' && <p className="mt-3 text-sm text-red-700">The camera was blocked or isn’t there. That’s fine: you can do the lesson without it.</p>}
       <div className="mt-4 flex flex-wrap gap-3 items-center">
-        {state === 'idle' && <button className={primary} onClick={start}>📷 Turn on the camera</button>}
+        {state === 'idle' && <button className={primary} onClick={start}><Icon name="camera" /> Turn on the camera</button>}
         {state === 'on' && <button className={primary} disabled={busy} onClick={() => { stop(); onDone(true); }}>I can see myself, continue</button>}
         <button className={quiet} disabled={busy} onClick={() => { stop(); onDone(false); }}>{state === 'on' ? 'Turn it off and continue' : 'Skip the camera'}</button>
       </div>
@@ -663,7 +673,7 @@ function Done({ rec, results, setResults, onNextPerson }: { rec: StudyRecord; re
   }, [results, rec.id, setResults]);
   return (
     <div className={card}>
-      <div className="text-5xl" aria-hidden>🎉</div>
+      <div className="text-5xl text-cyan-600"><Icon name="celebration" /></div>
       <h1 className="text-2xl font-bold mt-2">Thank you for taking part!</h1>
       <p className="mt-2 text-slate-700">Your answers are saved. Please don’t tell anyone what the lesson was like until they’ve done it too.</p>
       {results ? (
@@ -676,7 +686,7 @@ function Done({ rec, results, setResults, onNextPerson }: { rec: StudyRecord; re
           <ul className="mt-2 flex flex-col gap-2">
             {results.review.post.map((r) => (
               <li key={r.id} className={`rounded-xl px-4 py-3 text-sm ${r.correct ? 'bg-emerald-50' : 'bg-amber-50'}`}>
-                <div className="font-medium">{r.correct ? '✓' : '✗'} {r.q}</div>
+                <div className="font-medium">{r.correct ? <Icon name="check-mark" className="text-emerald-600" /> : <Icon name="cross" className="text-rose-600" />} {r.q}</div>
                 {!r.correct && <div className="text-slate-600 mt-1">You said: {r.yours ?? '(nothing)'} · Answer: <b>{r.right}</b></div>}
               </li>
             ))}
@@ -695,6 +705,7 @@ function Done({ rec, results, setResults, onNextPerson }: { rec: StudyRecord; re
         </p>
       )}
       <p className="mt-4 text-sm text-slate-500">You can close this page now.</p>
+      <p className="mt-1 text-sm text-slate-500"><a href="/sources" target="_blank" rel="noreferrer" className="underline hover:text-slate-700">Where the lesson’s facts come from</a></p>
       {onNextPerson && <button className={`${quiet} mt-2 underline`} onClick={onNextPerson}>Someone else wants to take part on this computer</button>}
     </div>
   );

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { rateLimit } from '@/lib/rateLimit';
-import { DEMOGRAPHICS, demographicAnswer, participantCode, studyOf, STUDY_TABLES_SETUP, POST_QUIZ, PRE_QUIZ, QUESTIONS_VERSION, surveyFor, PAIR_POINTS, type QuizQuestion } from '@/lib/study/content';
+import { DEMOGRAPHICS, demographicAnswer, participantCode, studyOf, STUDY_TABLES_SETUP, POST_QUIZ, PRE_QUIZ, QUESTIONS_VERSION, IDK, IDK_TEXT, surveyFor, PAIR_POINTS, type QuizQuestion } from '@/lib/study/content';
 import { ANSWERS, score } from '@/lib/study/key';
 import { studyDeck } from '@/lib/study/version';
 
@@ -37,12 +37,12 @@ const at = (step: string) => STEPS.indexOf(step);
 const SAVE_STEPS: Record<string, string[]> = { about: ['checks'], pre: ['about'], post: ['lesson'] };
 
 /** Only answers to these questions, in their form (a choice's letter, or text up to 2000) */
-function cleanAnswers(questions: QuizQuestion[], raw: any) {
+function cleanAnswers(questions: QuizQuestion[], raw: any, idk = false) {
   const answers: Record<string, string> = {};
   const times: Record<string, number> = {};
   for (const q of questions) {
     const a = raw?.answers?.[q.id];
-    if (q.kind === 'choice' && typeof a === 'string' && q.choices.some((c) => c.id === a)) answers[q.id] = a;
+    if (q.kind === 'choice' && typeof a === 'string' && (q.choices.some((c) => c.id === a) || (idk && a === IDK))) answers[q.id] = a;
     if (q.kind === 'text' && typeof a === 'string') answers[q.id] = a.trim().slice(0, 2000);
     const t = ms(raw?.times?.[q.id]);
     if (t !== null) times[q.id] = t;
@@ -54,7 +54,7 @@ function cleanAnswers(questions: QuizQuestion[], raw: any) {
 function review(questions: QuizQuestion[], answers: Record<string, string>) {
   return questions.filter((q) => q.kind === 'choice').map((q) => {
     const c = q.kind === 'choice' ? q.choices : [];
-    return { id: q.id, q: q.q, yours: c.find((x) => x.id === answers[q.id])?.text ?? null, right: c.find((x) => x.id === ANSWERS[q.id])?.text ?? '', correct: answers[q.id] === ANSWERS[q.id] };
+    return { id: q.id, q: q.q, yours: c.find((x) => x.id === answers[q.id])?.text ?? (answers[q.id] === IDK ? IDK_TEXT : null), right: c.find((x) => x.id === ANSWERS[q.id])?.text ?? '', correct: answers[q.id] === ANSWERS[q.id] };
   });
 }
 
@@ -128,7 +128,7 @@ export async function POST(request: NextRequest) {
     if (action === 'pre') {
       if (row.pre_quiz) return NextResponse.json({ ok: true });   // (once)
       if (row.step !== 'pre') return fail('Answer the questions about you first');
-      const pre = cleanAnswers(PRE_QUIZ, body);
+      const pre = cleanAnswers(PRE_QUIZ, body, true);   // (quiz 1 has "I don't know")
       await update({ pre_quiz: pre, pre_score: score(PRE_QUIZ, pre.answers).right, ...forward('start') });
       return NextResponse.json({ ok: true });
     }

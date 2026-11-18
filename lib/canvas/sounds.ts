@@ -6,7 +6,7 @@
  * has a switch to turn them off.
  */
 
-export type HandsOnSound = 'good' | 'bad' | 'done' | 'tick';
+export type HandsOnSound = 'good' | 'bad' | 'done' | 'tick' | 'ask';
 
 const VOLUME = 0.12;
 let ctx: AudioContext | null = null;
@@ -45,6 +45,7 @@ export function playSound(kind: HandsOnSound): void {
     case 'good': tone(c, 'sine', 620, 980, 110); break;                       // pop
     case 'bad': tone(c, 'triangle', 220, 140, 180, 0, VOLUME * 0.9); break;   // soft bonk
     case 'tick': tone(c, 'sine', 1200, 1100, 45, 0, VOLUME * 0.5); break;
+    case 'ask': tone(c, 'sine', 660, 660, 160); tone(c, 'sine', 880, 880, 260, 0.14); break;   // two soft notes: a classmate has a question
     case 'done':                                                               // a little rising chime
       [523, 659, 784, 1047].forEach((f, i) => tone(c, 'sine', f, f, i === 3 ? 520 : 220, i * 0.09));
       break;
