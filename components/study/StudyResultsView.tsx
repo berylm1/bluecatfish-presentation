@@ -132,7 +132,7 @@ export default function StudyResultsView({ which, children }: { which: StudyId; 
             <section className="rounded-2xl bg-white border p-5 overflow-x-auto">
               <h2 className="font-semibold">Everyone ({data.rows.length})</h2>
               <table className="mt-3 text-sm w-full">
-                <thead><tr className="text-left text-slate-500">{['Code', 'Started', 'Group', 'Version', 'Step', 'Age', 'Pre', 'Post', 'Lesson min', 'Questions', 'Confusion at the end', 'Confused topics', 'Camera', 'Test', 'Interview notes'].map((h) => <th key={h} className="pr-4 pb-2 font-medium">{h}</th>)}</tr></thead>
+                <thead><tr className="text-left text-slate-500">{['Code', 'Started', 'Group', 'Version', 'AI model', 'Step', 'Age', 'Pre', 'Post', 'Lesson min', 'Questions', 'Confusion at the end', 'Confused topics', 'Camera', 'Test', 'Interview notes'].map((h) => <th key={h} className="pr-4 pb-2 font-medium">{h}</th>)}</tr></thead>
                 <tbody>
                   {data.rows.slice().reverse().map((r) => (
                     <tr key={String(r.id)} onClick={() => setPerson(person === r.id ? null : String(r.id))} title="Show their line on the confusion graph"
@@ -141,6 +141,7 @@ export default function StudyResultsView({ which, children }: { which: StudyId; 
                       <td className="pr-4 py-1.5 whitespace-nowrap">{new Date(String(r.created_at)).toLocaleString()}</td>
                       <td className="pr-4">{groupName(r.group)}</td>
                       <td className="pr-4">{show(r.lesson_version)}</td>
+                      <td className="pr-4 whitespace-nowrap text-xs">{show(r.ai_model)}</td>
                       <td className="pr-4">{show(r.step)}</td>
                       <td className="pr-4">{show(r.about_age)}</td>
                       <td className="pr-4">{show(r.pre_score)}</td>

@@ -173,6 +173,8 @@ export async function GET(request: NextRequest) {
       id: p.id, created_at: p.created_at, is_test: p.is_test, step: p.step, group: p.study_group, finished: !!p.finished_at,
       // the lesson version they saw (migration 014: "slug:Name", shown by its name)
       lesson_version: typeof p.lesson_version === 'string' ? (p.lesson_version.includes(':') ? p.lesson_version.split(':').slice(1).join(':') : p.lesson_version) : null,
+      // the AI models their lesson ran on (migration 022; null: before it was recorded)
+      ai_model: typeof p.ai_model === 'string' ? p.ai_model : null,
     };
     // the participant code (migration 017), and the pre-study questionnaire (demographics)
     r.code = participantCode(p.participant_no, p.is_test);

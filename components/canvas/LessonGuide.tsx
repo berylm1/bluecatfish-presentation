@@ -9,7 +9,7 @@ import Icon, { type IconName } from '@/components/Icon';
  */
 
 const ITEMS: { icon: IconName; title: string; text: string; mates?: boolean }[] = [
-  { icon: 'microphone', title: 'Ask the professor anything', text: 'Press Ask and say it out loud, or type your question in the chat.' },
+  { icon: 'microphone', title: 'Ask the professor anything', text: 'Hold Ask, say it out loud, then let go. Or type your question in the chat.' },
   { icon: 'simpler', title: 'Simpler words', text: 'Hear the part again in simpler words. You can also just say “simpler please”.' },
   { icon: 'confused', title: 'Show another way', text: 'Lost? This shows the part on a different slide. Or say “I’m lost”. There are no wrong questions.' },
   { icon: 'raised-hand', title: 'The camera, if it’s on', text: 'Raise your hand to ask a question. The professor also notices if you look puzzled. Nothing is recorded.' },

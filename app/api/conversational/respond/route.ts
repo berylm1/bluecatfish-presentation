@@ -6,7 +6,7 @@ import { lessonText } from '@/lib/canvas/lessonText';
 import { readDeck } from '@/lib/canvas/store';
 import { STUDY_LESSON } from '@/lib/study/content';
 import { studyDeck } from '@/lib/study/version';
-import { LUNA } from '@/lib/canvas/ai';
+import { PROFESSOR_MODEL } from '@/lib/canvas/ai';
 
 // The knowledge base: the closest pieces handed to the professor (lib/knowledgeChunks.ts: about 300 characters each;
 // was 4 pieces of 200, cut mid-sentence), and how close to the question a piece must be (1 = the same meaning)
@@ -175,7 +175,7 @@ export async function POST(request: NextRequest) {
       body: JSON.stringify({
         // (Luna, like the rest of the app: lib/canvas/ai.ts. Was gpt-4o-mini, temperature 0.7, max_tokens 160. A reasoning
         // model's thinking counts in max_completion_tokens: room for it, and the prompt keeps the answer to a few sentences)
-        model: LUNA,
+        model: PROFESSOR_MODEL,
         messages,
         reasoning_effort: 'low',
         max_completion_tokens: 1200,

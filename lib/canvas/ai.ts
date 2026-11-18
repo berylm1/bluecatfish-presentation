@@ -12,6 +12,10 @@ const supabase = lazySupabaseAdmin();
 export const LUNA = 'gpt-6-luna';
 export const SOL = 'gpt-6.1-sol';
 const MODEL = LUNA;
+/** The professor's live answers (app/api/conversational/respond) */
+export const PROFESSOR_MODEL = LUNA;
+/** What each study participant's lesson ran on, recorded on their row (migration 022: ai_model) */
+export const AI_MODELS = `professor ${PROFESSOR_MODEL}, classmates ${MODEL}`;
 const MIN_COMPLETION_TOKENS = 1000;   // chat()'s floor for max_completion_tokens (see there)
 
 export const STYLE =
