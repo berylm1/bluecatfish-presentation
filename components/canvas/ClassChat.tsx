@@ -126,7 +126,7 @@ export default function ClassChat({ entries, learnerName, liveSlide, getAudio, t
 
   return (
     <section className={`flex flex-col min-h-0 rounded-2xl ${solid ? 'bg-slate-950/95' : 'bg-slate-950/70'} backdrop-blur border border-white/10 shadow-2xl text-white ${className}`} aria-label="Class chat" data-bubble-avoid data-class-chat>
-      <header className="flex items-center gap-2 px-3 py-2.5 border-b border-white/10">
+      <header className={`flex items-center gap-2 border-b border-white/10 ${compact ? 'px-2 py-1.5' : 'px-3 py-2.5'}`}>
         <h2 className="font-semibold text-sm flex-1">Class chat</h2>
         {/* who's in the class (a ring on whoever is talking) */}
         <div className="flex -space-x-1.5" aria-label={mates ? 'In the class: Professor Marine, you, Maya, Finn and Leo' : 'In the class: Professor Marine and you'}>
@@ -134,7 +134,7 @@ export default function ClassChat({ entries, learnerName, liveSlide, getAudio, t
         </div>
         {onClose && <button className="ml-1 w-7 h-7 rounded-full hover:bg-white/10 text-white/60 hover:text-white" onClick={onClose} aria-label={closeLabel} title={closeLabel}><Icon name="close" /></button>}
       </header>
-      <div ref={box} className={`flex-1 min-h-0 overflow-y-auto px-3 py-3 flex flex-col gap-2.5 ${compact ? 'text-[13px]' : 'text-[0.95rem]'} leading-snug`} aria-live="polite"
+      <div ref={box} className={`flex-1 min-h-0 overflow-y-auto px-3 py-3 flex flex-col gap-2.5 ${compact ? 'text-[12px] !px-2 !py-2 !gap-2' : 'text-[0.95rem]'} leading-snug`} aria-live="polite"
         onScroll={(e) => { const b = e.currentTarget; stick.current = b.scrollHeight - b.scrollTop - b.clientHeight < 40; }}>
         {entries.length === 0 && <p className="text-white/45 text-xs text-center mt-6">What’s said in class shows up here.{onSend ? ' Ask the professor anything below.' : ''}</p>}
         {entries.map((e) => {
@@ -198,8 +198,8 @@ export default function ClassChat({ entries, learnerName, liveSlide, getAudio, t
       </div>
       {onSend && <form className="flex items-center gap-1.5 p-2 border-t border-white/10" onSubmit={(e) => { e.preventDefault(); if (typed.trim()) { onSend(typed.trim()); setTyped(''); stick.current = true; } }}>
         <input value={typed} onChange={(e) => setTyped(e.target.value)} maxLength={500} placeholder="Ask the professor anything…" aria-label="Type to the class"
-          className="flex-1 min-w-0 px-3 py-2 rounded-lg bg-white/10 placeholder:text-white/40 text-[0.95rem] outline-none focus:bg-white/15" />
-        <button className="px-3 py-2 rounded-lg bg-cyan-500/90 hover:bg-cyan-400 text-slate-950 text-sm font-semibold disabled:opacity-40" disabled={!typed.trim()}>Send</button>
+          className={`flex-1 min-w-0 rounded-lg bg-white/10 placeholder:text-white/40 outline-none focus:bg-white/15 ${compact ? 'px-2 py-1.5 text-[12px]' : 'px-3 py-2 text-[0.95rem]'}`} />
+        <button className={`${compact ? 'px-2 py-1.5 text-xs' : 'px-3 py-2 text-sm'} rounded-lg bg-cyan-500/90 hover:bg-cyan-400 text-slate-950 font-semibold disabled:opacity-40`} disabled={!typed.trim()}>Send</button>
       </form>}
     </section>
   );

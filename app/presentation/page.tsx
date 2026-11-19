@@ -3197,7 +3197,7 @@ function Player({ deck, preview, startAt = 0, study = null, staticMode = false, 
   const sideDock = sideways && chatOpen && !desk;   // (a phone turned sideways, with the class chat on the right)
   // (sideways: each button fills its place in the two rows, its name beside the icon, smaller)
   const btn = sideDock
-    ? 'w-full h-9 px-1.5 flex items-center justify-center gap-1 rounded-lg bg-white/10 hover:bg-white/20 text-[11px] leading-tight font-medium transition-colors disabled:opacity-40'
+    ? 'w-full h-9 px-1 flex items-center justify-center gap-0.5 rounded-lg bg-white/10 hover:bg-white/20 text-[10px] leading-[1.1] font-medium transition-colors disabled:opacity-40'
     : 'px-2.5 py-2 rounded-lg bg-white/10 hover:bg-white/20 text-sm font-medium transition-colors disabled:opacity-40';
   const group = 'flex items-center gap-1 p-1 rounded-xl bg-white/[0.04] border border-white/10';
   // a button's name: hidden (but read out) on a phone, and on a phone turned sideways
@@ -3224,11 +3224,11 @@ function Player({ deck, preview, startAt = 0, study = null, staticMode = false, 
   const peekShown = !chatShown && (desk || chatOpen) && player.status !== 'finished' && !(shortScreen && yourTurn) && !!lastChat;
   const openChat = () => { if (desk || sideways) setChatOpen(true); else setPulled('chat'); };
   const mainStyle = {
-    ...(sideDock ? { '--slide-max-w': 'calc(60vw - 1.75rem)', '--slide-chrome': '150px' }
+    ...(sideDock ? { '--slide-max-w': 'calc(68vw - 1.5rem)', '--slide-chrome': '96px' }
       : chatDocked ? { '--slide-max-w': wide ? 'calc(100vw - 40rem - 4.5rem)' : 'calc(100vw - 22rem - 3rem)' } : {}),
     '--peek-h': peekShown ? '3.75rem' : '0px',
     paddingLeft: chatDocked && wide ? 'calc(22rem + 1.5rem)' : undefined,
-    paddingRight: sideDock ? 'calc(40vw + 0.75rem)' : chatDocked ? (wide ? 'calc(18rem + 1.5rem)' : 'calc(22rem + 1.5rem)') : undefined,
+    paddingRight: sideDock ? 'calc(32vw + 0.75rem)' : chatDocked ? (wide ? 'calc(18rem + 1.5rem)' : 'calc(22rem + 1.5rem)') : undefined,
   } as unknown as React.CSSProperties;
   const edgeBtn = 'relative px-2.5 py-1 max-sm:w-8 max-sm:h-8 max-sm:px-0 max-sm:text-base rounded-md text-xs text-white/60 hover:text-white hover:bg-white/10 transition-colors normal-case tracking-normal';
   const dot = <span className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-amber-400 ring-2 ring-slate-900" aria-label="new" />;
@@ -3525,12 +3525,12 @@ function Player({ deck, preview, startAt = 0, study = null, staticMode = false, 
         );
       })()}
 
-      {/* clip dots: one per spoken element on this slide */}
-      <div className={`flex gap-1.5 h-2 ${yourTurn && !variant && !selfCheck ? 'invisible' : ''}`} aria-hidden>
+      {/* clip dots: one per spoken element on this slide (sideways with the chat docked: none, the slide gets the room) */}
+      {!sideDock && <div className={`flex gap-1.5 h-2 ${yourTurn && !variant && !selfCheck ? 'invisible' : ''}`} aria-hidden>
         {Array.from({ length: player.clipCount }, (_, i) => (
           <span key={i} className={`w-6 h-1.5 rounded-full ${i < player.clipIndex ? 'bg-cyan-300' : i === player.clipIndex ? 'bg-cyan-300 animate-pulse' : 'bg-white/20'}`} />
         ))}
-      </div>
+      </div>}
 
       {/* The question and the professor's answer, while it's being answered */}
       {/* (the chat has it: beside the slide, or its latest line under the slide. Was: shown here with the transcript off) */}
@@ -3548,7 +3548,7 @@ function Player({ deck, preview, startAt = 0, study = null, staticMode = false, 
       {/* The buttons in three groups (moving through the lesson, help, asking), then Options. On a phone,
           or a phone turned sideways, just the icons (the names are still there for screen readers) */}
       {/* (sideways with the chat docked: the buttons, named, in two rows of four under the slide) */}
-      <div className={sideDock ? 'grid grid-cols-4 gap-1.5 [&>[role=group]]:contents'
+      <div className={sideDock ? 'grid grid-flow-col auto-cols-fr gap-1 [&>[role=group]]:contents'
         : 'flex flex-wrap items-center justify-center gap-2'} style={sideDock ? { width: SLIDE_WIDTH } : undefined} data-bubble-avoid>
         <div className={group} role="group" aria-label="Move through the lesson">
           {ctl('back', 'Back', { onClick: goBack, title: 'Back to the start of this part (again: the part before)' })}
@@ -3676,7 +3676,7 @@ function Player({ deck, preview, startAt = 0, study = null, staticMode = false, 
 
       {/* The class chat and the classmates (see chatDocked above) */}
       {chatDocked ? (
-        <ClassChat compact={sideDock} className={sideDock ? 'fixed top-1.5 bottom-1.5 right-1.5 z-30 w-[40vw]' : `fixed top-3 bottom-3 z-30 w-[22rem] ${wide ? 'left-3' : 'right-3'}`} entries={chat} learnerName={learnerName.trim()} liveSlide={liveSlide}
+        <ClassChat compact={sideDock} className={sideDock ? 'fixed top-1.5 bottom-1.5 right-1.5 z-30 w-[32vw]' : `fixed top-3 bottom-3 z-30 w-[22rem] ${wide ? 'left-3' : 'right-3'}`} entries={chat} learnerName={learnerName.trim()} liveSlide={liveSlide}
           getAudio={player.getAudio} thinking={pendingWho ?? (tutor.thinking ? 'professor' : null)} speaking={talking} onSend={isStatic ? undefined : handleText} mates={matesAllowed} onClose={() => setChatOpen(false)} />
       ) : (
         <div className={`fixed inset-y-0 left-0 z-50 w-[min(22rem,90vw)] p-2 transition-transform duration-300 ${pulled === 'chat' ? 'translate-x-0' : '-translate-x-[105%]'}`}
