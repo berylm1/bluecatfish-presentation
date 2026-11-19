@@ -87,9 +87,11 @@ export const ROOM_WAIT_MS = 45_000;       // the learner says nothing for this l
 //     anchor, from the bank's newer instructions) is asked while that slide is up
 // false: as before
 export const CLASSMATES_ON_SCREEN = true;
-export const FOLLOW_UP_SAME_MIN = 0.55;     // (on) how close a follow-up must be to the learner's question (was 0.42)
+// (closeness, 0-1: any two blue catfish questions score about 0.5-0.65, so these are high on purpose. Seen live at 0.55:
+// "How big do blue catfish get?" got Maya's "How many eggs might a 10-pound female lay?" (0.65) as a follow-up)
+export const FOLLOW_UP_SAME_MIN = 0.7;      // (on) how close a follow-up must be to the learner's question (was 0.42)
 export const MID_AFTER_ASK_MS = 90_000;     // (on) no mid-topic classmate moment for this long after the learner asks
-export const MID_ON_SCREEN_MIN = 0.5;       // (on) how close a mid-topic question must be to the box and picture (was 0.45, the slide)
+export const MID_ON_SCREEN_MIN = 0.65;      // (on) how close a mid-topic question must be to the box and picture (was 0.45, the slide)
 // Two soft notes before a classmate speaks (off: it was heard as an odd noise at the topics' ends)
 export const HEADS_UP_SOUND = false;
 

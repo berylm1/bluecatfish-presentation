@@ -257,7 +257,9 @@ const MID_COOLDOWN_MS = 45_000;        // a curious moment
 const MID_HELP_COOLDOWN_MS = 12_000;   // one that helps (struggling here): sooner
 // "Another way to see it": watched to the end, or this long before "back to the lesson", counts as using it
 const HELPER_USED_MS = 8000;
-const MID_RELATED_MIN = 0.45;   // how close (meaning, 0-1) the slide and the question must be for a curious moment
+const MID_RELATED_MIN = 0.45;
+// (CLASSMATES_ON_SCREEN) A topic end's bank question this close (0-1) to the slide on the screen, or one written about the slide
+const ON_SCREEN_BANK_MIN = 0.68;   // how close (meaning, 0-1) the slide and the question must be for a curious moment
 const MID_CHANCE: Record<number, number> = { 1: 0.3, 2: 0.18, 3: 0.08 };   // per box, by classmateBudget's rhythm (every 1, 2 or 3 topics)
 // Short reactions, no AI: the classmates are in the room too
 const FINN_THANKS = ['Oh! Right, thanks!', 'Ohh, I mixed that up. Thanks!', 'Got it. Thanks for catching that!'];
@@ -1373,6 +1375,20 @@ function Player({ deck, preview, startAt = 0, study = null, staticMode = false, 
   /** The topic's bank questions nobody has asked yet */
   const openQuestions = useCallback((topicName: string): BankQuestion[] =>
     bankList.filter((q) => q.topic === topicName && !bankAsked.current.has(q.id) && taught(q)), [bankList, taught]);
+  /** (CLASSMATES_ON_SCREEN) The questions with their closeness (0-1) to `about`, closest first; the lookup fails: none */
+  const scoredAgainst = useCallback(async (about: string, items: BankQuestion[]): Promise<{ q: BankQuestion; score: number }[]> => {
+    try {
+      const res = await fetch('/api/bank/match', {
+        method: 'POST', headers: learnerHeaders({ 'Content-Type': 'application/json' }),
+        body: JSON.stringify({ question: about.slice(0, 300), items: items.map((q) => ({ id: q.id, q: q.q })) }), signal: AbortSignal.timeout(4000),
+      });
+      const scores: { id: string; score: number }[] = res.ok ? (await res.json()).scores ?? [] : [];
+      const byId = new Map(items.map((q) => [q.id, q]));
+      return scores.flatMap((sc) => (byId.has(sc.id) && typeof sc.score === 'number' ? [{ q: byId.get(sc.id)!, score: sc.score }] : []));
+    } catch {
+      return [];
+    }
+  }, []);
   /** Questions in order of closeness to `about` (what the learner struggled with); as they are when the lookup fails */
   const closestTo = useCallback(async (about: string, items: BankQuestion[]): Promise<BankQuestion[]> => {
     if (items.length < 2) return items;
@@ -1753,13 +1769,24 @@ function Player({ deck, preview, startAt = 0, study = null, staticMode = false, 
     // A question: a curious moment is Maya's kind; otherwise whoever has spoken least asks one of theirs
     if (open.length) {
       const order = plan.why === 'curious' ? (['maya', 'leo', 'finn'] as ClassmateId[]) : leastSpoken();
-      return fromBank(order.map((w) => open.find((q) => q.asker === w)).find(Boolean) ?? open[0]);
+      // (the lesson on its own, CLASSMATES_ON_SCREEN: from the two open questions closest to the slide on the screen, so it
+      // fits what they're looking at; was: any of the topic's, by who had spoken least)
+      if (!onScreen) return fromBank(order.map((w) => open.find((q) => q.asker === w)).find(Boolean) ?? open[0]);
+      // None of them close to it (the bank was written for the topic, not its slides): one written now about the slide on
+      // the screen, checked on the server like any classmate line (the professor answers it live); not ready: the closest
+      const now = slideText(playerRef.current.slideIndex);
+      const ranked = await scoredAgainst(now, open);
+      const close = ranked.filter((x) => x.score >= ON_SCREEN_BANK_MIN).slice(0, 2).map((x) => x.q);
+      if (close.length) return fromBank(order.map((w) => close.find((q) => q.asker === w)).find(Boolean) ?? close[0]);
+      const live = await fetchClassmate(name, now, false, order[0]);
+      if (live) return live;
+      return fromBank(ranked[0]?.q ?? open[0]);
     }
     // None left in the bank: one written now (a question, not a mix-up)
     return fetchClassmate(name, taught, false, leastSpoken()[0]);
     // (fetchClassmate is further down: only called later)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [deck, topicOf, slideText, openQuestions, closestTo, topicName, leastSpoken, troubleText]);
+  }, [deck, topicOf, slideText, openQuestions, closestTo, topicName, leastSpoken, troubleText, onScreen, scoredAgainst]);
   const midTopics = useRef(new Set<number>());   // topics a classmate already spoke in, mid-topic
   // Boxes ("slide:box") help was already offered for because of the meter (the professor's check-in, a classmate's question)
   const helped = useRef(new Set<string>());
@@ -3201,7 +3228,7 @@ function Player({ deck, preview, startAt = 0, study = null, staticMode = false, 
     : 'px-2.5 py-2 rounded-lg bg-white/10 hover:bg-white/20 text-sm font-medium transition-colors disabled:opacity-40';
   const group = 'flex items-center gap-1 p-1 rounded-xl bg-white/[0.04] border border-white/10';
   // a button's name: hidden (but read out) on a phone, and on a phone turned sideways
-  const label = sideways ? '' : 'max-sm:sr-only [@media(max-height:500px)]:sr-only';
+  const label = sideDock ? '' : 'max-sm:sr-only [@media(max-height:500px)]:sr-only';
   const ctl = (icon: IconName, name: string, props: { onClick: () => void; disabled?: boolean; title?: string }) => (
     <button className={btn} onClick={props.onClick} disabled={props.disabled} title={props.title ?? name} aria-label={name}>
       <Icon name={icon} /><span className={label}> {name}</span>
