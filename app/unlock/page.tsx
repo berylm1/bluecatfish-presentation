@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { useEffect, useState } from 'react';
 
 // Only go back to a page on this site ("/slideEditor"), never an outside link
@@ -37,7 +38,7 @@ export default function Unlock() {
   };
 
   return (
-    <main className="min-h-screen flex items-center justify-center bg-gradient-to-br from-sky-950 via-slate-900 to-cyan-950 p-6">
+    <main className="min-h-screen flex flex-col items-center justify-center gap-6 bg-gradient-to-br from-sky-950 via-slate-900 to-cyan-950 p-6">
       <form onSubmit={submit} className="w-full max-w-sm bg-white rounded-2xl shadow-2xl p-8 flex flex-col gap-4">
         <div className="text-4xl text-center">🔒</div>
         <h1 className="text-2xl font-bold text-center text-slate-900">Editors only</h1>
@@ -55,6 +56,8 @@ export default function Unlock() {
           {busy ? 'Checking…' : 'Unlock'}
         </button>
       </form>
+      {/* (nothing else to click here: a big way back) */}
+      <Link href="/" className="w-full max-w-sm text-center px-4 py-4 rounded-2xl bg-white/10 hover:bg-white/20 text-white text-lg font-semibold">← Back to home</Link>
     </main>
   );
 }

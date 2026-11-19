@@ -1,8 +1,8 @@
 'use client';
 
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { useState } from 'react';
-import { freshStart, readStudy } from '@/lib/study/client';
 import Icon, { type IconName } from '@/components/Icon';
 import { STUDY_OPEN } from '@/lib/settings';
 
@@ -21,17 +21,26 @@ const VERSIONS: { href: string; name: string; line: string; has: { icon: IconNam
 // The landing page, in the lesson's own dark ocean look (was: a light silver page, so
 // the lesson felt like a different site), with the editors' way in kept small at the bottom.
 export default function Home() {
-  const [cleared, setCleared] = useState(false);
-  const [choosing, setChoosing] = useState(false);   // (STUDY_OPEN off) Start pressed: adaptive or static
-  // In person, one computer for everyone: the next person starts fresh (asked for their name again, from the first slide)
-  const newPerson = () => {
-    const mid = [readStudy(1), readStudy(2)].some((r) => r && r.step !== 'done');   // (either study)
-    if (!window.confirm(mid
-      ? 'Someone is partway through the study on this computer. Start fresh for a new person? (What they did so far stays saved.)'
-      : 'Start fresh for a new person? This computer forgets the last person’s name and where they were.')) return;
-    freshStart();
-    setCleared(true);
+  const router = useRouter();
+  // (STUDY_OPEN off) Start pressed: adaptive or static; adaptive: the camera, then the microphone, then the lesson
+  const [step, setStep] = useState<'start' | 'choose' | 'camera' | 'mic'>('start');
+  const [camera, setCamera] = useState(false);
+  const [asking, setAsking] = useState(false);   // the browser's permission prompt is up
+  // The browser's prompt for the camera or the microphone (what's allowed is remembered for the lesson); no or an error: fine,
+  // the lesson goes on without it. Nothing is kept: the stream stops at once
+  const allow = async (kind: 'video' | 'audio'): Promise<boolean> => {
+    setAsking(true);
+    try {
+      const s = await navigator.mediaDevices.getUserMedia(kind === 'video' ? { video: true } : { audio: true });
+      s.getTracks().forEach((t) => t.stop());
+      return true;
+    } catch {
+      return false;
+    } finally {
+      setAsking(false);
+    }
   };
+  const go = (cam: boolean) => router.push(cam ? '/presentation?camera=1' : '/presentation');
   return (
     <main className="min-h-screen flex flex-col bg-gradient-to-br from-sky-950 via-slate-900 to-cyan-950 text-white">
       <div className="flex-1 flex items-center justify-center px-6 py-12">
@@ -58,20 +67,49 @@ export default function Home() {
                 Just the lesson (not the study)
               </Link>
             </>
-          ) : !choosing ? (
+          ) : step === 'start' ? (
             <button
-              onClick={() => setChoosing(true)}
+              onClick={() => setStep('choose')}
               className="inline-block px-10 py-5 rounded-2xl bg-cyan-400 hover:bg-cyan-300 text-slate-900 text-2xl font-bold shadow-[0_10px_40px_rgba(34,211,238,0.35)] transition-colors"
             >
               ▶ Start the lesson
             </button>
+          ) : step === 'camera' ? (
+            // Adaptive: the camera, yes or no (was the study's camera check)
+            <div className="w-full max-w-md animate-[pop-in_300ms_ease-out_both]" data-setup="camera">
+              <div className="text-4xl text-cyan-300 mb-3"><Icon name="camera" /></div>
+              <h2 className="text-2xl font-bold">Do you want the camera on?</h2>
+              <p className="mt-2 text-slate-300">Raise your hand to ask a question, and the professor notices if you look puzzled. Nothing is recorded, and it stays on this device.</p>
+              <div className="mt-6 grid grid-cols-2 gap-3">
+                <button disabled={asking} onClick={async () => { setCamera(await allow('video')); setStep('mic'); }}
+                  className="py-4 rounded-2xl bg-cyan-400 hover:bg-cyan-300 text-slate-900 text-xl font-bold disabled:opacity-60">{asking ? 'Allow it above…' : 'Yes'}</button>
+                <button disabled={asking} onClick={() => { setCamera(false); setStep('mic'); }}
+                  className="py-4 rounded-2xl bg-white/10 hover:bg-white/15 text-white text-xl font-bold disabled:opacity-60">No</button>
+              </div>
+              <p className="mt-4 text-sm text-slate-400">You can always turn it off later, in Options.</p>
+            </div>
+          ) : step === 'mic' ? (
+            // Adaptive: the microphone (its prompt comes now, not the first time they hold Ask)
+            <div className="w-full max-w-md animate-[pop-in_300ms_ease-out_both]" data-setup="mic">
+              <div className="text-4xl text-cyan-300 mb-3"><Icon name="microphone" /></div>
+              <h2 className="text-2xl font-bold">Turn on the microphone</h2>
+              <p className="mt-2 text-slate-300">Then you can hold Ask and say your question out loud.</p>
+              <button disabled={asking} onClick={async () => { await allow('audio'); go(camera); }}
+                className="mt-6 w-full py-4 rounded-2xl bg-cyan-400 hover:bg-cyan-300 text-slate-900 text-xl font-bold disabled:opacity-60">
+                <Icon name="microphone" /> {asking ? 'Allow it above…' : 'Activate mic'}
+              </button>
+              <button disabled={asking} onClick={() => go(camera)}
+                className="mt-3 w-full py-4 rounded-2xl bg-white/10 hover:bg-white/15 text-white text-xl font-bold disabled:opacity-60">Skip</button>
+              <p className="mt-4 text-sm text-slate-400">That&apos;s fine too: you can type your questions, or turn the mic on later.</p>
+            </div>
           ) : (
             // The study's two versions, to try either (was: Start went to the study, consent first)
             <div className="w-full max-w-2xl animate-[pop-in_300ms_ease-out_both]" data-version-choice>
               <p className="text-xs uppercase tracking-[0.25em] text-cyan-300/80 mb-4">Pick a version</p>
               <div className="grid sm:grid-cols-2 gap-4 text-left">
                 {VERSIONS.map((v) => (
-                  <Link key={v.name} href={v.href}
+                  // (adaptive: the camera and microphone first)
+                  <Link key={v.name} href={v.href} onClick={(e) => { if (v.name === 'Adaptive') { e.preventDefault(); setStep('camera'); } }}
                     className="group rounded-2xl border border-white/10 bg-white/[0.04] hover:bg-white/[0.08] hover:border-cyan-300/50 p-5 transition-colors flex flex-col">
                     <span className="flex items-baseline justify-between gap-3">
                       <span className="text-2xl font-bold">{v.name}</span>
@@ -86,7 +124,7 @@ export default function Home() {
                   </Link>
                 ))}
               </div>
-              <button onClick={() => setChoosing(false)} className="mt-5 text-sm text-slate-400 hover:text-white underline">Back</button>
+              <button onClick={() => setStep('start')} className="mt-5 text-sm text-slate-400 hover:text-white underline">Back</button>
             </div>
           )}
           {/* The classic version, hidden for now (the study's lesson is the canvas one):
@@ -98,7 +136,6 @@ export default function Home() {
       {/* For the editors (Kai, Beryl, Dr. Cao): the editor asks for the password (lib/editorAuth.ts), and
           has Lesson review in its top bar. Was: big "Lesson Review" and "Slide Editor" buttons learners saw first */}
       <footer className="pb-5 flex items-center justify-center gap-4 text-xs">
-        <button onClick={newPerson} className="text-slate-400 hover:text-white underline">{cleared ? '✓ Fresh start: ready for the next person' : '↺ New person (fresh start)'}</button>
         <Link href="/slideEditor" className="text-slate-400 hover:text-white underline">Admin</Link>
       </footer>
     </main>

@@ -79,7 +79,8 @@ export default function CanvasPresentation() {
   const [startAt, setStartAt] = useState(0);   // &slide=N (1-based): start there (the editor's "▶ From this slide")
   const [study, setStudy] = useState<StudyRecord | null>(null);   // in the online study (app/study): ?study=<their id>
   const [studyReady, setStudyReady] = useState(true);   // (in the study: the lesson waits for the group from the server)
-  const [staticMode, setStaticMode] = useState(false);   // ?mode=static (outside the study): the static version, as its static group had it
+  const [staticMode, setStaticMode] = useState(false);
+  const [cameraStart, setCameraStart] = useState(false);   // ?camera=1 (outside the study): "Yes" to the home page's camera question   // ?mode=static (outside the study): the static version, as its static group had it
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -99,6 +100,7 @@ export default function CanvasPresentation() {
     }
     const lesson = params.get('lesson') || DEFAULT_LESSON.id;
     if (!params.get('study') && params.get('mode') === 'static') setStaticMode(true);
+    if (!params.get('study') && params.get('mode') !== 'static' && params.get('camera') === '1') setCameraStart(true);   // (the home page's camera question)
     const pv = params.get('preview');
     const at = Number(params.get('slide'));
     if (Number.isInteger(at) && at > 1) setStartAt(at - 1);
@@ -130,7 +132,7 @@ export default function CanvasPresentation() {
       </main>
     );
   }
-  return <Player deck={loaded.deck} preview={loaded.preview} startAt={Math.min(startAt, loaded.deck.slides.length - 1)} study={study} staticMode={staticMode} />;
+  return <Player deck={loaded.deck} preview={loaded.preview} startAt={Math.min(startAt, loaded.deck.slides.length - 1)} study={study} staticMode={staticMode} cameraStart={cameraStart} />;
 }
 
 // "You lost me" and friends: the learner is confused, not just asking for simpler words
@@ -467,7 +469,7 @@ function readProgress(deck: Deck): (Progress & { index: number }) | null {
 }
 const welcomeBack = (name: string) => `Welcome back${name ? `, ${name}` : ''}! Let's pick up where we left off.`;
 
-function Player({ deck, preview, startAt = 0, study = null, staticMode = false }: { deck: Deck; preview: boolean; startAt?: number; study?: StudyRecord | null; staticMode?: boolean }) {
+function Player({ deck, preview, startAt = 0, study = null, staticMode = false, cameraStart = false }: { deck: Deck; preview: boolean; startAt?: number; study?: StudyRecord | null; staticMode?: boolean; cameraStart?: boolean }) {
   // The study's group without the classmates: no Maya, Finn or Leo anywhere (and no switch to bring them in).
   // Static vs adaptive's adaptive group has them; its static group has nothing that responds (isStatic)
   // (outside the study: the home page's "Static" choice, ?mode=static, is the static group's lesson, nothing saved to the study)
@@ -487,7 +489,7 @@ function Player({ deck, preview, startAt = 0, study = null, staticMode = false }
   const [toast, setToast] = useState<string | null>(null);
   const [typed, setTyped] = useState('');
   const [interruptOn, setInterruptOn] = useState(false);   // talk over the professor (opt-in: opens the mic)
-  const [cameraOn, setCameraOn] = useState(!!study?.camera && study.group !== 'static');   // emotion check-in, presence, hand raise (opt-in; on in the study when they allowed it in the check)
+  const [cameraOn, setCameraOn] = useState(study ? !!study.camera && study.group !== 'static' : cameraStart && !staticMode);   // emotion check-in, presence, hand raise (opt-in; on in the study when they allowed it in the check)
   // The class chat: beside the slide on a computer (✕ hides it), a pull-out on a phone (the latest line shows under the slide)
   const [chatOpen, setChatOpen] = useState(true);
   const showTranscript = chatOpen;   // (the old top-right transcript's switch: SHOW_FLOATING_TRANSCRIPT)
