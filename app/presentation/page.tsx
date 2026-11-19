@@ -3224,11 +3224,11 @@ function Player({ deck, preview, startAt = 0, study = null, staticMode = false, 
   const peekShown = !chatShown && (desk || chatOpen) && player.status !== 'finished' && !(shortScreen && yourTurn) && !!lastChat;
   const openChat = () => { if (desk || sideways) setChatOpen(true); else setPulled('chat'); };
   const mainStyle = {
-    ...(sideDock ? { '--slide-max-w': 'calc(68vw - 1.5rem)', '--slide-chrome': '96px' }
+    ...(sideDock ? { '--slide-max-w': 'calc(68vw - 0.75rem)', '--slide-chrome': '96px' }
       : chatDocked ? { '--slide-max-w': wide ? 'calc(100vw - 40rem - 4.5rem)' : 'calc(100vw - 22rem - 3rem)' } : {}),
     '--peek-h': peekShown ? '3.75rem' : '0px',
-    paddingLeft: chatDocked && wide ? 'calc(22rem + 1.5rem)' : undefined,
-    paddingRight: sideDock ? 'calc(32vw + 0.75rem)' : chatDocked ? (wide ? 'calc(18rem + 1.5rem)' : 'calc(22rem + 1.5rem)') : undefined,
+    paddingLeft: sideDock ? '0.25rem' : chatDocked && wide ? 'calc(22rem + 1.5rem)' : undefined,
+    paddingRight: sideDock ? 'calc(32vw + 0.5rem)' : chatDocked ? (wide ? 'calc(18rem + 1.5rem)' : 'calc(22rem + 1.5rem)') : undefined,
   } as unknown as React.CSSProperties;
   const edgeBtn = 'relative px-2.5 py-1 max-sm:w-8 max-sm:h-8 max-sm:px-0 max-sm:text-base rounded-md text-xs text-white/60 hover:text-white hover:bg-white/10 transition-colors normal-case tracking-normal';
   const dot = <span className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-amber-400 ring-2 ring-slate-900" aria-label="new" />;
@@ -3549,7 +3549,7 @@ function Player({ deck, preview, startAt = 0, study = null, staticMode = false, 
           or a phone turned sideways, just the icons (the names are still there for screen readers) */}
       {/* (sideways with the chat docked: the buttons, named, in two rows of four under the slide) */}
       <div className={sideDock ? 'grid grid-flow-col auto-cols-fr gap-1 [&>[role=group]]:contents'
-        : 'flex flex-wrap items-center justify-center gap-2'} style={sideDock ? { width: SLIDE_WIDTH } : undefined} data-bubble-avoid>
+        : 'flex flex-wrap items-center justify-center gap-2'} style={sideDock ? { width: 'calc(68vw - 0.75rem)' } : undefined} data-bubble-avoid>
         <div className={group} role="group" aria-label="Move through the lesson">
           {ctl('back', 'Back', { onClick: goBack, title: 'Back to the start of this part (again: the part before)' })}
           {/* (no Resume while it's the learner's turn: the hands-on box moves the lesson on. Was: a greyed-out ▶ Resume) */}
