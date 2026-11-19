@@ -104,6 +104,10 @@ export const FINN_WAIT_MS = 30_000;       // no answer for this long: the profes
 export const FINN_REMEMBERS = true;
 
 /* ------------------------------------------------------------------ the study's pages */
+// The study is open: the home page's Start goes to it (consent, quizzes, survey), and /study and /study2 run.
+// false (after data collection): Start offers the lesson as adaptive or static, nothing is saved to the study, and
+// the study pages say it's closed (?test=1 still runs them, for a look)
+export const STUDY_OPEN = false;
 // Static vs adaptive: the camera check only for the adaptive group, right after the group is picked (the static
 // lesson has no camera). false: everyone does it in the setup checks, before the group is known
 export const CAMERA_CHECK_AFTER_GROUP = true;

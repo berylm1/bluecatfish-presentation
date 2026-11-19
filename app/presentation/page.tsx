@@ -79,6 +79,7 @@ export default function CanvasPresentation() {
   const [startAt, setStartAt] = useState(0);   // &slide=N (1-based): start there (the editor's "▶ From this slide")
   const [study, setStudy] = useState<StudyRecord | null>(null);   // in the online study (app/study): ?study=<their id>
   const [studyReady, setStudyReady] = useState(true);   // (in the study: the lesson waits for the group from the server)
+  const [staticMode, setStaticMode] = useState(false);   // ?mode=static (outside the study): the static version, as its static group had it
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -97,6 +98,7 @@ export default function CanvasPresentation() {
         .finally(() => setStudyReady(true));
     }
     const lesson = params.get('lesson') || DEFAULT_LESSON.id;
+    if (!params.get('study') && params.get('mode') === 'static') setStaticMode(true);
     const pv = params.get('preview');
     const at = Number(params.get('slide'));
     if (Number.isInteger(at) && at > 1) setStartAt(at - 1);
@@ -128,7 +130,7 @@ export default function CanvasPresentation() {
       </main>
     );
   }
-  return <Player deck={loaded.deck} preview={loaded.preview} startAt={Math.min(startAt, loaded.deck.slides.length - 1)} study={study} />;
+  return <Player deck={loaded.deck} preview={loaded.preview} startAt={Math.min(startAt, loaded.deck.slides.length - 1)} study={study} staticMode={staticMode} />;
 }
 
 // "You lost me" and friends: the learner is confused, not just asking for simpler words
@@ -429,7 +431,13 @@ type Progress = { slideId: string; at: number; finn: [number, FinnResult][]; ask
 /** What the classmates remember (picked up with "Continue where you left off"; was: forgotten, so who spoke and what was hard started over) */
 type MatesMemory = { who: ClassmateId[]; mixUp: number; struggles: [number, string[]][]; mid: number[]; shaky: number[]; carried: number[]; used?: number[] };
 // (in the study: its own, so a lesson someone went through before isn't picked up again)
-const progressKey = (lessonId: string) => { const s = studyLesson(); return `lessonProgress:${lessonId}${s ? `:study:${s.id}` : ''}`; };
+const progressKey = (lessonId: string) => {
+  const s = studyLesson();
+  // (the static version, ?mode=static, keeps its own place: it doesn't pick up where the adaptive one stopped)
+  let mode = '';
+  try { mode = !s && new URLSearchParams(window.location.search).get('mode') === 'static' ? ':static' : ''; } catch { /* fine */ }
+  return `lessonProgress:${lessonId}${s ? `:study:${s.id}` : ''}${mode}`;
+};
 function readProgress(deck: Deck): (Progress & { index: number }) | null {
   try {
     const p = JSON.parse(localStorage.getItem(progressKey(deck.lessonId)) ?? 'null') as Progress | null;
@@ -459,10 +467,11 @@ function readProgress(deck: Deck): (Progress & { index: number }) | null {
 }
 const welcomeBack = (name: string) => `Welcome back${name ? `, ${name}` : ''}! Let's pick up where we left off.`;
 
-function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; preview: boolean; startAt?: number; study?: StudyRecord | null }) {
+function Player({ deck, preview, startAt = 0, study = null, staticMode = false }: { deck: Deck; preview: boolean; startAt?: number; study?: StudyRecord | null; staticMode?: boolean }) {
   // The study's group without the classmates: no Maya, Finn or Leo anywhere (and no switch to bring them in).
   // Static vs adaptive's adaptive group has them; its static group has nothing that responds (isStatic)
-  const matesAllowed = !study || study.group === 'classmates' || study.group === 'adaptive';
+  // (outside the study: the home page's "Static" choice, ?mode=static, is the static group's lesson, nothing saved to the study)
+  const matesAllowed = !study ? !staticMode : study.group === 'classmates' || study.group === 'adaptive';
   /*
    * Static vs adaptive, the static group: the professor reads the slides and nothing responds. Pause, Repeat and moving between slides
    * stay (like a video); asking (Talk, typing, said commands), "I'm lost", "simpler please", the camera, the
@@ -470,7 +479,7 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
    * wrong, with no hints, no professor stepping in and no praise. "How did that section go?" is asked, and nothing
    * follows. The meter still runs, unseen, for the results.
    */
-  const isStatic = study?.group === 'static';
+  const isStatic = study ? study.group === 'static' : staticMode;
   // The classmates go by what's on the screen (the lesson on its own: the study is as it was, CLASSMATES_ON_SCREEN)
   const onScreen = CLASSMATES_ON_SCREEN && !study;
   const learnerAskedAt = useRef(0);   // when the learner last asked something (MID_AFTER_ASK_MS)
@@ -3626,7 +3635,7 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
                   if (!cameraOn) say('Camera on: raise your hand to ask, and the professor notices if you look lost or step away. Nothing leaves your device.');
                 }]] as const),   // (static: nothing to interrupt or notice)
                 // (not in the study: the group decides)
-                ...(study ? [] : [['classmates', 'Classmates', 'Maya, Finn and Leo: they ask questions, and Finn has a go at the hands-on activities', classmateOn, () => setClassmateOn((v) => !v)] as const]),
+                ...(study || isStatic ? [] : [['classmates', 'Classmates', 'Maya, Finn and Leo: they ask questions, and Finn has a go at the hands-on activities', classmateOn, () => setClassmateOn((v) => !v)] as const]),
                 ['bell', 'Sounds', 'Little sounds in the hands-on activities', soundsOn, toggleSounds],
                 ['chat-bubble', 'Class chat', desk ? 'The conversation beside the slide' : 'The latest line under the slide (tap it for the whole chat)', chatOpen, () => setChatOpen((v) => !v)],
               ] as const).map(([icon, name, hint, on, toggle]) => (
