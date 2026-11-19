@@ -1318,11 +1318,16 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
     try {
       const res = await fetch('/api/bank/match', {
         method: 'POST', headers: learnerHeaders({ 'Content-Type': 'application/json' }),
-        body: JSON.stringify({ question, items: bankList.map((q) => ({ id: q.id, q: q.q })) }), signal: AbortSignal.timeout(5000),
+        // (confirm: the closest one is checked to ask the same thing before its answer is played: was closeness alone,
+        // and "How do blue catfish find food in muddy water?" got "Do blue catfish taste muddy?"'s answer)
+        body: JSON.stringify({ question, items: bankList.map((q) => ({ id: q.id, q: q.q })), confirm: BANK_ANSWER_MIN }), signal: AbortSignal.timeout(9000),
       });
-      const scores: { id: string; score: number }[] = res.ok ? (await res.json()).scores ?? [] : [];
+      const data = res.ok ? await res.json() : {};
+      const scores: { id: string; score: number }[] = data.scores ?? [];
       const byId = new Map(bankList.map((q) => [q.id, q]));
-      const top = scores[0] && scores[0].score >= BANK_ANSWER_MIN ? byId.get(scores[0].id) ?? null : null;
+      const notSame = data.confirmed?.same === false && data.confirmed.id === scores[0]?.id;
+      if (notSame) tracking.track('tutor_decision', { action: 'bank_match_rejected', q: (byId.get(scores[0].id)?.q ?? '').slice(0, 120) });
+      const top = scores[0] && scores[0].score >= BANK_ANSWER_MIN && !notSame ? byId.get(scores[0].id) ?? null : null;
       // related: not the answer, not asked yet, one per classmate (in closeness order), up to followUps
       const related: BankQuestion[] = [];
       const askers = new Set<string>();
@@ -1338,7 +1343,7 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
     } catch {
       return none;
     }
-  }, [bankList, taught]);
+  }, [bankList, taught, tracking]);
   /** The topic's bank questions nobody has asked yet */
   const openQuestions = useCallback((topicName: string): BankQuestion[] =>
     bankList.filter((q) => q.topic === topicName && !bankAsked.current.has(q.id) && taught(q)), [bankList, taught]);
@@ -1557,11 +1562,11 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
     const cooling = Date.now() - answeredAt.current < FOLLOW_UP_COOLDOWN_MS;
     const followUps = classmateOnRef.current && !cooling ? Math.min(FOLLOW_UPS_MAX, budget.followUps) : 0;
     if (cooling && classmateOnRef.current && budget.followUps > 0) tracking.track('tutor_decision', { action: 'follow_up_cooldown' });
-    const { best, related } = await matchBank(question, followUps);
+    // (the wait, the lesson finishing its sentence and the bank looked up: "Professor Marine … thinking" in the chat;
+    // was nothing for up to ~9 s, seen live)
+    const { best, related } = await waitingOn('professor', (async () => { const r = await matchBank(question, followUps); await quiet; return r; })());
     if (my !== askTurn.current) return;   // another question (or command) came meanwhile
     if (best) tracking.track('tutor_decision', { action: 'bank_match', q: best.q.slice(0, 120) }, { bank_answers: 1 });
-    await quiet;
-    if (my !== askTurn.current) return;
     const done = best && !related.length ? await runDetour([{ q: best, ask: false }], true) : await runTogether(question, best, related, picture);
     if (done) {
       // what each answer was about ("Tell me more"): one per question; on a slide of several, each on its own area
@@ -1590,7 +1595,7 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
       await mateSays(who, pickOne(SAME_QUESTION));
     }
     if (my === askTurn.current) void offerMore(keepUp ? () => { void endDetour().then(moveOn); } : moveOn);
-  }, [offerMore, bankList, answer, tracking, finishThenPause, matchBank, runDetour, runTogether, endDetour, moveOn, pictureFor, deck, setMore, learnerName]);
+  }, [offerMore, bankList, answer, tracking, finishThenPause, matchBank, runDetour, runTogether, endDetour, moveOn, pictureFor, deck, setMore, learnerName, waitingOn]);
 
   /**
    * "Tell me more" (SHORT_ANSWERS): the full answer to one of the questions just answered. A bank answer: its slide's
@@ -3333,7 +3338,7 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
           if (!lab) return null;
           return (
             <button key={c.key} onClick={() => void tellMore(c.key)} data-tell-more={c.area}
-              className="absolute z-20 -translate-x-full -translate-y-[115%] px-2.5 py-1 rounded-full bg-cyan-500/90 hover:bg-cyan-400 text-slate-950 text-xs font-semibold shadow-md inline-flex items-center gap-1 animate-[fade-in_300ms_ease]"
+              className="absolute z-20 -translate-x-full -translate-y-[115%] whitespace-nowrap px-2.5 py-1 rounded-full bg-cyan-500/90 hover:bg-cyan-400 text-slate-950 text-xs font-semibold shadow-md inline-flex items-center gap-1 animate-[fade-in_300ms_ease]"
               style={{ left: `${lab.x + lab.w}%`, top: `${lab.y}%` }} aria-label={`Tell me more: ${c.label}'s question`}>
               <Icon name="plus" /> Tell me more
             </button>
