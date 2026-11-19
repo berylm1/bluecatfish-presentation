@@ -3224,13 +3224,14 @@ function Player({ deck, preview, startAt = 0, study = null, staticMode = false, 
   const peekShown = !chatShown && (desk || chatOpen) && player.status !== 'finished' && !(shortScreen && yourTurn) && !!lastChat;
   const openChat = () => { if (desk || sideways) setChatOpen(true); else setPulled('chat'); };
   const mainStyle = {
-    ...(sideDock ? { '--slide-max-w': 'calc(68vw - 0.75rem)', '--slide-chrome': '80px', rowGap: '0.25rem', paddingTop: '0.125rem', paddingBottom: '0.25rem' }
+    ...(sideDock ? { '--slide-max-w': 'calc(68vw - 0.75rem)', '--slide-chrome': '72px', rowGap: '0.25rem', paddingTop: '0.125rem', paddingBottom: '0.125rem' }
       : chatDocked ? { '--slide-max-w': wide ? 'calc(100vw - 40rem - 4.5rem)' : 'calc(100vw - 22rem - 3rem)' } : {}),
     '--peek-h': peekShown ? '3.75rem' : '0px',
     paddingLeft: sideDock ? '0.25rem' : chatDocked && wide ? 'calc(22rem + 1.5rem)' : undefined,
     paddingRight: sideDock ? 'calc(32vw + 0.5rem)' : chatDocked ? (wide ? 'calc(18rem + 1.5rem)' : 'calc(22rem + 1.5rem)') : undefined,
   } as unknown as React.CSSProperties;
-  const edgeBtn = 'relative px-2.5 py-1 max-sm:w-8 max-sm:h-8 max-sm:px-0 max-sm:text-base rounded-md text-xs text-white/60 hover:text-white hover:bg-white/10 transition-colors normal-case tracking-normal';
+  // (sideways with the chat docked: the top row thinner, so the slide gets the height)
+  const edgeBtn = (sideDock ? 'relative px-2 py-0 leading-tight !text-[10px] ' : 'relative px-2.5 py-1 ') + 'max-sm:w-8 max-sm:h-8 max-sm:px-0 max-sm:text-base rounded-md text-xs text-white/60 hover:text-white hover:bg-white/10 transition-colors normal-case tracking-normal';
   const dot = <span className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-amber-400 ring-2 ring-slate-900" aria-label="new" />;
 
   return (
@@ -3242,7 +3243,7 @@ function Player({ deck, preview, startAt = 0, study = null, staticMode = false, 
           ? <Transcript speaker="Professor Marine · answering" text={tutor.exchange?.answer || (tutor.thinking ? 'thinking…' : '')} dialogue={earlierDialogue}
               question={tutor.exchange ? { text: tutor.exchange.question, asker: tutor.exchange.asker } : undefined} />
           : !selfCheck && <Transcript speaker={player.mode === 'plain' ? 'Professor Marine · plain version' : 'Professor Marine'} text={player.captionText} getAudio={player.getAudio} dialogue={tutor.history} />)}
-      <div className="w-full max-w-5xl flex items-start gap-2">
+      <div className={`w-full max-w-5xl flex items-start gap-2 ${sideDock ? '-mt-0.5' : ''}`}>
       {/* left: the chat (when it isn't showing) and start over; right: the classmates (when they aren't showing) */}
       <div className="flex-1 flex items-center gap-1 min-w-0">
         {!chatShown && (
@@ -3255,13 +3256,13 @@ function Player({ deck, preview, startAt = 0, study = null, staticMode = false, 
             title="Start the lesson over from the first slide" aria-label="Start over"><Icon name="start-over" /><span className={label}> Start over</span></button>
         )}
       </div>
-      <div className="text-xs uppercase tracking-widest text-cyan-200/70 text-center">
+      <div className={`uppercase tracking-widest text-cyan-200/70 text-center ${sideDock ? 'text-[10px] leading-tight' : 'text-xs'}`}>
         {preview && <span className="mr-2 text-amber-300">Preview ·</span>}
         Topic {player.topicIndex + 1} of {player.topicCount} · Slide {player.slideIndex + 1} of {deck.slides.length}
         {player.mode === 'plain' && <span className="ml-2 text-amber-300">· plain version</span>}
         {player.status === 'finishing' && <span className="ml-2 text-emerald-300">· finishing the sentence, then listening</span>}
         {/* how far through the lesson */}
-        <div className="mt-1.5 h-1 rounded-full bg-white/10 overflow-hidden" aria-hidden>
+        <div className={`${sideDock ? 'mt-0.5 h-0.5' : 'mt-1.5 h-1'} rounded-full bg-white/10 overflow-hidden`} aria-hidden>
           <div className="h-full bg-cyan-300/70 rounded-full transition-[width] duration-700"
             style={{ width: `${player.status === 'finished' ? 100 : ((player.slideIndex + (player.clipCount ? Math.min(player.clipIndex, player.clipCount) / player.clipCount : 0)) / deck.slides.length) * 100}%` }} />
         </div>
@@ -3549,7 +3550,7 @@ function Player({ deck, preview, startAt = 0, study = null, staticMode = false, 
           or a phone turned sideways, just the icons (the names are still there for screen readers) */}
       {/* (sideways with the chat docked: the buttons, named, in two rows of four under the slide) */}
       <div className={sideDock ? 'grid grid-flow-col auto-cols-fr gap-1 [&>[role=group]]:contents'
-        : 'flex flex-wrap items-center justify-center gap-2'} style={sideDock ? { width: 'calc(68vw - 0.75rem)' } : undefined} data-bubble-avoid>
+        : 'flex flex-wrap items-center justify-center gap-2'} style={sideDock ? { width: 'calc(68vw - 0.75rem)', marginTop: '0.25rem' } : undefined} data-bubble-avoid>
         <div className={group} role="group" aria-label="Move through the lesson">
           {ctl('back', 'Back', { onClick: goBack, title: 'Back to the start of this part (again: the part before)' })}
           {/* (no Resume while it's the learner's turn: the hands-on box moves the lesson on. Was: a greyed-out ▶ Resume) */}
