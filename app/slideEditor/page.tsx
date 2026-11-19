@@ -1161,6 +1161,7 @@ function Editor({
                   onQuiz={(change) => ed.change((d) => { d.quiz = change(d.quiz ? structuredClone(d.quiz) : undefined); })}
                   bank={deck.bank}
                   bankPending={needsBank(deck)}
+                  slides={deck.slides}
                   onBank={(change) => ed.change((d) => { d.bank = change(d.bank ? structuredClone(d.bank) : undefined); }, 'deck:bank')}
                   onGrowMedia={() => {
                     // the layer being edited (the slide, or its helper): each box takes its grown place

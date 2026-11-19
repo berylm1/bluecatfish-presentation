@@ -275,6 +275,8 @@ export interface BankQuestion {
   asker: 'maya' | 'finn' | 'leo';
   /** The answer, as a slide: shown and said like any slide */
   slide: Slide;
+  /** The lesson slide (its id) it's about: asked while that slide is up (CLASSMATES_ON_SCREEN). Written by the AI, a person can change it */
+  anchor?: string;
   /** Written by the AI (a person's edit makes it theirs: kept when the topic changes) */
   byAI?: boolean;
 }

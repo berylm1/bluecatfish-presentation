@@ -49,8 +49,10 @@ import {
   MORPH_HELPERS, HELPER_THEN_NEXT, SHORT_ANSWERS, RESUME_AFTER_ANSWER, MORE_WAIT_MS, MORE_WAIT_WITH_MORE_MS, HOLD_MIN_MS, CONFUSED_PAUSE_MS,
   METER_CHECK_IN, CHECK_IN_EVERY_MS, SELF_CHECK, OFFER_AFTER_GOT, ADAPTIVE_SECTION_CHECK, HARDEST_FROM_METER, SHOW_RECAP_ON_END, SPOKEN_FULL_RECAP,
   LIVE_CLASSMATES, LIVE_WORDS_WAIT_MS, SAID_FRESH_MS, FOLLOW_UPS_MAX, FOLLOW_UP_COOLDOWN_MS, REACT_CHANCE, CURIOUS_CHANCE, CONFUSED_CURIOUS,
-  DISCUSSION, DISCUSS_MAX, ROOM_WAIT_MS, HEADS_UP_SOUND, MIX_UP_EVERY, MIX_UP_EVERY_CLEAR, FINN_WAIT_MS, FINN_REMEMBERS,
+  DISCUSSION, DISCUSS_MAX, ROOM_WAIT_MS, HEADS_UP_SOUND, MIX_UP_EVERY, MIX_UP_EVERY_CLEAR, FINN_WAIT_MS, FINN_REMEMBERS, SHOW_END_QUIZ,
+  CLASSMATES_ON_SCREEN, FOLLOW_UP_SAME_MIN, MID_AFTER_ASK_MS, MID_ON_SCREEN_MIN,
 } from '@/lib/settings';
+import { FamilyCard, FinnBadge } from '@/components/TakeHome';
 import { LIVE_VERSION, preloadedDeck, studyLesson, studyPost, writeStudy, type StudyRecord } from '@/lib/study/client';
 import { STUDIES } from '@/lib/study/content';
 import { signals } from '@/lib/signals';
@@ -469,6 +471,9 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
    * follows. The meter still runs, unseen, for the results.
    */
   const isStatic = study?.group === 'static';
+  // The classmates go by what's on the screen (the lesson on its own: the study is as it was, CLASSMATES_ON_SCREEN)
+  const onScreen = CLASSMATES_ON_SCREEN && !study;
+  const learnerAskedAt = useRef(0);   // when the learner last asked something (MID_AFTER_ASK_MS)
   const [started, setStarted] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const [typed, setTyped] = useState('');
@@ -1034,6 +1039,7 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
     note?: string;
   } = {}): Promise<boolean> => {
     if (!opts.asker && !opts.counted) learnerQuestions.current++;
+    if (!opts.asker) learnerAskedAt.current = Date.now();
     if (!opts.counted) tracking.track('tutor_question', { question: question.slice(0, 300), ...(opts.asker ? { asker: opts.asker } : {}) }, opts.asker ? undefined : { questions: 1 });
     // was: pause at once (mid-word). Now the sentence finishes while the answer is being written.
     const quiet = finishThenPause();
@@ -1268,6 +1274,9 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
     for (const q of bankList) {
       const known = tagged.get(q.id);
       if (known !== undefined) { home.set(q.id, known); continue; }
+      // (the lesson on its own: the slide it was written for, CLASSMATES_ON_SCREEN)
+      const anchored = onScreen && q.anchor ? deck.slides.findIndex((sl) => sl.id === q.anchor && sl.topic?.trim() === q.topic) : -1;
+      if (anchored >= 0) { home.set(q.id, anchored); continue; }
       const mine = words(`${q.q} ${q.slide.elements.map((e) => `${shownWords(e)} ${spokenText(e)}`).join(' ')}`);
       let best = -1, at = -1;
       deck.slides.forEach((sl, i) => {
@@ -1279,7 +1288,7 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
       if (at >= 0) home.set(q.id, at);
     }
     return home;
-  }, [deck, bankList]);
+  }, [deck, bankList, onScreen]);
   /** The lesson has got to this question's slide (its topic isn't in the lesson: never) */
   const taught = useCallback((q: BankQuestion) => (homeSlide.get(q.id) ?? Infinity) <= playerRef.current.slideIndex, [homeSlide]);
   // A classmate's question in their own words (the hybrid classmates, LIVE_CLASSMATES): asked for as soon as the
@@ -1334,6 +1343,9 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
       for (const sc of scores) {
         const q = byId.get(sc.id);
         if (!q || q === top || sc.score < BANK_RELATED_MIN || bankAsked.current.has(q.id) || askers.has(q.asker) || !taught(q)) continue;
+        // (the lesson on its own: only a follow-up on the same thing, and on the slide's topic: was any related one,
+        // CLASSMATES_ON_SCREEN)
+        if (onScreen && (sc.score < FOLLOW_UP_SAME_MIN || q.topic !== deck.slides[playerRef.current.slideIndex]?.topic?.trim())) continue;
         if (top && sc.score >= BANK_ANSWER_MIN) continue;   // (the same question in other words: its answer is the one they're getting)
         related.push(q);
         askers.add(q.asker);
@@ -1343,7 +1355,7 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
     } catch {
       return none;
     }
-  }, [bankList, taught, tracking]);
+  }, [bankList, taught, tracking, onScreen, deck]);
   /** The topic's bank questions nobody has asked yet */
   const openQuestions = useCallback((topicName: string): BankQuestion[] =>
     bankList.filter((q) => q.topic === topicName && !bankAsked.current.has(q.id) && taught(q)), [bankList, taught]);
@@ -1553,6 +1565,7 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
     if (!bankList.length || yourTurnRef.current) { answer(question); return; }
     learnerQuestions.current++;
     mateTalkAt.current = Date.now();
+    learnerAskedAt.current = Date.now();
     tracking.track('tutor_question', { question: question.slice(0, 300) }, { questions: 1 });
     const quiet = finishThenPause();
     const my = ++askTurn.current;
@@ -1749,9 +1762,21 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
     const open = openQuestions(topicName(topicOf[i] ?? 0));
     midMatch.current.set(i, null);
     if (!open.length) return;
+    // (the lesson on its own, CLASSMATES_ON_SCREEN: a question written for this slide is its moment; else the one closest
+    // to the slide's last box, the one it's asked after, and its pictures. Was: the whole slide's words)
+    let about = slideText(i);
+    if (onScreen) {
+      const mine = open.find((q) => q.anchor === deck.slides[i].id);
+      if (mine) { midMatch.current.set(i, { q: mine, score: 1 }); void prepLine(mine); return; }
+      const parts = speakingOrder(deck.slides[i]);
+      const last = parts[parts.length - 1];
+      const pics = deck.slides[i].elements.filter((e) => e.type === 'image').map(shownWords).filter(Boolean);
+      const box = last ? [shownWords(last), last.silent ? '' : spokenText(last)].filter(Boolean).join(' ') : '';
+      if (box || pics.length) about = [box, ...pics.map((p) => `[picture: ${p}]`)].join(' | ');
+    }
     fetch('/api/bank/match', {
       method: 'POST', headers: learnerHeaders({ 'Content-Type': 'application/json' }),
-      body: JSON.stringify({ question: slideText(i).slice(0, 300), items: open.map((q) => ({ id: q.id, q: q.q })) }), signal: AbortSignal.timeout(5000),
+      body: JSON.stringify({ question: about.slice(0, 300), items: open.map((q) => ({ id: q.id, q: q.q })) }), signal: AbortSignal.timeout(5000),
     }).then((res) => (res.ok ? res.json() : null)).then((d) => {
       const top = d?.scores?.[0];
       const q = top && open.find((x) => x.id === top.id);
@@ -1773,6 +1798,9 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
       if (parts[parts.length - 1]?.id !== el.id) return false;
       const since = Date.now() - mateTalkAt.current;
       if (since < MID_HELP_COOLDOWN_MS) return false;
+      // (the lesson on its own: the learner asked a little while ago: their question and its follow-ups were the class's
+      // part; nothing unprompted on top, CLASSMATES_ON_SCREEN)
+      if (onScreen && Date.now() - learnerAskedAt.current < MID_AFTER_ASK_MS) return false;
       // Unclear on this slide right now (the meter's box "now" score, unsure or worse, not a camera guess alone): the
       // topic's open question closest to it. Not for "I'm lost" alone: "another way to see it" was its help (its
       // question comes at the topic's end). (was: any struggle on this slide, struggleSlide)
@@ -1788,7 +1816,10 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
       const m = midMatch.current.get(i);
       const every = classmateBudget(learnerQuestions.current, topicsSeen.current.size).every;
       const chance = (MID_CHANCE[every] ?? 0.1) * (meter.current.overall().level === 'confused' ? CONFUSED_CURIOUS : 1);
-      if (m && !bankAsked.current.has(m.q.id) && homeSlide.get(m.q.id) === i && m.score >= MID_RELATED_MIN && Math.random() < chance) {
+      // (the lesson on its own: closer to the box and picture; a question written for this slide, twice as often)
+      const close = onScreen ? MID_ON_SCREEN_MIN : MID_RELATED_MIN;
+      const odds = onScreen && m?.q.anchor === deck.slides[i]?.id ? Math.min(0.5, chance * 2) : chance;
+      if (m && !bankAsked.current.has(m.q.id) && homeSlide.get(m.q.id) === i && m.score >= close && Math.random() < odds) {
         midPending.current = { why: 'curious', from: topic, q: m.q };
         return true;
       }
@@ -2317,6 +2348,7 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
   const askMate = useCallback(async (who: ClassmateId, text: string) => {
     learnerQuestions.current++;
     mateTalkAt.current = Date.now();
+    learnerAskedAt.current = Date.now();
     tracking.track('tutor_question', { question: text.slice(0, 300), to: who }, { questions: 1 });
     const quiet = finishThenPause();
     const my = askTurn.current;
@@ -2515,7 +2547,7 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
 
   // The end, first: the quiz (if the lesson has one, and it hasn't been done or skipped this time through)
   // (not in the study: its own quizzes come after the lesson, and this one would show answers to them)
-  const quizPool = !study && deck.quiz && !deck.quiz.off && deck.quiz.questions.length >= QUIZ_ASKED ? deck.quiz.questions : null;
+  const quizPool = !study && SHOW_END_QUIZ && deck.quiz && !deck.quiz.off && deck.quiz.questions.length >= QUIZ_ASKED ? deck.quiz.questions : null;
   useEffect(() => {
     if (player.status !== 'finished' || !quizPool) return;
     setQuiz((q) => (q.state === 'waiting' ? { state: 'asking', questions: pickQuiz(quizPool, QUIZ_ASKED), right: 0 } : q));
@@ -3128,6 +3160,8 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
   // the end screen: the hardest topic, to go over again
   const hardestName = player.status === 'finished' ? (HARDEST_FROM_METER ? meterHardest(deck, topicOf, meter.current) : hardestTopic(deck, topicOf, stateOf, finnResults.current)) : null;
   const finnSummary = player.status === 'finished' ? finnScore(finnResults.current) : '';
+  // Finn's mix-ups the learner caught, for the badge on the end screen (the lesson on its own)
+  const endFinn = (() => { const r = [...finnResults.current.values()].filter((x) => x.kind !== 'other'); return { caught: r.filter((x) => x.kind === 'caught').length, of: r.length }; })();
   // "Go over it again": the slide the meter found hardest in that topic (was: the topic's first slide; still, without the meter)
   const hardestStart = hardestName ? deck.slides.findIndex((s) => s.topic?.trim() === hardestName) : -1;
   const hardestSlide = HARDEST_FROM_METER && hardestStart >= 0 ? meter.current.topic(topicOf[hardestStart] ?? 0).hardest?.slide : undefined;
@@ -3242,9 +3276,10 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
         ) : player.status === 'finished' ? (
           // The end: what the learner did, as achievements popping in one by one (was: the recap's
           // text again, which Professor Marine says anyway, and only "Start over")
+          // (the lesson on its own: taller than a slide, with the badge and the family card: it scrolls)
           <div
-            className="flex flex-col items-center justify-center gap-4 bg-gradient-to-b from-cyan-50 to-white text-slate-900 rounded-2xl p-6 sm:p-10 text-center max-sm:!aspect-auto [@media(max-height:500px)]:!aspect-auto [@media(max-height:500px)]:p-4"
-            style={{ width: SLIDE_WIDTH, aspectRatio: '16 / 9' }} data-end-screen
+            className={`flex flex-col items-center gap-4 bg-gradient-to-b from-cyan-50 to-white text-slate-900 rounded-2xl p-6 sm:p-10 text-center max-sm:!aspect-auto [@media(max-height:500px)]:!aspect-auto [@media(max-height:500px)]:p-4 ${study ? 'justify-center' : 'justify-start overflow-y-auto'}`}
+            style={study ? { width: SLIDE_WIDTH, aspectRatio: '16 / 9' } : { width: SLIDE_WIDTH, minHeight: `calc(${SLIDE_WIDTH} * 9 / 16)`, maxHeight: 'calc(100vh - 150px)' }} data-end-screen
           >
             <div aria-hidden className="text-4xl sm:text-5xl animate-[pop-in_500ms_ease-out_both] text-cyan-600"><Icon name="celebration" /></div>
             <h2 className="text-2xl sm:text-3xl font-bold">That&apos;s the lesson{learnerName.trim() ? `, ${learnerName.trim()}` : ''}!</h2>
@@ -3264,6 +3299,13 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
                 <button className="underline text-cyan-700 hover:text-cyan-600 font-semibold"
                   onClick={() => { cues.stop(); player.goToSlide(finishedHardest.index); }}>Go over it again →</button>
               </p>
+            )}
+            {/* the lesson on its own: what to take home (the study has them on its last screen, after quiz 2) */}
+            {!study && (
+              <div className="w-full max-w-2xl text-left">
+                {endFinn.caught > 0 && <FinnBadge caught={endFinn.caught} of={endFinn.of} />}
+                <FamilyCard />
+              </div>
             )}
             {study ? (
               // the study: on to the second quiz

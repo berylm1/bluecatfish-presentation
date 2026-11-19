@@ -280,6 +280,7 @@ export function SlideInspector({
   onQuiz,
   bank,
   bankPending,
+  slides,
   onBank,
   onGrowMedia,
 }: {
@@ -299,6 +300,8 @@ export function SlideInspector({
   /** The question bank, the topics it still has to write (on save), and a change to it */
   bank?: DeckBank;
   bankPending?: string[];
+  /** The lesson's slides (for a class question's slide) */
+  slides?: Slide[];
   onBank?: (change: (bank: DeckBank | undefined) => DeckBank | undefined) => void;
   /** Grow the slide's pictures into its empty space (on the layer being edited) */
   onGrowMedia?: () => void;
@@ -384,7 +387,7 @@ export function SlideInspector({
           {recapByAI ? 'Written by the AI: it is rewritten on each publish until you edit it.' : recap?.trim() ? 'Yours: publishing keeps it as it is.' : ''}
         </p>
         <QuizSection quiz={quiz} stale={quizStale} onQuiz={onQuiz} />
-        {onBank && <BankSection bank={bank} topic={slide.topic?.trim() ?? ''} pending={bankPending ?? []} onBank={onBank} />}
+        {onBank && <BankSection bank={bank} topic={slide.topic?.trim() ?? ''} pending={bankPending ?? []} onBank={onBank} slides={slides} />}
       </div>
     </div>
   );
@@ -395,13 +398,16 @@ export function SlideInspector({
  * learner's close question gets), each with its answer slide. Edit a question's words, take one out,
  * or have the topic's written again. On or off for the lesson.
  */
-function BankSection({ bank, topic, pending, onBank }: {
+function BankSection({ bank, topic, pending, onBank, slides = [] }: {
   bank?: DeckBank; topic: string; pending: string[];
+  /** The lesson's slides: a question's slide (its anchor) is picked from its topic's */
+  slides?: Slide[];
   onBank: (change: (bank: DeckBank | undefined) => DeckBank | undefined) => void;
 }) {
   const off = !!bank?.off;
   const mine = (bank?.questions ?? []).filter((q) => q.topic === topic);
   const total = bank?.questions.length ?? 0;
+  const topicSlides = slides.map((s, n) => ({ s, n })).filter(({ s }) => s.topic?.trim() === topic);
   const edit = (id: string, change: (q: DeckBank['questions'][number]) => DeckBank['questions'][number] | null) =>
     onBank((b) => b && { ...b, questions: b.questions.flatMap((q) => (q.id === id ? (change(q) ? [change(q)!] : []) : [q])) });
   return (
@@ -435,6 +441,16 @@ function BankSection({ bank, topic, pending, onBank }: {
                         <button className="shrink-0 text-slate-400 hover:text-red-600" title="Take this question out" aria-label="Take this question out"
                           onClick={() => edit(q.id, () => null)}>✕</button>
                       </div>
+                      {topicSlides.length > 0 && (
+                        <label className="flex items-center gap-1.5 text-slate-500" title="The classmate asks it while this slide is up (or later in the topic)">
+                          Asked on
+                          <select className="px-1 py-0.5 rounded border border-slate-200 text-xs" value={q.anchor ?? ''} aria-label="The slide it's asked on"
+                            onChange={(e) => edit(q.id, (x) => ({ ...x, anchor: e.target.value || undefined }))}>
+                            <option value="">its closest slide (by its words)</option>
+                            {topicSlides.map(({ s, n }) => <option key={s.id} value={s.id}>slide {n + 1}</option>)}
+                          </select>
+                        </label>
+                      )}
                       <details>
                         <summary className="cursor-pointer text-slate-500">Answer slide {q.byAI ? '(✨ AI)' : ''}</summary>
                         <div className="mt-1 rounded border border-slate-200 overflow-hidden pointer-events-none"><SlideCanvas slide={q.slide} width="100%" /></div>
