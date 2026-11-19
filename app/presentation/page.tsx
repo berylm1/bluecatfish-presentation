@@ -3197,7 +3197,7 @@ function Player({ deck, preview, startAt = 0, study = null, staticMode = false, 
   const sideDock = sideways && chatOpen && !desk;   // (a phone turned sideways, with the class chat on the right)
   // (sideways: each button fills its place in the two rows, its name beside the icon, smaller)
   const btn = sideDock
-    ? 'w-full h-9 px-1 flex items-center justify-center gap-0.5 rounded-lg bg-white/10 hover:bg-white/20 text-[10px] leading-[1.1] font-medium transition-colors disabled:opacity-40'
+    ? 'w-full h-8 px-1 flex items-center justify-center gap-0.5 rounded-lg bg-white/10 hover:bg-white/20 text-[10px] leading-[1.1] font-medium transition-colors disabled:opacity-40'
     : 'px-2.5 py-2 rounded-lg bg-white/10 hover:bg-white/20 text-sm font-medium transition-colors disabled:opacity-40';
   const group = 'flex items-center gap-1 p-1 rounded-xl bg-white/[0.04] border border-white/10';
   // a button's name: hidden (but read out) on a phone, and on a phone turned sideways
@@ -3224,7 +3224,7 @@ function Player({ deck, preview, startAt = 0, study = null, staticMode = false, 
   const peekShown = !chatShown && (desk || chatOpen) && player.status !== 'finished' && !(shortScreen && yourTurn) && !!lastChat;
   const openChat = () => { if (desk || sideways) setChatOpen(true); else setPulled('chat'); };
   const mainStyle = {
-    ...(sideDock ? { '--slide-max-w': 'calc(68vw - 0.75rem)', '--slide-chrome': '96px' }
+    ...(sideDock ? { '--slide-max-w': 'calc(68vw - 0.75rem)', '--slide-chrome': '80px', rowGap: '0.25rem', paddingTop: '0.125rem', paddingBottom: '0.25rem' }
       : chatDocked ? { '--slide-max-w': wide ? 'calc(100vw - 40rem - 4.5rem)' : 'calc(100vw - 22rem - 3rem)' } : {}),
     '--peek-h': peekShown ? '3.75rem' : '0px',
     paddingLeft: sideDock ? '0.25rem' : chatDocked && wide ? 'calc(22rem + 1.5rem)' : undefined,
