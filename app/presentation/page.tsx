@@ -533,6 +533,9 @@ function Player({ deck, preview, startAt = 0, study = null, staticMode = false, 
   // A phone held upright (the "turn it sideways" tip), and a short screen (a phone turned sideways)
   const phonePortrait = useMedia('(orientation: portrait) and (max-width: 640px)');
   const shortScreen = useMedia('(max-height: 500px)');
+  // A phone turned sideways: the class chat docked on the right, the slide and the named buttons (two rows) on the left
+  // (was: icon-only buttons, the chat's last line under a small slide, and the chat a pull-out)
+  const sideways = useMedia('(orientation: landscape) and (max-height: 500px) and (min-width: 600px)');
   const [rotateClosed, setRotateClosed] = useState<ReadonlySet<string>>(new Set());   // closed for: 'lesson', and hands-on boxes' ids
   // How fast the voices talk (remembered on this browser)
   const [voiceSpeed, setSpeed] = useState<VoiceSpeed>(1);
@@ -3191,10 +3194,14 @@ function Player({ deck, preview, startAt = 0, study = null, staticMode = false, 
     const minutes = lessonStartedAt.current ? Math.max(1, Math.round((Date.now() - lessonStartedAt.current) / 60000)) : 0;
     if (minutes) achievements.push({ icon: 'clock', text: <>You stuck with it for <b>{minutes}</b> minute{minutes === 1 ? '' : 's'}</> });
   }
-  const btn = 'px-2.5 py-2 rounded-lg bg-white/10 hover:bg-white/20 text-sm font-medium transition-colors disabled:opacity-40';
+  const sideDock = sideways && chatOpen && !desk;   // (a phone turned sideways, with the class chat on the right)
+  // (sideways: each button fills its place in the two rows, its name beside the icon, smaller)
+  const btn = sideDock
+    ? 'w-full h-9 px-1.5 flex items-center justify-center gap-1 rounded-lg bg-white/10 hover:bg-white/20 text-[11px] leading-tight font-medium transition-colors disabled:opacity-40'
+    : 'px-2.5 py-2 rounded-lg bg-white/10 hover:bg-white/20 text-sm font-medium transition-colors disabled:opacity-40';
   const group = 'flex items-center gap-1 p-1 rounded-xl bg-white/[0.04] border border-white/10';
   // a button's name: hidden (but read out) on a phone, and on a phone turned sideways
-  const label = 'max-sm:sr-only [@media(max-height:500px)]:sr-only';
+  const label = sideways ? '' : 'max-sm:sr-only [@media(max-height:500px)]:sr-only';
   const ctl = (icon: IconName, name: string, props: { onClick: () => void; disabled?: boolean; title?: string }) => (
     <button className={btn} onClick={props.onClick} disabled={props.disabled} title={props.title ?? name} aria-label={name}>
       <Icon name={icon} /><span className={label}> {name}</span>
@@ -3203,7 +3210,7 @@ function Player({ deck, preview, startAt = 0, study = null, staticMode = false, 
 
   // The class chat and the classmates: beside the slide when there's room (the chat on the right; on a wide
   // screen the chat on the left and the classmates on the right), else pull-outs from the left and right
-  const chatDocked = desk && chatOpen;
+  const chatDocked = (desk || sideways) && chatOpen;
   const matesDocked = wide && chatOpen;
   const chatShown = chatDocked || pulled === 'chat';
   const matesShown = matesDocked || pulled === 'mates';
@@ -3215,13 +3222,14 @@ function Player({ deck, preview, startAt = 0, study = null, staticMode = false, 
   const matesUnread = !matesShown && chat.some((e) => e.id > matesSeenId && e.kind === 'line' && e.who !== 'professor' && e.who !== 'you');
   // The chat's latest line under the slide, when the chat isn't showing (tap it for the whole chat)
   const peekShown = !chatShown && (desk || chatOpen) && player.status !== 'finished' && !(shortScreen && yourTurn) && !!lastChat;
-  const openChat = () => { if (desk) setChatOpen(true); else setPulled('chat'); };
+  const openChat = () => { if (desk || sideways) setChatOpen(true); else setPulled('chat'); };
   const mainStyle = {
-    ...(chatDocked ? { '--slide-max-w': wide ? 'calc(100vw - 40rem - 4.5rem)' : 'calc(100vw - 22rem - 3rem)' } : {}),
+    ...(sideDock ? { '--slide-max-w': 'calc(60vw - 1.75rem)', '--slide-chrome': '150px' }
+      : chatDocked ? { '--slide-max-w': wide ? 'calc(100vw - 40rem - 4.5rem)' : 'calc(100vw - 22rem - 3rem)' } : {}),
     '--peek-h': peekShown ? '3.75rem' : '0px',
     paddingLeft: chatDocked && wide ? 'calc(22rem + 1.5rem)' : undefined,
-    paddingRight: chatDocked ? (wide ? 'calc(18rem + 1.5rem)' : 'calc(22rem + 1.5rem)') : undefined,
-  } as React.CSSProperties;
+    paddingRight: sideDock ? 'calc(40vw + 0.75rem)' : chatDocked ? (wide ? 'calc(18rem + 1.5rem)' : 'calc(22rem + 1.5rem)') : undefined,
+  } as unknown as React.CSSProperties;
   const edgeBtn = 'relative px-2.5 py-1 max-sm:w-8 max-sm:h-8 max-sm:px-0 max-sm:text-base rounded-md text-xs text-white/60 hover:text-white hover:bg-white/10 transition-colors normal-case tracking-normal';
   const dot = <span className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-amber-400 ring-2 ring-slate-900" aria-label="new" />;
 
@@ -3419,7 +3427,7 @@ function Player({ deck, preview, startAt = 0, study = null, staticMode = false, 
         {/* Under the slide, in the gap above the buttons (was: on the slide's top-left, over its title) */}
         {yourTurn && !variant && !selfCheck && (
           <div className="absolute top-full left-1/2 -translate-x-1/2 mt-1 z-20 flex items-center gap-2 pl-4 pr-1 py-1 rounded-full bg-cyan-950/90 border border-cyan-300/30 text-white text-sm shadow-lg whitespace-nowrap
-            [@media(max-height:500px)]:fixed [@media(max-height:500px)]:top-2 [@media(max-height:500px)]:right-2 [@media(max-height:500px)]:left-auto [@media(max-height:500px)]:translate-x-0 [@media(max-height:500px)]:mt-0" role="status" data-your-turn>
+            [@media(max-height:500px)]:fixed [@media(max-height:500px)]:top-2 [@media(max-height:500px)]:right-2 [@media(max-height:500px)]:left-auto [@media(max-height:500px)]:translate-x-0 [@media(max-height:500px)]:mt-0${sideDock ? ' [@media(max-height:500px)]:!left-2 [@media(max-height:500px)]:!right-auto' : ''}" role="status" data-your-turn>
             <span><Icon name="hands-on-activity" /> Your turn: try it on the slide</span>
             <button className="px-3 py-1 rounded-full bg-white/15 hover:bg-white/25" onClick={skipActivity}>Skip</button>
           </div>
@@ -3539,7 +3547,9 @@ function Player({ deck, preview, startAt = 0, study = null, staticMode = false, 
 
       {/* The buttons in three groups (moving through the lesson, help, asking), then Options. On a phone,
           or a phone turned sideways, just the icons (the names are still there for screen readers) */}
-      <div className="flex flex-wrap items-center justify-center gap-2" data-bubble-avoid>
+      {/* (sideways with the chat docked: the buttons, named, in two rows of four under the slide) */}
+      <div className={sideDock ? 'grid grid-cols-4 gap-1.5 [&>[role=group]]:contents'
+        : 'flex flex-wrap items-center justify-center gap-2'} style={sideDock ? { width: SLIDE_WIDTH } : undefined} data-bubble-avoid>
         <div className={group} role="group" aria-label="Move through the lesson">
           {ctl('back', 'Back', { onClick: goBack, title: 'Back to the start of this part (again: the part before)' })}
           {/* (no Resume while it's the learner's turn: the hands-on box moves the lesson on. Was: a greyed-out ▶ Resume) */}
@@ -3552,12 +3562,12 @@ function Player({ deck, preview, startAt = 0, study = null, staticMode = false, 
         <div className={group} role="group" aria-label="Help">
           {SHOW_REPEAT && ctl('repeat', 'Repeat', { onClick: () => { feel('again'); player.repeat(); } })}
           {!isStatic && ctl('simpler', 'Simpler words', { onClick: () => handleText('simpler please'), title: 'This part again, said in simpler words' })}
-          {!isStatic && ctl('confused', 'Show another way', { onClick: () => confused(), title: 'A different slide that explains this part another way' })}
+          {!isStatic && ctl('confused', sideDock ? 'Another way' : 'Show another way', { onClick: () => confused(), title: 'A different slide that explains this part another way' })}
         </div>
         {/* (static: no asking) */}
         {!isStatic && <div className={group} role="group" aria-label="Ask the professor">
         {/* Hold to talk: press, say it, let go (a quick tap isn't sent: "Hold to talk"). Its own colour: the way to talk to the class */}
-        <span className="relative inline-flex">
+        <span className={sideDock ? 'relative flex' : 'relative inline-flex'}>
           <button
             className={`${btn} select-none touch-none ${micStatus === 'listening' ? '!bg-red-500/85 hover:!bg-red-500 !text-white' : '!bg-cyan-500/90 hover:!bg-cyan-400 !text-slate-950 font-semibold'}`}
             onPointerDown={(e) => { e.currentTarget.setPointerCapture?.(e.pointerId); pressAsk(); }}
@@ -3593,7 +3603,7 @@ function Player({ deck, preview, startAt = 0, study = null, staticMode = false, 
           <button className="px-3 py-2 rounded-r-lg bg-cyan-500/80 hover:bg-cyan-500 text-sm font-medium">Send</button>
         </form>}
         </div>}
-        {cameraOn && (
+        {cameraOn && !sideDock && (
           <span className="text-xs text-white/70">
             {emotionError || presenceError ? `camera unavailable (${emotionError || presenceError})` : !emotionReady ? 'starting…' : present ? 'here' : 'away'}
             {mood && ` · ${mood === 'confused' ? 'puzzled' : mood === 'bored' ? 'quiet' : 'watching'}`}
@@ -3666,7 +3676,7 @@ function Player({ deck, preview, startAt = 0, study = null, staticMode = false, 
 
       {/* The class chat and the classmates (see chatDocked above) */}
       {chatDocked ? (
-        <ClassChat className={`fixed top-3 bottom-3 z-30 w-[22rem] ${wide ? 'left-3' : 'right-3'}`} entries={chat} learnerName={learnerName.trim()} liveSlide={liveSlide}
+        <ClassChat compact={sideDock} className={sideDock ? 'fixed top-1.5 bottom-1.5 right-1.5 z-30 w-[40vw]' : `fixed top-3 bottom-3 z-30 w-[22rem] ${wide ? 'left-3' : 'right-3'}`} entries={chat} learnerName={learnerName.trim()} liveSlide={liveSlide}
           getAudio={player.getAudio} thinking={pendingWho ?? (tutor.thinking ? 'professor' : null)} speaking={talking} onSend={isStatic ? undefined : handleText} mates={matesAllowed} onClose={() => setChatOpen(false)} />
       ) : (
         <div className={`fixed inset-y-0 left-0 z-50 w-[min(22rem,90vw)] p-2 transition-transform duration-300 ${pulled === 'chat' ? 'translate-x-0' : '-translate-x-[105%]'}`}

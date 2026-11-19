@@ -71,7 +71,9 @@ function LiveText({ text, getAudio }: { text: string; getAudio?: () => HTMLAudio
   return <>{sentences.map((s, i) => <span key={i} className={i === current ? 'text-white' : i < current ? 'text-white/50' : 'text-white/65'}>{s}</span>)}</>;
 }
 
-export default function ClassChat({ entries, learnerName, liveSlide, getAudio, thinking, speaking, onSend, onClose, closeLabel = 'Hide the chat', className = '', solid = false, mates = true }: {
+export default function ClassChat({ entries, learnerName, liveSlide, getAudio, thinking, speaking, onSend, onClose, closeLabel = 'Hide the chat', className = '', solid = false, mates = true, compact = false }: {
+  /** Smaller text (a phone turned sideways) */
+  compact?: boolean;
   entries: ChatEntry[];
   learnerName: string;
   /** The slide entry whose last line is being said now (its id), or null */
@@ -132,7 +134,7 @@ export default function ClassChat({ entries, learnerName, liveSlide, getAudio, t
         </div>
         {onClose && <button className="ml-1 w-7 h-7 rounded-full hover:bg-white/10 text-white/60 hover:text-white" onClick={onClose} aria-label={closeLabel} title={closeLabel}><Icon name="close" /></button>}
       </header>
-      <div ref={box} className="flex-1 min-h-0 overflow-y-auto px-3 py-3 flex flex-col gap-2.5 text-[0.95rem] leading-snug" aria-live="polite"
+      <div ref={box} className={`flex-1 min-h-0 overflow-y-auto px-3 py-3 flex flex-col gap-2.5 ${compact ? 'text-[13px]' : 'text-[0.95rem]'} leading-snug`} aria-live="polite"
         onScroll={(e) => { const b = e.currentTarget; stick.current = b.scrollHeight - b.scrollTop - b.clientHeight < 40; }}>
         {entries.length === 0 && <p className="text-white/45 text-xs text-center mt-6">What’s said in class shows up here.{onSend ? ' Ask the professor anything below.' : ''}</p>}
         {entries.map((e) => {
