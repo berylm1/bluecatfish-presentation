@@ -51,7 +51,7 @@ const LABEL = 12;    // room above the circle for its label
  * fits the bigger circle. With a panel down the right-hand side (the class chat or the classmates): the
  * corner just left of it (was: the window's corner, behind it).
  */
-function fitPlace(): { d: number; top: number; right: number } {
+function fitPlace(): { d: number; top: number; right: number; left?: boolean } {
   const w = window.innerWidth, h = window.innerHeight;
   // (whatever is docked down the right-hand side: the class chat, or the classmates panel with the chat on the left;
   // was: the class chat only, so with the classmates panel there the circle went behind it, in the window's corner)
@@ -71,12 +71,18 @@ function fitPlace(): { d: number; top: number; right: number } {
     const tops = [h - EDGE - d, ...(slide ? [Math.min(h - EDGE - d, slide.bottom - d)] : [])];
     for (const top of tops) if (clear(left, top, d)) return { d, top, right: edge };
   }
+  // No room anywhere (a phone turned sideways, with the class chat down the right): small, on the slide's bottom-left
+  // corner, just above Back, against the screen's left edge (was: over the buttons)
+  if (slide && slide.width > 0) {
+    const d = 48;
+    return { d, top: Math.round(slide.bottom - d - 4), right: Math.round(w - 6 - d), left: true };
+  }
   return { d: MIN, top: h - EDGE - MIN, right: edge };
 }
 
 export default function CameraBubble({ sees, progress = 0 }: { sees: CameraSees; progress?: number }) {
   const videoRef = useRef<HTMLVideoElement>(null);
-  const [place, setPlace] = useState<{ d: number; top: number; right: number } | null>(null);
+  const [place, setPlace] = useState<{ d: number; top: number; right: number; left?: boolean } | null>(null);
   const size = place?.d ?? MIN;
   const [camError, setCamError] = useState(false);
 
@@ -95,7 +101,7 @@ export default function CameraBubble({ sees, progress = 0 }: { sees: CameraSees;
   // Fit the corner now, when the window changes, and every half second (boxes
   // like the question-and-answer panel come and go)
   useLayoutEffect(() => {
-    const refit = () => setPlace((p) => { const n = fitPlace(); return p && p.d === n.d && p.top === n.top && p.right === n.right ? p : n; });
+    const refit = () => setPlace((p) => { const n = fitPlace(); return p && p.d === n.d && p.top === n.top && p.right === n.right && p.left === n.left ? p : n; });
     refit();
     window.addEventListener('resize', refit);
     const t = setInterval(refit, 500);
@@ -120,7 +126,7 @@ export default function CameraBubble({ sees, progress = 0 }: { sees: CameraSees;
 
   return (
     <div
-      className="fixed z-30 flex flex-col items-center pointer-events-none select-none"
+      className={`fixed z-40 flex flex-col ${place?.left ? 'items-start' : 'items-center'} pointer-events-none select-none`}
       style={{ right: place?.right ?? EDGE, top: place?.top ?? undefined, bottom: place ? undefined : EDGE, width: size }}
       aria-label={`Camera: ${raising ? 'hand going up' : look.label}`}
       role="status"
@@ -138,7 +144,7 @@ export default function CameraBubble({ sees, progress = 0 }: { sees: CameraSees;
         />
       </div>
       <span
-        className="absolute -top-2 right-0 px-2 py-0.5 rounded-full text-[10px] font-semibold text-slate-900 whitespace-nowrap shadow"
+        className={`absolute -top-2 ${place?.left ? 'left-0' : 'right-0'} px-2 py-0.5 rounded-full text-[10px] font-semibold text-slate-900 whitespace-nowrap shadow`}
         style={{ background: raising ? LOOK.hand.ring : look.ring }}
       >
         {raising ? <><Icon name="raised-hand" /> hand going up…</> : <>{look.icon && <Icon name={look.icon} />} {look.label}</>}

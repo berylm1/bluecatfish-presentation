@@ -53,6 +53,9 @@ export const ADAPTIVE_SECTION_CHECK = true;
 export const HARDEST_FROM_METER = true;
 // The recap's text on the end screen: off, the achievements are there instead (the professor says the recap)
 export const SHOW_RECAP_ON_END = false;
+// The lesson on its own (not the study): its short quiz at the end (off: straight to the end screen, with the badge and
+// "3 things to tell your family" there instead)
+export const SHOW_END_QUIZ = false;
 // The spoken ending: false = the quick one (what they covered, their achievements, "Marine out!"); true = the old long recap
 export const SPOKEN_FULL_RECAP = false;
 
@@ -76,6 +79,19 @@ export const CONFUSED_CURIOUS = 0.5;
 export const DISCUSSION = true;
 export const DISCUSS_MAX = 2;             // per lesson (each adds about a minute)
 export const ROOM_WAIT_MS = 45_000;       // the learner says nothing for this long: the discussion goes on without their answer
+// The lesson on its own (not the study, which stays as it is until a clean break): the classmates speak about what's on
+// the screen and what the learner is asking.
+//   - after the learner's question, only follow-ups on the same thing (closer than before, and on the slide's topic)
+//   - nothing unprompted in the middle of a topic for a while after the learner asks
+//   - a mid-topic question goes with the slide's last box and its picture; a question written for a slide (its
+//     anchor, from the bank's newer instructions) is asked while that slide is up
+// false: as before
+export const CLASSMATES_ON_SCREEN = true;
+// (closeness, 0-1: any two blue catfish questions score about 0.5-0.65, so these are high on purpose. Seen live at 0.55:
+// "How big do blue catfish get?" got Maya's "How many eggs might a 10-pound female lay?" (0.65) as a follow-up)
+export const FOLLOW_UP_SAME_MIN = 0.7;      // (on) how close a follow-up must be to the learner's question (was 0.42)
+export const MID_AFTER_ASK_MS = 90_000;     // (on) no mid-topic classmate moment for this long after the learner asks
+export const MID_ON_SCREEN_MIN = 0.65;      // (on) how close a mid-topic question must be to the box and picture (was 0.45, the slide)
 // Two soft notes before a classmate speaks (off: it was heard as an odd noise at the topics' ends)
 export const HEADS_UP_SOUND = false;
 
@@ -90,6 +106,10 @@ export const FINN_WAIT_MS = 30_000;       // no answer for this long: the profes
 export const FINN_REMEMBERS = true;
 
 /* ------------------------------------------------------------------ the study's pages */
+// The study is open: the home page's Start goes to it (consent, quizzes, survey), and /study and /study2 run.
+// false (after data collection): Start offers the lesson as adaptive or static, nothing is saved to the study, and
+// the study pages say it's closed (?test=1 still runs them, for a look)
+export const STUDY_OPEN = false;
 // Static vs adaptive: the camera check only for the adaptive group, right after the group is picked (the static
 // lesson has no camera). false: everyone does it in the setup checks, before the group is known
 export const CAMERA_CHECK_AFTER_GROUP = true;

@@ -49,8 +49,10 @@ import {
   MORPH_HELPERS, HELPER_THEN_NEXT, SHORT_ANSWERS, RESUME_AFTER_ANSWER, MORE_WAIT_MS, MORE_WAIT_WITH_MORE_MS, HOLD_MIN_MS, CONFUSED_PAUSE_MS,
   METER_CHECK_IN, CHECK_IN_EVERY_MS, SELF_CHECK, OFFER_AFTER_GOT, ADAPTIVE_SECTION_CHECK, HARDEST_FROM_METER, SHOW_RECAP_ON_END, SPOKEN_FULL_RECAP,
   LIVE_CLASSMATES, LIVE_WORDS_WAIT_MS, SAID_FRESH_MS, FOLLOW_UPS_MAX, FOLLOW_UP_COOLDOWN_MS, REACT_CHANCE, CURIOUS_CHANCE, CONFUSED_CURIOUS,
-  DISCUSSION, DISCUSS_MAX, ROOM_WAIT_MS, HEADS_UP_SOUND, MIX_UP_EVERY, MIX_UP_EVERY_CLEAR, FINN_WAIT_MS, FINN_REMEMBERS,
+  DISCUSSION, DISCUSS_MAX, ROOM_WAIT_MS, HEADS_UP_SOUND, MIX_UP_EVERY, MIX_UP_EVERY_CLEAR, FINN_WAIT_MS, FINN_REMEMBERS, SHOW_END_QUIZ,
+  CLASSMATES_ON_SCREEN, FOLLOW_UP_SAME_MIN, MID_AFTER_ASK_MS, MID_ON_SCREEN_MIN,
 } from '@/lib/settings';
+import { FamilyCard, FinnBadge } from '@/components/TakeHome';
 import { LIVE_VERSION, preloadedDeck, studyLesson, studyPost, writeStudy, type StudyRecord } from '@/lib/study/client';
 import { STUDIES } from '@/lib/study/content';
 import { signals } from '@/lib/signals';
@@ -77,6 +79,8 @@ export default function CanvasPresentation() {
   const [startAt, setStartAt] = useState(0);   // &slide=N (1-based): start there (the editor's "▶ From this slide")
   const [study, setStudy] = useState<StudyRecord | null>(null);   // in the online study (app/study): ?study=<their id>
   const [studyReady, setStudyReady] = useState(true);   // (in the study: the lesson waits for the group from the server)
+  const [staticMode, setStaticMode] = useState(false);
+  const [cameraStart, setCameraStart] = useState(false);   // ?camera=1 (outside the study): "Yes" to the home page's camera question   // ?mode=static (outside the study): the static version, as its static group had it
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -95,6 +99,8 @@ export default function CanvasPresentation() {
         .finally(() => setStudyReady(true));
     }
     const lesson = params.get('lesson') || DEFAULT_LESSON.id;
+    if (!params.get('study') && params.get('mode') === 'static') setStaticMode(true);
+    if (!params.get('study') && params.get('mode') !== 'static' && params.get('camera') === '1') setCameraStart(true);   // (the home page's camera question)
     const pv = params.get('preview');
     const at = Number(params.get('slide'));
     if (Number.isInteger(at) && at > 1) setStartAt(at - 1);
@@ -126,7 +132,7 @@ export default function CanvasPresentation() {
       </main>
     );
   }
-  return <Player deck={loaded.deck} preview={loaded.preview} startAt={Math.min(startAt, loaded.deck.slides.length - 1)} study={study} />;
+  return <Player deck={loaded.deck} preview={loaded.preview} startAt={Math.min(startAt, loaded.deck.slides.length - 1)} study={study} staticMode={staticMode} cameraStart={cameraStart} />;
 }
 
 // "You lost me" and friends: the learner is confused, not just asking for simpler words
@@ -251,7 +257,9 @@ const MID_COOLDOWN_MS = 45_000;        // a curious moment
 const MID_HELP_COOLDOWN_MS = 12_000;   // one that helps (struggling here): sooner
 // "Another way to see it": watched to the end, or this long before "back to the lesson", counts as using it
 const HELPER_USED_MS = 8000;
-const MID_RELATED_MIN = 0.45;   // how close (meaning, 0-1) the slide and the question must be for a curious moment
+const MID_RELATED_MIN = 0.45;
+// (CLASSMATES_ON_SCREEN) A topic end's bank question this close (0-1) to the slide on the screen, or one written about the slide
+const ON_SCREEN_BANK_MIN = 0.68;   // how close (meaning, 0-1) the slide and the question must be for a curious moment
 const MID_CHANCE: Record<number, number> = { 1: 0.3, 2: 0.18, 3: 0.08 };   // per box, by classmateBudget's rhythm (every 1, 2 or 3 topics)
 // Short reactions, no AI: the classmates are in the room too
 const FINN_THANKS = ['Oh! Right, thanks!', 'Ohh, I mixed that up. Thanks!', 'Got it. Thanks for catching that!'];
@@ -427,7 +435,13 @@ type Progress = { slideId: string; at: number; finn: [number, FinnResult][]; ask
 /** What the classmates remember (picked up with "Continue where you left off"; was: forgotten, so who spoke and what was hard started over) */
 type MatesMemory = { who: ClassmateId[]; mixUp: number; struggles: [number, string[]][]; mid: number[]; shaky: number[]; carried: number[]; used?: number[] };
 // (in the study: its own, so a lesson someone went through before isn't picked up again)
-const progressKey = (lessonId: string) => { const s = studyLesson(); return `lessonProgress:${lessonId}${s ? `:study:${s.id}` : ''}`; };
+const progressKey = (lessonId: string) => {
+  const s = studyLesson();
+  // (the static version, ?mode=static, keeps its own place: it doesn't pick up where the adaptive one stopped)
+  let mode = '';
+  try { mode = !s && new URLSearchParams(window.location.search).get('mode') === 'static' ? ':static' : ''; } catch { /* fine */ }
+  return `lessonProgress:${lessonId}${s ? `:study:${s.id}` : ''}${mode}`;
+};
 function readProgress(deck: Deck): (Progress & { index: number }) | null {
   try {
     const p = JSON.parse(localStorage.getItem(progressKey(deck.lessonId)) ?? 'null') as Progress | null;
@@ -457,10 +471,11 @@ function readProgress(deck: Deck): (Progress & { index: number }) | null {
 }
 const welcomeBack = (name: string) => `Welcome back${name ? `, ${name}` : ''}! Let's pick up where we left off.`;
 
-function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; preview: boolean; startAt?: number; study?: StudyRecord | null }) {
+function Player({ deck, preview, startAt = 0, study = null, staticMode = false, cameraStart = false }: { deck: Deck; preview: boolean; startAt?: number; study?: StudyRecord | null; staticMode?: boolean; cameraStart?: boolean }) {
   // The study's group without the classmates: no Maya, Finn or Leo anywhere (and no switch to bring them in).
   // Static vs adaptive's adaptive group has them; its static group has nothing that responds (isStatic)
-  const matesAllowed = !study || study.group === 'classmates' || study.group === 'adaptive';
+  // (outside the study: the home page's "Static" choice, ?mode=static, is the static group's lesson, nothing saved to the study)
+  const matesAllowed = !study ? !staticMode : study.group === 'classmates' || study.group === 'adaptive';
   /*
    * Static vs adaptive, the static group: the professor reads the slides and nothing responds. Pause, Repeat and moving between slides
    * stay (like a video); asking (Talk, typing, said commands), "I'm lost", "simpler please", the camera, the
@@ -468,12 +483,15 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
    * wrong, with no hints, no professor stepping in and no praise. "How did that section go?" is asked, and nothing
    * follows. The meter still runs, unseen, for the results.
    */
-  const isStatic = study?.group === 'static';
+  const isStatic = study ? study.group === 'static' : staticMode;
+  // The classmates go by what's on the screen (the lesson on its own: the study is as it was, CLASSMATES_ON_SCREEN)
+  const onScreen = CLASSMATES_ON_SCREEN && !study;
+  const learnerAskedAt = useRef(0);   // when the learner last asked something (MID_AFTER_ASK_MS)
   const [started, setStarted] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const [typed, setTyped] = useState('');
   const [interruptOn, setInterruptOn] = useState(false);   // talk over the professor (opt-in: opens the mic)
-  const [cameraOn, setCameraOn] = useState(!!study?.camera && study.group !== 'static');   // emotion check-in, presence, hand raise (opt-in; on in the study when they allowed it in the check)
+  const [cameraOn, setCameraOn] = useState(study ? !!study.camera && study.group !== 'static' : cameraStart && !staticMode);   // emotion check-in, presence, hand raise (opt-in; on in the study when they allowed it in the check)
   // The class chat: beside the slide on a computer (✕ hides it), a pull-out on a phone (the latest line shows under the slide)
   const [chatOpen, setChatOpen] = useState(true);
   const showTranscript = chatOpen;   // (the old top-right transcript's switch: SHOW_FLOATING_TRANSCRIPT)
@@ -517,6 +535,9 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
   // A phone held upright (the "turn it sideways" tip), and a short screen (a phone turned sideways)
   const phonePortrait = useMedia('(orientation: portrait) and (max-width: 640px)');
   const shortScreen = useMedia('(max-height: 500px)');
+  // A phone turned sideways: the class chat docked on the right, the slide and the named buttons (two rows) on the left
+  // (was: icon-only buttons, the chat's last line under a small slide, and the chat a pull-out)
+  const sideways = useMedia('(orientation: landscape) and (max-height: 500px) and (min-width: 600px)');
   const [rotateClosed, setRotateClosed] = useState<ReadonlySet<string>>(new Set());   // closed for: 'lesson', and hands-on boxes' ids
   // How fast the voices talk (remembered on this browser)
   const [voiceSpeed, setSpeed] = useState<VoiceSpeed>(1);
@@ -1034,6 +1055,7 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
     note?: string;
   } = {}): Promise<boolean> => {
     if (!opts.asker && !opts.counted) learnerQuestions.current++;
+    if (!opts.asker) learnerAskedAt.current = Date.now();
     if (!opts.counted) tracking.track('tutor_question', { question: question.slice(0, 300), ...(opts.asker ? { asker: opts.asker } : {}) }, opts.asker ? undefined : { questions: 1 });
     // was: pause at once (mid-word). Now the sentence finishes while the answer is being written.
     const quiet = finishThenPause();
@@ -1268,6 +1290,9 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
     for (const q of bankList) {
       const known = tagged.get(q.id);
       if (known !== undefined) { home.set(q.id, known); continue; }
+      // (the lesson on its own: the slide it was written for, CLASSMATES_ON_SCREEN)
+      const anchored = onScreen && q.anchor ? deck.slides.findIndex((sl) => sl.id === q.anchor && sl.topic?.trim() === q.topic) : -1;
+      if (anchored >= 0) { home.set(q.id, anchored); continue; }
       const mine = words(`${q.q} ${q.slide.elements.map((e) => `${shownWords(e)} ${spokenText(e)}`).join(' ')}`);
       let best = -1, at = -1;
       deck.slides.forEach((sl, i) => {
@@ -1279,7 +1304,7 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
       if (at >= 0) home.set(q.id, at);
     }
     return home;
-  }, [deck, bankList]);
+  }, [deck, bankList, onScreen]);
   /** The lesson has got to this question's slide (its topic isn't in the lesson: never) */
   const taught = useCallback((q: BankQuestion) => (homeSlide.get(q.id) ?? Infinity) <= playerRef.current.slideIndex, [homeSlide]);
   // A classmate's question in their own words (the hybrid classmates, LIVE_CLASSMATES): asked for as soon as the
@@ -1334,6 +1359,9 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
       for (const sc of scores) {
         const q = byId.get(sc.id);
         if (!q || q === top || sc.score < BANK_RELATED_MIN || bankAsked.current.has(q.id) || askers.has(q.asker) || !taught(q)) continue;
+        // (the lesson on its own: only a follow-up on the same thing, and on the slide's topic: was any related one,
+        // CLASSMATES_ON_SCREEN)
+        if (onScreen && (sc.score < FOLLOW_UP_SAME_MIN || q.topic !== deck.slides[playerRef.current.slideIndex]?.topic?.trim())) continue;
         if (top && sc.score >= BANK_ANSWER_MIN) continue;   // (the same question in other words: its answer is the one they're getting)
         related.push(q);
         askers.add(q.asker);
@@ -1343,10 +1371,24 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
     } catch {
       return none;
     }
-  }, [bankList, taught, tracking]);
+  }, [bankList, taught, tracking, onScreen, deck]);
   /** The topic's bank questions nobody has asked yet */
   const openQuestions = useCallback((topicName: string): BankQuestion[] =>
     bankList.filter((q) => q.topic === topicName && !bankAsked.current.has(q.id) && taught(q)), [bankList, taught]);
+  /** (CLASSMATES_ON_SCREEN) The questions with their closeness (0-1) to `about`, closest first; the lookup fails: none */
+  const scoredAgainst = useCallback(async (about: string, items: BankQuestion[]): Promise<{ q: BankQuestion; score: number }[]> => {
+    try {
+      const res = await fetch('/api/bank/match', {
+        method: 'POST', headers: learnerHeaders({ 'Content-Type': 'application/json' }),
+        body: JSON.stringify({ question: about.slice(0, 300), items: items.map((q) => ({ id: q.id, q: q.q })) }), signal: AbortSignal.timeout(4000),
+      });
+      const scores: { id: string; score: number }[] = res.ok ? (await res.json()).scores ?? [] : [];
+      const byId = new Map(items.map((q) => [q.id, q]));
+      return scores.flatMap((sc) => (byId.has(sc.id) && typeof sc.score === 'number' ? [{ q: byId.get(sc.id)!, score: sc.score }] : []));
+    } catch {
+      return [];
+    }
+  }, []);
   /** Questions in order of closeness to `about` (what the learner struggled with); as they are when the lookup fails */
   const closestTo = useCallback(async (about: string, items: BankQuestion[]): Promise<BankQuestion[]> => {
     if (items.length < 2) return items;
@@ -1553,6 +1595,7 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
     if (!bankList.length || yourTurnRef.current) { answer(question); return; }
     learnerQuestions.current++;
     mateTalkAt.current = Date.now();
+    learnerAskedAt.current = Date.now();
     tracking.track('tutor_question', { question: question.slice(0, 300) }, { questions: 1 });
     const quiet = finishThenPause();
     const my = ++askTurn.current;
@@ -1726,13 +1769,24 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
     // A question: a curious moment is Maya's kind; otherwise whoever has spoken least asks one of theirs
     if (open.length) {
       const order = plan.why === 'curious' ? (['maya', 'leo', 'finn'] as ClassmateId[]) : leastSpoken();
-      return fromBank(order.map((w) => open.find((q) => q.asker === w)).find(Boolean) ?? open[0]);
+      // (the lesson on its own, CLASSMATES_ON_SCREEN: from the two open questions closest to the slide on the screen, so it
+      // fits what they're looking at; was: any of the topic's, by who had spoken least)
+      if (!onScreen) return fromBank(order.map((w) => open.find((q) => q.asker === w)).find(Boolean) ?? open[0]);
+      // None of them close to it (the bank was written for the topic, not its slides): one written now about the slide on
+      // the screen, checked on the server like any classmate line (the professor answers it live); not ready: the closest
+      const now = slideText(playerRef.current.slideIndex);
+      const ranked = await scoredAgainst(now, open);
+      const close = ranked.filter((x) => x.score >= ON_SCREEN_BANK_MIN).slice(0, 2).map((x) => x.q);
+      if (close.length) return fromBank(order.map((w) => close.find((q) => q.asker === w)).find(Boolean) ?? close[0]);
+      const live = await fetchClassmate(name, now, false, order[0]);
+      if (live) return live;
+      return fromBank(ranked[0]?.q ?? open[0]);
     }
     // None left in the bank: one written now (a question, not a mix-up)
     return fetchClassmate(name, taught, false, leastSpoken()[0]);
     // (fetchClassmate is further down: only called later)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [deck, topicOf, slideText, openQuestions, closestTo, topicName, leastSpoken, troubleText]);
+  }, [deck, topicOf, slideText, openQuestions, closestTo, topicName, leastSpoken, troubleText, onScreen, scoredAgainst]);
   const midTopics = useRef(new Set<number>());   // topics a classmate already spoke in, mid-topic
   // Boxes ("slide:box") help was already offered for because of the meter (the professor's check-in, a classmate's question)
   const helped = useRef(new Set<string>());
@@ -1749,9 +1803,21 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
     const open = openQuestions(topicName(topicOf[i] ?? 0));
     midMatch.current.set(i, null);
     if (!open.length) return;
+    // (the lesson on its own, CLASSMATES_ON_SCREEN: a question written for this slide is its moment; else the one closest
+    // to the slide's last box, the one it's asked after, and its pictures. Was: the whole slide's words)
+    let about = slideText(i);
+    if (onScreen) {
+      const mine = open.find((q) => q.anchor === deck.slides[i].id);
+      if (mine) { midMatch.current.set(i, { q: mine, score: 1 }); void prepLine(mine); return; }
+      const parts = speakingOrder(deck.slides[i]);
+      const last = parts[parts.length - 1];
+      const pics = deck.slides[i].elements.filter((e) => e.type === 'image').map(shownWords).filter(Boolean);
+      const box = last ? [shownWords(last), last.silent ? '' : spokenText(last)].filter(Boolean).join(' ') : '';
+      if (box || pics.length) about = [box, ...pics.map((p) => `[picture: ${p}]`)].join(' | ');
+    }
     fetch('/api/bank/match', {
       method: 'POST', headers: learnerHeaders({ 'Content-Type': 'application/json' }),
-      body: JSON.stringify({ question: slideText(i).slice(0, 300), items: open.map((q) => ({ id: q.id, q: q.q })) }), signal: AbortSignal.timeout(5000),
+      body: JSON.stringify({ question: about.slice(0, 300), items: open.map((q) => ({ id: q.id, q: q.q })) }), signal: AbortSignal.timeout(5000),
     }).then((res) => (res.ok ? res.json() : null)).then((d) => {
       const top = d?.scores?.[0];
       const q = top && open.find((x) => x.id === top.id);
@@ -1773,6 +1839,9 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
       if (parts[parts.length - 1]?.id !== el.id) return false;
       const since = Date.now() - mateTalkAt.current;
       if (since < MID_HELP_COOLDOWN_MS) return false;
+      // (the lesson on its own: the learner asked a little while ago: their question and its follow-ups were the class's
+      // part; nothing unprompted on top, CLASSMATES_ON_SCREEN)
+      if (onScreen && Date.now() - learnerAskedAt.current < MID_AFTER_ASK_MS) return false;
       // Unclear on this slide right now (the meter's box "now" score, unsure or worse, not a camera guess alone): the
       // topic's open question closest to it. Not for "I'm lost" alone: "another way to see it" was its help (its
       // question comes at the topic's end). (was: any struggle on this slide, struggleSlide)
@@ -1788,7 +1857,10 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
       const m = midMatch.current.get(i);
       const every = classmateBudget(learnerQuestions.current, topicsSeen.current.size).every;
       const chance = (MID_CHANCE[every] ?? 0.1) * (meter.current.overall().level === 'confused' ? CONFUSED_CURIOUS : 1);
-      if (m && !bankAsked.current.has(m.q.id) && homeSlide.get(m.q.id) === i && m.score >= MID_RELATED_MIN && Math.random() < chance) {
+      // (the lesson on its own: closer to the box and picture; a question written for this slide, twice as often)
+      const close = onScreen ? MID_ON_SCREEN_MIN : MID_RELATED_MIN;
+      const odds = onScreen && m?.q.anchor === deck.slides[i]?.id ? Math.min(0.5, chance * 2) : chance;
+      if (m && !bankAsked.current.has(m.q.id) && homeSlide.get(m.q.id) === i && m.score >= close && Math.random() < odds) {
         midPending.current = { why: 'curious', from: topic, q: m.q };
         return true;
       }
@@ -2317,6 +2389,7 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
   const askMate = useCallback(async (who: ClassmateId, text: string) => {
     learnerQuestions.current++;
     mateTalkAt.current = Date.now();
+    learnerAskedAt.current = Date.now();
     tracking.track('tutor_question', { question: text.slice(0, 300), to: who }, { questions: 1 });
     const quiet = finishThenPause();
     const my = askTurn.current;
@@ -2515,7 +2588,7 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
 
   // The end, first: the quiz (if the lesson has one, and it hasn't been done or skipped this time through)
   // (not in the study: its own quizzes come after the lesson, and this one would show answers to them)
-  const quizPool = !study && deck.quiz && !deck.quiz.off && deck.quiz.questions.length >= QUIZ_ASKED ? deck.quiz.questions : null;
+  const quizPool = !study && SHOW_END_QUIZ && deck.quiz && !deck.quiz.off && deck.quiz.questions.length >= QUIZ_ASKED ? deck.quiz.questions : null;
   useEffect(() => {
     if (player.status !== 'finished' || !quizPool) return;
     setQuiz((q) => (q.state === 'waiting' ? { state: 'asking', questions: pickQuiz(quizPool, QUIZ_ASKED), right: 0 } : q));
@@ -3128,6 +3201,8 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
   // the end screen: the hardest topic, to go over again
   const hardestName = player.status === 'finished' ? (HARDEST_FROM_METER ? meterHardest(deck, topicOf, meter.current) : hardestTopic(deck, topicOf, stateOf, finnResults.current)) : null;
   const finnSummary = player.status === 'finished' ? finnScore(finnResults.current) : '';
+  // Finn's mix-ups the learner caught, for the badge on the end screen (the lesson on its own)
+  const endFinn = (() => { const r = [...finnResults.current.values()].filter((x) => x.kind !== 'other'); return { caught: r.filter((x) => x.kind === 'caught').length, of: r.length }; })();
   // "Go over it again": the slide the meter found hardest in that topic (was: the topic's first slide; still, without the meter)
   const hardestStart = hardestName ? deck.slides.findIndex((s) => s.topic?.trim() === hardestName) : -1;
   const hardestSlide = HARDEST_FROM_METER && hardestStart >= 0 ? meter.current.topic(topicOf[hardestStart] ?? 0).hardest?.slide : undefined;
@@ -3146,10 +3221,14 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
     const minutes = lessonStartedAt.current ? Math.max(1, Math.round((Date.now() - lessonStartedAt.current) / 60000)) : 0;
     if (minutes) achievements.push({ icon: 'clock', text: <>You stuck with it for <b>{minutes}</b> minute{minutes === 1 ? '' : 's'}</> });
   }
-  const btn = 'px-2.5 py-2 rounded-lg bg-white/10 hover:bg-white/20 text-sm font-medium transition-colors disabled:opacity-40';
+  const sideDock = sideways && chatOpen && !desk;   // (a phone turned sideways, with the class chat on the right)
+  // (sideways: each button fills its place in the two rows, its name beside the icon, smaller)
+  const btn = sideDock
+    ? 'w-full h-8 px-1 flex items-center justify-center gap-0.5 rounded-lg bg-white/10 hover:bg-white/20 text-[10px] leading-[1.1] font-medium transition-colors disabled:opacity-40'
+    : 'px-2.5 py-2 rounded-lg bg-white/10 hover:bg-white/20 text-sm font-medium transition-colors disabled:opacity-40';
   const group = 'flex items-center gap-1 p-1 rounded-xl bg-white/[0.04] border border-white/10';
   // a button's name: hidden (but read out) on a phone, and on a phone turned sideways
-  const label = 'max-sm:sr-only [@media(max-height:500px)]:sr-only';
+  const label = sideDock ? '' : 'max-sm:sr-only [@media(max-height:500px)]:sr-only';
   const ctl = (icon: IconName, name: string, props: { onClick: () => void; disabled?: boolean; title?: string }) => (
     <button className={btn} onClick={props.onClick} disabled={props.disabled} title={props.title ?? name} aria-label={name}>
       <Icon name={icon} /><span className={label}> {name}</span>
@@ -3158,7 +3237,7 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
 
   // The class chat and the classmates: beside the slide when there's room (the chat on the right; on a wide
   // screen the chat on the left and the classmates on the right), else pull-outs from the left and right
-  const chatDocked = desk && chatOpen;
+  const chatDocked = (desk || sideways) && chatOpen;
   const matesDocked = wide && chatOpen;
   const chatShown = chatDocked || pulled === 'chat';
   const matesShown = matesDocked || pulled === 'mates';
@@ -3170,14 +3249,16 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
   const matesUnread = !matesShown && chat.some((e) => e.id > matesSeenId && e.kind === 'line' && e.who !== 'professor' && e.who !== 'you');
   // The chat's latest line under the slide, when the chat isn't showing (tap it for the whole chat)
   const peekShown = !chatShown && (desk || chatOpen) && player.status !== 'finished' && !(shortScreen && yourTurn) && !!lastChat;
-  const openChat = () => { if (desk) setChatOpen(true); else setPulled('chat'); };
+  const openChat = () => { if (desk || sideways) setChatOpen(true); else setPulled('chat'); };
   const mainStyle = {
-    ...(chatDocked ? { '--slide-max-w': wide ? 'calc(100vw - 40rem - 4.5rem)' : 'calc(100vw - 22rem - 3rem)' } : {}),
+    ...(sideDock ? { '--slide-max-w': 'calc(68vw - 0.75rem)', '--slide-chrome': '72px', rowGap: '0.25rem', paddingTop: '0.125rem', paddingBottom: '0.125rem' }
+      : chatDocked ? { '--slide-max-w': wide ? 'calc(100vw - 40rem - 4.5rem)' : 'calc(100vw - 22rem - 3rem)' } : {}),
     '--peek-h': peekShown ? '3.75rem' : '0px',
-    paddingLeft: chatDocked && wide ? 'calc(22rem + 1.5rem)' : undefined,
-    paddingRight: chatDocked ? (wide ? 'calc(18rem + 1.5rem)' : 'calc(22rem + 1.5rem)') : undefined,
-  } as React.CSSProperties;
-  const edgeBtn = 'relative px-2.5 py-1 max-sm:w-8 max-sm:h-8 max-sm:px-0 max-sm:text-base rounded-md text-xs text-white/60 hover:text-white hover:bg-white/10 transition-colors normal-case tracking-normal';
+    paddingLeft: sideDock ? '0.25rem' : chatDocked && wide ? 'calc(22rem + 1.5rem)' : undefined,
+    paddingRight: sideDock ? 'calc(32vw + 0.5rem)' : chatDocked ? (wide ? 'calc(18rem + 1.5rem)' : 'calc(22rem + 1.5rem)') : undefined,
+  } as unknown as React.CSSProperties;
+  // (sideways with the chat docked: the top row thinner, so the slide gets the height)
+  const edgeBtn = (sideDock ? 'relative px-2 py-0 leading-tight !text-[10px] ' : 'relative px-2.5 py-1 ') + 'max-sm:w-8 max-sm:h-8 max-sm:px-0 max-sm:text-base rounded-md text-xs text-white/60 hover:text-white hover:bg-white/10 transition-colors normal-case tracking-normal';
   const dot = <span className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-amber-400 ring-2 ring-slate-900" aria-label="new" />;
 
   return (
@@ -3189,7 +3270,7 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
           ? <Transcript speaker="Professor Marine · answering" text={tutor.exchange?.answer || (tutor.thinking ? 'thinking…' : '')} dialogue={earlierDialogue}
               question={tutor.exchange ? { text: tutor.exchange.question, asker: tutor.exchange.asker } : undefined} />
           : !selfCheck && <Transcript speaker={player.mode === 'plain' ? 'Professor Marine · plain version' : 'Professor Marine'} text={player.captionText} getAudio={player.getAudio} dialogue={tutor.history} />)}
-      <div className="w-full max-w-5xl flex items-start gap-2">
+      <div className={`w-full max-w-5xl flex items-start gap-2 ${sideDock ? '-mt-0.5' : ''}`}>
       {/* left: the chat (when it isn't showing) and start over; right: the classmates (when they aren't showing) */}
       <div className="flex-1 flex items-center gap-1 min-w-0">
         {!chatShown && (
@@ -3202,13 +3283,13 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
             title="Start the lesson over from the first slide" aria-label="Start over"><Icon name="start-over" /><span className={label}> Start over</span></button>
         )}
       </div>
-      <div className="text-xs uppercase tracking-widest text-cyan-200/70 text-center">
+      <div className={`uppercase tracking-widest text-cyan-200/70 text-center ${sideDock ? 'text-[10px] leading-tight' : 'text-xs'}`}>
         {preview && <span className="mr-2 text-amber-300">Preview ·</span>}
         Topic {player.topicIndex + 1} of {player.topicCount} · Slide {player.slideIndex + 1} of {deck.slides.length}
         {player.mode === 'plain' && <span className="ml-2 text-amber-300">· plain version</span>}
         {player.status === 'finishing' && <span className="ml-2 text-emerald-300">· finishing the sentence, then listening</span>}
         {/* how far through the lesson */}
-        <div className="mt-1.5 h-1 rounded-full bg-white/10 overflow-hidden" aria-hidden>
+        <div className={`${sideDock ? 'mt-0.5 h-0.5' : 'mt-1.5 h-1'} rounded-full bg-white/10 overflow-hidden`} aria-hidden>
           <div className="h-full bg-cyan-300/70 rounded-full transition-[width] duration-700"
             style={{ width: `${player.status === 'finished' ? 100 : ((player.slideIndex + (player.clipCount ? Math.min(player.clipIndex, player.clipCount) / player.clipCount : 0)) / deck.slides.length) * 100}%` }} />
         </div>
@@ -3242,9 +3323,10 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
         ) : player.status === 'finished' ? (
           // The end: what the learner did, as achievements popping in one by one (was: the recap's
           // text again, which Professor Marine says anyway, and only "Start over")
+          // (the lesson on its own: taller than a slide, with the badge and the family card: it scrolls)
           <div
-            className="flex flex-col items-center justify-center gap-4 bg-gradient-to-b from-cyan-50 to-white text-slate-900 rounded-2xl p-6 sm:p-10 text-center max-sm:!aspect-auto [@media(max-height:500px)]:!aspect-auto [@media(max-height:500px)]:p-4"
-            style={{ width: SLIDE_WIDTH, aspectRatio: '16 / 9' }} data-end-screen
+            className={`flex flex-col items-center gap-4 bg-gradient-to-b from-cyan-50 to-white text-slate-900 rounded-2xl p-6 sm:p-10 text-center max-sm:!aspect-auto [@media(max-height:500px)]:!aspect-auto [@media(max-height:500px)]:p-4 ${study ? 'justify-center' : 'justify-start overflow-y-auto'}`}
+            style={study ? { width: SLIDE_WIDTH, aspectRatio: '16 / 9' } : { width: SLIDE_WIDTH, minHeight: `calc(${SLIDE_WIDTH} * 9 / 16)`, maxHeight: 'calc(100vh - 150px)' }} data-end-screen
           >
             <div aria-hidden className="text-4xl sm:text-5xl animate-[pop-in_500ms_ease-out_both] text-cyan-600"><Icon name="celebration" /></div>
             <h2 className="text-2xl sm:text-3xl font-bold">That&apos;s the lesson{learnerName.trim() ? `, ${learnerName.trim()}` : ''}!</h2>
@@ -3264,6 +3346,13 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
                 <button className="underline text-cyan-700 hover:text-cyan-600 font-semibold"
                   onClick={() => { cues.stop(); player.goToSlide(finishedHardest.index); }}>Go over it again →</button>
               </p>
+            )}
+            {/* the lesson on its own: what to take home (the study has them on its last screen, after quiz 2) */}
+            {!study && (
+              <div className="w-full max-w-2xl text-left">
+                {endFinn.caught > 0 && <FinnBadge caught={endFinn.caught} of={endFinn.of} />}
+                <FamilyCard />
+              </div>
             )}
             {study ? (
               // the study: on to the second quiz
@@ -3366,7 +3455,7 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
         {/* Under the slide, in the gap above the buttons (was: on the slide's top-left, over its title) */}
         {yourTurn && !variant && !selfCheck && (
           <div className="absolute top-full left-1/2 -translate-x-1/2 mt-1 z-20 flex items-center gap-2 pl-4 pr-1 py-1 rounded-full bg-cyan-950/90 border border-cyan-300/30 text-white text-sm shadow-lg whitespace-nowrap
-            [@media(max-height:500px)]:fixed [@media(max-height:500px)]:top-2 [@media(max-height:500px)]:right-2 [@media(max-height:500px)]:left-auto [@media(max-height:500px)]:translate-x-0 [@media(max-height:500px)]:mt-0" role="status" data-your-turn>
+            [@media(max-height:500px)]:fixed [@media(max-height:500px)]:top-2 [@media(max-height:500px)]:right-2 [@media(max-height:500px)]:left-auto [@media(max-height:500px)]:translate-x-0 [@media(max-height:500px)]:mt-0${sideDock ? ' [@media(max-height:500px)]:!left-2 [@media(max-height:500px)]:!right-auto' : ''}" role="status" data-your-turn>
             <span><Icon name="hands-on-activity" /> Your turn: try it on the slide</span>
             <button className="px-3 py-1 rounded-full bg-white/15 hover:bg-white/25" onClick={skipActivity}>Skip</button>
           </div>
@@ -3464,12 +3553,12 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
         );
       })()}
 
-      {/* clip dots: one per spoken element on this slide */}
-      <div className={`flex gap-1.5 h-2 ${yourTurn && !variant && !selfCheck ? 'invisible' : ''}`} aria-hidden>
+      {/* clip dots: one per spoken element on this slide (sideways with the chat docked: none, the slide gets the room) */}
+      {!sideDock && <div className={`flex gap-1.5 h-2 ${yourTurn && !variant && !selfCheck ? 'invisible' : ''}`} aria-hidden>
         {Array.from({ length: player.clipCount }, (_, i) => (
           <span key={i} className={`w-6 h-1.5 rounded-full ${i < player.clipIndex ? 'bg-cyan-300' : i === player.clipIndex ? 'bg-cyan-300 animate-pulse' : 'bg-white/20'}`} />
         ))}
-      </div>
+      </div>}
 
       {/* The question and the professor's answer, while it's being answered */}
       {/* (the chat has it: beside the slide, or its latest line under the slide. Was: shown here with the transcript off) */}
@@ -3486,7 +3575,9 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
 
       {/* The buttons in three groups (moving through the lesson, help, asking), then Options. On a phone,
           or a phone turned sideways, just the icons (the names are still there for screen readers) */}
-      <div className="flex flex-wrap items-center justify-center gap-2" data-bubble-avoid>
+      {/* (sideways with the chat docked: the buttons, named, in two rows of four under the slide) */}
+      <div className={sideDock ? 'grid grid-flow-col auto-cols-fr gap-1 [&>[role=group]]:contents'
+        : 'flex flex-wrap items-center justify-center gap-2'} style={sideDock ? { width: 'calc(68vw - 0.75rem)', marginTop: '0.25rem' } : undefined} data-bubble-avoid>
         <div className={group} role="group" aria-label="Move through the lesson">
           {ctl('back', 'Back', { onClick: goBack, title: 'Back to the start of this part (again: the part before)' })}
           {/* (no Resume while it's the learner's turn: the hands-on box moves the lesson on. Was: a greyed-out ▶ Resume) */}
@@ -3499,12 +3590,12 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
         <div className={group} role="group" aria-label="Help">
           {SHOW_REPEAT && ctl('repeat', 'Repeat', { onClick: () => { feel('again'); player.repeat(); } })}
           {!isStatic && ctl('simpler', 'Simpler words', { onClick: () => handleText('simpler please'), title: 'This part again, said in simpler words' })}
-          {!isStatic && ctl('confused', 'Show another way', { onClick: () => confused(), title: 'A different slide that explains this part another way' })}
+          {!isStatic && ctl('confused', sideDock ? 'Another way' : 'Show another way', { onClick: () => confused(), title: 'A different slide that explains this part another way' })}
         </div>
         {/* (static: no asking) */}
         {!isStatic && <div className={group} role="group" aria-label="Ask the professor">
         {/* Hold to talk: press, say it, let go (a quick tap isn't sent: "Hold to talk"). Its own colour: the way to talk to the class */}
-        <span className="relative inline-flex">
+        <span className={sideDock ? 'relative flex' : 'relative inline-flex'}>
           <button
             className={`${btn} select-none touch-none ${micStatus === 'listening' ? '!bg-red-500/85 hover:!bg-red-500 !text-white' : '!bg-cyan-500/90 hover:!bg-cyan-400 !text-slate-950 font-semibold'}`}
             onPointerDown={(e) => { e.currentTarget.setPointerCapture?.(e.pointerId); pressAsk(); }}
@@ -3540,7 +3631,7 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
           <button className="px-3 py-2 rounded-r-lg bg-cyan-500/80 hover:bg-cyan-500 text-sm font-medium">Send</button>
         </form>}
         </div>}
-        {cameraOn && (
+        {cameraOn && !sideDock && (
           <span className="text-xs text-white/70">
             {emotionError || presenceError ? `camera unavailable (${emotionError || presenceError})` : !emotionReady ? 'starting…' : present ? 'here' : 'away'}
             {mood && ` · ${mood === 'confused' ? 'puzzled' : mood === 'bored' ? 'quiet' : 'watching'}`}
@@ -3584,7 +3675,7 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
                   if (!cameraOn) say('Camera on: raise your hand to ask, and the professor notices if you look lost or step away. Nothing leaves your device.');
                 }]] as const),   // (static: nothing to interrupt or notice)
                 // (not in the study: the group decides)
-                ...(study ? [] : [['classmates', 'Classmates', 'Maya, Finn and Leo: they ask questions, and Finn has a go at the hands-on activities', classmateOn, () => setClassmateOn((v) => !v)] as const]),
+                ...(study || isStatic ? [] : [['classmates', 'Classmates', 'Maya, Finn and Leo: they ask questions, and Finn has a go at the hands-on activities', classmateOn, () => setClassmateOn((v) => !v)] as const]),
                 ['bell', 'Sounds', 'Little sounds in the hands-on activities', soundsOn, toggleSounds],
                 ['chat-bubble', 'Class chat', desk ? 'The conversation beside the slide' : 'The latest line under the slide (tap it for the whole chat)', chatOpen, () => setChatOpen((v) => !v)],
               ] as const).map(([icon, name, hint, on, toggle]) => (
@@ -3613,7 +3704,7 @@ function Player({ deck, preview, startAt = 0, study = null }: { deck: Deck; prev
 
       {/* The class chat and the classmates (see chatDocked above) */}
       {chatDocked ? (
-        <ClassChat className={`fixed top-3 bottom-3 z-30 w-[22rem] ${wide ? 'left-3' : 'right-3'}`} entries={chat} learnerName={learnerName.trim()} liveSlide={liveSlide}
+        <ClassChat compact={sideDock} className={sideDock ? 'fixed top-1.5 bottom-1.5 right-1.5 z-30 w-[32vw]' : `fixed top-3 bottom-3 z-30 w-[22rem] ${wide ? 'left-3' : 'right-3'}`} entries={chat} learnerName={learnerName.trim()} liveSlide={liveSlide}
           getAudio={player.getAudio} thinking={pendingWho ?? (tutor.thinking ? 'professor' : null)} speaking={talking} onSend={isStatic ? undefined : handleText} mates={matesAllowed} onClose={() => setChatOpen(false)} />
       ) : (
         <div className={`fixed inset-y-0 left-0 z-50 w-[min(22rem,90vw)] p-2 transition-transform duration-300 ${pulled === 'chat' ? 'translate-x-0' : '-translate-x-[105%]'}`}
