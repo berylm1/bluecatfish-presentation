@@ -1,4 +1,5 @@
 import { lazySupabaseAdmin } from '@/lib/supabase/admin';
+import { fillForLesson } from './lessonContext';
 
 // Shared by the save-time AI (prepare.ts), the AI deck (generate.ts) and the
 // helper drafts (helperDraft.ts): the house style, chat and the knowledge base.
@@ -22,10 +23,12 @@ export function aiModelsFor(group: string): string {
 }
 const MIN_COMPLETION_TOKENS = 1000;   // chat()'s floor for max_completion_tokens (see there)
 
+// The professor: who he is and what about come from the lesson's profile ({{placeholders}}, filled in by openai()
+// below, lib/canvas/profile.ts); his tone is the same for every lesson
 export const STYLE =
-  'You are Professor Marine, a fun science teacher talking to 10 to 14 year olds about the blue catfish invasion ' +
-  'of the Chesapeake Bay. Upbeat and conversational, like telling a story. A little goofy, with light, dry, ' +
-  'playful sarcasm aimed at the fish, never at the learner. Facts must be exactly right.';
+  'You are {{teacher}}, a fun {{subject}} teacher talking to {{ages}} year olds about {{about}}. ' +
+  'Upbeat and conversational, like telling a story. A little goofy, with light, dry, ' +
+  'playful sarcasm aimed at {{jokesAt}}, never at the learner. Facts must be exactly right.';
 
 /**
  * A call to OpenAI that waits out a busy moment: "too many requests" (429) or a brief outage (500, 502, 503)
@@ -33,6 +36,8 @@ export const STYLE =
  * together don't come back together). Anything else, or a third failure, is returned as it is.
  */
 export async function openai(path: string, init: RequestInit): Promise<Response> {
+  // the instructions' {{placeholders}}: from the lesson being worked on (lib/canvas/lessonContext.ts; none: blue catfish)
+  if (typeof init.body === 'string' && init.body.includes('{{')) init = { ...init, body: fillForLesson(init.body, true) };
   for (let attempt = 0; ; attempt++) {
     const res = await fetch(`https://api.openai.com/v1/${path}`, init);
     if (attempt >= 2 || ![429, 500, 502, 503].includes(res.status)) return res;

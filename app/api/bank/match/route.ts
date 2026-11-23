@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { enterLessonOf } from '@/lib/canvas/lessonProfiles';
 import { rateLimit } from '@/lib/rateLimit';
 import { chat } from '@/lib/canvas/ai';
 
@@ -43,6 +44,8 @@ function cosine(a: number[], b: number[]): number {
 export async function POST(req: NextRequest) {
   const limited = await rateLimit(req, 'bank');
   if (limited) return limited;
+  // (the lesson asking: its profile fills the AI's instructions, lib/canvas/lessonContext.ts)
+  await enterLessonOf(req);
   try {
     const body = await req.json().catch(() => ({}));
     const question = String(body.question ?? '').replace(/\s+/g, ' ').trim().slice(0, 300);

@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { enterLessonOf } from '@/lib/canvas/lessonProfiles';
 import { createHash } from 'crypto';
 import { rateLimit } from '@/lib/rateLimit';
 import { getValue, setValue } from '@/src/redisClient';
@@ -39,6 +40,8 @@ Reply as JSON: {"board": {"background": "#hex", "elements": [ ... ]}} or {"board
 export async function POST(req: Request) {
   const limited = await rateLimit(req, 'board');
   if (limited) return limited;
+  // (the lesson asking: its profile fills the AI's instructions, lib/canvas/lessonContext.ts)
+  await enterLessonOf(req);
   const body = await req.json().catch(() => ({}));
   const question = String(body.question ?? '').trim().slice(0, 500);
   const topic = String(body.topic ?? '').slice(0, 200);

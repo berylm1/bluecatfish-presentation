@@ -1,4 +1,6 @@
 import type { Deck, Slide, SlideElement, SlideHelper, TextElement } from './types';
+import { enterProfile } from './lessonContext';
+import { profileOf } from './profile';
 import { STYLE, chat, knowledge } from './ai';
 import { autoFix, formatGuide, imagesFor, problems, type LibImage } from './generate';
 import { fingerprint, sayBasis, slideBasis } from './aiFields';
@@ -96,6 +98,7 @@ export function toHelper(raw: any, slide: Slide, images: LibImage[]): SlideEleme
 
 /** Drafts the helper for one slide (one retry if the layout has problems). */
 export async function draftHelper(slide: Slide, deck: Deck): Promise<SlideHelper> {
+  enterProfile(profileOf(deck));   // (the AI's instructions: this lesson's teacher and topic)
   const basis = slideBasis(slide);
   // (the study's lesson: the slide alone, never the knowledge base, so "another way to see it" adds nothing new)
   const only = slidesOnly(deck.lessonId);

@@ -1,6 +1,7 @@
 'use client';
 
 import type { Slide } from '@/lib/canvas/types';
+import { teacherName } from '@/lib/teacher';
 
 // A variant slide shown over the canvas when the learner is confused: one of
 // the reviewed "explain it another way" slides (slide_templates), e.g. an
@@ -17,7 +18,7 @@ export default function VariantOverlay({ variant, onDone }: { variant: Variant; 
   return (
     <div className="absolute inset-0 z-30 flex items-center justify-center bg-slate-950/80 backdrop-blur-sm rounded-2xl p-6" role="dialog" aria-label="Another way to see it">
       <div className="w-full max-w-3xl max-h-full overflow-y-auto rounded-2xl bg-slate-900 border border-cyan-500/30 p-6 text-left shadow-2xl">
-        <div className="text-xs uppercase tracking-widest text-cyan-300 mb-2">Professor Marine · a different way to see it</div>
+        <div className="text-xs uppercase tracking-widest text-cyan-300 mb-2">{teacherName()} · a different way to see it</div>
         <h2 className="text-2xl font-bold text-white mb-4">{variant.title}</h2>
         {variant.image_url && (
           // eslint-disable-next-line @next/next/no-img-element

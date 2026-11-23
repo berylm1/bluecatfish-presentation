@@ -1,11 +1,12 @@
 import { NextResponse } from "next/server";
+import { openai } from '@/lib/canvas/ai';
 import { lazySupabaseAdmin } from "@/lib/supabase/admin";
 import { requireIngestAdmin } from "@/lib/requireAdmin";
 
 const supabase = lazySupabaseAdmin();   // created on first use, so the build doesn't need env vars
 
 async function describeImage(imageUrl: string): Promise<string> {
-  const res = await fetch("https://api.openai.com/v1/chat/completions", {
+  const res = await openai('chat/completions', {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -17,7 +18,7 @@ async function describeImage(imageUrl: string): Promise<string> {
       messages: [
         {
           role: "system",
-          content: `Describe this image for a lesson about the Blue Catfish invasion in the Chesapeake Bay. State factually what is visible — subject, setting, notable details, scale, activity. Then, in the same description, state plainly how this image most likely relates to the lesson's themes: the fish itself, its size or biology, the native species it preys on, its ecosystem impact, commercial harvesting, cooking and eating it, or human response. Use the vocabulary someone would search for when looking for an image about that theme. 3-4 sentences. Describe only what you can see; when stating the likely relevance, keep it to the obvious connection, not speculation about specifics you cannot verify.`,
+          content: `Describe this image for a lesson about {{about}}. State factually what is visible — subject, setting, notable details, scale, activity. Then, in the same description, state plainly how this image most likely relates to the lesson's themes: the fish itself, its size or biology, the native species it preys on, its ecosystem impact, commercial harvesting, cooking and eating it, or human response. Use the vocabulary someone would search for when looking for an image about that theme. 3-4 sentences. Describe only what you can see; when stating the likely relevance, keep it to the obvious connection, not speculation about specifics you cannot verify.`,
         },
         {
           role: "user",

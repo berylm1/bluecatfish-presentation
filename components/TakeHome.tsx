@@ -10,29 +10,35 @@ import { SHOW_QR } from '@/lib/settings';
  */
 
 /** Three things to tell your family (the take-home card), and where to learn more */
-export function FamilyCard() {
+export function FamilyCard({ things = FAMILY_THINGS, learnMore = LEARN_MORE }: {
+  /** The lesson's (its profile): the blue catfish ones if not given */
+  things?: string[];
+  learnMore?: { label: string; url: string; qr?: string } | null;
+}) {
+  if (!things.length) return null;   // (a lesson with none set: no card)
+  const more = learnMore;
   return (
     <section className="mt-6 rounded-2xl border border-cyan-100 bg-gradient-to-br from-cyan-50 to-sky-50 p-5" aria-label="Three things to tell your family">
       <div className="flex items-start gap-5 max-sm:flex-col">
         <div className="flex-1">
           <h2 className="font-semibold text-slate-900 flex items-center gap-2"><Icon name="home" className="text-cyan-700" /> 3 things to tell your family</h2>
           <ol className="mt-3 flex flex-col gap-2.5">
-            {FAMILY_THINGS.map((t, i) => (
+            {things.map((t, i) => (
               <li key={i} className="flex gap-3 text-sm text-slate-700">
                 <span className="shrink-0 w-6 h-6 rounded-full bg-cyan-600 text-white text-xs font-bold flex items-center justify-center">{i + 1}</span>
                 <span>{t}</span>
               </li>
             ))}
           </ol>
-          {!SHOW_QR && (
-            <p className="mt-4 text-sm text-slate-600">Learn more: <a href={LEARN_MORE.url} target="_blank" rel="noreferrer" className="font-medium text-cyan-700 underline hover:text-cyan-800">{LEARN_MORE.label}</a></p>
+          {more && !(SHOW_QR && more.qr) && (
+            <p className="mt-4 text-sm text-slate-600">Learn more: <a href={more.url} target="_blank" rel="noreferrer" className="font-medium text-cyan-700 underline hover:text-cyan-800">{more.label}</a></p>
           )}
         </div>
-        {SHOW_QR && (
-          <a href={LEARN_MORE.url} target="_blank" rel="noreferrer" className="shrink-0 flex flex-col items-center gap-1.5 rounded-xl bg-white p-3 shadow-sm hover:shadow-md transition-shadow max-sm:self-center">
+        {more && SHOW_QR && more.qr && (
+          <a href={more.url} target="_blank" rel="noreferrer" className="shrink-0 flex flex-col items-center gap-1.5 rounded-xl bg-white p-3 shadow-sm hover:shadow-md transition-shadow max-sm:self-center">
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={LEARN_MORE.qr} alt={`QR code: ${LEARN_MORE.label}`} width={112} height={112} className="w-28 h-28 [image-rendering:pixelated]" />
-            <span className="text-[11px] text-slate-500 text-center leading-tight">Scan to learn more<br /><span className="text-cyan-700 underline">{LEARN_MORE.label}</span></span>
+            <img src={more.qr} alt={`QR code: ${more.label}`} width={112} height={112} className="w-28 h-28 [image-rendering:pixelated]" />
+            <span className="text-[11px] text-slate-500 text-center leading-tight">Scan to learn more<br /><span className="text-cyan-700 underline">{more.label}</span></span>
           </a>
         )}
       </div>

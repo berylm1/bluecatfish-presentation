@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { enterLessonOf } from '@/lib/canvas/lessonProfiles';
 import { createHash } from 'crypto';
 import { rateLimit } from '@/lib/rateLimit';
 import { getValue, setValue } from '@/src/redisClient';
@@ -25,7 +26,7 @@ export const maxDuration = 20;
 const PICK_MAX = 14;   // parts the AI chooses from (the closest to the question)
 const PICK_MAX_TOGETHER = 24;   // (several questions: more to choose from)
 
-const SYSTEM = `You build ONE slide that helps answer a learner's question (10-14 year olds), from READY-MADE PARTS of the lesson.
+const SYSTEM = `You build ONE slide that helps answer a learner's question ({{ages}} year olds), from READY-MADE PARTS of the lesson.
 Each part has an id (T = text box, P = picture, V = chart or diagram) and says what it is.
 Pick 2 to 4 parts that together show the answer, and place them on the slide. You may add ONE short title (under 7 words)
 naming the idea. Never write other text: everything else comes from the parts. Leave room for the title at the top.
@@ -63,6 +64,8 @@ type Part = { id: string; kind: string; about: string; el: any };
 export async function POST(req: Request) {
   const limited = await rateLimit(req, 'board');
   if (limited) return limited;
+  // (the lesson asking: its profile fills the AI's instructions, lib/canvas/lessonContext.ts)
+  await enterLessonOf(req);
   const body = await req.json().catch(() => ({}));
   const question = String(body.question ?? '').replace(/\s+/g, ' ').trim().slice(0, 300);
   const parts: Part[] = (Array.isArray(body.parts) ? body.parts : []).slice(0, 160)

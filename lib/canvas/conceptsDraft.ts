@@ -1,4 +1,6 @@
 import type { Concept, Deck, DeckConcepts } from './types';
+import { enterProfile } from './lessonContext';
+import { profileOf } from './profile';
 import { chat } from './ai';
 import { lessonText } from './lessonText';
 import { POST_QUIZ, STUDY_LESSON } from '@/lib/study/content';
@@ -24,6 +26,7 @@ Reply as JSON: {"ideas":[{"name":"...","means":"...","slide":3,"needs":["..."]}]
 const key = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
 
 export async function draftConcepts(deck: Deck): Promise<DeckConcepts> {
+  enterProfile(profileOf(deck));   // (the AI's instructions: this lesson's teacher and topic)
   if (!deck.slides.length) throw new Error('The lesson has no slides yet');
   const kept = (deck.concepts?.ideas ?? []).filter((c) => !c.byAI && deck.slides.some((s) => s.id === c.slide));
   const bank = deck.bank?.questions ?? [];

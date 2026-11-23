@@ -6,7 +6,7 @@ import SlideCanvas from '@/components/canvas/SlideCanvas';
 import type { Deck, Slide, SlideElement } from '@/lib/canvas/types';
 import { shownWords, speakingOrder, spokenText, topicIndexes } from '@/lib/canvas/queue';
 import { introText, startsTopic } from '@/lib/canvas/intro';
-import { SOURCES } from '@/lib/sources';
+import { profileOf } from '@/lib/canvas/profile';
 
 // "Download PDF" in the slide editor, in two kinds:
 //   - teacher script: the whole lesson, one slide per page (helpers after their slide, optional)
@@ -241,6 +241,7 @@ export async function exportDeckPdf(deck: Deck, opts: PdfOptions = DEFAULT_PDF, 
     lines(deck.recap.trim(), 11, 'normal', [30, 41, 59]);
   }
   // Where the facts come from, each with its web address (clickable)
+  const SOURCES = profileOf(deck).sources;   // (the lesson's own, lib/canvas/profile.ts)
   if (opts.sources && SOURCES.length) {
     pdf.addPage();
     y = M;

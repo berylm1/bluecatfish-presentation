@@ -18,6 +18,7 @@ import { answerState, countTodo, needsBank, openPictureIdeas, pictureBasis, pict
 import { startsTopic } from '@/lib/canvas/intro';
 import { applyRepeatFix, type RepeatSuggestion } from '@/lib/canvas/repeats';
 import RepeatsPanel from '@/components/editor/RepeatsPanel';
+import LessonPanel from '@/components/editor/LessonPanel';
 import ConceptsPanel from '@/components/editor/ConceptsPanel';
 import Menu, { MenuHeading, MenuItem } from '@/components/editor/Menu';
 import PullFromOriginal from '@/components/editor/PullFromOriginal';
@@ -177,7 +178,7 @@ function Editor({
   const baseRev = useRef<string | undefined>(initial.editRev);
   const [conflict, setConflict] = useState<{ by: string; at: string | null; then: 'save' | 'publish' } | null>(null);
   const { deck, slide, slideIdx, element } = ed;
-  const [panel, setPanel] = useState<'props' | 'images' | 'background' | 'repeats' | 'check' | 'ideas'>('props');
+  const [panel, setPanel] = useState<'props' | 'images' | 'background' | 'repeats' | 'check' | 'ideas' | 'lesson'>('props');
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState<{ at?: string; by?: string }>({ at: initialSavedAt, by: initialSavedBy });
   const [notice, setNotice] = useState<{ text: string; tone: 'ok' | 'warn' | 'error' } | null>(null);
@@ -917,6 +918,11 @@ function Editor({
           )}
         </Menu>
         <div className="flex-1" />
+        {/* The lesson's profile (what it's about, who it's for, the teacher…): in the side panel (was a 6th tab: too tight) */}
+        <button className={`${btn} ${panel === 'lesson' ? 'bg-cyan-50 border-cyan-500' : ''}`} onClick={() => setPanel(panel === 'lesson' ? 'props' : 'lesson')}
+          title="What the lesson is about, who it’s for, the teacher, the family card, the sources" aria-pressed={panel === 'lesson'}>
+          📘 Lesson
+        </button>
         <button data-help="learners"
           className={`${btn} ${heat ? 'bg-cyan-50 border-cyan-500' : ''}`}
           onClick={toggleHeat}
@@ -1132,7 +1138,16 @@ function Editor({
                   d.checks = { ...d.checks, pictures: rest };
                 }); flash('This slide’s pictures are checked again when you save'); }} />
             </div>
-            {panel === 'repeats' || panel === 'check' || panel === 'ideas' ? null : panel === 'props' ? (
+            {panel === 'lesson' && (
+              <div className="flex items-center justify-between mb-1">
+                <h2 className="text-sm font-semibold text-slate-900">📘 The lesson</h2>
+                <button className="w-6 h-6 rounded text-slate-400 hover:text-slate-800 hover:bg-slate-100" aria-label="Close the lesson settings" onClick={() => setPanel('props')}>✕</button>
+              </div>
+            )}
+            {panel === 'lesson' && (
+              <LessonPanel deck={deck} onChange={(profile, group) => ed.change((d) => { d.profile = profile; }, group)} />
+            )}
+            {panel === 'repeats' || panel === 'check' || panel === 'ideas' || panel === 'lesson' ? null : panel === 'props' ? (
               element ? (
                 <ElementInspector
                   el={element}

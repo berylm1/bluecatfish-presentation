@@ -1,14 +1,27 @@
 'use client';
 
-import { SOURCES } from '@/lib/sources';
+import { SOURCES, type Source } from '@/lib/sources';
 import Link from 'next/link';
+import { useEffect, useState } from 'react';
+import { profileOf } from '@/lib/canvas/profile';
 
+// ?lesson=<id>: that lesson's sources (its profile, lib/canvas/profile.ts); none: the blue catfish lesson's
 export default function SourcesPage() {
+  const [lesson, setLesson] = useState('');
+  const [sources, setSources] = useState<Source[]>(SOURCES);
+  useEffect(() => {
+    const id = new URLSearchParams(window.location.search).get('lesson') ?? '';
+    if (!/^[a-z0-9][a-z0-9-]{0,60}$/.test(id)) return;
+    setLesson(id);
+    fetch(`/api/deck?lesson=${encodeURIComponent(id)}`).then((r) => r.json()).then((d) => {
+      if (d?.deck) setSources(profileOf(d.deck).sources);
+    }).catch(() => { /* the default list */ });
+  }, []);
   return (
     <div className="min-h-screen bg-gradient-to-br from-mist-400 via-mist-50 to-mist-400 p-8">
       <div className="max-w-3xl mx-auto">
         {/* was /presentationv2: the canvas page is the main lesson now */}
-        <Link href="/presentation" className="text-blue-600 hover:underline text-sm">
+        <Link href={lesson ? `/presentation?lesson=${lesson}` : '/presentation'} className="text-blue-600 hover:underline text-sm">
           ← Back to the lesson
         </Link>
 
@@ -18,7 +31,7 @@ export default function SourcesPage() {
         </p>
 
         <div className="space-y-4">
-          {SOURCES.map((s, i) => (
+          {sources.map((s, i) => (
             <a
               key={i}
               href={s.url}

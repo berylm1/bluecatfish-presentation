@@ -14,7 +14,7 @@ export async function describeImage(src: string, about: { lesson?: string; topic
       : 'The AI can\'t read this picture: it has to be a PNG, JPEG, WebP or GIF on the web (https), under 8 MB.');
   }
   const out = JSON.parse(await chatVision(
-    'You describe a picture used in a lesson for 10-14 year olds. Write 1 or 2 plain sentences (15 to 40 words) saying exactly what is shown: ' +
+    'You describe a picture used in a lesson for {{ages}} year olds. Write 1 or 2 plain sentences (15 to 40 words) saying exactly what is shown: ' +
       'the animals, objects, people and setting, and any words written in it. Be specific (e.g. "a blue catfish" if that is clearly what it is), ' +
       'but only describe what you can actually see: never guess names, places or numbers that aren\'t clear from the picture. ' +
       'No "This image shows", no opinions. Reply as JSON: {"description": "..."}',

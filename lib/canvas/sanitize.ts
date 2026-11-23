@@ -1,4 +1,5 @@
 import type { ActivityElement, ChartElement, CheckedClaim, Deck, DeckChecks, DiagramElement, ImageElement, Slide, SlideElement, TextElement, TextStyle } from './types';
+import { sanitizeProfile } from './profile';
 
 // Cleans a deck that came from the editor (or an AI) before it's stored:
 // known fields only, numbers kept on the slide, strings capped, and only
@@ -334,6 +335,7 @@ export function sanitizeDeck(raw: any, lessonId: string, source: Deck['source'])
     checks: checks(raw.checks),
     editRev: typeof raw.editRev === 'string' && /^[a-z0-9]{1,24}$/.test(raw.editRev) ? raw.editRev : undefined,
     basedOn: typeof raw.basedOn === 'string' && /^(bluecatfish_|canvas_ai:)[\w:.-]{1,120}$/.test(raw.basedOn) ? raw.basedOn : undefined,
+    profile: sanitizeProfile(raw.profile),
     source,
   };
 }

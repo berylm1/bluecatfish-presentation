@@ -23,7 +23,8 @@ import { CUE_TEXT, type CueKey } from '@/lib/canvas/cues';
 import { loadDeck, type Loaded } from '@/lib/canvas/loadDeck';
 import { DEFAULT_LESSON } from '@/lib/canvas/lessons';
 import type { Deck } from '@/lib/canvas/types';
-import { learnerHeaders } from '@/lib/learnerSession';
+import { learnerHeaders, setLearnerLesson } from '@/lib/learnerSession';
+import { setTeacherName } from '@/lib/teacher';
 import { CLASSMATE_NAME } from '@/lib/voice';
 import { CLASSMATES, classmateNamed, type ClassmateId } from '@/lib/classmates';
 import { playSound } from '@/lib/canvas/sounds';
@@ -53,6 +54,7 @@ import {
   CLASSMATES_ON_SCREEN, FOLLOW_UP_SAME_MIN, MID_AFTER_ASK_MS, MID_ON_SCREEN_MIN,
 } from '@/lib/settings';
 import { FamilyCard, FinnBadge } from '@/components/TakeHome';
+import { BLUE_CATFISH, profileOf, type LessonProfile } from '@/lib/canvas/profile';
 import { LIVE_VERSION, preloadedDeck, studyLesson, studyPost, writeStudy, type StudyRecord } from '@/lib/study/client';
 import { STUDIES } from '@/lib/study/content';
 import { signals } from '@/lib/signals';
@@ -188,7 +190,9 @@ const YES = /^(?:yes|yeah|yep|yup|sure|ok(?:ay)?|please|uh[- ]huh|definitely|go 
 const NO = /^(?:no|nope|nah|not really|i'?m (?:good|fine|ok(?:ay)?)|all good|keep going|carry on)\b/i;
 const SPEAKING: string[] = ['playing', 'loading', 'finishing', 'waiting'];
 const GO_ON = /^(?:no|nope|nah|no thanks?|ok(?:ay)?|go on|let'?s go on|carry on|continue|keep going|move on|next|that'?s (?:all|it)|nothing(?: else)?|i'?m (?:good|fine|ok(?:ay)?)|all good)\b/i;
-const MATE_UNSURE = () => pickOne(['Hmm, I’m not sure. Professor Marine?', 'Good question. I don’t know! Professor Marine?']);
+// The lesson's teacher (its profile, lib/canvas/profile.ts): set by the Player for the lesson on the page
+let TEACHER: LessonProfile['teacher'] = BLUE_CATFISH.teacher;
+const MATE_UNSURE = () => pickOne([`Hmm, I’m not sure. ${TEACHER.name}?`, `Good question. I don’t know! ${TEACHER.name}?`]);
 /** "Maya, why is that?" / "what do you think, Leo?": the classmate the learner is talking to, and what they said to them */
 function addressed(text: string): { who: ClassmateId; text: string } | null {
   const t = text.trim();
@@ -317,7 +321,7 @@ function endingLine(a: { name: string; covered: string; solved: number; quiz: { 
     a.covered,
     did.length ? `You ${listed(did)}.` : '',
     a.minutes ? `You stayed locked in for ${a.minutes === 1 ? 'a whole minute' : `a big ${a.minutes} minutes`}.` : '',
-    'Marine out!',
+    TEACHER.signOff,
   ].filter(Boolean).join(' ');
 }
 // After "kind of" / "lost me" at the end of a part
@@ -393,7 +397,7 @@ const NICE_TRY = `Nice try, ${CLASSMATE_NAME}! Not quite.`;
 const TAKE_ANOTHER_LOOK = `Hmm, almost! Take another look at where ${CLASSMATE_NAME} put his.`;
 
 /** The hello with the learner's name: one clip, so there's no gap around the name. */
-const greeting = (name: string) => `Hey ${name}! I'm Professor Marine. Let's dive in.`;
+const greeting = (name: string) => `Hey ${name}! I'm ${TEACHER.name}. Let's dive in.`;
 
 /** How the learner did on Finn's mistakes, in a few words for the end screen ("You caught 2 of Finn's 3 mix-ups"), or ''. */
 function finnScore(finn: ReadonlyMap<number, FinnResult>): string {
@@ -484,6 +488,11 @@ function Player({ deck, preview, startAt = 0, study = null, staticMode = false, 
    * follows. The meter still runs, unseen, for the results.
    */
   const isStatic = study ? study.group === 'static' : staticMode;
+  // The lesson's profile (what it's about, its teacher, its family card): the server's AI goes by it too (X-Lesson)
+  const profile = useMemo(() => profileOf(deck), [deck]);
+  TEACHER = profile.teacher;
+  setTeacherName(profile.teacher.name);
+  setLearnerLesson(deck.lessonId);
   // The classmates go by what's on the screen (the lesson on its own: the study is as it was, CLASSMATES_ON_SCREEN)
   const onScreen = CLASSMATES_ON_SCREEN && !study;
   const learnerAskedAt = useRef(0);   // when the learner last asked something (MID_AFTER_ASK_MS)
@@ -3132,7 +3141,7 @@ function Player({ deck, preview, startAt = 0, study = null, staticMode = false, 
     const name = learnerName.trim();
     if (!study) try { localStorage.setItem('learnerName', name); } catch { /* private mode */ }
     // A name: a personal hello (spoken live); otherwise the recorded intro. Coming back: "Welcome back"
-    (from ? cues.play({ text: welcomeBack(name) }) : name ? cues.play({ text: greeting(name) }) : cues.play('cue_intro')).finally(() => setIntroDone(true));
+    (from ? cues.play({ text: welcomeBack(name) }) : name ? cues.play({ text: greeting(name) }) : TEACHER.name === BLUE_CATFISH.teacher.name ? cues.play('cue_intro') : cues.play({ text: `Hey! I'm ${TEACHER.name}. Let's dive in.` })).finally(() => setIntroDone(true));
   }
 
   if (!started && !guideSeen) return <LessonGuide isStatic={isStatic} mates={matesAllowed && classmateOn} onDone={() => { setGuideSeen(true); window.scrollTo(0, 0); }} />;
@@ -3163,7 +3172,7 @@ function Player({ deck, preview, startAt = 0, study = null, staticMode = false, 
         <p className="text-slate-300 text-center max-w-md"><Icon name="speaker" /> Turn your sound on. {isStatic ? 'The professor takes you through the slides.' : <>Ask the professor anything, or say &quot;repeat&quot; or &quot;simpler please&quot; at any time.</>}</p>
         {/* (the study: the name was asked on its own page before, app/study) */}
         {!study && <label className="flex flex-col items-center gap-1 text-sm text-slate-300">
-          What should Professor Marine call you? (optional)
+          What should {TEACHER.name} call you? (optional)
           <input
             value={learnerName}
             onChange={(e) => setLearnerName(e.target.value.replace(/[^\p{L}\p{N} '.-]/gu, '').slice(0, 24))}
@@ -3265,11 +3274,11 @@ function Player({ deck, preview, startAt = 0, study = null, staticMode = false, 
     <main className="min-h-screen flex flex-col items-center justify-center gap-4 bg-gradient-to-br from-sky-950 via-slate-900 to-cyan-950 text-white px-4 py-4 max-sm:px-2 [@media(max-height:500px)]:gap-2 [@media(max-height:500px)]:py-2" style={mainStyle}>
       {/* (a phone turned sideways: out of the way while it's the learner's turn, so the hands-on box has the screen, and on the end screen) */}
       {SHOW_FLOATING_TRANSCRIPT && showTranscript && !(shortScreen && (yourTurn || player.status === 'finished')) && (cues.saying
-        ? <Transcript speaker={classmateSaying ? `${CLASSMATES[classmateSaying].name} · classmate` : 'Professor Marine'} text={cues.saying} dialogue={tutor.history} />
+        ? <Transcript speaker={classmateSaying ? `${CLASSMATES[classmateSaying].name} · classmate` : TEACHER.name} text={cues.saying} dialogue={tutor.history} />
         : tutor.speaking || tutor.thinking
-          ? <Transcript speaker="Professor Marine · answering" text={tutor.exchange?.answer || (tutor.thinking ? 'thinking…' : '')} dialogue={earlierDialogue}
+          ? <Transcript speaker={`${TEACHER.name} · answering`} text={tutor.exchange?.answer || (tutor.thinking ? 'thinking…' : '')} dialogue={earlierDialogue}
               question={tutor.exchange ? { text: tutor.exchange.question, asker: tutor.exchange.asker } : undefined} />
-          : !selfCheck && <Transcript speaker={player.mode === 'plain' ? 'Professor Marine · plain version' : 'Professor Marine'} text={player.captionText} getAudio={player.getAudio} dialogue={tutor.history} />)}
+          : !selfCheck && <Transcript speaker={player.mode === 'plain' ? `${TEACHER.name} · plain version` : TEACHER.name} text={player.captionText} getAudio={player.getAudio} dialogue={tutor.history} />)}
       <div className={`w-full max-w-5xl flex items-start gap-2 ${sideDock ? '-mt-0.5' : ''}`}>
       {/* left: the chat (when it isn't showing) and start over; right: the classmates (when they aren't showing) */}
       <div className="flex-1 flex items-center gap-1 min-w-0">
@@ -3351,7 +3360,7 @@ function Player({ deck, preview, startAt = 0, study = null, staticMode = false, 
             {!study && (
               <div className="w-full max-w-2xl text-left">
                 {endFinn.caught > 0 && <FinnBadge caught={endFinn.caught} of={endFinn.of} />}
-                <FamilyCard />
+                <FamilyCard things={profile.familyThings} learnMore={profile.learnMore} />
               </div>
             )}
             {study ? (
@@ -3363,7 +3372,7 @@ function Player({ deck, preview, startAt = 0, study = null, staticMode = false, 
               <Link href="/" onClick={() => cues.stop()} className="px-6 py-3 rounded-xl bg-slate-200 hover:bg-slate-300 font-semibold"><Icon name="home" /> Back to home</Link>
             </div>
             )}
-            {!study && <Link href="/sources" target="_blank" className="text-sm underline text-slate-500 hover:text-slate-700">Where the lesson’s facts come from: view sources</Link>}
+            {!study && <Link href={`/sources?lesson=${encodeURIComponent(deck.lessonId)}`} target="_blank" className="text-sm underline text-slate-500 hover:text-slate-700">Where the lesson’s facts come from: view sources</Link>}
           </div>
         ) : (
           <SlideCanvas slide={shownSlide} width={SLIDE_WIDTH} activeId={variant ? helperActive : player.activeId} morph={MORPH_HELPERS} laser={laser} spotlight={SPOTLIGHT}
@@ -3567,7 +3576,7 @@ function Player({ deck, preview, startAt = 0, study = null, staticMode = false, 
           <button className="absolute top-2 right-3 text-white/50 hover:text-white" onClick={tutor.clearExchange} aria-label="Close"><Icon name="close" /></button>
           <p className={tutor.exchange.asker ? 'text-amber-200' : 'text-cyan-200/90'}><b>{tutor.exchange.asker ?? 'You'}:</b> {tutor.exchange.question}</p>
           <p className="mt-1 text-white/90">
-            <b>Professor Marine:</b>{' '}
+            <b>{TEACHER.name}:</b>{' '}
             {tutor.thinking && !tutor.exchange.answer ? <span className="animate-pulse">thinking…</span> : tutor.exchange.answer}
           </p>
         </div>
@@ -3698,7 +3707,7 @@ function Player({ deck, preview, startAt = 0, study = null, staticMode = false, 
       {/* (was under the lesson: it led out of the lesson mid-way. Now on the lesson's end screen, and the study's last page) */}
       {SHOW_SOURCES_UNDER_LESSON && (
       <footer className="text-xs text-white/40 [@media(max-height:500px)]:hidden" data-bubble-avoid>
-        <Link href="/sources" className="underline hover:text-white/70">View sources</Link>
+        <Link href={`/sources?lesson=${encodeURIComponent(deck.lessonId)}`} className="underline hover:text-white/70">View sources</Link>
       </footer>
       )}
 

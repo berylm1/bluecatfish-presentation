@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { openai } from '@/lib/canvas/ai';
 import { readFile } from 'fs/promises';
 import path from 'path';
 import { lazySupabaseAdmin } from '@/lib/supabase/admin';
@@ -11,14 +12,14 @@ const SLIDES = Array.from({ length: 18 }, (_, i) => `slide${String(i).padStart(2
 const BUCKET = 'slide-imagesv2';
 
 async function describe(url: string): Promise<string> {
-  const res = await fetch('https://api.openai.com/v1/chat/completions', {
+  const res = await openai('chat/completions', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${process.env.OPENAI_API_KEY}` },
     body: JSON.stringify({
       model: 'gpt-6-luna',
       reasoning_effort: 'low',
       messages: [
-        { role: 'system', content: 'Describe this presentation slide from a lesson about the blue catfish invasion of the Chesapeake Bay: its title, what the text and pictures show, and which lesson theme it belongs to. 2-4 sentences, only what is visible, in words someone would search with.' },
+        { role: 'system', content: 'Describe this presentation slide from a lesson about {{about}}: its title, what the text and pictures show, and which lesson theme it belongs to. 2-4 sentences, only what is visible, in words someone would search with.' },
         { role: 'user', content: [{ type: 'image_url', image_url: { url } }] },
       ],
       max_completion_tokens: 1200,

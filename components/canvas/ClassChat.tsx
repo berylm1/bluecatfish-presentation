@@ -1,6 +1,7 @@
 'use client';
 
 import Icon from '@/components/Icon';
+import { teacherInitials, teacherName } from '@/lib/teacher';
 
 import { useEffect, useRef, useState } from 'react';
 import { splitSentences, sentenceStops } from './useDeckPlayer';
@@ -26,10 +27,11 @@ export type ChatEntry =
 
 // Professor Marine is a crab (public/avatars/professor-marine.png); false: his initials
 const PROFESSOR_PICTURE = true;
-const PROFESSOR = { name: 'Professor Marine', short: 'PM', color: '#0891b2' };
+// (the name: the lesson's teacher, lib/teacher.ts)
+const PROFESSOR_COLOR = '#0891b2';
 
 export function speakerOf(who: Speaker, learnerName: string) {
-  if (who === 'professor') return PROFESSOR;
+  if (who === 'professor') return { name: teacherName(), short: teacherInitials(), color: PROFESSOR_COLOR };
   if (who === 'you') return { name: learnerName || 'You', short: (learnerName || 'You').slice(0, 2).toUpperCase(), color: '#22d3ee' };
   const c = CLASSMATES[who];
   return { name: c.name, short: c.name[0], color: c.color };
@@ -129,7 +131,7 @@ export default function ClassChat({ entries, learnerName, liveSlide, getAudio, t
       <header className={`flex items-center gap-2 border-b border-white/10 ${compact ? 'px-2 py-1.5' : 'px-3 py-2.5'}`}>
         <h2 className="font-semibold text-sm flex-1">Class chat</h2>
         {/* who's in the class (a ring on whoever is talking) */}
-        <div className="flex -space-x-1.5" aria-label={mates ? 'In the class: Professor Marine, you, Maya, Finn and Leo' : 'In the class: Professor Marine and you'}>
+        <div className="flex -space-x-1.5" aria-label={mates ? `In the class: ${teacherName()}, you, Maya, Finn and Leo` : `In the class: ${teacherName()} and you`}>
           {(['professor', 'you', ...(mates ? CLASSMATE_IDS : [])] as Speaker[]).map((w) => <Avatar key={w} who={w} learnerName={learnerName} size={22} speaking={speaking === w} />)}
         </div>
         {onClose && <button className="ml-1 w-7 h-7 rounded-full hover:bg-white/10 text-white/60 hover:text-white" onClick={onClose} aria-label={closeLabel} title={closeLabel}><Icon name="close" /></button>}

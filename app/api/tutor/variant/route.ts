@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { enterLessonOf } from '@/lib/canvas/lessonProfiles';
 import { createClient } from '@supabase/supabase-js';
 import { rateLimit } from '@/lib/rateLimit';
 import { createHash } from 'crypto';
 import { getValue, setValue } from '@/src/redisClient';
-import { LUNA } from '@/lib/canvas/ai';
+import { LUNA, openai } from '@/lib/canvas/ai';
 
 // Variant slide lookup — returns the best reviewed variant for a topic + learner state.
 let client: ReturnType<typeof createClient> | null = null;
@@ -86,7 +87,7 @@ function cosine(a: number[], b: number[]): number {
  * ------------------------------------------------------------- */
 async function generateExplanation(row: any, learnerState: string): Promise<string | null> {
   try {
-    const res = await fetch('https://api.openai.com/v1/chat/completions', {
+    const res = await openai('chat/completions', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${process.env.OPENAI_API_KEY}` },
       body: JSON.stringify({
@@ -97,7 +98,7 @@ async function generateExplanation(row: any, learnerState: string): Promise<stri
           {
             role: 'system',
             content:
-              `You are Professor Marine, a warm, witty marine-science lecturer teaching the Blue Catfish invasion of the Chesapeake Bay. ` +
+              `You are {{teacher}}, a warm, witty {{subject}} teacher teaching {{about}}. ` +
               `The learner is ${learnerState}. You are showing them your authored slide titled "${row.title}". ` +
               `Teach FROM the slide: start by pointing at what's on it, then expand with the reviewed fact below. ` +
               `Speak 4-6 short conversational spoken sentences — contractions, natural rhythm, a light joke if it fits. ` +
@@ -126,6 +127,8 @@ export async function GET(request: NextRequest) {
     // Each lookup can embed the query and write an explanation (OpenAI)
     const limited = await rateLimit(request, 'slides');
     if (limited) return limited;
+    // (the lesson asking: its profile fills the AI's instructions, lib/canvas/lessonContext.ts)
+    await enterLessonOf(request);
     const params = new URL(request.url).searchParams;
     const section = Number(params.get('section'));
     const state = (params.get('state') ?? 'confused').toLowerCase();

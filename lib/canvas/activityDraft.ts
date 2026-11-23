@@ -17,7 +17,7 @@ export type ActivityKind = (typeof KINDS)[number];
 export const isActivityKind = (v: unknown): v is ActivityKind => KINDS.includes(v as ActivityKind);
 
 const SYSTEM = `${STYLE}
-You turn one lesson slide into a HANDS-ON slide for 10-14 year olds: the learner does something with exactly what that slide teaches,
+You turn one lesson slide into a HANDS-ON slide for {{ages}} year olds: the learner does something with exactly what that slide teaches,
 so it sticks. Pick the kind that fits the facts best (unless one is asked for): things that belong to groups → sort; a process or
 story in order → order; surprising numbers or facts to guess → cards; parts of one picture → hotspots; something that changes with
 an amount (age, years, temperature, numbers) → slider. Only facts from the slide and the knowledge base; never invent numbers.

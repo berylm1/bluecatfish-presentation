@@ -1,3 +1,4 @@
+import type { LessonProfile } from './profile';
 // The canvas slide format — used by hand-made decks (the editor) and AI decks alike.
 // Positions and sizes are percent of the slide (0–100), so a slide looks the
 // same at any screen size. See docs/customization-plan.md.
@@ -344,4 +345,6 @@ export interface Deck {
   updatedBy?: string;
   /** The name this version was saved under when it was published (lib/canvas/saved.ts) */
   savedAs?: string;
+  /** What the lesson is about, who it's for, the teacher… (lib/canvas/profile.ts): only what's been set; the rest is the lesson's default */
+  profile?: Partial<LessonProfile>;
 }

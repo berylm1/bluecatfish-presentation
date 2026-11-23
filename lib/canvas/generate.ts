@@ -1,4 +1,6 @@
 import { lazySupabaseAdmin } from '@/lib/supabase/admin';
+import { enterProfile } from './lessonContext';
+import { profileOf } from './profile';
 import { ACTIVITY_GUIDE, VISUALS_GUIDE } from './visualGuide';
 import { activityReady } from './queue';
 import type { Deck, Slide, SlideElement, TextElement } from './types';
@@ -91,7 +93,7 @@ Design: every slide looks different. Mix layouts, e.g. an image in the middle wi
 async function planTopics(lesson: LessonInfo): Promise<TopicPlan[]> {
   const facts = await knowledge(`${lesson.title}: overview, causes, impacts, what people can do`, 40);
   const out = await chat(
-    'You plan a short interactive lesson for 10-14 year olds. Split it into 4 to 6 topics in a sensible teaching order ' +
+    'You plan a short interactive lesson for {{ages}} year olds. Split it into 4 to 6 topics in a sensible teaching order ' +
       '(what it is → why it matters → what is being done). Each topic covers DIFFERENT facts: never plan the same fact into two topics. ' +
       'Only use what the source content supports. Reply as JSON: {"topics":[{"title":"2-5 words","query":"search phrase for this topic\'s facts","covers":["fact or idea", "..."]}]}',
     `Lesson: ${lesson.title}\n\nSOURCE CONTENT:\n${facts}`,
@@ -208,6 +210,7 @@ export function markAi(slide: Slide): void {
 }
 
 export async function generateAiDeck(lesson: LessonInfo): Promise<{ deck: Deck; notes: string[] }> {
+  enterProfile(profileOf({ lessonId: lesson.id, title: lesson.title }));   // (the AI's instructions: this lesson's teacher and topic)
   const started = Date.now();
   const notes: string[] = [];
   const plan = await planTopics(lesson);
