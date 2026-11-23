@@ -19,6 +19,7 @@ import { startsTopic } from '@/lib/canvas/intro';
 import { applyRepeatFix, type RepeatSuggestion } from '@/lib/canvas/repeats';
 import RepeatsPanel from '@/components/editor/RepeatsPanel';
 import LessonPanel from '@/components/editor/LessonPanel';
+import NewLessonWizard from '@/components/editor/NewLessonWizard';
 import ConceptsPanel from '@/components/editor/ConceptsPanel';
 import Menu, { MenuHeading, MenuItem } from '@/components/editor/Menu';
 import PullFromOriginal from '@/components/editor/PullFromOriginal';
@@ -115,7 +116,11 @@ export default function SlideEditorPage() {
     setLessonId(id);
   };
 
-  const newLesson = async () => {
+  // "+ New lesson…": the creation flow (components/editor/NewLessonWizard.tsx); "Just an empty lesson" in it: a name only
+  const [creating, setCreating] = useState(false);
+  const newLesson = () => setCreating(true);
+  const blankLesson = async () => {
+    setCreating(false);
     const title = window.prompt('Name of the new lesson?');
     if (!title?.trim()) return;
     const d = await fetch('/api/editor/lessons', {
@@ -144,6 +149,16 @@ export default function SlideEditorPage() {
   if (error) return <div className="p-10 text-red-700">Could not open the editor: {error}</div>;
   if (!initial || !lessonId) return <div className="p-10 text-slate-600">Opening the editor…</div>;
   return (
+    <>
+    {creating && (
+      <NewLessonWizard onClose={() => setCreating(false)} onBlank={blankLesson}
+        onCreated={(lesson, notes) => {
+          setCreating(false);
+          setLessons((l) => (l.some((x) => x.id === lesson.id) ? l : [...l, lesson]));
+          switchLesson(lesson.id);
+          if (notes.length) window.setTimeout(() => window.alert(`“${lesson.title}” is ready.\n\n${notes.join('\n')}`), 500);
+        }} />
+    )}
     <Editor
       key={initial.key}
       lessonId={lessonId}
@@ -156,6 +171,7 @@ export default function SlideEditorPage() {
       onDeleteLesson={deleteLesson}
       onReload={() => setReloadKey((k) => k + 1)}
     />
+    </>
   );
 }
 

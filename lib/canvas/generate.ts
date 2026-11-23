@@ -1,7 +1,7 @@
 import { lazySupabaseAdmin } from '@/lib/supabase/admin';
 import { matchImages } from './kb';
-import { enterProfile } from './lessonContext';
-import { profileOf } from './profile';
+import { currentProfile, enterProfile } from './lessonContext';
+import { profileOf, type LessonProfile } from './profile';
 import { ACTIVITY_GUIDE, VISUALS_GUIDE } from './visualGuide';
 import { activityReady } from './queue';
 import type { Deck, Slide, SlideElement, TextElement } from './types';
@@ -39,7 +39,7 @@ const supabase = lazySupabaseAdmin();
 
 /** score: how close it is to the search (0-1), when the library search gives it; used: the lesson already shows it (the picture check) */
 export type LibImage = { id: string; url: string; description: string; score?: number; used?: boolean };
-type TopicPlan = { title: string; query: string; covers: string[] };
+export type TopicPlan = { title: string; query: string; covers: string[] };
 
 export async function imagesFor(query: string, count: number): Promise<LibImage[]> {
   try {
@@ -108,6 +108,16 @@ async function planTopics(lesson: LessonInfo): Promise<TopicPlan[]> {
   return clean.slice(0, 7);
 }
 
+/** Where the slides' facts may come from (the lesson's profile, sourceMode) */
+function factRule(): string {
+  const mode = currentProfile().sourceMode;
+  return mode === 'general'
+    ? 'Every fact must be accurate, well-established knowledge suitable for {{ages}} year olds (use the SOURCE CONTENT where there is some).'
+    : mode === 'sources-first'
+      ? 'Facts come from the SOURCE CONTENT first; where it has nothing, only accurate, well-established knowledge suitable for {{ages}} year olds.'
+      : 'Every fact must come from the SOURCE CONTENT.';
+}
+
 async function writeTopicSlides(
   lesson: LessonInfo, topic: TopicPlan, others: TopicPlan[], images: LibImage[], facts: string, fixes?: string,
 ): Promise<any[]> {
@@ -120,12 +130,12 @@ async function writeTopicSlides(
       'Where numbers, change over time, steps or a comparison come up, show them with a chart or diagram instead of bullets. ' +
       'End the topic with ONE hands-on slide (a short silent title and one hands-on box) when the topic has something to sort, order, guess, ' +
       'explore or adjust; it must use facts taught in this topic. ' +
-      'Every fact must come from the SOURCE CONTENT. Do not teach what the OTHER TOPICS cover. ' +
+      factRule() + ' Do not teach what the OTHER TOPICS cover. ' +
       'Use an image only if its description fits the slide, and describe only what the description says is in it. ' +
       'Reply as JSON: {"slides":[{"background":"#hex","elements":[...]}]}',
     `Lesson: ${lesson.title}\nTOPIC: ${topic.title}\nThis topic covers: ${topic.covers.join('; ') || '(see source)'}\n` +
       `OTHER TOPICS (don't repeat them): ${others.map((o) => `${o.title} (${o.covers.join('; ')})`).join(' | ')}\n\n` +
-      `AVAILABLE IMAGES:\n${imageList}\n\nSOURCE CONTENT:\n${facts}` +
+      `AVAILABLE IMAGES:\n${imageList}\n\nSOURCE CONTENT:\n${facts || '(none: see where facts come from)'}` +
       (fixes ? `\n\nYOUR PREVIOUS SLIDES HAD PROBLEMS. Fix them and return ALL the slides again:\n${fixes}` : ''),
     true,
     12000,
@@ -209,15 +219,24 @@ export function markAi(slide: Slide): void {
   Object.assign(slide, { topicByAI: true, topicFrom: fingerprint(slideBasis(slide)) });
 }
 
-export async function generateAiDeck(lesson: LessonInfo): Promise<{ deck: Deck; notes: string[] }> {
-  enterProfile(profileOf({ lessonId: lesson.id, title: lesson.title }));   // (the AI's instructions: this lesson's teacher and topic)
+export async function generateAiDeck(lesson: LessonInfo, opts: {
+  /** The sections to write (the "New lesson" flow's outline): else the AI plans them from the knowledge base */
+  plan?: TopicPlan[];
+  /** The lesson's profile (else its default) */
+  profile?: LessonProfile;
+  /** The teacher's own material: the facts when the knowledge base has none for a topic */
+  material?: string;
+} = {}): Promise<{ deck: Deck; notes: string[] }> {
+  enterProfile(opts.profile ?? profileOf({ lessonId: lesson.id, title: lesson.title }));   // (the AI's instructions: this lesson's teacher and topic)
   const started = Date.now();
   const notes: string[] = [];
-  const plan = await planTopics(lesson);
+  const plan = opts.plan?.length ? opts.plan : await planTopics(lesson);
+  const material = (opts.material ?? '').trim().slice(0, 14000);
 
   const perTopic = await Promise.all(plan.map(async (topic, ti) => {
     const others = plan.filter((_, j) => j !== ti);
-    const [facts, images] = await Promise.all([knowledge(topic.query, 15), imagesFor(`${topic.title} ${topic.query}`, 6)]);
+    const [found, images] = await Promise.all([knowledge(topic.query, 15), imagesFor(`${topic.title} ${topic.query}`, 6)]);
+    const facts = found || material;   // (a new lesson's material, before its knowledge base can be searched)
     const build = (raws: any[]) => raws.map((r, si) => toSlide(r, topic.title, images, `ai${ti}-${si}`));
 
     let raws = await writeTopicSlides(lesson, topic, others, images, facts);

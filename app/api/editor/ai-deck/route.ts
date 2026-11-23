@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server';
 import { isLessonId, listLessons, readDeck, writeDeck } from '@/lib/canvas/store';
-import { generateAiDeck } from '@/lib/canvas/generate';
+import { generateAiDeck, type TopicPlan } from '@/lib/canvas/generate';
+import { profileOf } from '@/lib/canvas/profile';
+import { editorName } from '@/lib/editorAuth';
 import { countTodo, todoTotal } from '@/lib/canvas/aiFields';
 
 export const dynamic = 'force-dynamic';
@@ -20,14 +22,31 @@ export async function GET(req: Request) {
   });
 }
 
+// (the "New lesson" flow: { lesson, sections, material?, draft: true }: written from its outline's sections, under the
+// lesson's profile; with draft, also its draft, if that has no slides yet: never over someone's work)
 export async function POST(req: Request) {
-  const { lesson } = await req.json().catch(() => ({}));
+  const body = await req.json().catch(() => ({}));
+  const { lesson } = body;
   if (!isLessonId(lesson)) return NextResponse.json({ error: 'Bad lesson' }, { status: 400 });
   const info = (await listLessons()).find((l) => l.id === lesson) ?? { id: lesson, title: lesson };
+  const draft = await readDeck(lesson, 'draft');
+  const plan: TopicPlan[] | undefined = Array.isArray(body.sections)
+    ? body.sections.slice(0, 8).flatMap((x: any) => {
+      const title = typeof x?.title === 'string' ? x.title.trim().slice(0, 80) : '';
+      const covers = Array.isArray(x?.covers) ? x.covers.filter((c: unknown): c is string => typeof c === 'string').map((c: string) => c.slice(0, 200)).slice(0, 6) : [];
+      return title ? [{ title, covers, query: `${title}: ${covers.join('; ')}`.slice(0, 400) }] : [];
+    })
+    : undefined;
+  const material = typeof body.material === 'string' ? body.material.slice(0, 60000) : undefined;
   try {
     const started = Date.now();
-    const { deck, notes } = await generateAiDeck(info);
+    const { deck, notes } = await generateAiDeck(info, { plan, material, profile: draft ? profileOf(draft) : undefined });
+    if (draft?.profile) deck.profile = draft.profile;   // (learners get this deck while nothing is published: its profile with it)
     await writeDeck(lesson, 'ai', deck, 'AI');
+    if (body.draft === true && draft && !draft.slides.length) {
+      const failed = await writeDeck(lesson, 'draft', { ...deck, source: 'hand' }, await editorName(req));
+      if (failed) notes.push(failed);
+    }
     return NextResponse.json({ ok: true, slides: deck.slides.length, seconds: Math.round((Date.now() - started) / 1000), notes });
   } catch (e) {
     return NextResponse.json({ error: `The AI deck couldn't be made: ${e instanceof Error ? e.message : String(e)}` }, { status: 500 });
