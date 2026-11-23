@@ -19,6 +19,7 @@ function statements(el: ActivityElement): string[] {
     case 'sort': return items.map((it, i) => `${i + 1}. "${it.text}" belongs in the group "${el.groups?.[it.group ?? 0] ?? '?'}"`);
     case 'cards': return items.map((it, i) => `${i + 1}. Card "${it.text}" → answer on the back: "${it.back ?? ''}"`);
     case 'hotspots': return items.map((it, i) => `${i + 1}. Spot "${it.text}" → "${it.back ?? ''}"`);
+    case 'answer': return items.map((it, i) => `${i + 1}. Question "${it.text}" → the right answer (alternatives after "|" all count): "${it.back ?? ''}"`);
     case 'order': return [`1. The right order is: ${items.map((it) => it.text).join(' → ')}`];
     case 'slider': return (el.slider?.stops ?? []).map((st, i) => `${i + 1}. ${el.slider?.label ?? 'Value'} ${st.at}${el.slider?.unit ? ` ${el.slider.unit}` : ''}: "${st.text}"`);
   }
@@ -82,7 +83,7 @@ export async function checkActivityAnswers(el: ActivityElement, about: { lesson?
         const g = groups.findIndex((name) => name.trim().toLowerCase() === String(fix.group ?? '').trim().toLowerCase());
         const it = tItems[i];
         if (g >= 0 && g !== it.group) change = { says: `${what}: moved to "${groups[g]}" (was "${groups[it.group ?? 0]}")`, suggest: `move it to "${groups[g]}"`, apply: () => { it.group = g; } };
-      } else if ((el.kind === 'cards' || el.kind === 'hotspots') && tItems?.[i] && short(fix.back, 160)) {
+      } else if ((el.kind === 'cards' || el.kind === 'hotspots' || el.kind === 'answer') && tItems?.[i] && short(fix.back, 160)) {
         const it = tItems[i], back = short(fix.back, 160);
         change = { says: `${what}: answer changed to "${back}" (was "${it.back ?? ''}")`, suggest: `make the answer "${back}"`, apply: () => { it.back = back; } };
       } else if (el.kind === 'slider' && tSlider?.stops[i] && short(fix.text, 120)) {

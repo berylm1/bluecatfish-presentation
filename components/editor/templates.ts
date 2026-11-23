@@ -14,7 +14,7 @@ export const VISUAL_KINDS = [
 ] as const;
 
 export const ACTIVITY_KINDS = [
-  ['sort', 'Sort into groups'], ['order', 'Put in order'], ['cards', 'Guess & flip cards'], ['hotspots', 'Explore a picture'], ['slider', 'Slider'],
+  ['sort', 'Sort into groups'], ['order', 'Put in order'], ['cards', 'Guess & flip cards'], ['hotspots', 'Explore a picture'], ['slider', 'Slider'], ['answer', 'Type the answer'],
 ] as const;
 
 export function visualTemplate(kind: (typeof VISUAL_KINDS)[number][0]): SlideElement {
@@ -60,6 +60,9 @@ export function activityTemplate(kind: (typeof ACTIVITY_KINDS)[number][0]): Slid
       slider: { label: 'Age', unit: 'years', min: 0, max: 20, step: 1, stops: [
         { at: 0, text: 'Smaller than your hand', scale: 0.3 }, { at: 5, text: 'As long as your arm', scale: 0.7 }, { at: 12, text: 'Heavier than a big dog', scale: 1 }, { at: 20, text: 'As heavy as a grown-up!', scale: 1.2 }] },
       say: 'Your turn! Drag the slider to make the catfish older, and watch how big it gets over the years.' },
+    answer: { kind: 'answer', prompt: 'Type your answer, then press Check',
+      items: [{ text: 'A blue catfish can weigh over how many pounds?', back: '100 | one hundred' }, { text: 'About how many years can a blue catfish live?', back: '20 | twenty' }],
+      say: 'Your turn! Type your answer in the box and press Check. Numbers are fine as digits or words.' },
   };
   return { ...box, type: 'activity', ...by[kind] } as ActivityElement;
 }

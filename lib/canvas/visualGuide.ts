@@ -22,4 +22,5 @@ export const ACTIVITY_GUIDE = `Hands-on box (the learner DOES something with wha
 - cards: "items":[{"text":"Guess: how heavy?","back":"Over 100 pounds!"}, ...]  (2-6 cards: a question or guess on the front, the answer on the back)
 - hotspots: "image":"img2", "items":[{"text":"Whiskers","back":"They taste the water","x":12,"y":60}, ...]  (a picture from AVAILABLE IMAGES; 2-5 spots, x/y = % of the picture)
 - slider: "slider":{"label":"Age","unit":"years","min":0,"max":20,"stops":[{"at":0,"text":"Hand-sized","scale":0.4},{"at":10,"text":"As long as your arm","scale":1}]}, optional "image" that grows with "scale" (2-6 stops)
+- answer: "items":[{"text":"What is 1/4 + 2/4?","back":"3/4 | three quarters"}, ...]  (1-5 questions the learner TYPES the answer to: a problem to work out, a number or key word to recall; "back" = the answer, other wordings that count after "|"; numbers are compared by value, so 3/4 = 0.75 = 6/8 already. Best for math, spelling and short facts)
 Make it about THIS slide's facts, short words, and big: w at least 70, h at least 55. Only ONE hands-on box on a slide.`;

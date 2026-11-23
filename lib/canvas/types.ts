@@ -109,10 +109,12 @@ export interface DiagramElement extends ElementBase {
  *   cards     tap cards to flip them (text on the front, back on the back): guess, then check
  *   hotspots  tap the spots on a picture (src) to find out (label, back; x, y = % of the picture)
  *   slider    drag a slider and watch what changes (slider.stops; the picture grows with scale)
+ *   answer    type the answer (items: the question in text, the answer in back, alternatives after "|": "3/4 | 0.75");
+ *             numbers by value, words forgivingly (lib/canvas/answerMatch.ts): math, spelling, short facts
  */
 export interface ActivityElement extends ElementBase {
   type: 'activity';
-  kind: 'sort' | 'order' | 'cards' | 'hotspots' | 'slider';
+  kind: 'sort' | 'order' | 'cards' | 'hotspots' | 'slider' | 'answer';
   /** What to do, shown at the top of the box ("Drag each fish to where it came from") */
   prompt?: string;
   groups?: string[];

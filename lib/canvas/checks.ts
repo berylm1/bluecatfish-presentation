@@ -145,6 +145,11 @@ export function activityFormatProblems(el: ActivityElement): string[] {
     case 'order':
       if (items.length < 3) out.push('an order needs at least 3 steps');
       break;
+    case 'answer': {
+      const noKey = items.filter((i) => !i.back?.trim());
+      if (noKey.length) out.push(`“${noKey[0].text}” has no answer`);
+      break;
+    }
     case 'cards':
     case 'hotspots': {
       const noBack = items.filter((i) => !i.back?.trim());

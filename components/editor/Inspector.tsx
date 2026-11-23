@@ -770,6 +770,7 @@ function ActivityFields({ el, update, placing = null, onPlace }: { el: ActivityE
           <option value="cards">Cards: guess, then flip to check</option>
           <option value="hotspots">Explore: tap spots on a picture</option>
           <option value="slider">Slider: move it and watch what changes</option>
+          <option value="answer">Type the answer: math, spelling, short facts</option>
         </select>
       </div>
       <AnswerCheck el={el} set={set} />
@@ -797,6 +798,11 @@ function ActivityFields({ el, update, placing = null, onPlace }: { el: ActivityE
       {el.kind === 'cards' && (
         <LinesField id="act-cards" title="Cards (up to 8)" hint="Front (the question or guess) | Back (the answer)"
           initial={items.map((i) => join(i.text, i.back)).join('\n')} onLines={(l) => set({ items: l.slice(0, 8).map((c) => ({ text: c[0], back: c[1] || undefined })) })} />
+      )}
+      {el.kind === 'answer' && (
+        <LinesField id="act-answers" title="Questions (up to 8), each with its answer" hint="Question | Answer | another answer that counts… (3/4 and 0.75 count as the same anyway)"
+          initial={items.map((i) => join(i.text, ...(i.back ?? '').split('|').map((x) => x.trim()))).join('\n')}
+          onLines={(l) => set({ items: l.slice(0, 8).map((c) => ({ text: c[0], back: c.slice(1).filter(Boolean).join(' | ') || undefined })) })} />
       )}
       {el.kind === 'hotspots' && (
         <>

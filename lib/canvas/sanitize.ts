@@ -9,7 +9,7 @@ const STYLES: TextStyle[] = ['title', 'body', 'caption', 'bigNumber'];
 const MAX_SLIDES = 200;
 const MAX_ELEMENTS = 60;
 const DIAGRAMS = ['steps', 'cycle', 'timeline', 'compare', 'sizes'];
-const ACTIVITIES = ['sort', 'order', 'cards', 'hotspots', 'slider'];
+const ACTIVITIES = ['sort', 'order', 'cards', 'hotspots', 'slider', 'answer'];
 
 const str = (v: unknown, max: number): string | undefined =>
   typeof v === 'string' && v.trim() ? v.slice(0, max) : undefined;
@@ -96,7 +96,7 @@ function element(raw: any, fallbackId: string): SlideElement | null {
     const groups = (Array.isArray(raw.groups) ? raw.groups : []).slice(0, 4).map((g: unknown) => str(g, 30) ?? '').filter(Boolean);
     const items = (Array.isArray(raw.items) ? raw.items : []).slice(0, 8)
       .map((it: any) => ({
-        text: str(it?.text, 60) ?? '', back: str(it?.back, 160),
+        text: str(it?.text, kind === 'answer' ? 140 : 60) ?? '', back: str(it?.back, 160),   // (a typed-answer question can be longer)
         group: typeof it?.group === 'number' ? num(Math.round(it.group), 0, Math.max(0, groups.length - 1), 0) : undefined,
         x: typeof it?.x === 'number' ? num(it.x, 0, 100, 50) : undefined,
         y: typeof it?.y === 'number' ? num(it.y, 0, 100, 50) : undefined,

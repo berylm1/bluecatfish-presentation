@@ -5,6 +5,7 @@ import type { ActivityElement } from '@/lib/canvas/types';
 import { contentRect } from '@/lib/canvas/laser';
 import { PALETTE } from './Visuals';
 import { activityReady } from '@/lib/canvas/queue';
+import { answerMatches } from '@/lib/canvas/answerMatch';
 import { playSound, type HandsOnSound } from '@/lib/canvas/sounds';
 import Icon from '@/components/Icon';
 
@@ -137,7 +138,8 @@ export default function ActivityView({ el, interactive, onDone, hintNonce = 0, s
           : el.kind === 'order' ? <Order el={el} kit={kit} />
             : el.kind === 'cards' ? <Cards el={el} kit={kit} />
               : el.kind === 'hotspots' ? <Hotspots el={el} kit={kit} />
-                : <Slider el={el} kit={kit} />}
+                : el.kind === 'answer' ? <TypeAnswer el={el} kit={kit} />
+                  : <Slider el={el} kit={kit} />}
         {hint && area && <HintHand area={area} mode={el.kind === 'sort' || el.kind === 'slider' ? 'drag' : 'tap'} />}
       </div>
       {justDone && (
@@ -368,6 +370,73 @@ function shuffled(n: number, seed: string): number[] {
   }
   if (out.every((v, i) => v === i) && n > 1) out.push(out.shift()!);
   return out;
+}
+
+/*
+ * Type the answer: one question at a time, a box for the answer, Check. Right: on to the next (all done: finished).
+ * Wrong: "Not quite", a mistake for the lesson (the professor steps in when they repeat); after two tries, "Show me"
+ * shows the answer and goes on. Checked forgivingly (lib/canvas/answerMatch.ts: 3/4 = 0.75, small typos…).
+ */
+const TRIES_BEFORE_SHOW = 2;
+function TypeAnswer({ el, kit }: { el: ActivityElement; kit: Kit }) {
+  const items = el.items ?? [];
+  const [at, setAt] = useState(kit.solved ? items.length - 1 : 0);
+  const [value, setValue] = useState('');
+  const [tries, setTries] = useState(0);
+  const [result, setResult] = useState<'right' | 'wrong' | 'shown' | null>(kit.solved ? 'right' : null);
+  const input = useRef<HTMLInputElement>(null);
+  const item = items[Math.min(at, items.length - 1)];
+  const answer = (item?.back ?? '').split('|')[0].trim();
+  const last = at >= items.length - 1;
+  const next = () => {
+    if (last) { kit.finish(); return; }
+    setAt((i) => i + 1); setValue(''); setTries(0); setResult(null);
+    window.setTimeout(() => input.current?.focus(), 50);
+  };
+  const check = () => {
+    if (!kit.interactive || !item || !value.trim() || result === 'right' || result === 'shown') return;
+    kit.touch();
+    if (answerMatches(value, item.back ?? '')) {
+      kit.sound('good');
+      setResult('right');
+      window.setTimeout(next, 1100);
+    } else {
+      kit.sound('bad');
+      kit.mistake({ label: `${item.text} → ${value.trim()}`, item: item.text, chosen: value.trim(), correct: answer });
+      setTries((t) => t + 1);
+      setResult('wrong');
+    }
+  };
+  const show = () => { setResult('shown'); setValue(answer); window.setTimeout(next, 2200); };
+  if (!item) return null;
+  const color = result === 'right' ? '#16a34a' : result === 'wrong' ? '#dc2626' : result === 'shown' ? '#0891b2' : '#94a3b8';
+  return (
+    <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '2.4cqh' }} data-type-answer>
+      {items.length > 1 && <div style={{ fontSize: '2.4cqh', fontWeight: 700, color: '#64748b' }}>{Math.min(at, items.length - 1) + 1} of {items.length}</div>}
+      <FitBox fitKey={item.text} min={3} max={7} style={{ width: '92%', maxHeight: '38%', textAlign: 'center', fontWeight: 800, color: INK, lineHeight: 1.15, overflow: 'hidden' }}>
+        {item.text}
+      </FitBox>
+      <form onSubmit={(e) => { e.preventDefault(); check(); }} style={{ display: 'flex', gap: '1.4cqh', width: '70%', maxWidth: '90cqh' }}>
+        <input ref={input} value={value} disabled={!kit.interactive || result === 'right' || result === 'shown'} inputMode="text" autoComplete="off"
+          aria-label={`Your answer: ${item.text}`} placeholder="Your answer" data-hint-from=""
+          onChange={(e) => { setValue(e.target.value); if (result === 'wrong') setResult(null); kit.touch(); }}
+          style={{ flex: 1, minWidth: 0, fontSize: '4.6cqh', fontWeight: 700, textAlign: 'center', padding: '1cqh 1.6cqh', borderRadius: '1.6cqh',
+            border: `0.5cqh solid ${color}`, color: INK, background: '#fff', outline: 'none',
+            animation: result === 'wrong' ? 'shake 360ms ease' : undefined }} />
+        <button type="submit" disabled={!kit.interactive || !value.trim() || result === 'right' || result === 'shown'}
+          style={{ fontSize: '3.6cqh', fontWeight: 800, padding: '1cqh 2.6cqh', borderRadius: '1.6cqh', background: '#0891b2', color: '#fff', border: 'none',
+            opacity: !kit.interactive || !value.trim() || result === 'right' || result === 'shown' ? 0.45 : 1, cursor: 'pointer' }}>Check</button>
+      </form>
+      <div role="status" style={{ minHeight: '4.4cqh', fontSize: '3.2cqh', fontWeight: 700, color, display: 'flex', alignItems: 'center', gap: '1.6cqh' }}>
+        {result === 'right' && <><Icon name="check-mark" /> Right!</>}
+        {result === 'wrong' && <>Not quite. Try again!</>}
+        {result === 'shown' && <>The answer: {answer}</>}
+        {result !== 'right' && result !== 'shown' && tries >= TRIES_BEFORE_SHOW && kit.interactive && (
+          <button type="button" onClick={show} style={{ fontSize: '2.8cqh', fontWeight: 700, padding: '0.6cqh 1.8cqh', borderRadius: '99cqh', border: '0.3cqh solid #0891b2', color: '#0891b2', background: '#fff', cursor: 'pointer' }}>Show me</button>
+        )}
+      </div>
+    </div>
+  );
 }
 
 function Order({ el, kit }: { el: ActivityElement; kit: Kit }) {
