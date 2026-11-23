@@ -11,8 +11,11 @@ type Img = { url: string; description: string };
 export default function ImageLibrary({
   onAdd,
   mode = 'add',
+  lesson,
 }: {
   onAdd: (img: Img) => void;
+  /** The lesson being edited: its knowledge bases' pictures (and the shared ones) */
+  lesson?: string;
   /** 'background': picking a slide background instead of adding an element */
   mode?: 'add' | 'background';
 }) {
@@ -24,7 +27,8 @@ export default function ImageLibrary({
   const load = useCallback(async (query: string) => {
     setStatus(query ? 'Searching…' : 'Loading…');
     try {
-      const res = await fetch(`/api/editor/images${query ? `?q=${encodeURIComponent(query)}` : ''}`);
+      const params = new URLSearchParams({ ...(query ? { q: query } : {}), ...(lesson ? { lesson } : {}) });
+      const res = await fetch(`/api/editor/images${params.size ? `?${params}` : ''}`);
       const data = await res.json();
       if (data.error) throw new Error(data.error);
       setImages(data.images ?? []);
@@ -32,7 +36,7 @@ export default function ImageLibrary({
     } catch (e) {
       setStatus(`Could not load images: ${e instanceof Error ? e.message : String(e)}`);
     }
-  }, []);
+  }, [lesson]);
 
   useEffect(() => { load(''); }, [load]);
 

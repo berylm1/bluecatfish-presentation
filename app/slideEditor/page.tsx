@@ -1193,6 +1193,7 @@ function Editor({
               )
             ) : (
               <ImageLibrary
+                lesson={deck.lessonId}
                 mode={panel === 'background' ? 'background' : 'add'}
                 onAdd={(img) => {
                   if (panel === 'background') {

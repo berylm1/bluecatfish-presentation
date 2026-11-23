@@ -1,5 +1,6 @@
 import { lazySupabaseAdmin } from '@/lib/supabase/admin';
 import { fillForLesson } from './lessonContext';
+import { matchDocuments } from './kb';
 
 // Shared by the save-time AI (prepare.ts), the AI deck (generate.ts) and the
 // helper drafts (helperDraft.ts): the house style, chat and the knowledge base.
@@ -143,9 +144,8 @@ export async function knowledge(query: string, count = 6): Promise<string> {
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${process.env.OPENAI_API_KEY}` },
       body: JSON.stringify({ model: 'text-embedding-3-small', input: query.slice(0, 2000) }),
     }).then((r) => r.json());
-    const { data, error } = await supabase.rpc('match_documents3', { query_embedding: emb.data[0].embedding, match_count: count });
-    if (error) throw new Error(error.message);
-    return (data ?? []).map((r: any) => String(r.content ?? '')).filter(Boolean).join('\n\n');
+    const data = await matchDocuments(emb.data[0].embedding, count);   // (the lesson's knowledge bases, kb.ts)
+    return data.map((r) => String(r.content ?? '')).filter(Boolean).join('\n\n');
   } catch (e) {
     console.warn('Knowledge base lookup failed:', e);
     return '';
@@ -179,11 +179,7 @@ export async function knowledgeExcerptsMany(queries: string[], count = 4): Promi
   const vectors: number[][] = queries.map((_, i) => emb?.data?.find((d: { index: number }) => d.index === i)?.embedding);
   if (vectors.some((v) => !v)) throw new Error(emb?.error?.message || 'The search could not be made');
   type Row = { id?: number | string; content?: string; source?: string; metadata?: { source?: string } };
-  const results: Row[][] = await Promise.all(vectors.map(async (v) => {
-    const { data, error } = await supabase.rpc('match_documents3', { query_embedding: v, match_count: count });
-    if (error) throw new Error(error.message);
-    return (data ?? []) as Row[];
-  }));
+  const results: Row[][] = await Promise.all(vectors.map((v) => matchDocuments(v, count) as Promise<Row[]>));
   const byId = new Map<string, string>();
   const missing = [...new Set(results.flat().filter((r) => !r.source && !r.metadata?.source && r.id != null).map((r) => String(r.id)))];
   if (missing.length) {

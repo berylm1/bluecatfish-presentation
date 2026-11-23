@@ -5,6 +5,8 @@ import { requireIngestAdmin } from '@/lib/requireAdmin';
 import mammoth from 'mammoth';
 import extract from 'pdf-extraction';
 import { chunkBySentences } from '@/lib/knowledgeChunks';
+import { kbColumns } from '@/lib/canvas/kb';
+import { isKbId } from '@/lib/canvas/profile';
 
 const supabase = lazySupabaseAdmin('NEXT_PUBLIC_SUPABASE_URL');   // created on first use, so the build doesn't need env vars
 
@@ -39,6 +41,10 @@ export async function POST(request: NextRequest) {
     const fileBase64 = body.file;
     const fileType = body.fileType;
     const fileName = body.fileName;
+    // The knowledge base it goes in (supabase/migrations/024_knowledge_bases.sql; none: the blue catfish lesson's)
+    const kb = typeof body.kb === 'string' && isKbId(body.kb) ? body.kb : 'blue-catfish';
+    const tagged = await kbColumns();
+    if (!tagged && kb !== 'blue-catfish') return NextResponse.json({ error: 'Run supabase/migrations/024_knowledge_bases.sql first: until then everything goes in the blue catfish lesson’s sources.' }, { status: 400 });
 
     let text: string = textInput ?? '';
 
@@ -79,13 +85,16 @@ export async function POST(request: NextRequest) {
     try {
       for (let i = 0; i < chunks.length; i += 100) {
         const { data, error } = await supabase.from('documents3')
-          .insert(chunks.slice(i, i + 100).map((content, j) => ({ content, embedding: embeddings[i + j], source })))
+          .insert(chunks.slice(i, i + 100).map((content, j) => ({ content, embedding: embeddings[i + j], source, ...(tagged ? { kb } : {}) })))
           .select('id');
         if (error) throw error;
         added.push(...((data ?? []) as { id: number }[]).map((r) => r.id));
       }
       if (fileName && added.length) {
-        const { error: delError } = await supabase.from('documents3').delete().eq('source', source).lt('id', Math.min(...added));
+        // (the same file in the same knowledge base: another lesson's copy of it stays)
+        let del = supabase.from('documents3').delete().eq('source', source).lt('id', Math.min(...added));
+        if (tagged) del = del.eq('kb', kb);
+        const { error: delError } = await del;
         if (delError) throw delError;
       }
     } catch (e) {

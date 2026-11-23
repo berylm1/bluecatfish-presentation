@@ -86,6 +86,10 @@ export default function LessonPanel({ deck, onChange }: {
         <option value="goals">The goals</option>
         <option value="mine">I write them</option>
       </select>
+      <label className={label}>Knowledge bases it searches</label>
+      <input className={input} value={p.knowledgeBases.join(', ')} placeholder="blue-catfish"
+        onChange={(e) => set('knowledgeBases', e.target.value.split(',').map((x) => x.trim().toLowerCase()).filter(Boolean))} />
+      <p className={hint}>Its sources and pictures (Text upload and Image upload put new ones in one). Pictures in “shared” are offered to every lesson.</p>
       <label className={label}>About how long (minutes)</label>
       <input className={`${input} w-24`} type="number" min={3} max={120} value={p.targetMinutes} onChange={(e) => set('targetMinutes', Number(e.target.value) || p.targetMinutes)} />
 

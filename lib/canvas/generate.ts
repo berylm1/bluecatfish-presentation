@@ -1,4 +1,5 @@
 import { lazySupabaseAdmin } from '@/lib/supabase/admin';
+import { matchImages } from './kb';
 import { enterProfile } from './lessonContext';
 import { profileOf } from './profile';
 import { ACTIVITY_GUIDE, VISUALS_GUIDE } from './visualGuide';
@@ -47,9 +48,8 @@ export async function imagesFor(query: string, count: number): Promise<LibImage[
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${process.env.OPENAI_API_KEY}` },
       body: JSON.stringify({ model: 'text-embedding-3-small', input: query }),
     }).then((r) => r.json());
-    const { data, error } = await supabase.rpc('match_images2', { query_embedding: emb.data[0].embedding, match_count: count });
-    if (error) throw new Error(error.message);
-    return (data ?? []).map((r: any, i: number) => ({ id: `img${i + 1}`, url: r.url, description: r.description ?? '', ...(typeof r.similarity === 'number' ? { score: r.similarity } : {}) }));
+    const data = await matchImages(emb.data[0].embedding, count);   // (the lesson's knowledge bases and the shared ones, kb.ts)
+    return data.map((r: any, i: number) => ({ id: `img${i + 1}`, url: r.url, description: r.description ?? '', ...(typeof r.similarity === 'number' ? { score: r.similarity } : {}) }));
   } catch (e) {
     console.warn('Image lookup failed:', e);
     return [];

@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 import { openai } from '@/lib/canvas/ai';
+import { kbColumns } from '@/lib/canvas/kb';
+import { isKbId } from '@/lib/canvas/profile';
 import { lazySupabaseAdmin } from "@/lib/supabase/admin";
 import { requireIngestAdmin } from "@/lib/requireAdmin";
 
@@ -60,6 +62,11 @@ export async function POST(req: Request) {
     const formData = await req.formData();
     const file = formData.get("file") as File;
     const manualDescription = (formData.get("description") as string | null)?.trim() || null;
+    // The knowledge base it goes in ('shared': every lesson; none: the blue catfish lesson's)
+    const kbRaw = String(formData.get("kb") ?? "").trim();
+    const kb = isKbId(kbRaw) ? kbRaw : "blue-catfish";
+    const tagged = await kbColumns();
+    if (!tagged && kb !== "blue-catfish") throw new Error("Run supabase/migrations/024_knowledge_bases.sql first: until then every picture is the blue catfish lesson's.");
 
     if (!file || typeof file === "string") {
       return NextResponse.json({ error: "Missing file" }, { status: 400 });
@@ -105,7 +112,7 @@ export async function POST(req: Request) {
     // 4. Insert into images table
     const { error: insertError } = await supabase
       .from("images2")
-      .insert({ url, description, embedding });
+      .insert({ url, description, embedding, ...(tagged ? { kb } : {}) });
 
     if (insertError) throw new Error(`Insert failed: ${insertError.message}`);
 

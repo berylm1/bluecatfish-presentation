@@ -46,6 +46,9 @@ export interface LessonProfile {
   learnMore: { label: string; url: string } | null;
   /** Where the lesson's facts come from (the sources page, the PDF) */
   sources: Source[];
+  /** The knowledge bases it searches (its source chunks and pictures: supabase/migrations/024_knowledge_bases.sql).
+   * Pictures in 'shared' are offered to every lesson too */
+  knowledgeBases: string[];
 }
 
 /** The blue catfish lesson, as it is */
@@ -77,6 +80,7 @@ export const BLUE_CATFISH: LessonProfile = {
   ],
   learnMore: { label: 'Maryland DNR: blue catfish', url: 'https://dnr.maryland.gov/fisheries/Pages/blue-catfish/blue_catfish_main.aspx' },
   sources: SOURCES,
+  knowledgeBases: ['blue-catfish'],
 };
 
 /** A new lesson's starting point: the teacher and the house's habits, nothing about a topic */
@@ -93,6 +97,7 @@ export function blankProfile(title: string): LessonProfile {
     familyThings: [],
     learnMore: null,
     sources: [],
+    knowledgeBases: [],
   };
 }
 
@@ -101,9 +106,11 @@ const isBlueCatfish = (lessonId: string) => /^blue-catfish/.test(lessonId) || le
 
 /** The lesson's profile: what's been set, over its defaults */
 export function profileOf(deck: { lessonId: string; title?: string; profile?: Partial<LessonProfile> }): LessonProfile {
-  const base = isBlueCatfish(deck.lessonId) ? BLUE_CATFISH : blankProfile(deck.title || deck.lessonId);
+  const base = isBlueCatfish(deck.lessonId) ? BLUE_CATFISH : { ...blankProfile(deck.title || deck.lessonId), knowledgeBases: [deck.lessonId] };
   const p = deck.profile ?? {};
-  return { ...base, ...p, teacher: { ...base.teacher, ...(p.teacher ?? {}) } };
+  const out = { ...base, ...p, teacher: { ...base.teacher, ...(p.teacher ?? {}) } };
+  if (!out.knowledgeBases.length) out.knowledgeBases = base.knowledgeBases;   // (always at least one)
+  return out;
 }
 
 /** The placeholders in the AI's instructions, and what each becomes for this lesson */
@@ -129,6 +136,9 @@ export function fillPlaceholders(text: string, p: LessonProfile, inJson = false)
 }
 
 /* ------------------------------------------------------------------ checking what's stored */
+
+/** A knowledge base's id (as a lesson's: lowercase, digits and dashes) */
+export const isKbId = (v: string): boolean => /^[a-z0-9][a-z0-9-]{0,60}$/.test(v);
 
 const str = (v: unknown, max: number): string | undefined => (typeof v === 'string' ? v.replace(/[\u0000-\u001f]+/g, ' ').trim().slice(0, max) : undefined);
 const list = (v: unknown, n: number, max: number): string[] | undefined =>
@@ -167,6 +177,9 @@ export function sanitizeProfile(raw: unknown): Partial<LessonProfile> | undefine
       ? { label: str(r.learnMore.label, 120) || url(r.learnMore.url)!, url: url(r.learnMore.url)! } : undefined,
     sources: Array.isArray(r.sources)
       ? r.sources.slice(0, 40).flatMap((s: any) => (url(s?.url) && str(s?.title, 300) ? [{ title: str(s.title, 300)!, org: str(s.org, 200) ?? '', url: url(s.url)! }] : []))
+      : undefined,
+    knowledgeBases: Array.isArray(r.knowledgeBases)
+      ? [...new Set(r.knowledgeBases.filter((k: unknown): k is string => typeof k === 'string' && isKbId(k)))].slice(0, 6) as string[]
       : undefined,
   };
   if (out.ageMin !== undefined && out.ageMax !== undefined && out.ageMin > out.ageMax) [out.ageMin, out.ageMax] = [out.ageMax, out.ageMin];

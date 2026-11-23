@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { enterLessonOf } from '@/lib/canvas/lessonProfiles';
+import { matchDocuments } from '@/lib/canvas/kb';
 import { MAX, rateLimit, tooLarge } from '@/lib/rateLimit';
 import { lazySupabaseAdmin } from '@/lib/supabase/admin';
 import { classifyIntent } from '@/lib/tutorIntent';
@@ -128,13 +129,10 @@ export async function POST(request: NextRequest) {
     let docs: any[] | null = null;
     if (useKnowledgeBase) try {
       const queryEmbedding = await getEmbedding(userText);
-      const { data, error } = await supabase.rpc('match_documents3', {
-        query_embedding: queryEmbedding,
-        match_count: KB_PIECES,
-      });
-      if (error) console.error('Supabase RPC error:', error);
+      // (the lesson's knowledge bases, lib/canvas/kb.ts)
+      const data = await matchDocuments(queryEmbedding, KB_PIECES);
       // (a piece barely related to the question is left out: it only pulls the answer off topic)
-      docs = (data ?? []).filter((d: { similarity?: number }) => typeof d.similarity !== 'number' || d.similarity >= KB_MIN_SIMILARITY);
+      docs = data.filter((d: { similarity?: number }) => typeof d.similarity !== 'number' || d.similarity >= KB_MIN_SIMILARITY);
     } catch (e) {
       console.error('Knowledge-base lookup failed:', e);
     }
