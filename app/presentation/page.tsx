@@ -2370,6 +2370,11 @@ function Player({ deck, preview, startAt = 0, study = null, staticMode = false, 
     if (yes) confused(next, offer.mood, false);   // (the section check counted it)
     else next();
   }, [replayOffer, tracking, cues, confused, addLine, lostQuestion]);
+  // Moved on without answering (Next, a slide picked): the offer was for the slide they left. Was: it stayed up over every
+  // slide after, seen in a test run
+  useEffect(() => {
+    if (replayOffer && player.slideIndex !== replayOffer.from) setReplayOffer(null);
+  }, [player.slideIndex, replayOffer]);
 
   // Paused on purpose before talking? Then a turn with nothing in it leaves it paused
   const resumeAfterTurn = useRef(true);
