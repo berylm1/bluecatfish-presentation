@@ -396,7 +396,7 @@ function TypeAnswer({ el, kit }: { el: ActivityElement; kit: Kit }) {
   const check = () => {
     if (!kit.interactive || !item || !value.trim() || result === 'right' || result === 'shown') return;
     kit.touch();
-    if (answerMatches(value, item.back ?? '')) {
+    if (answerMatches(value, item.back ?? '', item.text)) {
       kit.sound('good');
       setResult('right');
       window.setTimeout(next, 1100);

@@ -148,6 +148,9 @@ export function activityFormatProblems(el: ActivityElement): string[] {
     case 'answer': {
       const noKey = items.filter((i) => !i.back?.trim());
       if (noKey.length) out.push(`“${noKey[0].text}” has no answer`);
+      // a sentence for a key: nobody types it exactly (a number, a fraction or 1-3 words; a "why" question is a card)
+      const long = items.find((i) => i.back?.split('|').some((a) => a.trim().split(/\s+/).length > 4));
+      if (long) out.push(`“${long.text}”: the answer is too long to type; use a number or a few words, or make it a card`);
       break;
     }
     case 'cards':

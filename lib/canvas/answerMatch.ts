@@ -50,14 +50,35 @@ function nearlySame(a: string, b: string): boolean {
 /** The key's accepted answers ("3/4 | 0.75": both) */
 export const acceptedAnswers = (key: string): string[] => key.split('|').map((x) => x.trim()).filter(Boolean);
 
-/** Is the typed answer right? */
-export function answerMatches(typed: string, key: string): boolean {
+const gcd = (a: number, b: number): number => (b ? gcd(b, a % b) : a);
+
+/** A question that asks for the simplest form ("Simplify 6/12", "in lowest terms"): 6/12 is the right amount but not the answer */
+export const asksSimplest = (question: string) => /simplest|lowest terms|simplif|reduce/i.test(question);
+
+/** Typed in its simplest form? Fractions in lowest terms (1/2, 3/2, 1 1/2) and whole numbers; not 6/12, 4/4 or a decimal for a fraction key */
+function inSimplestForm(typed: string, key: string): boolean {
+  const s = typed.trim().replace(/^[a-z]\s*=\s*/i, '');
+  const f = s.match(/(\d+)\s*\/\s*(\d+)/);
+  if (f) {
+    const [n, d] = [Number(f[1]), Number(f[2])];
+    return gcd(n, d) === 1 && d !== 1;   // (3/2 and 1 1/2 both count)
+  }
+  // a decimal where the key is a fraction ("0.5" for "1/2"): not the form asked for
+  return !(s.includes('.') && key.includes('/'));
+}
+
+/** Is the typed answer right? (question: the box's question, for "simplest form" questions) */
+export function answerMatches(typed: string, key: string, question = ''): boolean {
   const t = typed.trim();
   if (!t) return false;
+  const simplest = asksSimplest(question);
   for (const ok of acceptedAnswers(key)) {
     const a = parseNumber(t), b = parseNumber(ok);
     if (a !== null && b !== null) {
-      if (Math.abs(a - b) <= 1e-6 * Math.max(1, Math.abs(b))) return true;
+      if (Math.abs(a - b) <= 1e-6 * Math.max(1, Math.abs(b))) {
+        if (simplest && !inSimplestForm(t, ok)) continue;
+        return true;
+      }
       continue;   // (both numbers, different: wrong, whatever the words)
     }
     const wt = words(t), wk = words(ok);
