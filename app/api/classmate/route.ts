@@ -58,7 +58,7 @@ const REPLY_SYSTEM = (name: string, persona: string) =>
   '- ANSWER: THE LESSON SO FAR clearly answers it. Answer from it only. pass: false.\n' +
   '- GUESS: a question about facts that the lesson so far only partly answers, or you are not sure. Say what you remember from ' +
   'the lesson so far, as a guess ("I think...", "Maybe because..."), then pass it to the teacher: end with "{{teacher}}?". pass: true.\n' +
-  '- OPINION: it asks what you think, like, want or feel, even about the fish: "do you think they\'re scary / cool / gross?", ' +
+  '- OPINION: it asks what you think, like, want or feel, even about the topic: "do you think they\'re scary / cool / gross?", ' +
   '"would you eat one?", "would you want to catch one?", "which do you like more?", "do you like this?". Always answer these: give ' +
   'your own feeling in kid words ("Kind of! I wouldn\'t want to bump into one!", "Ew, maybe? I\'d try it!") with NO facts in it ' +
   '(no numbers, no facts about {{about}}), then end with "What do you think, {{teacher}}?". pass: true. ' +
@@ -76,8 +76,8 @@ const REPLY_SYSTEM = (name: string, persona: string) =>
 const ADDS_SYSTEM =
   'A student\'s short reply to a classmate, and THE LESSON SO FAR. List every fact, number, name or claim about the world in the ' +
   'reply that the lesson so far does not say (a rewording or a simpler word is fine). Not facts: feelings, opinions, likes, ' +
-  'guess words ("I think", "maybe"), and a question to the teacher. The people in the class are not facts: the teacher, Professor ' +
-  'Marine, and the classmates Maya, Finn and Leo (was: "{{teacher}}" itself was listed, and good replies were dropped). ' +
+  'guess words ("I think", "maybe"), and a question to the teacher. The people in the class are not facts: the teacher, {{teacher}}, ' +
+  'and the classmates Maya, Finn and Leo (filled in by openai(); was: the placeholder itself was listed unfilled, and good replies were dropped). ' +
   'None: an empty list. Reply as JSON: {"new":["..."]}';
 const REACT_SYSTEM = (name: string, persona: string) =>
   `You are ${name}, a friendly {{kidAge}} year old in a class about {{about}}. You are ${persona}. ` +

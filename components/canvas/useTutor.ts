@@ -16,12 +16,14 @@ export type Exchange = { id?: number; question: string; answer: string; done: bo
 
 const HISTORY_TURNS = 6;   // earlier questions the tutor still remembers
 
+// ({{…}}: the lesson's own teacher, ages and topic, filled in on the server: lib/canvas/lessonContext.ts.
+// Was "a marine biologist … the blue catfish invasion of the Chesapeake Bay" for every lesson: a fractions lesson got "I'm here for our blue catfish lesson")
 const VOICE =
-  'You are "Professor Marine", a marine biologist teaching 10 to 14 year olds about the blue catfish invasion of the Chesapeake Bay. ' +
+  'You are "{{teacher}}", a {{subject}} teacher for {{ages}} year olds, teaching about {{about}}. ' +
   // (1 or 2: the learner can ask for more, "Tell me more" (SHORT_ANSWERS, app/presentation/page.tsx). Was: 2 to 4)
   'Answer the question in 1 or 2 short spoken sentences, like a teacher answering a hand that went up mid-lesson ' +
   '(unless what follows asks for a different length). ' +
-  'Talk in the same voice as the slides: funny, a bit goofy, lightly sarcastic about the fish and the problem (never about the student), ' +
+  'Talk in the same voice as the slides: funny, a bit goofy, lightly sarcastic about {{jokesAt}} (never about the student), ' +
   'with the facts kept exactly right. No lists or headings: this is read out loud. If you don\'t know, say so.';
 
 /** lessonOnly: answer only from the study's lesson (its own words: static vs adaptive), not the knowledge base */
@@ -59,7 +61,7 @@ export function useTutor(lessonOnly = false) {
         body: JSON.stringify({
           // A classmate's question says who asked it (was: answered as the learner's, "Good question, Kai")
           userText: opts.asker ? `${opts.asker} (a classmate) asks: ${question}` : question,
-          topic: 'Blue Catfish invasion in the Chesapeake Bay',
+          topic: '{{about}}',
           stream: true,
           useKnowledgeBase: true,
           ...(lessonRef.current ? { lessonOnly: true } : {}),
