@@ -53,7 +53,8 @@ export const acceptedAnswers = (key: string): string[] => key.split('|').map((x)
 const gcd = (a: number, b: number): number => (b ? gcd(b, a % b) : a);
 
 /** A question that asks for the simplest form ("Simplify 6/12", "in lowest terms"): 6/12 is the right amount but not the answer */
-export const asksSimplest = (question: string) => /simplest|lowest terms|simplif|reduce/i.test(question);
+export const asksSimplest = (question: string) =>
+  /simplest|lowest terms|simplif/i.test(question) || /\breduce\b/i.test(question) && /fraction|\d\s*\/\s*\d/.test(question);   // ("reduce" alone: also "How much did it reduce by?")
 
 /** Typed in its simplest form? Fractions in lowest terms (1/2, 3/2, 1 1/2) and whole numbers; not 6/12, 4/4 or a decimal for a fraction key */
 function inSimplestForm(typed: string, key: string): boolean {
