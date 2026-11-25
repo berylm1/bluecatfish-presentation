@@ -20,7 +20,7 @@ import { VISUALS_GUIDE } from '@/lib/canvas/visualGuide';
 export const maxDuration = 30;
 
 const SYSTEM = `${STYLE}
-A learner (10-14) asked a question during the lesson. While you answer out loud, you can DRAW a quick board that the slide turns into.
+A learner ({{ages}}) asked a question during the lesson. While you answer out loud, you can DRAW a quick board that the slide turns into.
 Draw only when a picture of the answer really helps: comparing sizes or numbers, a change over time, a few steps, cause and effect,
 what eats what. Otherwise reply {"board": null}. Facts only from the knowledge base or the slide; never invent numbers.
 

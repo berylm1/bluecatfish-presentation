@@ -27,6 +27,22 @@ function overlapShare(a: SlideElement, b: SlideElement): number {
   return (w * h) / Math.min(a.w * a.h, b.w * b.h);
 }
 
+/** A slide made on the spot (the professor's board, an answer slide): a part that covers one before it is left out,
+ * as the checklist would flag it (the earlier parts are the title and the main visual). Was: a label on top of a
+ * diagram's first box ("Why the Bottom Stays"), seen in a test run of a fractions lesson */
+export function dropOverlaps<T extends SlideElement>(elements: T[]): T[] {
+  // who stays when two collide: the visuals (the board's point), then the title, then the other text boxes, each in the AI's order
+  const rank = (e: T) => (e.type === 'text' ? (/title/.test(JSON.stringify(e.style ?? '')) ? 1 : 2) : 0);
+  const byRank = elements.map((e, i) => ({ e, i })).sort((a, b) => rank(a.e) - rank(b.e) || a.i - b.i);
+  const kept: { e: T; i: number }[] = [];
+  for (const x of byRank) {
+    const el = x.e;
+    if (!isDecorative(el) && kept.some(({ e: k }) => !isDecorative(k) && !(k.type === 'image' && el.type === 'image') && overlapShare(k, el) > 0.15)) continue;
+    kept.push(x);
+  }
+  return kept.sort((a, b) => a.i - b.i).map((x) => x.e);
+}
+
 const label = (el: SlideElement) =>
   el.type === 'text' ? `“${(el.text || 'empty text').slice(0, 24)}${el.text.length > 24 ? '…' : ''}”`
     : el.type === 'chart' ? 'a chart' : el.type === 'diagram' ? 'a diagram' : el.type === 'activity' ? 'the hands-on box' : 'an image';

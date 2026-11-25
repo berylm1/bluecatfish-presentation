@@ -6,6 +6,7 @@ import { getValue, setValue } from '@/src/redisClient';
 import { chat } from '@/lib/canvas/ai';
 import { formatGuide } from '@/lib/canvas/generate';
 import { sanitizeDeck } from '@/lib/canvas/sanitize';
+import { dropOverlaps } from '@/lib/canvas/checks';
 import { autoFix } from '@/lib/canvas/generate';
 import type { Slide } from '@/lib/canvas/types';
 
@@ -126,6 +127,9 @@ function build(raw: any, parts: Part[], most: number): Slide | null {
     const deck = sanitizeDeck({ slides: [{ id: 'spot', background: { color: '#f8fafc' }, elements }] }, 'spot', 'ai');
     const slide = deck.slides[0];
     autoFix(slide);
+    // (a part covering one placed before it is left out: the AI lists them most useful first)
+    slide.elements = dropOverlaps(slide.elements);
+    if (slide.elements.filter((e) => e.id !== 'spot-title').length < 1) return null;
     return slide;
   } catch {
     return null;
