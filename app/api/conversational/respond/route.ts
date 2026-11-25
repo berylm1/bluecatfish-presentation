@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { enterLessonOf } from '@/lib/canvas/lessonProfiles';
+import { lessonOf } from '@/lib/canvas/lessonProfiles';
+import { enterProfile } from '@/lib/canvas/lessonContext';
 import { matchDocuments } from '@/lib/canvas/kb';
 import { MAX, rateLimit, tooLarge } from '@/lib/rateLimit';
 import { lazySupabaseAdmin } from '@/lib/supabase/admin';
@@ -69,7 +70,7 @@ export async function POST(request: NextRequest) {
     const limited = await rateLimit(request, 'tutor');
     if (limited) return limited;
     // (the lesson asking: its profile fills the AI's instructions, lib/canvas/lessonContext.ts)
-    await enterLessonOf(request);
+    enterProfile(await lessonOf(request));
     const body = await request.json();
     const systemPrompt = body.systemPrompt as string | undefined;
     // Only real earlier turns: a "system" turn from the browser would sit

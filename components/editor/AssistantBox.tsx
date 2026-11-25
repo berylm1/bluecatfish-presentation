@@ -19,7 +19,9 @@ type Reply =
 
 const EXAMPLES = ['Where do I make a PDF?', 'Find a picture of a blue crab', 'A sentence about blue catfish scales', 'Can I go back to an older version?'];
 
-export default function AssistantBox({ onShow, onAddImage, onAddText }: {
+export default function AssistantBox({ lesson, onShow, onAddImage, onAddText }: {
+  /** The lesson open in the editor (its topic and knowledge bases) */
+  lesson?: string | null;
   /** Point at a part of the editor ([data-help="…"]) */
   onShow: (where: string) => void;
   onAddImage: (img: Img) => void;
@@ -49,7 +51,7 @@ export default function AssistantBox({ onShow, onAddImage, onAddText }: {
     if (!text || busy) return;
     setBusy(true); setError(null); setReply(null); setAsked(text); setOpen(true); setAdded(new Set());
     try {
-      const res = await fetch('/api/editor/assistant', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ question: text }) });
+      const res = await fetch('/api/editor/assistant', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ question: text, lesson }) });
       const d = await res.json().catch(() => ({}));
       if (!res.ok || d.error) throw new Error(d.error || `The helper couldn’t answer (${res.status})`);
       setReply(d as Reply);

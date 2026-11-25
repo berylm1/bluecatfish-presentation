@@ -1,11 +1,13 @@
 import { NextResponse } from 'next/server';
-import { enterLessonOf } from '@/lib/canvas/lessonProfiles';
+import { cacheTag, lessonOf } from '@/lib/canvas/lessonProfiles';
+import { enterProfile } from '@/lib/canvas/lessonContext';
 import { createHash } from 'crypto';
 import { rateLimit } from '@/lib/rateLimit';
 import { getValue, setValue } from '@/src/redisClient';
 import { chat, knowledge, STYLE } from '@/lib/canvas/ai';
 import { formatGuide, imagesFor, problems } from '@/lib/canvas/generate';
 import { toBoard } from '@/lib/canvas/board';
+import { dropOverlaps } from '@/lib/canvas/checks';
 import { VISUALS_GUIDE } from '@/lib/canvas/visualGuide';
 
 /*
@@ -41,16 +43,22 @@ export async function POST(req: Request) {
   const limited = await rateLimit(req, 'board');
   if (limited) return limited;
   // (the lesson asking: its profile fills the AI's instructions, lib/canvas/lessonContext.ts)
-  await enterLessonOf(req);
+  enterProfile(await lessonOf(req));
   const body = await req.json().catch(() => ({}));
   const question = String(body.question ?? '').trim().slice(0, 500);
   const topic = String(body.topic ?? '').slice(0, 200);
   const slideText = String(body.slideText ?? '').slice(0, 1500);
   if (!question) return NextResponse.json({ error: 'question required' }, { status: 400 });
 
-  const key = `board:v2:${createHash('sha1').update(`${question.toLowerCase()}|${topic}|${slideText}`).digest('hex').slice(0, 16)}`;
+  // (the lesson in the key: was without it, and boards made before the lesson fix used blue catfish's sources)
+  const key = `board:v2:${cacheTag(req)}${createHash('sha1').update(`${question.toLowerCase()}|${topic}|${slideText}`).digest('hex').slice(0, 16)}`;
   const cached = await getValue(key);
-  if (cached) return NextResponse.json({ board: JSON.parse(cached) });
+  if (cached) {
+    // (kept from before the no-overlap rule: tidied the same way)
+    const board = JSON.parse(cached);
+    if (Array.isArray(board?.elements)) board.elements = dropOverlaps(board.elements);
+    return NextResponse.json({ board });
+  }
 
   try {
     const [facts, images] = await Promise.all([knowledge(`${topic} ${question}`, 5), imagesFor(`${topic} ${question}`.slice(0, 500), 8)]);

@@ -1,6 +1,6 @@
 /*
  * Which lesson the server is working on, for the AI's instructions (server only). Set once per request or job
- * (enterLessonOf, enterProfile), and read when a call goes to OpenAI (lib/canvas/ai.ts openai(): its {{placeholders}} are
+ * (enterProfile, in the route itself: lessonProfiles.ts lessonOf), and read when a call goes to OpenAI (lib/canvas/ai.ts openai(): its {{placeholders}} are
  * filled from it). Nothing set: the blue catfish lesson, as before.
  */
 import { BLUE_CATFISH, fillPlaceholders, type LessonProfile } from './profile';

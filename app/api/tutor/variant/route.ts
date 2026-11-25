@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { enterLessonOf } from '@/lib/canvas/lessonProfiles';
+import { lessonOf } from '@/lib/canvas/lessonProfiles';
+import { enterProfile } from '@/lib/canvas/lessonContext';
 import { createClient } from '@supabase/supabase-js';
 import { rateLimit } from '@/lib/rateLimit';
 import { createHash } from 'crypto';
@@ -128,7 +129,7 @@ export async function GET(request: NextRequest) {
     const limited = await rateLimit(request, 'slides');
     if (limited) return limited;
     // (the lesson asking: its profile fills the AI's instructions, lib/canvas/lessonContext.ts)
-    await enterLessonOf(request);
+    enterProfile(await lessonOf(request));
     const params = new URL(request.url).searchParams;
     const section = Number(params.get('section'));
     const state = (params.get('state') ?? 'confused').toLowerCase();

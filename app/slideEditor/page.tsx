@@ -896,7 +896,7 @@ function Editor({
           </button>
         )}
         <div className="flex-1 min-w-[14rem] flex justify-center">
-          <AssistantBox onShow={showPart} onAddImage={(img) => { addImage(img); flash('Added the picture to this slide (Ctrl+Z undoes it)'); }}
+          <AssistantBox lesson={lessonId} onShow={showPart} onAddImage={(img) => { addImage(img); flash('Added the picture to this slide (Ctrl+Z undoes it)'); }}
             onAddText={(text) => { addElement({ id: newId('el'), type: 'text', x: 8, y: 68, w: 84, h: 20, text, style: 'body', color: '#0f172a' }); flash('Added the sentence as a text box (Ctrl+Z undoes it)'); }} />
         </div>
         <span className="text-xs text-slate-500" data-help="live">

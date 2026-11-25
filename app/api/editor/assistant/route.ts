@@ -1,5 +1,8 @@
 import { NextResponse } from 'next/server';
 import { rateLimit } from '@/lib/rateLimit';
+import { enterProfile } from '@/lib/canvas/lessonContext';
+import { profileForLesson } from '@/lib/canvas/lessonProfiles';
+import { isLessonId } from '@/lib/canvas/store';
 import { chat, knowledgeExcerpts } from '@/lib/canvas/ai';
 import { imagesFor } from '@/lib/canvas/generate';
 import { guideText, SHOWABLE } from '@/lib/editorGuide';
@@ -54,6 +57,9 @@ export async function POST(req: Request) {
   const question = squash(String(body?.question ?? '').replace(/[\u0000-\u001f\u007f]/g, ' '));
   if (!question) return NextResponse.json({ error: 'Ask something' }, { status: 400 });
   if (question.length > MAX_Q) return NextResponse.json({ error: `Keep it under ${MAX_Q} characters` }, { status: 413 });
+  // (the lesson open in the editor: its topic in the instructions, its knowledge bases for pictures and sentences. Was: always blue catfish)
+  const lesson = String(body?.lesson ?? '');
+  if (isLessonId(lesson)) enterProfile(await profileForLesson(lesson));
 
   try {
     const r = JSON.parse(await chat(ROUTER, `Question: """${question}"""`, true, 400));

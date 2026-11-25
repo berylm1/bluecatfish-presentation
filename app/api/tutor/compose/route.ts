@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
-import { enterLessonOf } from '@/lib/canvas/lessonProfiles';
+import { cacheTag, lessonOf } from '@/lib/canvas/lessonProfiles';
+import { enterProfile } from '@/lib/canvas/lessonContext';
 import { createHash } from 'crypto';
 import { rateLimit } from '@/lib/rateLimit';
 import { getValue, setValue } from '@/src/redisClient';
@@ -66,7 +67,7 @@ export async function POST(req: Request) {
   const limited = await rateLimit(req, 'board');
   if (limited) return limited;
   // (the lesson asking: its profile fills the AI's instructions, lib/canvas/lessonContext.ts)
-  await enterLessonOf(req);
+  enterProfile(await lessonOf(req));
   const body = await req.json().catch(() => ({}));
   const question = String(body.question ?? '').replace(/\s+/g, ' ').trim().slice(0, 300);
   const parts: Part[] = (Array.isArray(body.parts) ? body.parts : []).slice(0, 160)
@@ -76,7 +77,7 @@ export async function POST(req: Request) {
   const questions: string[] = (Array.isArray(body.questions) ? body.questions : []).slice(0, 5).map((q: unknown) => String(q).replace(/\s+/g, ' ').trim().slice(0, 200)).filter(Boolean);
   const together = questions.length > 1;
 
-  const key = `compose:v1:${createHash('sha1').update(`${question.toLowerCase()}|${questions.join('|')}|${parts.map((p) => `${p.id}:${p.about}`).join('|')}`).digest('hex').slice(0, 16)}`;
+  const key = `compose:v1:${cacheTag(req)}${createHash('sha1').update(`${question.toLowerCase()}|${questions.join('|')}|${parts.map((p) => `${p.id}:${p.about}`).join('|')}`).digest('hex').slice(0, 16)}`;
   const cached = await getValue(key);
   if (cached) return NextResponse.json({ slide: JSON.parse(cached) });
 

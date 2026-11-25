@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
-import { enterLessonOf } from '@/lib/canvas/lessonProfiles';
+import { lessonOf } from '@/lib/canvas/lessonProfiles';
+import { enterProfile } from '@/lib/canvas/lessonContext';
 import { createHash } from 'crypto';
 import { editorOf, rateLimit } from '@/lib/rateLimit';
 import { getValue, setValue } from '@/src/redisClient';
@@ -122,7 +123,7 @@ export async function POST(req: Request) {
   const limited = await rateLimit(req, 'classmate');
   if (limited) return limited;
   // (the lesson asking: its profile fills the AI's instructions, lib/canvas/lessonContext.ts)
-  await enterLessonOf(req);
+  enterProfile(await lessonOf(req));
   const body = await req.json().catch(() => ({}));
 
   // followup: the learner answered whether Finn was right. Is that enough, or does the professor ask them to say more?
