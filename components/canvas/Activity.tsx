@@ -52,7 +52,7 @@ const IDLE_HINT_MS = 9000;   // stopped this long before finishing: the hand sho
 const INK = '#0f172a';
 
 export default function ActivityView({ el, interactive, onDone, hintNonce = 0, solved = false, quiet = false, sounds = false, onMistake, finnMove, onFinn, guide, turn = false }: {
-  el: ActivityElement; interactive: boolean; onDone?: () => void;
+  el: ActivityElement; interactive: boolean; onDone?: (shown?: boolean) => void;
   /** It's the learner's turn on this box now (the professor has said what to do) */
   turn?: boolean;
   /** A wrong move: what it was about ("Blue catfish → Native"), for the learner stats and for stepping in when it repeats */
@@ -105,7 +105,8 @@ export default function ActivityView({ el, interactive, onDone, hintNonce = 0, s
     if (idle.current) clearTimeout(idle.current);
     idle.current = setTimeout(() => setTouched(false), IDLE_HINT_MS);
   }, []);
-  const finish = useCallback(() => {
+  /** shown: finished with an answer given away ("Show me"): done, but not solved by the learner */
+  const finish = useCallback((shown?: boolean) => {
     // was: the side effect inside a setDone updater, which React may run twice (dev): onDone twice
     if (doneRef.current || !alive.current) return;
     doneRef.current = true;
@@ -113,7 +114,7 @@ export default function ActivityView({ el, interactive, onDone, hintNonce = 0, s
     setDone(true);
     setJustDone(true);
     if (soundsRef.current) playSound('done');
-    onDoneRef.current?.();
+    onDoneRef.current?.(shown);
   }, []);
 
   const ready = activityReady(el);
@@ -152,7 +153,7 @@ export default function ActivityView({ el, interactive, onDone, hintNonce = 0, s
 }
 
 type Kit = {
-  interactive: boolean; hint: boolean; touch: () => void; finish: () => void; solved: boolean;
+  interactive: boolean; hint: boolean; touch: () => void; finish: (shown?: boolean) => void; solved: boolean;
   sound: (k: HandsOnSound) => void; mistake: (m: ActivityMistake) => void;
   finnMove?: FinnMove | null; finnEvent: (e: FinnEvent) => void; guide?: string;
   turn: boolean;
@@ -384,12 +385,13 @@ function TypeAnswer({ el, kit }: { el: ActivityElement; kit: Kit }) {
   const [value, setValue] = useState('');
   const [tries, setTries] = useState(0);
   const [result, setResult] = useState<'right' | 'wrong' | 'shown' | null>(kit.solved ? 'right' : null);
+  const anyShown = useRef(false);   // an answer given away: the box is done, not solved (the end screen's count)
   const input = useRef<HTMLInputElement>(null);
   const item = items[Math.min(at, items.length - 1)];
   const answer = (item?.back ?? '').split('|')[0].trim();
   const last = at >= items.length - 1;
   const next = () => {
-    if (last) { kit.finish(); return; }
+    if (last) { kit.finish(anyShown.current); return; }
     setAt((i) => i + 1); setValue(''); setTries(0); setResult(null);
     window.setTimeout(() => input.current?.focus(), 50);
   };
@@ -407,7 +409,7 @@ function TypeAnswer({ el, kit }: { el: ActivityElement; kit: Kit }) {
       setResult('wrong');
     }
   };
-  const show = () => { setResult('shown'); setValue(answer); window.setTimeout(next, 2200); };
+  const show = () => { anyShown.current = true; setResult('shown'); setValue(answer); window.setTimeout(next, 2200); };
   if (!item) return null;
   const color = result === 'right' ? '#16a34a' : result === 'wrong' ? '#dc2626' : result === 'shown' ? '#0891b2' : '#94a3b8';
   return (

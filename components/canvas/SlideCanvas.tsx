@@ -98,7 +98,7 @@ function LaserDot({ el, p, imgRef }: { el: SlideElement; p: Pointer; imgRef: Rea
 }
 
 function ElementView({ el, active, laser, dim = 1, interactive = false, onActivityDone, activityHint, solvedActivities, revealedActivities, settledActivities, activitySounds, onActivityMistake, finnMoves, onFinn, activityGuides, yourTurn }: {
-  el: SlideElement; active: boolean; laser?: Pointer | null; dim?: number; interactive?: boolean; onActivityDone?: (id: string) => void; activityHint?: number;
+  el: SlideElement; active: boolean; laser?: Pointer | null; dim?: number; interactive?: boolean; onActivityDone?: (id: string, shown?: boolean) => void; activityHint?: number;
   solvedActivities?: ReadonlySet<string>; settledActivities?: ReadonlySet<string>; activitySounds?: boolean;
   /** Skipped boxes: drawn again, solved (the answers shown) */
   revealedActivities?: ReadonlySet<string>;
@@ -140,7 +140,7 @@ function ElementView({ el, active, laser, dim = 1, interactive = false, onActivi
         <DiagramView el={el} />
       ) : el.type === 'activity' ? (
         // a fresh start whenever the box itself changes (the editor)
-        <ActivityView key={JSON.stringify([el.kind, el.items, el.groups, el.slider, el.src, !!revealedActivities?.has(el.id)])} el={el} interactive={interactive} onDone={() => onActivityDone?.(el.id)} hintNonce={activityHint}
+        <ActivityView key={JSON.stringify([el.kind, el.items, el.groups, el.slider, el.src, !!revealedActivities?.has(el.id)])} el={el} interactive={interactive} onDone={(shown) => onActivityDone?.(el.id, shown)} hintNonce={activityHint}
           solved={solvedActivities?.has(el.id)} quiet={settledActivities?.has(el.id)} sounds={activitySounds}
           onMistake={(m) => onActivityMistake?.(el.id, m)}
           finnMove={finnMoves?.[el.id] ?? null} onFinn={(e) => onFinn?.(el.id, e)} guide={activityGuides?.[el.id]} turn={yourTurn === el.id} />
@@ -371,7 +371,7 @@ function SlideCanvas({
   /** Hands-on boxes can be used (the lesson); elsewhere they're drawn as they start */
   interactive?: boolean;
   /** A hands-on box was finished */
-  onActivityDone?: (elementId: string) => void;
+  onActivityDone?: (elementId: string, shown?: boolean) => void;
   /** Bump to show hands-on boxes' example hand again (the learner seems stuck) */
   activityHint?: number;
   /** Hands-on boxes already done (read when a box is drawn: one drawn again comes back finished) */

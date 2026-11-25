@@ -330,6 +330,8 @@ const REPLAY_ASK_LOST = "That's okay, it happens. Want me to show you that part 
 // After "got it" on a topic the confusion meter says was confusing (lib/confusion.ts): offered anyway, lightly
 const REPLAY_ASK_GOT = 'Great! That part had a few tricky bits, though. Want a quick look at it a different way, just in case?';
 const SMOOTH_LINE = 'Nice, that part went smoothly!';
+// A hands-on box finished with an answer given away ("Show me"): no "Nice work!" for it
+const SHOWN_LINE = "Now you've seen how it goes. Let's keep going.";
 const REPLAY_ASK_SKIPPED = 'That part looked a little tricky. Want me to show it to you a different way?';
 // Cards, when the instructions don't already ask for a guess (said once per box)
 const THINK_LINE = 'Before you flip one, take a second to guess the answer in your head.';
@@ -575,6 +577,7 @@ function Player({ deck, preview, startAt = 0, study = null, staticMode = false, 
   const activitiesDone = useRef(new Set<string>());
   const activitiesSolved = useRef(new Set<string>());
   const activitiesRevealed = useRef(new Set<string>());   // skipped: shown with the answers filled in
+  const answersShown = useRef(new Set<string>());   // finished with an answer given away ("Show me"): done, not solved
   const turnStarted = useRef(new Map<string, number>());   // when the learner's turn began (time to finish, for the stats)   // done by the learner (not skipped): drawn finished if drawn again
   const [yourTurn, setYourTurn] = useState<string | null>(null);
   const yourTurnRef = useRef(yourTurn);
@@ -2627,7 +2630,7 @@ function Player({ deck, preview, startAt = 0, study = null, staticMode = false, 
     // The recap and the personal line are ONE clip (no gap around the name),
     // made while "Let's look back…" is playing
     if (!SPOKEN_FULL_RECAP) {
-      const solved = [...activitiesSolved.current].filter((id) => !activitiesRevealed.current.has(id)).length;
+      const solved = [...activitiesSolved.current].filter((id) => !activitiesRevealed.current.has(id) && !answersShown.current.has(id)).length;
       const minutes = lessonStartedAt.current ? Math.max(1, Math.round((Date.now() - lessonStartedAt.current) / 60000)) : 0;
       // (static: the same ending for everyone, what was covered; nothing about what they did)
       const line = isStatic ? endingLine({ name: '', covered: shortRecap(deck), solved: 0, quiz: null, finn: [], questions: 0, minutes: 0 }) : endingLine({
@@ -2813,7 +2816,7 @@ function Player({ deck, preview, startAt = 0, study = null, staticMode = false, 
 
   /* ------------------------------------------------ hands-on boxes */
   const praise = learnerName.trim() ? `Nice work, ${learnerName.trim()}!` : 'Nice work!';
-  useEffect(() => { if (yourTurn) preloadCue(praise); }, [yourTurn, praise, preloadCue]);   // ready the moment they finish
+  useEffect(() => { if (yourTurn) { preloadCue(praise); preloadCue(SHOWN_LINE); } }, [yourTurn, praise, preloadCue]);   // ready the moment they finish
   const { track } = tracking;   // stable (the tracking object itself is new every render)
   /** Resolves once nobody is talking (the professor's answer, or a line) — so lines don't overlap. At most 15 s. */
   const whenQuiet = useCallback(() => new Promise<void>((resolve) => {
@@ -2937,12 +2940,15 @@ function Player({ deck, preview, startAt = 0, study = null, staticMode = false, 
     }
   }, [player.slideIndex, deck]);
 
-  const onActivityDone = useCallback((id: string) => {
+  const onActivityDone = useCallback((id: string, shown?: boolean) => {
     // Solved while the professor explains the item they kept getting wrong: the explanation stops (they've got
     // it), so it doesn't carry on over the praise and what comes next (was: the two overlapped)
     if (stepInFor.current === id) { stepInFor.current = null; tutor.cancel(); }
     activitiesDone.current.add(id);
     activitiesSolved.current.add(id);
+    // (finished with an answer given away, "Show me": not one they solved themselves on the end screen.
+    // Was: "You solved 4 hands-on activities yourself" after every answer was shown, seen in a test run)
+    if (shown) answersShown.current.add(id);
     setSettledTick((n) => n + 1);
     const began = turnStarted.current.get(id);
     turnStarted.current.delete(id);
@@ -2961,12 +2967,12 @@ function Player({ deck, preview, startAt = 0, study = null, staticMode = false, 
       p.hold();
       cuesRef.current.stop();
       const slide = p.slideIndex;
-      (isStatic ? Promise.resolve() : queueLine(() => playCue({ text: praise }))).then(() => { if (playerRef.current.slideIndex === slide) playerRef.current.skipPast(id); });   // (static: no praise)
+      (isStatic ? Promise.resolve() : queueLine(() => playCue({ text: shown ? SHOWN_LINE : praise }))).then(() => { if (playerRef.current.slideIndex === slide) playerRef.current.skipPast(id); });   // (static: no praise)
       return;
     }
     setYourTurn(null);
     // after the professor (an explanation, a reply to Finn) has finished, not over them
-    (isStatic ? Promise.resolve() : queueLine(() => playCue({ text: praise }))).then(() => { if (playerRef.current.activeId === id) playerRef.current.nextClip(); });
+    (isStatic ? Promise.resolve() : queueLine(() => playCue({ text: shown ? SHOWN_LINE : praise }))).then(() => { if (playerRef.current.activeId === id) playerRef.current.nextClip(); });
   }, [track, playCue, praise, queueLine, tutor, topicOf, feel]);
   /** Skip: the box fills in its answers (so the learner still sees how it goes), a word from the professor, then on. */
   const skipActivity = () => {
@@ -2995,7 +3001,7 @@ function Player({ deck, preview, startAt = 0, study = null, staticMode = false, 
   // Back on a hands-on slide (going back, or starting over): the lesson waits for it again
   useEffect(() => {
     for (const e of deck.slides[player.slideIndex]?.elements ?? []) {
-      if (e.type === 'activity') { activitiesDone.current.delete(e.id); activitiesSolved.current.delete(e.id); activitiesRevealed.current.delete(e.id); }
+      if (e.type === 'activity') { activitiesDone.current.delete(e.id); activitiesSolved.current.delete(e.id); activitiesRevealed.current.delete(e.id); answersShown.current.delete(e.id); }
     }
   }, [player.slideIndex, deck]);
   // Moved on some other way (a command, a jump): no longer their turn
@@ -3113,7 +3119,7 @@ function Player({ deck, preview, startAt = 0, study = null, staticMode = false, 
     cancelAnswer();
     setClassmateSaying(null);
     if (variant) { variantAfter.current = null; variantMode.current = 'answer'; setVariant(null); helperSeq.current++; setHelperActive(null); }
-    checked.current.clear(); activitiesDone.current.clear(); activitiesSolved.current.clear(); activitiesRevealed.current.clear(); classmateTopics.current.clear(); classmateAsked.current = []; finnReady.current.clear(); finnResults.current.clear(); ownUp.current = null;
+    checked.current.clear(); activitiesDone.current.clear(); activitiesSolved.current.clear(); activitiesRevealed.current.clear(); answersShown.current.clear(); classmateTopics.current.clear(); classmateAsked.current = []; finnReady.current.clear(); finnResults.current.clear(); ownUp.current = null;
     roomCount.current = 0; setRoom(null);
     classmateWho.current = []; lastMixUp.current = -2; curious.current.clear(); struggles.current.clear();
     midTopics.current.clear(); shaky.current.clear(); carried.current.clear(); helperUsed.current.clear(); midMatch.current.clear(); midPending.current = null; midResume.current = false; struggleSlide.current = -1; mateTalkAt.current = 0;
@@ -3228,7 +3234,7 @@ function Player({ deck, preview, startAt = 0, study = null, staticMode = false, 
   if (player.status === 'finished') {
     const topics = lessonLength(deck.slides).topics.map((t) => deck.slides[t.start]?.topic?.trim()).filter(Boolean);
     achievements.push({ icon: 'book', text: topics.length > 1 ? <>You finished every part: <b>{topics.join(', ')}</b></> : <>You finished the lesson{topics[0] ? <>: <b>{topics[0]}</b></> : ''}</> });
-    const handsOn = [...activitiesSolved.current].filter((id) => !activitiesRevealed.current.has(id)).length;
+    const handsOn = [...activitiesSolved.current].filter((id) => !activitiesRevealed.current.has(id) && !answersShown.current.has(id)).length;
     if (handsOn) achievements.push({ icon: 'hands-on-activity', text: <>You solved <b>{handsOn}</b> hands-on activit{handsOn === 1 ? 'y' : 'ies'} yourself</> });
     if (quiz.state === 'done') achievements.push({ icon: 'check-mark', text: <>Quiz: <b>{quiz.right}</b> of <b>{quiz.questions.length}</b> right{quiz.right === quiz.questions.length ? '. Perfect!' : ''}</> });
     if (finnSummary) achievements.push({ icon: 'classmates', text: finnSummary });
