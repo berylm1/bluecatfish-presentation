@@ -2215,7 +2215,9 @@ function Player({ deck, preview, startAt = 0, study = null, staticMode = false, 
     // (SELF_CHECK), the study's adaptive lesson goes by the meter too: a topic it reads as confusing gets the offer.
     // (was: with the check hidden, nobody in the study was ever offered "another way" at a topic's end)
     const studyByMeter = !!study && !SELF_CHECK && !isStatic;
-    if (ADAPTIVE_SECTION_CHECK && (!study || studyByMeter)) {
+    // (static: never the meter's call, no offer and no "smooth sailing" line, outside the study too. Was: ?mode=static
+    // offered "That part looked a little tricky. Want me to show it a different way?" after a struggle, seen in a test run)
+    if (ADAPTIVE_SECTION_CHECK && !isStatic && (!study || studyByMeter)) {
       const t = meter.current.topic(topic);
       const confusion = (Object.entries(t.signals) as [keyof typeof SIGNALS, number][]).some(([k, n]) => n > 0 && SIGNALS[k].points > 0);
       const good = (t.signals.solved ?? 0) + (t.signals.finn_caught ?? 0) > 0;
