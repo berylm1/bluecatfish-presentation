@@ -44,6 +44,8 @@ export async function POST(request: NextRequest) {
         instructions: classmate ? classmate.voiceInstructions : body.simple ? SIMPLE_VOICE_INSTRUCTIONS : VOICE_INSTRUCTIONS,
         response_format: 'mp3',
       }),
+      // (OpenAI not answering, or its stream stalling: the request ends instead of hanging; the page goes on without the clip)
+      signal: AbortSignal.timeout(25_000),
     });
 
     if (!response.ok) {

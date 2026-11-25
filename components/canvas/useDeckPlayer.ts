@@ -7,6 +7,7 @@ import { currentAudio } from '@/lib/canvas/aiFields';
 import { introClip, isIntroId } from '@/lib/canvas/intro';
 import { learnerHeaders } from '@/lib/learnerSession';
 import { voiced, voiceSpeedNow } from '@/lib/voiceSpeed';
+import { TTS_WAIT_MS } from '@/lib/voice';
 
 const AFTER_SLIDE_MS = 1500;    // pause after a slide's last clip before moving on
 const SILENT_SLIDE_MS = 5000;   // a slide with nothing to say stays up this long
@@ -73,6 +74,7 @@ export async function liveClip(text: string, simple: boolean): Promise<string | 
       method: 'POST',
       headers: learnerHeaders({ 'Content-Type': 'application/json' }),
       body: JSON.stringify({ text, simple }),
+      signal: AbortSignal.timeout(TTS_WAIT_MS),   // (the whole download: no answer in time → the words as captions, and on)
     });
     if (!res.ok) return null;
     return URL.createObjectURL(await res.blob());

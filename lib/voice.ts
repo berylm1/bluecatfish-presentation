@@ -2,6 +2,9 @@
 // the narration and the live tutor voice share one delivery. Changing this
 // only affects clips generated after the change (bump CACHE_VERSION to redo all).
 export const TTS_VOICE = 'alloy';
+/** How long the page waits for a spoken clip (/api/tts) before going on without it (the words as captions). Was: no limit,
+ * and one request that never answered froze the lesson for good: the part was never heard, so Next stayed off too */
+export const TTS_WAIT_MS = 20_000;
 
 export const VOICE_INSTRUCTIONS =
   'You are a fun science teacher talking to 10 to 14 year olds. Sound upbeat and ' +
