@@ -68,6 +68,9 @@ type Pos = {
 };
 
 // Clips without a pre-made file are spoken live through /api/tts and cached per text
+/** A clip playing with no progress this long is let go (said live instead, or skipped) */
+const STALL_MS = 15_000;
+
 export async function liveClip(text: string, simple: boolean): Promise<string | null> {
   try {
     const res = await fetch('/api/tts', {
@@ -126,6 +129,7 @@ export function useDeckPlayer(
   const textRef = useRef('');                          // words of the clip playing now
   const holdRef = useRef<(() => void) | null>(null);   // set while finishing a sentence: runs once stopped
   const finishTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const stallTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);   // the playing clip's watchdog (STALL_MS)
   const pausedRef = useRef(false);   // pause asked for; a clip that finishes loading waits
   // Interrupted mid-sentence: where that sentence began. The learner talked
   // over it (it was ducked), so resume plays it again from there.
@@ -197,6 +201,8 @@ export function useDeckPlayer(
       audioRef.current = null;
       if (finishTimerRef.current) clearInterval(finishTimerRef.current);
       finishTimerRef.current = null;
+      if (stallTimerRef.current) clearInterval(stallTimerRef.current);
+      stallTimerRef.current = null;
       holdRef.current = null;
     };
 
@@ -260,6 +266,23 @@ export function useDeckPlayer(
         timerRef.current = setTimeout(next, Math.min(12000, Math.max(2000, (words * 350) / voiceSpeedNow())));
         return;
       }
+      // A clip that plays but goes nowhere (its file never arrives, and no error comes either): after STALL_MS it's
+      // let go, like one that failed. Was: the lesson waited for it for good, and Next stayed off (the part was never heard)
+      const watch = (a: HTMLAudioElement, onStall: () => void) => {
+        if (stallTimerRef.current) clearInterval(stallTimerRef.current);
+        let at = -1, since = Date.now();
+        stallTimerRef.current = setInterval(() => {
+          if (cancelled || audioRef.current !== a) return;
+          // (paused, by the learner or the page, or over: not stuck)
+          if (a.paused || a.ended || pausedRef.current || a.currentTime !== at) { at = a.currentTime; since = Date.now(); return; }
+          if (Date.now() - since < STALL_MS) return;
+          if (stallTimerRef.current) clearInterval(stallTimerRef.current);
+          stallTimerRef.current = null;
+          a.onended = null; a.onerror = null;
+          a.pause(); a.removeAttribute('src'); a.load();   // (lets go of the download that never came)
+          onStall();
+        }, 1000);
+      };
       // A stored clip that won't load (deleted, moved): the same words said live instead (was: skipped, so the
       // professor jumped over that part in silence). Once; a live clip that fails goes on as before.
       let fellBack = false;
@@ -273,6 +296,7 @@ export function useDeckPlayer(
           audioRef.current = again;
           again.onended = next;
           again.onerror = next;
+          watch(again, next);
           if (pausedRef.current) return;
           again.play().then(() => { if (!cancelled) setStatus('playing'); }).catch(next);
         });
@@ -282,6 +306,7 @@ export function useDeckPlayer(
       audioRef.current = audio;
       audio.onended = next;
       audio.onerror = stored ? sayLive : next;
+      watch(audio, stored ? sayLive : next);
       // Paused (or interrupted) while the clip was loading: keep it ready, don't start it
       if (pausedRef.current) return;
       // (a clip that can't load also rejects play(): onerror says it live; any other refusal goes on)
