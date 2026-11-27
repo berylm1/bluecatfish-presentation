@@ -1,3 +1,4 @@
+import { hasWords } from './pictures';
 import { createHash } from 'crypto';
 import { chat, chatVision, isPublicHttps, openai } from './ai';
 import { kbColumns } from './kb';
@@ -287,7 +288,8 @@ export async function findSlidePicture(opts: { kb: string; about: string; slideW
       if (Date.now() > deadline - 12_000) break;
       tried++;
       const r = await addOpenPicture(pic, opts.kb, `${opts.about}. This slide: ${opts.slideWords.slice(0, 300)}`, true).catch((e) => ({ skipped: e instanceof Error ? e.message : String(e) }));
-      if (!('skipped' in r)) return { added: r, note: `Found “${r.title}” for “${q}” (${r.credit}).` };
+      // (a picture with writing in it, a sign, a label, a brand name, is left in the library but not put on the slide)
+      if (!('skipped' in r) && !hasWords(r.description)) return { added: r, note: `Found “${r.title}” for “${q}” (${r.credit}).` };
     }
   }
   return { added: null, note: tried ? `Looked for ${queries.map((q) => `“${q}”`).join(', ')}: none of the free pictures fit well enough.` : `Nothing found for ${queries.map((q) => `“${q}”`).join(', ')} (the picture sites may not be reachable).` };

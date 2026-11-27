@@ -10,7 +10,8 @@ import { parseNumber, acceptedAnswers } from './answerMatch';
 
 /** Plain arithmetic ("(3/4 + 1/8) * 2"), worked out as exact fractions. null: not arithmetic, or a division by zero */
 export function evaluate(expr: string): number | null {
-  const src = expr.replace(/[×x]/g, '*').replace(/÷/g, '/').replace(/[−–]/g, '-').replace(/\s+/g, '');
+  // ("1/5 + 3/5 = 4/5": the sum is what's before the equals sign; "1 1/2" is one and a half, not eleven halves)
+  const src = expr.split('=')[0].replace(/(\d+)\s+(\d+)\s*\/\s*(\d+)/g, '($1+$2/$3)').replace(/[×x]/g, '*').replace(/÷/g, '/').replace(/[−–]/g, '-').replace(/\s+/g, '');
   if (!src || /[^0-9+\-*/().]/.test(src)) return null;
   let i = 0;
   type F = [number, number];   // numerator, denominator

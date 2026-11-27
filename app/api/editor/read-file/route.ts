@@ -9,6 +9,23 @@ const MAX_BYTES = 12 * 1024 * 1024;
 
 // POST { file: base64, fileType: 'pdf' | 'docx' | 'txt' } → { text }: the words in an uploaded file, for the
 // "New lesson" flow's material box (editors only: under /api/editor, see proxy.ts). Nothing is stored here.
+/** A PDF's words: the reader the site has always used, and a second one for the files it can't follow */
+async function pdfText(buffer: Buffer): Promise<string> {
+  try {
+    const text = (await extract(buffer)).text ?? '';
+    if (text.trim()) return text;
+  } catch (e) {
+    console.warn('pdf-extraction could not read a file:', e instanceof Error ? e.message : e);
+  }
+  const { PDFParse } = await import('pdf-parse');
+  const parser = new PDFParse({ data: new Uint8Array(buffer) });
+  try {
+    return (await parser.getText()).text ?? '';
+  } finally {
+    await parser.destroy().catch(() => {});
+  }
+}
+
 export async function POST(req: Request) {
   const body = await req.json().catch(() => ({}));
   if (typeof body.file !== 'string' || !body.file) return NextResponse.json({ error: 'No file' }, { status: 400 });
@@ -16,7 +33,7 @@ export async function POST(req: Request) {
   if (buffer.length > MAX_BYTES) return NextResponse.json({ error: 'That file is over 12 MB: paste the part you need instead' }, { status: 413 });
   try {
     let text = '';
-    if (body.fileType === 'pdf') text = (await extract(buffer)).text ?? '';
+    if (body.fileType === 'pdf') text = await pdfText(buffer);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     else if (body.fileType === 'docx') text = ((await mammoth.extractRawText({ buffer })) as any).value ?? '';
     else if (body.fileType === 'txt') text = buffer.toString('utf-8');
