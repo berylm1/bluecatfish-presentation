@@ -3,6 +3,7 @@ import { isTeacherVoice, voiceFor } from '@/lib/voice';
 import { lessonOf } from '@/lib/canvas/lessonProfiles';
 import { classmateOf } from '@/lib/classmates';
 import { MAX, rateLimit, tooLarge } from '@/lib/rateLimit';
+import { addUsage } from '@/lib/usage';
 
 export async function POST(request: NextRequest) {
   try {
@@ -14,7 +15,8 @@ export async function POST(request: NextRequest) {
     // was: const voice = (body.voice as string) || TTS_VOICE;
     const classmate = classmateOf(body.who);
     // (the teacher: the asking lesson's voice and delivery, lib/voice.ts voiceFor; the blue catfish lesson's are as before)
-    const teacher = voiceFor(await lessonOf(request));
+    const lessonProfile = await lessonOf(request);
+    const teacher = voiceFor(lessonProfile);
     // (body.voice: the Lesson panel's "Hear it", one of the teacher voices only)
     const voice = classmate ? classmate.voice : isTeacherVoice(body.voice) ? body.voice : teacher.voice;
 
@@ -62,6 +64,8 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // (counted for the lesson's "AI use so far", lib/usage.ts; not waited for: the voice starts at once)
+    void addUsage(lessonProfile.lessonId, { voiceChars: text.length });
     return new Response(response.body, {
       headers: {
         'Content-Type': 'audio/mpeg',

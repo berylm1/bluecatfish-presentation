@@ -13,6 +13,8 @@ import { isTeacherVoice } from '@/lib/voice';
 import { MATH_VISUALS_GUIDE } from './visualGuide';
 
 export interface LessonProfile {
+  /** The lesson it belongs to (set when it's read from a deck, profileOf: never typed in, not kept with the profile) */
+  lessonId?: string;
   /** The lesson's name ("Blue Catfish") */
   title: string;
   /** One line about it, for the home page and the lesson list */
@@ -116,6 +118,7 @@ export function profileOf(deck: { lessonId: string; title?: string; profile?: Pa
   const p = deck.profile ?? {};
   const out = { ...base, ...p, teacher: { ...base.teacher, ...(p.teacher ?? {}) } };
   if (!out.knowledgeBases.length) out.knowledgeBases = base.knowledgeBases;   // (always at least one)
+  out.lessonId = deck.lessonId;   // (last: a copied lesson's stored profile never says the lesson it was copied from)
   return out;
 }
 

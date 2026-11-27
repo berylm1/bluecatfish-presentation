@@ -1,0 +1,28 @@
+# Checks every preview Vercel builds, the way a learner meets it (scripts/preview-check.mjs): the home page opens,
+# the lesson starts and moves on with no errors, and the editor is still locked. No passwords are used.
+# The result shows as a check on the commit; a failure says which step went wrong.
+name: Preview check
+
+on:
+  deployment_status:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    # (only once a deployment is up, and not for the live site: it has real learners)
+    if: github.event.deployment_status.state == 'success' && github.event.deployment.environment != 'Production'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install the browser the check uses
+        run: |
+          npm install --no-save --no-audit --no-fund playwright@1
+          npx playwright install --with-deps chromium
+      - name: Check the preview
+        run: node scripts/preview-check.mjs "${{ github.event.deployment_status.environment_url || github.event.deployment_status.target_url }}"

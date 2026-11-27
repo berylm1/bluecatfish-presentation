@@ -93,6 +93,28 @@ const TAG_TONES = {
   emerald: 'bg-emerald-100 text-emerald-800',
   violet: 'bg-violet-100 text-violet-800',
 };
+/** "AI use so far" for a lesson (lib/usage.ts): what's been sent, written and spoken, with an estimate in dollars. Asked for when it's shown. */
+function AiCost({ lesson }: { lesson: string }) {
+  const [u, setU] = useState<{ calls: number; tokensIn: number; tokensOut: number; voiceChars: number; dollars: number } | null | undefined>(undefined);
+  useEffect(() => {
+    let live = true;
+    fetch(`/api/editor/usage?lesson=${encodeURIComponent(lesson)}`).then((r) => r.json()).then((d) => { if (live) setU(d.usage ?? null); }).catch(() => { if (live) setU(null); });
+    return () => { live = false; };
+  }, [lesson]);
+  const k = (n: number) => (n >= 1e6 ? `${(n / 1e6).toFixed(1)} million` : n >= 1000 ? `${Math.round(n / 1000)} thousand` : String(Math.round(n)));
+  return (
+    <div className="rounded-md bg-slate-50 border border-slate-200 px-2.5 py-2 text-xs text-slate-600" data-ai-cost>
+      <div className="font-semibold text-slate-900">AI use so far for this lesson</div>
+      {u === undefined ? 'Adding it up…' : !u || !u.calls ? 'Nothing counted yet (counting started with this version of the editor).' : (
+        <>
+          <div className="text-slate-900"><b className="text-sm">about ${u.dollars.toFixed(2)}</b> <span className="text-slate-500">(an estimate: your OpenAI bill is the real number)</span></div>
+          <div>{k(u.calls)} requests · {k(u.tokensIn)} tokens read · {k(u.tokensOut)} written · {k(u.voiceChars)} characters spoken</div>
+        </>
+      )}
+    </div>
+  );
+}
+
 function Tag({ tone, children }: { tone: keyof typeof TAG_TONES; children: React.ReactNode }) {
   return <span className={`px-1.5 py-0.5 rounded text-xs font-normal ${TAG_TONES[tone]}`}>{children}</span>;
 }
@@ -363,7 +385,8 @@ function Editor({
 
   /* ------------------------------------------------------------ saving */
 
-  const save = useCallback(async (opts: { force?: boolean; then?: 'save' | 'publish' } = {}): Promise<boolean> => {
+  // quiet: an autosave (the draft is kept; no message, and the AI isn't set to work: that's what pressing Save is for)
+  const save = useCallback(async (opts: { force?: boolean; then?: 'save' | 'publish'; quiet?: boolean } = {}): Promise<boolean> => {
     setSaving(true);
     try {
       const res = await fetch('/api/editor/deck', {
@@ -382,8 +405,8 @@ function Editor({
       baseRev.current = d.editRev;
       setSaved({ at: d.savedAt, by: d.by });
       if (d.warning) flash(`Saved, but: ${d.warning}`, 'warn');
-      else flash('Saved');
-      runAi();   // fill in blanks and make audio for what changed, in the background
+      else if (!opts.quiet) flash('Saved');
+      if (!opts.quiet) runAi();   // fill in blanks and make audio for what changed, in the background
       return true;
     } catch (e) {
       flash(e instanceof Error ? e.message : String(e), 'error');
@@ -393,6 +416,17 @@ function Editor({
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [deck, lessonId, ed, flash]);
+
+  // Autosave: the draft is saved by itself a little after the last change (on unless switched off in the menu).
+  // It only keeps the work: the AI's writing and recording start when Save is pressed.
+  const [autosave, setAutosave] = useState(true);
+  useEffect(() => { try { setAutosave(localStorage.getItem('editor:autosave') !== '0'); } catch { /* fine */ } }, []);
+  const toggleAutosave = () => setAutosave((v) => { try { localStorage.setItem('editor:autosave', v ? '0' : '1'); } catch { /* fine */ } return !v; });
+  useEffect(() => {
+    if (!autosave || !ed.dirty || saving || conflict) return;
+    const t = setTimeout(() => { void save({ quiet: true }); }, 20_000);
+    return () => clearTimeout(t);
+  }, [autosave, ed.dirty, saving, conflict, deck, save]);
 
   /* ----------------------------------------------------- save-time AI */
 
@@ -1027,7 +1061,8 @@ function Editor({
                     {missingDescriptions} picture{missingDescriptions === 1 ? ' has' : 's have'} no description. <b>Describe {missingDescriptions === 1 ? 'it' : 'them'} with the AI</b>
                   </button>
                 )}
-                <p className="text-xs text-slate-500">The AI does these in the background each time you save. You can keep editing while it works.</p>
+                <p className="text-xs text-slate-500">The AI does these in the background each time you press Save. You can keep editing while it works.</p>
+                <AiCost lesson={lessonId} />
                 {todoHere > 0 && !ai.running && <button className={primary} onClick={() => { close(); save(); }}>Save and start</button>}
               </div>
             );
@@ -1038,7 +1073,7 @@ function Editor({
             onAddText={(text) => { addElement({ id: newId('el'), type: 'text', x: 8, y: 68, w: 84, h: 20, text, style: 'body', color: '#0f172a' }); flash('Added the sentence as a text box (Ctrl+Z undoes it)'); }} />
         </div>
         <span className="hidden xl:inline text-xs text-slate-300 whitespace-nowrap" data-save-state>
-          {saving ? 'Saving…' : ed.dirty ? <span className="text-amber-300 font-bold">● Unsaved changes</span> : saved.at ? `Saved ${when(saved.at)}${saved.by ? ` by ${saved.by}` : ''}` : 'Not saved yet'}
+          {saving ? 'Saving…' : ed.dirty ? <span className="text-amber-300 font-bold">● Unsaved changes{autosave ? ' (saving soon)' : ''}</span> : saved.at ? `Saved ${when(saved.at)}${saved.by ? ` by ${saved.by}` : ''}` : 'Not saved yet'}
         </span>
         <button data-help="undo" className={ghostIcon} onClick={ed.undo} disabled={!ed.canUndo} title="Undo (Ctrl+Z)" aria-label="Undo"><Icon name="undo" size={17} /></button>
         <button className={ghostIcon} onClick={ed.redo} disabled={!ed.canRedo} title="Redo (Ctrl+Shift+Z)" aria-label="Redo"><Icon name="redo" size={17} /></button>
@@ -1077,7 +1112,7 @@ function Editor({
               )}
               <MenuItem onClick={() => { close(); if (!ed.dirty || window.confirm('The copy is made from the draft as last saved, so your unsaved changes won’t be in it. Go on?')) onCopyLesson(false); }} hint="A new lesson with the same slides, to change freely">Duplicate this lesson…</MenuItem>
               <MenuItem onClick={() => { close(); if (!ed.dirty || window.confirm('The copy is made from the draft as last saved, so your unsaved changes won’t be in it. Go on?')) onCopyLesson(true); }} hint="A copy with every word in another language">Translate a copy…</MenuItem>
-              {/*MORE-LESSON*/}
+              <MenuItem onClick={toggleAutosave} hint="Keeps your changes a little after you stop editing. The AI still waits for Save">Autosave: {autosave ? 'on' : 'off'}</MenuItem>
               <MenuHeading>Other pages (new tab)</MenuHeading>
               <MenuItem onClick={() => { close(); window.open(`/lessonReview?lesson=${encodeURIComponent(lessonId)}&preview=1`, '_blank', 'noopener'); }}>Lesson review, to read or print</MenuItem>
               <MenuItem onClick={() => { close(); window.open('/textIngest', '_blank', 'noopener'); }}>Add source text to a knowledge base</MenuItem>

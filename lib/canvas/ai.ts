@@ -1,5 +1,5 @@
 import { lazySupabaseAdmin } from '@/lib/supabase/admin';
-import { fillForLesson } from './lessonContext';
+import { fillForLesson, currentProfile } from './lessonContext';
 import { NO_LONG_DASHES, noLongDashes } from '@/lib/dashes';
 import { matchDocuments } from './kb';
 
@@ -42,7 +42,13 @@ export async function openai(path: string, init: RequestInit): Promise<Response>
   if (typeof init.body === 'string' && init.body.includes('{{')) init = { ...init, body: fillForLesson(init.body, true) };
   for (let attempt = 0; ; attempt++) {
     const res = await fetch(`https://api.openai.com/v1/${path}`, init);
-    if (attempt >= 2 || ![429, 500, 502, 503].includes(res.status)) return res;
+    if (attempt >= 2 || ![429, 500, 502, 503].includes(res.status)) {
+      // what it used, added to the lesson's running total (lib/usage.ts: the editor's "AI use so far")
+      // (through a hook the server sets when it starts, instrumentation.ts: this file is also bundled for the browser,
+      // where there is no Redis to count in)
+      await (globalThis as { __aiUsage?: (path: string, body: unknown, res: Response, lesson?: string) => Promise<void> }).__aiUsage?.(path, init.body, res, currentProfile().lessonId);
+      return res;
+    }
     const after = Number(res.headers.get('retry-after'));
     const wait = Math.min(15_000, Number.isFinite(after) && after > 0 ? after * 1000 : attempt ? 6000 : 2000) + Math.random() * 1000;
     await res.body?.cancel().catch(() => {});
