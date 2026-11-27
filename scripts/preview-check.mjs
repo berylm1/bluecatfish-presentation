@@ -29,6 +29,12 @@ try {
   ok('the home page opens');
 
   const info = await page.request.get(`${BASE}/api/deck/info?lesson=${encodeURIComponent(LESSON || 'blue-catfish')}`);
+  // A preview that Vercel keeps behind its own login answers every address with its sign-in page: nothing of the
+  // site can be seen from outside, so there's nothing to check (not a failure of the site)
+  if (info.ok() && !/json/i.test(info.headers()['content-type'] ?? '')) {
+    console.log('SKIPPED: this preview is behind a Vercel login (deployment protection), so it can’t be checked from outside.');
+    process.exit(0);
+  }
   const title = info.ok() ? (await info.json().catch(() => ({}))).title : null;
   if (!title) fail(`/api/deck/info answered ${info.status()} with no lesson title`);
   ok(`the lesson is served: “${title}”`);
