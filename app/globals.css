@@ -498,3 +498,15 @@ body {
 }
 @keyframes shine-round { to { --shine-angle: 360deg; } }
 @media (prefers-reduced-motion: reduce) { .shine-edge::before { animation: none; background: rgba(252, 211, 77, 0.6); } }
+
+/* The lesson's "High contrast" option (app/presentation/page.tsx): a black page, full-strength words and edges, and a
+   clear ring on whatever the keyboard is on. Only while a learner has it switched on. */
+.lesson-hc main { background: #000 !important; }
+.lesson-hc main [class*="text-white/"], .lesson-hc main [class*="text-cyan-200"], .lesson-hc main [class*="text-slate-4"] { color: #fff !important; }
+.lesson-hc main [class*="border-white/"] { border-color: #fff !important; }
+.lesson-hc main [class*="bg-white/1"], .lesson-hc main [class*="bg-white/5"], .lesson-hc main [class*="bg-slate-900/"] { background-color: #0b0b0b !important; }
+.lesson-hc main button:not([data-slide-id] button) { outline: 1px solid rgba(255, 255, 255, 0.75); outline-offset: -1px; }
+.lesson-hc main [data-slide-id] { outline: 3px solid #fff; }
+.lesson-hc :focus-visible { outline: 3px solid #facc15 !important; outline-offset: 2px !important; }
+/* (the lessons made with the builder: the keyboard's place is always visible on the lesson's buttons) */
+.lesson-keys main button:focus-visible, .lesson-keys main a:focus-visible, .lesson-keys main input:focus-visible { outline: 2px solid #facc15; outline-offset: 2px; }

@@ -1066,7 +1066,7 @@ function Editor({
                 hint="Puzzled faces, “I’m lost”, simpler please… on each slide, for the last 30 days">
                 How learners did{heat ? ' (showing: click to hide)' : ''}
               </MenuItem>
-              <MenuItem onClick={() => { close(); setPdfAsk(true); }} disabled={pdfProgress !== null} hint="Teacher script, handout or narration only">Download as a PDF…</MenuItem>
+              <MenuItem onClick={() => { close(); setPdfAsk(true); }} disabled={pdfProgress !== null} hint="Teacher script, handout, narration or a worksheet to print">Download as a PDF…</MenuItem>
               <MenuItem onClick={() => { close(); setSavedOpen(true); }} hint="Versions saved when they were published: copy a slide back, or go back to one">Saved versions…</MenuItem>
               <MenuItem onClick={() => { close(); openVersions(); }} hint="Replace this draft with an AI-made deck">Start from AI…</MenuItem>
               {lessonId === STUDY_LESSON && (
@@ -1448,6 +1448,10 @@ function Editor({
               <label className="flex items-start gap-2">
                 <input type="radio" name="pdf-kind" className="mt-1" checked={pdfOpts.kind === 'narration'} onChange={() => setPdfOpts((o) => ({ ...o, kind: 'narration' }))} />
                 <span><b>Narration only</b><br /><span className="text-xs text-slate-500">Just what the professor says, in order: no pictures</span></span>
+              </label>
+              <label className="flex items-start gap-2">
+                <input type="radio" name="pdf-kind" className="mt-1" checked={pdfOpts.kind === 'worksheet'} onChange={() => setPdfOpts((o) => ({ ...o, kind: 'worksheet' }))} />
+                <span><b>Worksheet</b><br /><span className="text-xs text-slate-500">The hands-on questions and the quiz to do on paper, with an answer key on the last page</span></span>
               </label>
               <div className="border-t border-slate-200 pt-2 flex flex-col gap-1.5">
                 <label className={`flex items-center gap-2 text-xs ${pdfOpts.kind === 'handout' ? 'opacity-40' : ''}`}>

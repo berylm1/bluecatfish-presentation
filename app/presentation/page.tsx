@@ -565,6 +565,26 @@ function Player({ deck, preview, startAt = 0, study = null, staticMode = false, 
     try { localStorage.setItem('handsOnSounds', on ? 'off' : 'on'); } catch { /* private mode */ }
     return !on;
   });
+  // Easier to see: larger words around the slide, and stronger contrast (remembered on this browser). Offered in the
+  // lessons made with the lesson builder; the blue catfish lesson's menu stays as it was.
+  const easierToSee = !/^blue-catfish/.test(deck.lessonId) && deck.lessonId !== 'sample';
+  const [bigText, setBigText] = useState(false);
+  const [highContrast, setHighContrast] = useState(false);
+  useEffect(() => {
+    if (!easierToSee) return;
+    try { setBigText(localStorage.getItem('lessonBigText') === 'on'); setHighContrast(localStorage.getItem('lessonHighContrast') === 'on'); } catch { /* private mode */ }
+  }, [easierToSee]);
+  useEffect(() => {
+    const root = document.documentElement;
+    root.style.fontSize = bigText ? '120%' : '';
+    root.classList.toggle('lesson-hc', highContrast);
+    root.classList.toggle('lesson-keys', easierToSee);   // (the keyboard's place, ringed: globals.css)
+    return () => { root.style.fontSize = ''; root.classList.remove('lesson-hc', 'lesson-keys'); };
+  }, [bigText, highContrast, easierToSee]);
+  const toggleSee = (which: 'lessonBigText' | 'lessonHighContrast') => (which === 'lessonBigText' ? setBigText : setHighContrast)((on) => {
+    try { localStorage.setItem(which, on ? 'off' : 'on'); } catch { /* private mode */ }
+    return !on;
+  });
   // What to call the learner (optional, asked on the start screen; remembered on this browser)
   const [learnerName, setLearnerName] = useState('');
   // (the study: the name they gave on its name page, app/study; kept in this browser only, never sent to the study)
@@ -3708,6 +3728,10 @@ function Player({ deck, preview, startAt = 0, study = null, staticMode = false, 
                 ...(study || isStatic ? [] : [['classmates', 'Classmates', 'Maya, Finn and Leo: they ask questions, and Finn has a go at the hands-on activities', classmateOn, () => setClassmateOn((v) => !v)] as const]),
                 ['bell', 'Sounds', 'Little sounds in the hands-on activities', soundsOn, toggleSounds],
                 ['chat-bubble', 'Class chat', desk ? 'The conversation beside the slide' : 'The latest line under the slide (tap it for the whole chat)', chatOpen, () => setChatOpen((v) => !v)],
+                ...(easierToSee ? [
+                  ['text-size', 'Larger text', 'Bigger words in the chat, the buttons and the questions', bigText, () => toggleSee('lessonBigText')] as const,
+                  ['contrast', 'High contrast', 'Stronger colours and outlines, easier to see', highContrast, () => toggleSee('lessonHighContrast')] as const,
+                ] : []),
               ] as const).map(([icon, name, hint, on, toggle]) => (
                 <button key={name} role="menuitemcheckbox" aria-checked={on} onClick={toggle}
                   className="flex items-center gap-2 px-2.5 py-2 rounded-lg hover:bg-white/10 text-left">
@@ -3721,6 +3745,11 @@ function Player({ deck, preview, startAt = 0, study = null, staticMode = false, 
                   </span>
                 </button>
               ))}
+              {easierToSee && (
+                <p className="px-2.5 pt-1.5 mt-1 border-t border-white/10 text-xs text-white/70 leading-snug" data-keys>
+                  Keys: <b>Space</b> pause or go on · <b>→</b> next part · <b>←</b> back · <b>Shift →</b> next slide · <b>Tab</b> to reach every button
+                </p>
+              )}
             </div>
           )}
         </div>

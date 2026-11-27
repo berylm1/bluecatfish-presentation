@@ -82,7 +82,7 @@ async function slidePicture(slide: Slide): Promise<string | null> {
 }
 
 export type PdfOptions = {
-  kind: 'script' | 'handout' | 'narration';
+  kind: 'script' | 'handout' | 'narration' | 'worksheet';
   /** Teacher script / narration: each slide's helper after it */
   helpers: boolean;
   /** A last page with the lesson's sources */
@@ -145,7 +145,73 @@ export async function exportDeckPdf(deck: Deck, opts: PdfOptions = DEFAULT_PDF, 
 
   const total = deck.slides.length;
   const slideTitle = (i: number) => `Slide ${i + 1} of ${total}${deck.slides[i].topic ? `  ·  ${deck.slides[i].topic}` : ''}`;
-  if (opts.kind === 'handout') {
+  if (opts.kind === 'worksheet') {
+    // A worksheet to print: the lesson's hands-on questions and its quiz as pencil-and-paper questions, by topic,
+    // then an answer key on a page of its own (to cut off or keep back).
+    const key: string[] = [];
+    let n = 0;
+    const rule = (len = 220) => { room(22); pdf.setDrawColor(148, 163, 184).setLineWidth(0.7).line(M + 18, y + 16, M + 18 + len, y + 16); y += 22; };
+    const mix = <T,>(list: T[]): T[] => (list.length < 2 ? list : [...list.slice(Math.ceil(list.length / 2)), ...list.slice(0, Math.ceil(list.length / 2))].reverse());
+    heading = `Worksheet: ${deck.title}`;
+    lines(`${deck.title}`, 20, 'bold', [15, 23, 42]);
+    lines('Worksheet', 12, 'normal', [100, 116, 139]);
+    y += 10;
+    lines('Name: ______________________________        Date: ________________', 11, 'normal', [30, 41, 59]);
+    y += 12;
+    const topics = topicIndexes(deck.slides);
+    deck.slides.forEach((sl, i) => {
+      const boxes = sl.elements.filter((e): e is Extract<SlideElement, { type: 'activity' }> => e.type === 'activity' && !['hotspots', 'slider'].includes(e.kind) && (e.items?.length ?? 0) > 0);
+      if (!boxes.length) return;
+      if (sl.topic && (i === 0 || topics[i] !== topics[i - 1] || !key.length)) { room(40); y += 6; lines(sl.topic, 13, 'bold', [15, 23, 42]); y += 2; }
+      for (const b of boxes) {
+        const items = b.items ?? [];
+        if (b.kind === 'answer' || b.kind === 'cards') {
+          for (const it of items) { n++; room(48); lines(`${n}. ${it.text.replace(/^guess:\s*/i, '')}`, 11, 'normal', [15, 23, 42]); rule(); key.push(`${n}. ${(it.back ?? '').split('|')[0].trim()}`); }
+        } else if (b.kind === 'blank') {
+          if (b.groups?.length) { room(30); lines(`Words to use: ${mix([...new Set([...items.map((it) => (it.back ?? '').split('|')[0].trim()), ...b.groups])]).join('   ')}`, 10, 'italic', [71, 85, 105]); y += 4; }
+          for (const it of items) { n++; room(30); lines(`${n}. ${it.text.replace(/_{2,}/g, '______________')}`, 11, 'normal', [15, 23, 42]); y += 8; key.push(`${n}. ${(it.back ?? '').split('|')[0].trim()}`); }
+        } else if (b.kind === 'match') {
+          n++; room(30 + items.length * 18);
+          lines(`${n}. Match each one on the left with what goes with it: write its letter.`, 11, 'normal', [15, 23, 42]);
+          const right = mix(items.map((it, k) => ({ k, back: it.back ?? '' })));
+          const letter = (k: number) => String.fromCharCode(65 + right.findIndex((r) => r.k === k));
+          items.forEach((it, k) => { lines(`____  ${it.text}`, 11, 'normal', [30, 41, 59], 18); const r = right[k]; if (r) { pdf.text(pdfSafe(`${String.fromCharCode(65 + k)}. ${r.back}`), M + textW / 2, y - 11 * 0.3); } });
+          y += 8;
+          key.push(`${n}. ${items.map((it, k) => `${it.text}: ${letter(k)}`).join(', ')}`);
+        } else if (b.kind === 'sort') {
+          n++; room(60);
+          lines(`${n}. ${(b.prompt?.trim() || 'Sort these into their groups').replace(/[:.]$/, '')}${/[?!]$/.test(b.prompt?.trim() ?? '') ? '' : '.'} Write each one under its group.`, 11, 'normal', [15, 23, 42]);
+          lines(mix(items.map((it) => it.text)).join('   ·   '), 11, 'italic', [71, 85, 105], 18);
+          y += 4;
+          for (const g of b.groups ?? []) { lines(`${g}:`, 11, 'bold', [30, 41, 59], 18); rule(textW - 60); }
+          key.push(`${n}. ${(b.groups ?? []).map((g, gi) => `${g}: ${items.filter((it) => (it.group ?? 0) === gi).map((it) => it.text).join(', ')}`).join('; ')}`);
+        } else if (b.kind === 'order') {
+          n++; room(30 + items.length * 18);
+          lines(`${n}. ${(b.prompt?.trim() || 'Put these in order').replace(/[:.]$/, '')}${/[?!]$/.test(b.prompt?.trim() ?? '') ? '' : '.'} Number them 1 to ${items.length}.`, 11, 'normal', [15, 23, 42]);
+          for (const it of mix(items)) lines(`____  ${it.text}`, 11, 'normal', [30, 41, 59], 18);
+          y += 8;
+          key.push(`${n}. ${items.map((it) => it.text).join(' -> ')}`);
+        }
+      }
+    });
+    const quiz = deck.quiz && !deck.quiz.off ? deck.quiz.questions ?? [] : [];
+    if (quiz.length) {
+      room(60); y += 8; lines('Check what you know', 13, 'bold', [15, 23, 42]); y += 2;
+      for (const q of quiz) {
+        n++; room(30 + q.choices.length * 16);
+        lines(`${n}. ${q.q}`, 11, 'normal', [15, 23, 42]);
+        q.choices.forEach((c, k) => lines(`${String.fromCharCode(65 + k)}.  ${c}`, 11, 'normal', [30, 41, 59], 18));
+        y += 8;
+        key.push(`${n}. ${String.fromCharCode(65 + q.answer)} (${q.choices[q.answer] ?? ''})`);
+      }
+    }
+    if (!n) lines('This lesson has no hands-on questions or quiz to make a worksheet from yet. Add a hands-on box (Type the answer, Fill in the blank, Match the pairs…) and save.', 11, 'normal', [100, 116, 139]);
+    else {
+      pdf.addPage(); y = M; heading = 'Answer key';
+      lines(`Answer key: ${deck.title}`, 14, 'bold', [15, 23, 42]); y += 6;
+      for (const k of key) lines(k, 10, 'normal', [30, 41, 59]);
+    }
+  } else if (opts.kind === 'handout') {
     // Two slides to a page, each with its number and topic above it
     const picH = textW * 9 / 16;
     for (let i = 0; i < total; i++) {
@@ -242,7 +308,7 @@ export async function exportDeckPdf(deck: Deck, opts: PdfOptions = DEFAULT_PDF, 
   }
   // Where the facts come from, each with its web address (clickable)
   const SOURCES = profileOf(deck).sources;   // (the lesson's own, lib/canvas/profile.ts)
-  if (opts.sources && SOURCES.length) {
+  if (opts.sources && SOURCES.length && opts.kind !== 'worksheet') {
     pdf.addPage();
     y = M;
     heading = 'Sources';
@@ -265,6 +331,6 @@ export async function exportDeckPdf(deck: Deck, opts: PdfOptions = DEFAULT_PDF, 
     }
   }
   onProgress?.(deck.slides.length, deck.slides.length);
-  const file = `${(deck.title || 'lesson').replace(/[^\w\s-]/g, '').trim().replace(/\s+/g, '-').slice(0, 60) || 'lesson'}${opts.kind === 'handout' ? '-handout' : opts.kind === 'narration' ? '-narration' : ''}.pdf`;
+  const file = `${(deck.title || 'lesson').replace(/[^\w\s-]/g, '').trim().replace(/\s+/g, '-').slice(0, 60) || 'lesson'}${opts.kind === 'handout' ? '-handout' : opts.kind === 'narration' ? '-narration' : opts.kind === 'worksheet' ? '-worksheet' : ''}.pdf`;
   pdf.save(file);
 }
