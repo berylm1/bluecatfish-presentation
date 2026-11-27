@@ -40,6 +40,7 @@ import SavedVersions from '@/components/editor/SavedVersions';
 import AssistantBox from '@/components/editor/AssistantBox';
 import SlideGrid from '@/components/editor/SlideGrid';
 import CopyLesson from '@/components/editor/CopyLesson';
+import ShareLesson from '@/components/editor/ShareLesson';
 import Icon, { type IconName } from '@/components/Icon';
 
 /*
@@ -242,6 +243,7 @@ function Editor({
   };
   // (asking for a panel opens the side it's in)
   const setPanel = useCallback((p: Panel) => { setPanelRaw(p); setRightOpen(true); }, []);
+  const [shareOpen, setShareOpen] = useState(false);   // "Share with learners…": the link and its QR code
   const [gridOpen, setGridOpen] = useState(false);   // every slide at once (components/editor/SlideGrid.tsx)
   // The slide is drawn as big as the room it has (was: a fixed share of the window's height)
   const stage = useRef<HTMLDivElement>(null);
@@ -1062,6 +1064,7 @@ function Editor({
           {(close) => (
             <>
               <MenuHeading>This lesson</MenuHeading>
+              <MenuItem onClick={() => { close(); setShareOpen(true); }} hint="The lesson’s link, and a QR code for phones">Share with learners…</MenuItem>
               <MenuItem onClick={() => { close(); toggleHeat(); }} disabled={heatLoading}
                 hint="Puzzled faces, “I’m lost”, simpler please… on each slide, for the last 30 days">
                 How learners did{heat ? ' (showing: click to hide)' : ''}
@@ -1163,7 +1166,7 @@ function Editor({
               )}
             </Menu>
             <div className="flex-1" />
-            <div data-help="layers" className="inline-flex rounded-md border border-slate-300 overflow-hidden text-xs" role="tablist" aria-label="Which version">
+            <div data-help="layers" className="inline-flex shrink-0 rounded-md border border-slate-300 overflow-hidden text-xs whitespace-nowrap" role="tablist" aria-label="Which version">
               <button role="tab" aria-selected={ed.layer === 'main'} onClick={() => switchLayer('main')}
                 className={`px-3 py-1.5 ${ed.layer === 'main' ? 'bg-slate-900 text-white font-semibold' : 'bg-white hover:bg-slate-100 text-slate-700'}`} title="The slide as learners first see it">Main</button>
               <button role="tab" aria-selected={ed.layer === 'helper'} onClick={() => switchLayer('helper')}
@@ -1234,7 +1237,7 @@ function Editor({
           </div>
           )}
           </div>
-          {heat && <div className="shrink-0 px-4 pb-2 flex justify-center" onPointerDown={(e) => e.stopPropagation()}><SlideStatsPanel stats={heat[main.id]} days={HEAT_DAYS} onClose={() => setHeat(null)} all={heat} slides={deck.slides} current={main.id} onGo={(i) => goToRepeat(i)} /></div>}
+          {heat && <div className="shrink-0 max-h-[46%] overflow-y-auto px-4 pb-2 flex justify-center" onPointerDown={(e) => e.stopPropagation()}><SlideStatsPanel stats={heat[main.id]} days={HEAT_DAYS} onClose={() => setHeat(null)} all={heat} slides={deck.slides} current={main.id} onGo={(i) => goToRepeat(i)} /></div>}
           {morphPreview !== null && main && (
             <div className="fixed inset-0 z-50 bg-slate-950/70 flex flex-col items-center justify-center gap-3 p-6" onPointerDown={(e) => { e.stopPropagation(); setMorphPreview(null); }} role="dialog" aria-label="Morph preview">
               <SlideCanvas slide={morphPreview ? helperView(main) : main} morph width="min(80vw, calc(75vh * 16 / 9))" />
@@ -1428,6 +1431,7 @@ function Editor({
         </aside>
       </div>
 
+      {shareOpen && <ShareLesson lessonId={lessonId} title={deck.title} published={!!live} onClose={() => setShareOpen(false)} />}
       {gridOpen && <SlideGrid slides={deck.slides} current={slideIdx} warnCounts={allWarnings.map((w) => w.filter((x) => x.level === 'warn').length)}
         onOpen={(i) => { ed.setSlideIdx(i); ed.setSelected(null); }} onMove={moveSlide} onClose={() => setGridOpen(false)} />}
 

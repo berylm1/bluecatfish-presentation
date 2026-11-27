@@ -52,6 +52,8 @@ export type HandsOnStats = {
   avgSeconds: number | null; // from the learner's turn to done
   /** What went wrong most: [item, times], most first (at most 5) */
   hardest: [string, number][];
+  /** What learners answered wrong, by question (a typed answer, a word picked, a group chosen): each question's wrong answers, most given first */
+  wrongAnswers: { question: string; answers: [string, number][] }[];
 };
 
 const empty = (): SlideStats => ({
@@ -59,7 +61,7 @@ const empty = (): SlideStats => ({
   repeats: 0, questions: 0, selfCheck: { got: 0, kind: 0, lost: 0 }, helpOffered: 0, helpAccepted: 0,
   avgSeconds: null, away: 0, handsOn: null, meter: null,
 });
-const emptyHandsOn = (): HandsOnStats => ({ started: 0, done: 0, skipped: 0, hints: 0, wrong: 0, steppedIn: 0, finn: 0, finnCaught: 0, avgSeconds: null, hardest: [] });
+const emptyHandsOn = (): HandsOnStats => ({ started: 0, done: 0, skipped: 0, hints: 0, wrong: 0, steppedIn: 0, finn: 0, finnCaught: 0, avgSeconds: null, hardest: [], wrongAnswers: [] });
 
 /** Stats per slide id. */
 export function slideStats(rows: EventRow[]): Record<string, SlideStats> {
@@ -69,6 +71,7 @@ export function slideStats(rows: EventRow[]): Record<string, SlideStats> {
   const dwell: Record<string, number[]> = {};
   const handsOnTimes: Record<string, number[]> = {};
   const wrongItems: Record<string, Record<string, number>> = {};
+  const wrongAnswers: Record<string, Record<string, Record<string, number>>> = {};   // slide → question → wrong answer → times
   // The meter's snapshots: one per learner and topic, the newest (rows come newest first; partial ones lose to a full one)
   const snap = new Map<string, { partial: boolean; points: { slide: string; box: string | null; total: number }[] }>();
   const metered = new Map<string, Set<string>>();   // session → the topics it has a snapshot of
@@ -144,6 +147,15 @@ export function slideStats(rows: EventRow[]): Record<string, SlideStats> {
             if (typeof v.item === 'string' && v.item) {
               const w = (wrongItems[slide] ??= {});
               w[v.item] = (w[v.item] ?? 0) + 1;
+              // (newer events say the question and the answer apart; older ones as "question → answer")
+              const cut = v.item.lastIndexOf(' → ');
+              const question = typeof v.question === 'string' && v.question ? v.question : cut > 0 ? v.item.slice(0, cut) : '';
+              const chosen = typeof v.chosen === 'string' && v.chosen ? v.chosen : cut > 0 ? v.item.slice(cut + 3) : '';
+              if (question && chosen) {
+                const q = ((wrongAnswers[slide] ??= {})[question] ??= {});
+                const key = chosen.trim().toLowerCase();
+                q[key] = (q[key] ?? 0) + 1;
+              }
             }
           }
         }
@@ -183,6 +195,9 @@ export function slideStats(rows: EventRow[]): Record<string, SlideStats> {
       const t = handsOnTimes[slide];
       s.handsOn.avgSeconds = t?.length ? Math.round(t.reduce((a, b) => a + b, 0) / t.length) : null;
       s.handsOn.hardest = Object.entries(wrongItems[slide] ?? {}).sort((a, b) => b[1] - a[1]).slice(0, 5);
+      s.handsOn.wrongAnswers = Object.entries(wrongAnswers[slide] ?? {})
+        .map(([question, a]) => ({ question, answers: Object.entries(a).sort((x, y) => y[1] - x[1]).slice(0, 6) as [string, number][] }))
+        .sort((x, y) => y.answers.reduce((n, a) => n + a[1], 0) - x.answers.reduce((n, a) => n + a[1], 0)).slice(0, 8);
     }
   }
   return out;

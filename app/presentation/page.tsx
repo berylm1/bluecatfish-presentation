@@ -2865,7 +2865,8 @@ function Player({ deck, preview, startAt = 0, study = null, staticMode = false, 
   const mistakeCounts = useRef(new Map<string, number>());   // `${box}|${item}` → wrong moves
   const steppedIn = useRef(new Map<string, Set<string>>());  // box → items already explained
   const onActivityMistake = useCallback((id: string, m: ActivityMistake) => {
-    track('tutor_decision', { action: 'activity_wrong', item: m.label.slice(0, 80) });
+    // (question and chosen: what was asked and what they answered, each whole, for the editor's "what learners answered")
+    track('tutor_decision', { action: 'activity_wrong', item: m.label.slice(0, 80), question: m.item.slice(0, 120), chosen: m.chosen.slice(0, 60) });
     noteStruggle(`${m.item} (goes with ${m.correct})`);
     const key = `${id}|${m.item}`;
     const n = (mistakeCounts.current.get(key) ?? 0) + 1;
@@ -3273,7 +3274,7 @@ function Player({ deck, preview, startAt = 0, study = null, staticMode = false, 
   // (sideways: each button fills its place in the two rows, its name beside the icon, smaller)
   const btn = sideDock
     ? 'w-full h-8 px-1 flex items-center justify-center gap-0.5 rounded-lg bg-white/10 hover:bg-white/20 text-[10px] leading-[1.1] font-medium transition-colors disabled:opacity-40'
-    : 'px-2.5 py-2 rounded-lg bg-white/10 hover:bg-white/20 text-sm font-medium transition-colors disabled:opacity-40';
+    : 'px-2.5 py-2 rounded-lg bg-white/10 hover:bg-white/20 text-sm font-medium transition-colors disabled:opacity-40 max-sm:min-w-11 max-sm:min-h-11 max-sm:inline-flex max-sm:items-center max-sm:justify-center max-sm:text-lg';
   const group = 'flex items-center gap-1 p-1 rounded-xl bg-white/[0.04] border border-white/10';
   // a button's name: hidden (but read out) on a phone, and on a phone turned sideways
   const label = sideDock ? '' : 'max-sm:sr-only [@media(max-height:500px)]:sr-only';
@@ -3701,7 +3702,7 @@ function Player({ deck, preview, startAt = 0, study = null, staticMode = false, 
             <span className="ml-1.5 text-xs opacity-80">{SHOW_OPTION_ICONS && ([interruptOn && 'microphone', cameraOn && 'camera', classmateOn && 'classmates', soundsOn && 'bell', chatOpen && 'chat-bubble'] as (IconName | false)[]).map((n) => n && <Icon key={n} name={n} className="mr-0.5" />)}{voiceSpeed !== 1 && ` ${voiceSpeed}×`}</span>
           </button>
           {optionsOpen && (
-            <div className="absolute bottom-full mb-2 right-0 z-30 w-72 rounded-xl bg-slate-900/95 border border-white/15 shadow-2xl p-2 flex flex-col gap-1" role="menu">
+            <div className="absolute bottom-full mb-2 right-0 z-30 w-72 max-h-[calc(100dvh-5rem)] overflow-y-auto rounded-xl bg-slate-900/95 border border-white/15 shadow-2xl p-2 flex flex-col gap-1 max-sm:fixed max-sm:inset-x-2 max-sm:bottom-2 max-sm:mb-0 max-sm:w-auto max-sm:max-h-[80dvh] [@media(max-height:500px)]:fixed [@media(max-height:500px)]:top-2 [@media(max-height:500px)]:bottom-2 [@media(max-height:500px)]:right-2 [@media(max-height:500px)]:mb-0 [@media(max-height:500px)]:max-h-none" role="menu" data-options-menu>
               {/* Voice speed: three steps, not a switch */}
               <div className="px-2.5 pt-1.5 pb-2 border-b border-white/10 mb-1">
                 <span className="block text-sm font-medium" id="speed-label"><Icon name="speaker" /> Voice speed</span>

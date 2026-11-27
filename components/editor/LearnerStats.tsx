@@ -36,10 +36,24 @@ function HandsOnRow({ h }: { h: NonNullable<SlideStats['handsOn']> }) {
       {h.steppedIn > 0 && <span className="whitespace-nowrap" title="The same item wrong twice: the professor explained it">professor stepped in <b>{h.steppedIn}</b></span>}
       {h.finn > 0 && <span className="whitespace-nowrap" title="Finn put an item in the wrong group (or guessed wrong) for the learner to catch">caught Finn&apos;s mistake <b>{h.finnCaught}</b> of <b>{h.finn}</b></span>}
       {h.hints > 0 && <span className="whitespace-nowrap" title="“I’m lost” or a puzzled face while doing it: the hand showed again">👆 needed the hint <b>{h.hints}</b></span>}
-      {h.hardest.length > 0 && (
+      {h.hardest.length > 0 && !(h.wrongAnswers ?? []).length && (
         <span className="whitespace-nowrap" title="What went wrong most often">
           trickiest: {h.hardest.map(([item, n], i) => <span key={item}>{i ? ', ' : ''}<b>{item}</b> ({n})</span>)}
         </span>
+      )}
+      {/* What learners answered wrong, by question: the answers that keep coming back show what was misunderstood */}
+      {(h.wrongAnswers ?? []).length > 0 && (
+        <div className="w-full mt-1" data-wrong-answers>
+          <span className="font-semibold text-slate-900">What learners answered wrong</span>
+          <ul className="mt-0.5 flex flex-col gap-0.5">
+            {h.wrongAnswers.map((w) => (
+              <li key={w.question} className="flex flex-wrap gap-x-2">
+                <span className="text-slate-900">{w.question}</span>
+                <span className="text-slate-600">{w.answers.map(([a, n], i) => <span key={a}>{i ? ' · ' : ''}<b className="text-red-700">{a}</b>{n > 1 ? ` ×${n}` : ''}</span>)}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
       )}
     </div>
   );
@@ -120,6 +134,52 @@ function HandsOnOverview({ all, slides, current, onGo }: {
   );
 }
 
+/** How long learners spend on each slide (the average), as bars: a slide far longer or shorter than its neighbours stands out. */
+function TimeOverview({ all, slides, current, onGo }: { all: Record<string, SlideStats>; slides: { id: string; topic?: string }[]; current: string; onGo: (index: number) => void }) {
+  const times = slides.map((s) => all[s.id]?.avgSeconds ?? null);
+  const known = times.filter((t): t is number => t !== null);
+  if (known.length < 2) return null;
+  const top = Math.max(...known);
+  const total = known.reduce((a, b) => a + b, 0);
+  return (
+    <div className="mt-1.5 pt-1.5 border-t border-slate-100" data-time-overview>
+      <span className="font-semibold text-slate-900">Time on each slide</span>
+      <span className="text-slate-400"> · average seconds · about {Math.round(total / 60)} min for the whole lesson</span>
+      <div className="mt-1 flex items-end gap-0.5 h-12" role="list">
+        {slides.map((s, i) => {
+          const t = times[i];
+          return (
+            <button key={s.id} role="listitem" onClick={() => onGo(i)} title={`Slide ${i + 1}${s.topic ? ` · ${s.topic}` : ''}: ${t === null ? 'no data yet' : `${t} s on average`}`}
+              className="flex-1 min-w-0 h-full flex flex-col justify-end items-stretch group">
+              <span className={`block rounded-t ${s.id === current ? 'bg-slate-900' : 'bg-slate-400 group-hover:bg-slate-600'}`} style={{ height: t === null ? '2px' : `${Math.max(6, Math.round((t / top) * 100))}%` }} />
+            </button>
+          );
+        })}
+      </div>
+      <div className="flex justify-between text-slate-400"><span>slide 1</span><span>slide {slides.length}</span></div>
+    </div>
+  );
+}
+
+/** Every slide's numbers as a CSV file (opens in any spreadsheet). */
+function downloadCsv(all: Record<string, SlideStats>, slides: { id: string; topic?: string }[], days: number) {
+  const cell = (v: string | number | null | undefined) => { const t = v === null || v === undefined ? '' : String(v); return /[",\n]/.test(t) ? `"${t.replace(/"/g, '""')}"` : t; };
+  const head = ['Slide', 'Topic', 'Learners', 'Struggled', 'Struggled %', 'Average seconds', 'I am lost', 'Simpler please', 'Repeats', 'Questions', 'Puzzled faces', 'Looked away',
+    'Self-check got it', 'Self-check kind of', 'Self-check lost', 'Hands-on started', 'Hands-on done', 'Hands-on skipped', 'Hands-on wrong moves', 'Hands-on average seconds', 'Wrong answers'];
+  const rows = slides.map((s, i) => {
+    const st = all[s.id], h = st?.handsOn;
+    return [i + 1, s.topic ?? '', st?.learners ?? 0, st?.struggled ?? 0, st ? Math.round(st.share * 100) : 0, st?.avgSeconds, st?.lostClicks ?? 0, st?.simpler ?? 0, st?.repeats ?? 0, st?.questions ?? 0, st?.puzzledFace ?? 0, st?.away ?? 0,
+      st?.selfCheck.got ?? 0, st?.selfCheck.kind ?? 0, st?.selfCheck.lost ?? 0, h?.started ?? '', h?.done ?? '', h?.skipped ?? '', h?.wrong ?? '', h?.avgSeconds ?? '',
+      (h?.wrongAnswers ?? []).map((w) => `${w.question}: ${w.answers.map(([a, n]) => `${a} (${n})`).join(', ')}`).join(' | ')];
+  });
+  const csv = '\uFEFF' + [head, ...rows].map((r) => r.map(cell).join(',')).join('\r\n');
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
+  a.download = `lesson-results-last-${days}-days.csv`;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}
+
 export function SlideStatsPanel({ stats, days, onClose, all, slides, current, onGo }: {
   stats: SlideStats | undefined; days: number; onClose: () => void;
   /** The whole lesson's stats, for the hands-on overview */
@@ -131,8 +191,9 @@ export function SlideStatsPanel({ stats, days, onClose, all, slides, current, on
     );
   return (
     <div className="w-full max-w-3xl rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-700">
-      <div className="flex items-center justify-between mb-1">
-        <span className="font-semibold text-slate-900">Learners on this slide · last {days} days</span>
+      <div className="flex items-center gap-3 mb-1">
+        <span className="font-semibold text-slate-900 mr-auto">Learners on this slide · last {days} days</span>
+        {all && slides && <button className="underline text-slate-700 hover:text-slate-950" onClick={() => downloadCsv(all, slides, days)} data-stats-csv title="Every slide’s numbers as a file that opens in Excel, Numbers or Google Sheets">Download as a spreadsheet</button>}
         <button className="text-slate-400 hover:text-slate-700" onClick={onClose} aria-label="Hide learner data">✕</button>
       </div>
       {!stats || stats.learners === 0 ? (
@@ -163,6 +224,7 @@ export function SlideStatsPanel({ stats, days, onClose, all, slides, current, on
       )}
       {stats?.meter && <MeterRow m={stats.meter} elements={slides?.find((s) => s.id === current)?.elements} />}
       {stats?.handsOn && <HandsOnRow h={stats.handsOn} />}
+      {all && slides && onGo && <TimeOverview all={all} slides={slides} current={current ?? ''} onGo={onGo} />}
       {all && slides && onGo && <HandsOnOverview all={all} slides={slides} current={current ?? ''} onGo={onGo} />}
     </div>
   );
