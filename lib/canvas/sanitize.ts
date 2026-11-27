@@ -282,7 +282,10 @@ export function bank(raw: any): Deck['bank'] {
     if (seen.has(qid)) qid = `${qid}-${i}`;
     seen.add(qid);
     const answer = slide({ ...q.slide, id: id(q.slide.id, `${qid}-s`) }, i);
-    return [{ id: qid, topic, q: text, asker: ASKERS.includes(q?.asker) ? q.asker : 'maya', slide: answer, byAI: bool(q?.byAI) }];
+    // (anchor: the slide it's asked on. Was: dropped here, so every save in the editor lost each question's slide,
+    // the one picked in the Questions panel too)
+    const anchor = typeof q?.anchor === 'string' && /^[\w-]{1,64}$/.test(q.anchor) ? q.anchor : undefined;
+    return [{ id: qid, topic, q: text, asker: ASKERS.includes(q?.asker) ? q.asker : 'maya', slide: answer, byAI: bool(q?.byAI), ...(anchor ? { anchor } : {}) }];
   });
   const from: Record<string, string> = {};
   if (raw.from && typeof raw.from === 'object') {
