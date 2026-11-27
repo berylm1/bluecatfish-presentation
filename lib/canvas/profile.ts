@@ -127,7 +127,7 @@ export const teacherPicture = (p: Pick<LessonProfile, 'teacher'>): string =>
 
 /** Does the lesson use math (stacked fractions, the math visuals)? What's set, else by its subject */
 export const usesMath = (p: Pick<LessonProfile, 'subject' | 'about' | 'mathText'>): boolean =>
-  p.mathText ?? /\b(math|maths|mathematics|arithmetic|algebra|geometry|trigonometry|calculus|statistics|fractions?|decimals?|percent\w*|physics)\b/i.test(`${p.subject} ${p.about}`);
+  p.mathText ?? /\b(math|maths|mathematics|arithmetic|algebra|geometry|trigonometry|calculus|statistics|probability|fractions?|decimals?|percent\w*|ratios?|equations?|graphs?|physics|speed|velocity|multiplication|division|addition|subtraction|measur\w+|calculat\w+)\b/i.test(`${p.subject} ${p.about}`);
 
 /** The placeholders in the AI's instructions, and what each becomes for this lesson */
 export function placeholders(p: LessonProfile): Record<string, string> {

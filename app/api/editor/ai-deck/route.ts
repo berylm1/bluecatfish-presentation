@@ -32,6 +32,15 @@ export async function POST(req: Request) {
   if (!isLessonId(lesson)) return NextResponse.json({ error: 'Bad lesson' }, { status: 400 });
   const info = (await listLessons()).find((l) => l.id === lesson) ?? { id: lesson, title: lesson };
   const draft = await readDeck(lesson, 'draft');
+  // { syncDraft: true }: the AI deck as it is NOW (after its audio, plain versions, class questions… are made:
+  // /api/editor/prepare with kind "ai") becomes the draft too, for a lesson nobody has edited yet (the "New lesson"
+  // flow's last step: the editor opens on a lesson that's ready, not one with everything still to write)
+  if (body.syncDraft === true) {
+    const ai = await readDeck(lesson, 'ai');
+    if (!ai?.slides?.length || !draft || draft.editRev) return NextResponse.json({ ok: true, synced: false });
+    const failed = await writeDeck(lesson, 'draft', { ...ai, source: 'hand', profile: draft.profile ?? ai.profile }, await editorName(req));
+    return NextResponse.json({ ok: true, synced: !failed, warning: failed ?? undefined });
+  }
   const plan: TopicPlan[] | undefined = Array.isArray(body.sections)
     ? body.sections.slice(0, 8).flatMap((x: any) => {
       const title = typeof x?.title === 'string' ? x.title.trim().slice(0, 80) : '';

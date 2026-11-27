@@ -87,13 +87,31 @@ export default function NewLessonWizard({ onClose, onCreated, onBlank }: {
           pictureNotes.push('Free pictures couldn’t be added this time: add some in the Images tab (🌍 Find free pictures).');
         }
       }
-      setBusy(`Writing the slides for “${made.lesson.title}”: each section in turn, then the pictures, the story order and the recap. This takes a few minutes…`);
+      setBusy(`Writing the slides for “${made.lesson.title}”: each section in turn, then the pictures, the story order and the recap. A minute or two…`);
       const res2 = await fetch('/api/editor/ai-deck', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ lesson: made.lesson.id, sections: outline.sections, material: material.trim() || undefined, draft: true }),
       });
       const drafted = await res2.json().catch(() => ({}));
-      const notes: string[] = [...(made.notes ?? []), ...pictureNotes, ...(drafted.notes ?? [])];
+      // Then what makes it a lesson to play: the professor's voice for every part, the simpler versions, the helpers and
+      // the classmates' questions (the editor's save-time AI, here for the new lesson so it's ready when it opens).
+      // (was: left for the first Save, and learners got a lesson with no recorded voice or class questions meanwhile)
+      const voiceNotes: string[] = [];
+      if (res2.ok && !drafted.error) {
+        try {
+          const until = Date.now() + 9 * 60_000;
+          for (let round = 0; round < 30 && Date.now() < until; round++) {
+            const r = await fetch('/api/editor/prepare', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ lesson: made.lesson.id, kind: 'ai' }) }).then((x) => x.json()).catch(() => null);
+            if (!r || r.error) { voiceNotes.push('The voice and the class questions aren’t all made yet: press Save in the editor to finish them.'); break; }
+            setBusy(`Recording the professor’s voice and writing the classmates’ questions${r.remaining ? `: ${r.remaining} left` : ''}…`);
+            if (!r.remaining || (!r.patches?.length && !r.more)) break;
+          }
+          await fetch('/api/editor/ai-deck', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ lesson: made.lesson.id, syncDraft: true }) }).catch(() => null);
+        } catch {
+          voiceNotes.push('The voice and the class questions aren’t all made yet: press Save in the editor to finish them.');
+        }
+      }
+      const notes: string[] = [...(made.notes ?? []), ...pictureNotes, ...(drafted.notes ?? []), ...voiceNotes];
       if (!res2.ok || drafted.error) notes.unshift(`The slides couldn’t be drafted (${drafted.error ?? res2.status}): the lesson is made, with its outline in 📘 Lesson. Try More ▾ → Start from AI… in it.`);
       onCreated(made.lesson, notes);
     } catch (e) {
