@@ -15,8 +15,11 @@ export default function ImageLibrary({
   mode = 'add',
   lesson,
   kb,
+  onSuggestPlaces,
 }: {
   onAdd: (img: Img) => void;
+  /** "Suggest where they go": the AI looks at every slide again for a picture from the library (on the next save) */
+  onSuggestPlaces?: () => void;
   /** The knowledge base an upload goes in (the lesson's own; not given: the blue catfish lesson's) */
   kb?: string;
   /** The lesson being edited: its knowledge bases' pictures (and the shared ones) */
@@ -117,6 +120,13 @@ export default function ImageLibrary({
             <button className="px-3 py-1.5 rounded-md bg-slate-900 hover:bg-slate-700 text-white text-sm font-semibold">Search</button>
           </form>
           <p className="text-[11px] text-slate-500 -mt-1">Click a picture to add it to the slide, or drag it where you want it.</p>
+          {onSuggestPlaces && mode === 'add' && images.length > 0 && (
+            <button onClick={onSuggestPlaces} data-suggest-places title="The AI looks at every slide again and suggests pictures from this library for the ones they fit. You say yes or no to each, in the Check tab."
+              className="px-2 py-1.5 rounded-md border border-violet-400 bg-violet-50 hover:bg-violet-100 text-xs font-semibold text-violet-900 text-left">
+              ✨ Suggest where these pictures go
+              <span className="block font-normal text-violet-800/80">The AI checks every slide when you save. You pick which to keep.</span>
+            </button>
+          )}
           {status && <p className="text-xs text-slate-600">{status}{!images.length && lesson && status.startsWith('No images') ? ' Try 🌍 Find free, or ⬆ Upload.' : ''}</p>}
       {/* Each picture whole, at its own shape (was: cropped to squares to save space); two columns, like a wall of photos */}
       <div className="columns-2 gap-2 overflow-y-auto pr-1" data-image-library>

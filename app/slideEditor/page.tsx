@@ -1214,6 +1214,11 @@ function Editor({
               <ImageLibrary
                 lesson={deck.lessonId}
                 kb={profileOf(deck).knowledgeBases[0]}
+                onSuggestPlaces={() => {
+                  // (every slide's picture check is forgotten: the next save looks at them all again, with the library as it is now)
+                  ed.change((d) => { d.checks = { ...d.checks, pictures: {} }; });
+                  flash('Press Save: the AI looks at every slide for pictures from the library. Its suggestions come up in the 🔎 Check tab.');
+                }}
                 mode={panel === 'background' ? 'background' : 'add'}
                 onAdd={(img) => {
                   if (panel === 'background') {
