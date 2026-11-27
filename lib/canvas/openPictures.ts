@@ -53,9 +53,13 @@ export function openLicense(raw: string): string | null {
 }
 
 async function getJson(url: string): Promise<any> {
-  const res = await fetch(url, { headers: { 'User-Agent': AGENT, Accept: 'application/json' }, signal: AbortSignal.timeout(12000) });
-  if (!res.ok) throw new Error(`${new URL(url).host} answered ${res.status}`);
-  return res.json();
+  // (429: asked too fast. Once more after a moment, then give up on this one)
+  for (let attempt = 0; ; attempt++) {
+    const res = await fetch(url, { headers: { 'User-Agent': AGENT, Accept: 'application/json' }, signal: AbortSignal.timeout(12000) });
+    if (res.ok) return res.json();
+    if (res.status !== 429 || attempt >= 1) throw new Error(`${new URL(url).host} answered ${res.status}`);
+    await new Promise((r) => setTimeout(r, 1500));
+  }
 }
 
 /* ------------------------------------------------------------ sources */
@@ -71,7 +75,8 @@ function fromCommons(pages: any): OpenPicture[] {
     // (photos and drawings a slide can show: not sound, video, PDFs or huge scans; SVGs come as a PNG rendition)
     if (!ii || !license || !/^image\/(jpeg|png|webp|gif|svg\+xml)$/.test(ii.mime ?? '') || (ii.width ?? 0) < 300) return [];
     const url = ii.thumburl || ii.url;
-    if (typeof url !== 'string' || !url.startsWith('https://upload.wikimedia.org/')) return [];
+    // (Commons' own picture servers: the full files on upload.…, the smaller renditions on thumb.…)
+    if (typeof url !== 'string' || !/^https:\/\/(upload|thumb)\.wikimedia\.org\//.test(url)) return [];
     return [{
       source: 'wikimedia', id: String(p.title), title: text(meta.ObjectName?.value || String(p.title).replace(/^File:/, '').replace(/\.\w+$/, '').replace(/_/g, ' '), 120),
       url, thumb: url.replace(/\/(\d+)px-/, '/330px-'), page: String(ii.descriptionurl ?? `https://commons.wikimedia.org/wiki/${encodeURIComponent(String(p.title))}`),
@@ -105,7 +110,8 @@ export async function searchOpenPictures(query: string, count = 12): Promise<Ope
   const q = query.replace(/\s+/g, ' ').trim().slice(0, 120);
   if (!q) return [];
   const commons = await searchCommons(q, count).catch((e) => { console.warn('Commons search failed:', e instanceof Error ? e.message : e); return [] as OpenPicture[]; });
-  if (commons.length >= count) return commons;
+  // (Openverse only when Commons has little: it allows few searches a day without an account)
+  if (commons.length >= Math.min(count, 4)) return commons;
   const more = await searchOpenverse(q, count - commons.length).catch((e) => { console.warn('Openverse search failed:', e instanceof Error ? e.message : e); return [] as OpenPicture[]; });
   return [...commons, ...more];
 }
@@ -216,7 +222,13 @@ export async function findLessonPictures(opts: { kb: string; about: string; sect
   }
   if (!queries.length) return { added: [], notes };
 
-  const found = await Promise.all(queries.map((q) => searchOpenPictures(q, 4).catch(() => [] as OpenPicture[])));
+  // (one search after another, a moment apart: the picture sites turn away many at once)
+  const found: OpenPicture[][] = [];
+  for (const q of queries) {
+    if (Date.now() > deadline - 40_000) break;
+    found.push(await searchOpenPictures(q, 4).catch(() => [] as OpenPicture[]));
+    await new Promise((r) => setTimeout(r, 350));
+  }
   // one from each search first, then the seconds: variety before depth
   const line: OpenPicture[] = [];
   const seen = new Set<string>();
