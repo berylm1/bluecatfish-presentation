@@ -2,18 +2,18 @@
 
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import Icon, { type IconName } from '@/components/Icon';
 import { STUDY_OPEN } from '@/lib/settings';
 
 // The two versions of the lesson (STUDY_OPEN off: Start offers them; nothing is saved to the study)
-const VERSIONS: { href: string; name: string; line: string; has: { icon: IconName; text: string }[] }[] = [
+const VERSIONS: { mode: '' | 'static'; name: string; line: string; has: { icon: IconName; text: string }[] }[] = [
   {
-    href: '/presentation', name: 'Adaptive', line: 'The lesson notices you and answers back.',
+    mode: '', name: 'Adaptive', line: 'The lesson notices you and answers back.',
     has: [{ icon: 'microphone', text: 'Ask the professor anything' }, { icon: 'classmates', text: 'Classmates Maya, Finn and Leo' }, { icon: 'simpler', text: 'Simpler words, another way to see it' }],
   },
   {
-    href: '/presentation?mode=static', name: 'Static', line: 'The same slides, narrated start to finish.',
+    mode: 'static', name: 'Static', line: 'The same slides, narrated start to finish.',
     has: [{ icon: 'speaker', text: 'The professor reads each slide' }, { icon: 'hands-on-activity', text: 'The same hands-on activities' }, { icon: 'pause', text: 'Pause, back and next, like a video' }],
   },
 ];
@@ -40,18 +40,45 @@ export default function Home() {
       setAsking(false);
     }
   };
-  const go = (cam: boolean) => router.push(cam ? '/presentation?camera=1' : '/presentation');
+  // Another lesson than the blue catfish one: /?lesson=<its id> (its name, its line and its teacher come from its
+  // profile, /api/deck/info; the blue catfish lesson's page is as it always was)
+  const [lesson, setLesson] = useState<string | null>(null);
+  const [info, setInfo] = useState<{ title: string; pitch: string; about: string; teacher: string; picture: string } | null>(null);
+  useEffect(() => {
+    const id = new URLSearchParams(window.location.search).get('lesson');
+    if (!id || !/^[a-z0-9][a-z0-9-]{0,60}$/.test(id) || /^blue-catfish$/.test(id)) return;
+    setLesson(id);
+    fetch(`/api/deck/info?lesson=${encodeURIComponent(id)}`).then((r) => (r.ok ? r.json() : null)).then((d) => { if (d?.title) setInfo(d); }).catch(() => {});
+  }, []);
+  /** The lesson's page, for this lesson and these choices */
+  const lessonUrl = (o: { mode?: string; camera?: boolean } = {}) => {
+    const q = new URLSearchParams();
+    if (lesson) q.set('lesson', lesson);
+    if (o.mode) q.set('mode', o.mode);
+    if (o.camera) q.set('camera', '1');
+    const s = q.toString();
+    return s ? `/presentation?${s}` : '/presentation';
+  };
+  const go = (cam: boolean) => router.push(lessonUrl({ camera: cam }));
   return (
     <main className="min-h-screen flex flex-col bg-gradient-to-br from-sky-950 via-slate-900 to-cyan-950 text-white">
       <div className="flex-1 flex items-center justify-center px-6 py-12">
         <div className="max-w-3xl text-center flex flex-col items-center">
-          {/* the lesson's own catfish (was: an emoji fish) */}
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/canvas-sample/catfish.svg" alt="" className="w-56 max-w-[60vw] mb-6 drop-shadow-[0_12px_30px_rgba(34,211,238,0.25)]" />
-          <p className="text-xs uppercase tracking-[0.25em] text-cyan-300/80 mb-3">A lesson with Professor Marine</p>
-          <h1 className="text-5xl md:text-7xl font-bold mb-5">Meet the Blue Catfish</h1>
+          {/* eslint-disable @next/next/no-img-element */}
+          {lesson ? (
+            // (another lesson: its teacher's picture, if it has one; no catfish)
+            info?.picture
+              ? <img src={info.picture} alt="" className="w-28 h-28 rounded-full object-cover mb-6 ring-4 ring-cyan-300/30 drop-shadow-[0_12px_30px_rgba(34,211,238,0.25)]" />
+              : <div className="h-6" />
+          ) : (
+            // the blue catfish lesson's own catfish (was: an emoji fish)
+            <img src="/canvas-sample/catfish.svg" alt="" className="w-56 max-w-[60vw] mb-6 drop-shadow-[0_12px_30px_rgba(34,211,238,0.25)]" />
+          )}
+          {/* eslint-enable @next/next/no-img-element */}
+          <p className="text-xs uppercase tracking-[0.25em] text-cyan-300/80 mb-3" data-home-teacher>{lesson ? (info ? `A lesson with ${info.teacher}` : '\u00a0') : 'A lesson with Professor Marine'}</p>
+          <h1 className="text-5xl md:text-7xl font-bold mb-5" data-home-title>{lesson ? info?.title ?? '\u00a0' : 'Meet the Blue Catfish'}</h1>
           <p className="text-lg md:text-xl text-slate-300 mb-10 max-w-xl">
-            A short, hands-on lesson about the giant fish that&apos;s changing the Chesapeake Bay.
+            {lesson ? info?.pitch || (info ? `A short, hands-on lesson about ${info.about}.` : '\u00a0') : <>A short, hands-on lesson about the giant fish that&apos;s changing the Chesapeake Bay.</>}
           </p>
           {STUDY_OPEN ? (
             <>
@@ -63,7 +90,7 @@ export default function Home() {
                 ▶ Start the lesson
               </Link>
               {/* The lesson on its own, outside the study (nothing saved to the study) */}
-              <Link href="/presentation" className="mt-6 text-sm text-slate-400 hover:text-white underline">
+              <Link href={lessonUrl()} className="mt-6 text-sm text-slate-400 hover:text-white underline">
                 Just the lesson (not the study)
               </Link>
             </>
@@ -109,7 +136,7 @@ export default function Home() {
               <div className="grid sm:grid-cols-2 gap-4 text-left">
                 {VERSIONS.map((v) => (
                   // (adaptive: the camera and microphone first)
-                  <Link key={v.name} href={v.href} onClick={(e) => { if (v.name === 'Adaptive') { e.preventDefault(); setStep('camera'); } }}
+                  <Link key={v.name} href={lessonUrl({ mode: v.mode })} onClick={(e) => { if (v.name === 'Adaptive') { e.preventDefault(); setStep('camera'); } }}
                     className="group rounded-2xl border border-white/10 bg-white/[0.04] hover:bg-white/[0.08] hover:border-cyan-300/50 p-5 transition-colors flex flex-col">
                     <span className="flex items-baseline justify-between gap-3">
                       <span className="text-2xl font-bold">{v.name}</span>

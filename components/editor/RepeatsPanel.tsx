@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Deck } from '@/lib/canvas/types';
-import { deckSections, factSlide, findCrossSectionRepeats } from '@/lib/lessonOverlap';
+import { deckAbout, deckSections, factSlide, findCrossSectionRepeats } from '@/lib/lessonOverlap';
 import type { RepeatSuggestion } from '@/lib/canvas/repeats';
 import { changedSinceRepeats, lessonBasis, repeatKey, repeatSlides } from '@/lib/canvas/checks';
 
@@ -41,7 +41,7 @@ export default function RepeatsPanel({ deck, active, runSignal = 0, onAccept, on
 
   // The free word match: updates as you edit, while the panel shows (it compares every pair of lines:
   // not on every keystroke while you're working in another tab)
-  const quick = useMemo(() => (active ? findCrossSectionRepeats(deckSections(deck)) : []), [deck, active]);
+  const quick = useMemo(() => (active ? findCrossSectionRepeats(deckSections(deck), deckAbout(deck)) : []), [deck, active]);
 
   const skipped = useMemo(() => new Set(deck.checks?.repeatSkips ?? []), [deck.checks?.repeatSkips]);
   const last = deck.checks?.repeats;

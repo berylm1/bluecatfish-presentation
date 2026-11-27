@@ -1,7 +1,7 @@
 import { lazySupabaseAdmin } from '@/lib/supabase/admin';
-import { enterProfile } from './lessonContext';
+import { currentProfile, enterProfile } from './lessonContext';
 import { profileOf } from './profile';
-import { TTS_VOICE, VOICE_INSTRUCTIONS, SIMPLE_VOICE_INSTRUCTIONS } from '@/lib/voice';
+import { voiceFor } from '@/lib/voice';
 import type { Deck, Pointer, Slide, SlideElement } from './types';
 import { spokenText } from './queue';
 import { introBasis, introText } from './intro';
@@ -174,8 +174,8 @@ export async function recordClip(text: string, simple: boolean): Promise<{ url: 
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${process.env.OPENAI_API_KEY}` },
     body: JSON.stringify({
       model: 'gpt-4o-mini-tts',
-      voice: TTS_VOICE,
-      instructions: simple ? SIMPLE_VOICE_INSTRUCTIONS : VOICE_INSTRUCTIONS,
+      voice: voiceFor(currentProfile()).voice,
+      instructions: simple ? voiceFor(currentProfile()).simple : voiceFor(currentProfile()).instructions,
       input: text,
     }),
   });

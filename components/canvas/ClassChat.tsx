@@ -1,7 +1,7 @@
 'use client';
 
 import Icon from '@/components/Icon';
-import { teacherInitials, teacherName } from '@/lib/teacher';
+import { teacherInitials, teacherName, teacherPictureNow } from '@/lib/teacher';
 
 import { useEffect, useRef, useState } from 'react';
 import { splitSentences, sentenceStops } from './useDeckPlayer';
@@ -44,7 +44,7 @@ export function Avatar({ who, learnerName = '', size = 28, speaking = false }: {
       style={{ width: size, height: size, background: s.color, fontSize: size * 0.4 }}>
       {/* (the professor's and the classmates' pictures; the learner keeps their initials. Was: initials for all) */}
       {/* eslint-disable-next-line @next/next/no-img-element */}
-      {who === 'you' || (who === 'professor' && !PROFESSOR_PICTURE) ? s.short : <img src={`/avatars/${who === 'professor' ? 'professor-marine' : who}.png`} alt="" width={size} height={size} className="rounded-full w-full h-full object-cover" />}
+      {who === 'you' || (who === 'professor' && (!PROFESSOR_PICTURE || !teacherPictureNow())) ? s.short : <img src={who === 'professor' ? teacherPictureNow() : `/avatars/${who}.png`} alt="" width={size} height={size} className="rounded-full w-full h-full object-cover" />}
     </span>
   );
 }

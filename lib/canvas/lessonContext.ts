@@ -9,7 +9,14 @@ import { BLUE_CATFISH, fillPlaceholders, type LessonProfile } from './profile';
 // still be bundled for the browser (the editor imports some of them): there it's never set, and it's blue catfish)
 type Store = { getStore(): LessonProfile | undefined; run<T>(p: LessonProfile, fn: () => T): T; enterWith(p: LessonProfile): void };
 const ALS = (globalThis as { AsyncLocalStorage?: new () => Store }).AsyncLocalStorage;
-const store: Store = ALS ? new ALS() : { getStore: () => undefined, run: (_p, fn) => fn(), enterWith: () => {} };
+// In the browser there's one lesson on the page at a time: it's simply kept (the lesson page and the editor enter it,
+// so what's worked out there from the lesson, like which recorded clip is still the right one, goes by it too)
+let held: LessonProfile | undefined;
+const store: Store = ALS ? new ALS() : {
+  getStore: () => held,
+  run: (p, fn) => { const was = held; held = p; try { return fn(); } finally { held = was; } },
+  enterWith: (p) => { held = p; },
+};
 
 /** The lesson being worked on (none set: blue catfish) */
 export const currentProfile = (): LessonProfile => store.getStore() ?? BLUE_CATFISH;

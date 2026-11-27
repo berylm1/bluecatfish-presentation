@@ -1,7 +1,9 @@
 'use client';
 
+import { useRef, useState } from 'react';
 import type { Deck } from '@/lib/canvas/types';
-import { profileOf, type LessonProfile } from '@/lib/canvas/profile';
+import { MARINE_PICTURE, profileOf, teacherPicture, type LessonProfile } from '@/lib/canvas/profile';
+import { TEACHER_VOICES, TTS_VOICE } from '@/lib/voice';
 
 /*
  * The editor's "Lesson" tab: the lesson's profile (lib/canvas/profile.ts), as type-ins. Each shows what the lesson
@@ -30,6 +32,60 @@ function TextList({ items, onChange, add, max, placeholder }: { items: string[];
       {items.length < max && <button className={`${small} self-start`} onClick={() => onChange([...items, ''])}>＋ {add}</button>}
     </div>
   );
+}
+
+/** The teacher's picture: Professor Marine's, one of the lesson's own pictures, a link, or none (their initials) */
+function TeacherPicture({ lesson, name, value, onPick }: { lesson: string; name: string; value: string; onPick: (src: string) => void }) {
+  const [library, setLibrary] = useState<{ url: string; description?: string }[] | null>(null);
+  const [open, setOpen] = useState(false);
+  const initials = name.split(/\s+/).filter(Boolean).map((w) => w[0]).join('').slice(0, 2).toUpperCase() || 'T';
+  const showLibrary = () => {
+    setOpen((v) => !v);
+    if (!library) fetch(`/api/editor/images?lesson=${encodeURIComponent(lesson)}`).then((r) => r.json()).then((d) => setLibrary(d.images ?? [])).catch(() => setLibrary([]));
+  };
+  return (
+    <div data-teacher-picture>
+      <div className="flex items-center gap-2">
+        <span className="w-11 h-11 rounded-full bg-cyan-600 text-white font-bold flex items-center justify-center overflow-hidden shrink-0">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          {value ? <img src={value} alt="" className="w-full h-full object-cover" /> : initials}
+        </span>
+        <div className="flex flex-wrap gap-1">
+          <button className={small} onClick={() => onPick(MARINE_PICTURE)}>Professor Marine’s</button>
+          <button className={small} onClick={showLibrary}>{open ? 'Hide the pictures' : 'One of the lesson’s pictures'}</button>
+          <button className={small} onClick={() => onPick('')}>None (initials)</button>
+        </div>
+      </div>
+      {open && (
+        <div className="mt-2 grid grid-cols-6 gap-1 max-h-40 overflow-y-auto">
+          {library === null ? <span className="col-span-6 text-xs text-slate-400">Loading…</span>
+            : library.length === 0 ? <span className="col-span-6 text-xs text-slate-400">This lesson has no pictures yet (Image upload adds them).</span>
+            : library.slice(0, 48).map((im) => (
+              <button key={im.url} title={im.description} onClick={() => { onPick(im.url); setOpen(false); }} className={`aspect-square rounded overflow-hidden border ${value === im.url ? 'border-cyan-500 ring-2 ring-cyan-300' : 'border-slate-200'}`}>
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={im.url} alt={im.description ?? ''} className="w-full h-full object-cover" loading="lazy" />
+              </button>
+            ))}
+        </div>
+      )}
+      <input className={`${input} mt-2`} value={value} maxLength={500} placeholder="…or paste a picture’s link (https://…)" onChange={(e) => onPick(e.target.value.trim())} />
+    </div>
+  );
+}
+
+/** "Hear it": a line in the picked voice (spoken live, /api/tts) */
+function HearVoice({ voice, name }: { voice: string; name: string }) {
+  const [busy, setBusy] = useState(false);
+  const audio = useRef<HTMLAudioElement | null>(null);
+  const hear = async () => {
+    audio.current?.pause();
+    setBusy(true);
+    try {
+      const res = await fetch('/api/tts', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text: `Hey! I'm ${name}. Ready to learn something new today?`, voice }), signal: AbortSignal.timeout(20000) });
+      if (res.ok) { audio.current = new Audio(URL.createObjectURL(await res.blob())); void audio.current.play().catch(() => {}); }
+    } catch { /* (no sound: nothing to do) */ } finally { setBusy(false); }
+  };
+  return <button className={`${small} whitespace-nowrap shrink-0`} disabled={busy} onClick={hear}>{busy ? '…' : '▶ Hear it'}</button>;
 }
 
 export default function LessonPanel({ deck, onChange }: {
@@ -98,6 +154,17 @@ export default function LessonPanel({ deck, onChange }: {
       <input className={input} value={p.teacher.name} maxLength={60} onChange={(e) => setTeacher('name', e.target.value)} />
       <label className={label}>Sign-off at the end</label>
       <input className={input} value={p.teacher.signOff} maxLength={60} placeholder="Marine out!" onChange={(e) => setTeacher('signOff', e.target.value)} />
+      <label className={label}>Teacher’s picture</label>
+      <TeacherPicture lesson={deck.lessonId} name={p.teacher.name} value={teacherPicture(p)} onPick={(src) => setTeacher('picture', src)} />
+      <p className={hint}>Shown in the class chat, next to what the teacher says.</p>
+      <label className={label}>Teacher’s voice</label>
+      <div className="flex items-center gap-2">
+        <select className={input} value={p.teacher.voice ?? TTS_VOICE} aria-label="Teacher’s voice" onChange={(e) => setTeacher('voice', e.target.value)}>
+          {TEACHER_VOICES.map((v) => <option key={v.id} value={v.id}>{v.label}</option>)}
+        </select>
+        <HearVoice voice={p.teacher.voice ?? TTS_VOICE} name={p.teacher.name} />
+      </div>
+      <p className={hint}>A new voice is recorded for every slide the next time you save (it takes a few minutes).</p>
       <label className={label}>Leo’s practical questions are about</label>
       <input className={input} value={p.practical} maxLength={200} onChange={(e) => set('practical', e.target.value)} />
       <label className={label}>The teacher’s jokes are aimed at</label>

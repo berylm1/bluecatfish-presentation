@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { isLessonId, listLessons, readDeck, writeDeck } from '@/lib/canvas/store';
 import { generateAiDeck, type TopicPlan } from '@/lib/canvas/generate';
 import { profileOf } from '@/lib/canvas/profile';
+import { enterProfile } from '@/lib/canvas/lessonContext';
 import { editorName } from '@/lib/editorAuth';
 import { countTodo, todoTotal } from '@/lib/canvas/aiFields';
 
@@ -16,6 +17,7 @@ export async function GET(req: Request) {
   const lesson = new URL(req.url).searchParams.get('lesson');
   if (!isLessonId(lesson)) return NextResponse.json({ error: 'Bad lesson' }, { status: 400 });
   const deck = await readDeck(lesson, 'ai');
+  if (deck) enterProfile(profileOf(deck));   // (what's still to record goes by the lesson's voice)
   return NextResponse.json({
     // todo: what the save-time AI still has to do (audio…): above 0 after a cut-short round, for "Finish the audio"
     ai: deck?.slides?.length ? { at: deck.updatedAt, slides: deck.slides.length, topics: new Set(deck.slides.map((s) => s.topic)).size, todo: todoTotal(countTodo(deck)) } : null,

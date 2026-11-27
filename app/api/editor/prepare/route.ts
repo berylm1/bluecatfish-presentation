@@ -2,6 +2,8 @@ import { NextResponse } from 'next/server';
 import { editorName } from '@/lib/editorAuth';
 import { isLessonId, readDeck, writeDeck } from '@/lib/canvas/store';
 import { prepareDeck } from '@/lib/canvas/prepare';
+import { enterProfile } from '@/lib/canvas/lessonContext';
+import { profileOf } from '@/lib/canvas/profile';
 import { applyPatches, countTodo, todoTotal, type Patch } from '@/lib/canvas/aiFields';
 
 export const dynamic = 'force-dynamic';
@@ -23,6 +25,9 @@ export async function POST(req: Request) {
   const draft = await readDeck(lesson, kind);
   if (!draft) return NextResponse.json({ error: 'Save the draft first' }, { status: 400 });
 
+  // (here, not only inside prepareDeck: what follows it in this request, which clips are still to record, which
+  // results still fit, goes by the lesson's voice too)
+  enterProfile(profileOf(draft));
   const started = Date.now();
   const out: { patches: Patch[]; errors: string[] } = { patches: [], errors: [] };
   let stopped = false;

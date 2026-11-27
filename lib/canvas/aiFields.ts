@@ -1,7 +1,8 @@
 import type { ActivityElement, BankQuestion, Deck, OrderMove, PictureIdea, Pointer, QuizQuestion, Slide, SlideElement, SlideHelper } from './types';
 import { activityReady, shownWords, spokenText } from './queue';
 import { introBasis, introText, startsTopic } from './intro';
-import { TTS_VOICE, VOICE_INSTRUCTIONS, SIMPLE_VOICE_INSTRUCTIONS } from '@/lib/voice';
+import { voiceFor } from '@/lib/voice';
+import { currentProfile } from './lessonContext';
 
 // Save-time AI (step 4): what still needs writing or recording, and how the
 // results are applied. Shared by the server (which does the work) and the
@@ -42,7 +43,9 @@ export function plainText(el: SlideElement): string {
 
 /** Fingerprint of a clip: the words plus the voice that says them. */
 export function audioKey(text: string, simple: boolean): string {
-  return fingerprint(`${TTS_VOICE}|${simple ? SIMPLE_VOICE_INSTRUCTIONS : VOICE_INSTRUCTIONS}|${text}`);
+  // (the voice of the lesson being worked on, lib/canvas/lessonContext.ts: the blue catfish lesson's is as it always was)
+  const v = voiceFor(currentProfile());
+  return fingerprint(`${v.voice}|${simple ? v.simple : v.instructions}|${text}`);
 }
 
 export function slideBasis(slide: Slide): string {

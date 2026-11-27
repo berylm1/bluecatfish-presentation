@@ -24,7 +24,8 @@ import { loadDeck, type Loaded } from '@/lib/canvas/loadDeck';
 import { DEFAULT_LESSON } from '@/lib/canvas/lessons';
 import type { Deck } from '@/lib/canvas/types';
 import { learnerHeaders, setLearnerLesson } from '@/lib/learnerSession';
-import { setTeacherName } from '@/lib/teacher';
+import { setTeacherName, setTeacherPicture } from '@/lib/teacher';
+import { enterProfile } from '@/lib/canvas/lessonContext';
 import { CLASSMATE_NAME } from '@/lib/voice';
 import { CLASSMATES, classmateNamed, type ClassmateId } from '@/lib/classmates';
 import { playSound } from '@/lib/canvas/sounds';
@@ -54,7 +55,7 @@ import {
   CLASSMATES_ON_SCREEN, FOLLOW_UP_SAME_MIN, MID_AFTER_ASK_MS, MID_ON_SCREEN_MIN,
 } from '@/lib/settings';
 import { FamilyCard, FinnBadge } from '@/components/TakeHome';
-import { BLUE_CATFISH, profileOf, type LessonProfile } from '@/lib/canvas/profile';
+import { BLUE_CATFISH, profileOf, teacherPicture, type LessonProfile } from '@/lib/canvas/profile';
 import { LIVE_VERSION, preloadedDeck, studyLesson, studyPost, writeStudy, type StudyRecord } from '@/lib/study/client';
 import { STUDIES } from '@/lib/study/content';
 import { signals } from '@/lib/signals';
@@ -494,6 +495,8 @@ function Player({ deck, preview, startAt = 0, study = null, staticMode = false, 
   const profile = useMemo(() => profileOf(deck), [deck]);
   TEACHER = profile.teacher;
   setTeacherName(profile.teacher.name);
+  setTeacherPicture(teacherPicture(profile));
+  enterProfile(profile);   // (which recorded clips are this lesson's voice: lib/canvas/aiFields.ts audioKey)
   setLearnerLesson(deck.lessonId);
   // The classmates go by what's on the screen (the lesson on its own: the study is as it was, CLASSMATES_ON_SCREEN)
   const onScreen = CLASSMATES_ON_SCREEN && !study;

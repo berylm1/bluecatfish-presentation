@@ -2,6 +2,8 @@
 // A command gets a short pre-recorded acknowledgement ("Skipping ahead.") and
 // then the deck moves, so navigation feels instant instead of waiting on a
 // chat round-trip. Anything that is not clearly a command goes to the tutor.
+import { teacherName } from './teacher';
+
 
 export type DeckCommand =
   | { kind: 'nextSlide' }
@@ -24,9 +26,13 @@ export type DeckCommand =
  * ("why are blue catfish simpler to catch?").
  * ========================================================================== */
 
+// The lesson's teacher's name ("Ms Rivera, go back"): filler too (was: only "professor marine", so with another
+// teacher a command that named them was taken for a question)
+const teacherWords = (): string[] => teacherName().toLowerCase().match(/[a-z]+/g) ?? [];
+
 // Filler that can surround any command without changing its meaning
 const FILLER = new Set((
-  'um umm uh uhh er ok okay so hey hi professor marine finley please pls plz can could would will you ' +
+  'um umm uh uhh er ok okay so hey hi professor marine finley teacher mr mrs ms miss dr sir please pls plz can could would will you ' +
   'u we us let lets let\'s i im i\'m me my myself just maybe like really actually kinda sort of a an the ' +
   'this that it its it\'s these those there here now then thanks thank bit little lot way ' +
   'for to do does did be is are was were am it\'ll that\'s what\'s want wanna need gonna go going ' +
@@ -112,7 +118,7 @@ function contentWords(text: string, cue: RegExp): string[] {
     .replace(global, ' ')
     .replace(/\?/g, ' ')
     .split(/\s+/)
-    .filter((w) => w && !FILLER.has(w) && !/^\d+$/.test(w));
+    .filter((w) => w && !FILLER.has(w) && !teacherWords().includes(w) && !/^\d+$/.test(w));
 }
 
 const GO_TO = new RegExp(

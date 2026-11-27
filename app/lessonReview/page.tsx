@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { deckSections, findCrossSectionRepeats, type Repeat } from '@/lib/lessonOverlap';
+import { deckAbout, deckSections, findCrossSectionRepeats, type Repeat } from '@/lib/lessonOverlap';
 import { CACHE_VERSION } from '@/src/cacheVersion';
 import SlideCanvas from '@/components/canvas/SlideCanvas';
 import { loadDeck } from '@/lib/canvas/loadDeck';
@@ -237,7 +237,7 @@ function CanvasReview() {
   // Topic introductions are said too (before each topic's first slide)
   const introWords = deck.slides.reduce((n, s, i) => n + (startsTopic(deck.slides, i) && !s.intro?.off ? words(introText(s)) : 0), 0);
   const totalWords = slideWords.reduce((a, b) => a + b, 0) + introWords + words(deck.recap ?? '');
-  const repeats: Repeat[] = findCrossSectionRepeats(deckSections(deck));
+  const repeats: Repeat[] = findCrossSectionRepeats(deckSections(deck), deckAbout(deck));
   const where = (r: Repeat['a']) => `Topic ${r.section + 1} · slide ${r.step + 1}`;
   const source = deck.source === 'hand' ? 'hand-made' : 'AI-made';
 

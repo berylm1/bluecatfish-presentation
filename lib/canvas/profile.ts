@@ -9,6 +9,7 @@
  */
 import type { Source } from '@/lib/sources';
 import { SOURCES } from '@/lib/sources';
+import { isTeacherVoice } from '@/lib/voice';
 
 export interface LessonProfile {
   /** The lesson's name ("Blue Catfish") */
@@ -34,8 +35,9 @@ export interface LessonProfile {
   structure: 'sources' | 'goals' | 'mine';
   /** About how long the lesson should take (minutes) */
   targetMinutes: number;
-  /** The teacher */
-  teacher: { name: string; signOff: string };
+  /** The teacher. picture: a link to their picture ('' : none, their initials; not set: Professor Marine's while the
+   * name is his). voice: how they sound (lib/voice.ts TEACHER_VOICES; not set: Professor Marine's) */
+  teacher: { name: string; signOff: string; picture?: string; voice?: string };
   /** What the "practical" classmate's questions are about ("fishermen, food and the Bay") */
   practical: string;
   /** What the professor's light sarcasm is aimed at ("the fish"): never the learner */
@@ -113,6 +115,12 @@ export function profileOf(deck: { lessonId: string; title?: string; profile?: Pa
   return out;
 }
 
+/** Professor Marine's picture (a crab) */
+export const MARINE_PICTURE = '/avatars/professor-marine.png';
+/** The teacher's picture for a lesson ('' : none, show their initials): the one set, else Professor Marine's while the name is his */
+export const teacherPicture = (p: Pick<LessonProfile, 'teacher'>): string =>
+  p.teacher.picture ?? (p.teacher.name === BLUE_CATFISH.teacher.name ? MARINE_PICTURE : '');
+
 /** The placeholders in the AI's instructions, and what each becomes for this lesson */
 export function placeholders(p: LessonProfile): Record<string, string> {
   return {
@@ -149,6 +157,11 @@ const url = (v: unknown): string | undefined => {
   const s = str(v, 500);
   return s && /^https:\/\/[^\s<>"]+$/.test(s) ? s : undefined;
 };
+/** A picture's link: one of ours (/avatars/…) or an https one */
+const picture = (v: unknown): string | undefined => {
+  const s = str(v, 500);
+  return s && (/^\/[\w./-]+$/.test(s) || /^https:\/\/[^\s<>"']+$/.test(s)) ? s : undefined;
+};
 const oneOf = <T extends string>(v: unknown, opts: readonly T[]): T | undefined => (opts.includes(v as T) ? (v as T) : undefined);
 
 /** A stored profile, checked: only known fields, each the right kind and size (undefined: not set) */
@@ -169,7 +182,11 @@ export function sanitizeProfile(raw: unknown): Partial<LessonProfile> | undefine
     sourceMode: oneOf(r.sourceMode, ['sources', 'sources-first', 'general'] as const),
     structure: oneOf(r.structure, ['sources', 'goals', 'mine'] as const),
     targetMinutes: num(r.targetMinutes, 3, 120),
-    teacher: t ? { name: str(t.name, 60) || BLUE_CATFISH.teacher.name, signOff: str(t.signOff, 60) ?? '' } : undefined,
+    teacher: t ? {
+      name: str(t.name, 60) || BLUE_CATFISH.teacher.name, signOff: str(t.signOff, 60) ?? '',
+      ...(typeof t.picture === 'string' && (t.picture === '' || picture(t.picture)) ? { picture: picture(t.picture) ?? '' } : {}),
+      ...(isTeacherVoice(t.voice) ? { voice: t.voice } : {}),
+    } : undefined,
     practical: str(r.practical, 200),
     jokesAt: str(r.jokesAt, 80),
     familyThings: list(r.familyThings, 5, 300),

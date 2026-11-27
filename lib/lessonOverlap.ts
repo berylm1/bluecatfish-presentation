@@ -28,10 +28,10 @@ function stem(w: string): string {
   return w.replace(/(?:ing|ed|es|s)$/, '');
 }
 
-function words(text: string): Set<string> {
+function words(text: string, common?: Set<string>): Set<string> {
   return new Set(
     (text.toLowerCase().match(/[a-z]+/g) ?? [])
-      .filter((w) => w.length > 2 && !STOP.has(w))
+      .filter((w) => w.length > 2 && !STOP.has(w) && !common?.has(w))
       .map(stem),
   );
 }
@@ -65,8 +65,11 @@ export function lessonFacts(sections: { steps?: any[] }[]): LessonFact[] {
  * Pairs of facts from DIFFERENT sections that say the same thing: they share
  * a number plus a word, or most of their words.
  */
-export function findCrossSectionRepeats(sections: { steps?: any[] }[]): Repeat[] {
-  const facts = lessonFacts(sections).map((f) => ({ f, w: words(f.text), n: numbers(f.text) }));
+/** about: what the lesson is about (its title and topic): words every part of it shares, so not a sign of a repeat
+ * (as "blue catfish" always was; a fractions lesson says "fraction" on every slide) */
+export function findCrossSectionRepeats(sections: { steps?: any[] }[], about = ''): Repeat[] {
+  const common = new Set((about.toLowerCase().match(/[a-z]+/g) ?? []).flatMap((w) => [w, w.replace(/(?:es|s)$/, '')]));
+  const facts = lessonFacts(sections).map((f) => ({ f, w: words(f.text, common), n: numbers(f.text) }));
   const repeats: Repeat[] = [];
   for (let i = 0; i < facts.length; i++) {
     for (let j = i + 1; j < facts.length; j++) {
@@ -89,6 +92,9 @@ export function findCrossSectionRepeats(sections: { steps?: any[] }[]): Repeat[]
  * A canvas deck as old-style sections (topic = section, slide = step, its
  * non-title text boxes = bullets), so findCrossSectionRepeats can read it.
  */
+/** A lesson's own everyday words (its title and what it's about), for findCrossSectionRepeats */
+export const deckAbout = (deck: Deck): string => `${deck.title ?? ''} ${deck.profile?.about ?? ''} ${deck.profile?.subject ?? ''}`;
+
 export function deckSections(deck: Deck): { title: string; steps: { type: string; bullets: string[] }[] }[] {
   const topics = topicIndexes(deck.slides);
   const out: { title: string; steps: { type: string; bullets: string[] }[] }[] = [];

@@ -26,7 +26,9 @@ import PullFromOriginal from '@/components/editor/PullFromOriginal';
 import { pullSlides } from '@/lib/canvas/studyLesson';
 import { STUDY_LESSON, STUDY_SOURCE } from '@/lib/study/content';
 import CheckPanel, { picturesWithoutDescription, type Described } from '@/components/editor/CheckPanel';
-import { deckSections, findCrossSectionRepeats } from '@/lib/lessonOverlap';
+import { profileOf } from '@/lib/canvas/profile';
+import { enterProfile } from '@/lib/canvas/lessonContext';
+import { deckAbout, deckSections, findCrossSectionRepeats } from '@/lib/lessonOverlap';
 import { DEFAULT_PDF, type PdfOptions } from '@/components/editor/exportPdf';
 import { DEFAULT_LESSON, type LessonInfo } from '@/lib/canvas/lessons';
 import type { CheckedClaim, Deck, DeckChecks, OrderMove, Slide, SlideElement } from '@/lib/canvas/types';
@@ -194,6 +196,8 @@ function Editor({
   const baseRev = useRef<string | undefined>(initial.editRev);
   const [conflict, setConflict] = useState<{ by: string; at: string | null; then: 'save' | 'publish' } | null>(null);
   const { deck, slide, slideIdx, element } = ed;
+  // (the lesson being edited: which recorded clips are in its teacher's voice, lib/canvas/aiFields.ts audioKey)
+  enterProfile(profileOf(deck));
   const [panel, setPanel] = useState<'props' | 'images' | 'background' | 'repeats' | 'check' | 'ideas' | 'lesson'>('props');
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState<{ at?: string; by?: string }>({ at: initialSavedAt, by: initialSavedBy });
@@ -420,7 +424,7 @@ function Editor({
     const last = deck.checks?.repeats;
     setPublishAsk({
       warnings: allWarnings.flat().filter((w) => w.level === 'warn' && w.kind !== 'answers').length,   // (answers: their own row)
-      repeats: findCrossSectionRepeats(deckSections(deck)).length,
+      repeats: findCrossSectionRepeats(deckSections(deck), deckAbout(deck)).length,
       repeatsAi: !last ? 'none' : last.from === lessonBasis(deck) ? 'ok' : 'changed',
       factsToCheck: slidesToFactCheck(deck).length,
       factsOpen: open,

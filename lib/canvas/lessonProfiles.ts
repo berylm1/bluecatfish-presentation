@@ -14,7 +14,7 @@ const KEEP_MS = 60_000;
 async function load(lesson: string): Promise<LessonProfile> {
   if (!isLessonId(lesson)) return BLUE_CATFISH;
   try {
-    const deck = (await readDeck(lesson, 'live')) ?? (await readDeck(lesson, 'draft'));
+    const deck = (await readDeck(lesson, 'live')) ?? (await readDeck(lesson, 'draft')) ?? (await readDeck(lesson, 'ai'));
     return profileOf(deck ?? { lessonId: lesson });
   } catch {
     return profileOf({ lessonId: lesson });
