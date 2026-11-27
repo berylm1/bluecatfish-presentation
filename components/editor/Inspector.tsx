@@ -179,7 +179,7 @@ export function ElementInspector({
             <label className={label}>Credit</label>
             <input className={input} value={el.credit ?? ''} maxLength={200} placeholder="Who made it and its licence (a picture from outside)"
               onChange={(e) => update({ credit: e.target.value || undefined, ...(e.target.value ? {} : { creditUrl: undefined }) })} />
-            <p className="text-xs text-slate-400 mt-0.5">Shown small on the picture and listed on the sources page. Filled in for free pictures (🌍 in Images).</p>
+            <p className="text-xs text-slate-400 mt-0.5">Shown small on the picture and listed on the sources page. Filled in for free pictures (Pictures → Find free).</p>
           </div>
           <div>
             <label className={label}>Fit</label>

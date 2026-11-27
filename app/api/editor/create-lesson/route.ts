@@ -42,7 +42,7 @@ export async function POST(req: Request) {
   const voice = isTeacherVoice(body.teacher?.voice) ? body.teacher.voice : undefined;
   if (teacherName || voice) {
     const base = profileOf({ lessonId: id, title: outline.title, profile }).teacher;
-    profile.teacher = { ...base, ...(teacherName ? { name: teacherName, signOff: base.signOff.replace(base.name, teacherName), picture: '' } : {}), ...(voice ? { voice } : {}) };
+    profile.teacher = { ...base, ...(teacherName ? { name: teacherName, signOff: `${teacherName.split(/\s+/).pop()} out!`, picture: '' } : {}), ...(voice ? { voice } : {}) };
   }
   const deck = sanitizeDeck({ title: outline.title, slides: [], profile }, id, 'hand');
   const failed = await writeDeck(id, 'draft', deck, by);

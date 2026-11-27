@@ -121,7 +121,7 @@ export default function NewLessonWizard({ onClose, onCreated, onBlank }: {
             .then((r) => r.json());
           pictureNotes.push(...(found.notes ?? []), ...(found.error ? [`Free pictures couldn’t be added (${found.error}).`] : []));
         } catch {
-          pictureNotes.push('Free pictures couldn’t be added this time: add some in the Images tab (🌍 Find free pictures).');
+          pictureNotes.push('Free pictures couldn’t be added this time: add some in the Pictures tab (Find free).');
         }
       }
       setBusy(`Writing the slides for “${made.lesson.title}”: each section in turn, then the pictures, the story order and the recap. A minute or two…`);
