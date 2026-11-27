@@ -1,6 +1,7 @@
 /*
  * The lesson's settings, in one place: the on/off switches and the timings worth tuning.
  * Change a value here and redeploy. (The code that uses each one imports it from here.)
+ * (Elsewhere, the same way: the rate limits are in lib/rateLimits.ts, the AI models in lib/canvas/ai.ts.)
  *
  * A switch that's off is a feature kept but hidden: switch it back on to bring it back.
  * Changing anything marked [study] while a study is collecting data changes what participants get:
