@@ -328,6 +328,9 @@ function Editor({
   const [pdfProgress, setPdfProgress] = useState<string | null>(null);
   const [pdfOpts, setPdfOpts] = useState<PdfOptions>(DEFAULT_PDF);
   const downloadPdf = async () => {
+    // (the PDF's font has Western letters only: a lesson in another script would come out with its words missing)
+    if (/[^\u0000-\u024F\u2000-\u206F\u2190-\u22FF\u2500-\u27BF\uFE0F]/.test(JSON.stringify(deck.slides.map((sl) => sl.elements.map((el) => ('text' in el ? el.text : '') + (el.say ?? ''))))))
+      flash('This lesson has letters the PDF’s font can’t show (it has Western letters only): those words will be missing from the PDF.', 'warn');
     setPdfProgress('0%');
     try {
       const { exportDeckPdf } = await import('@/components/editor/exportPdf');
@@ -391,6 +394,7 @@ function Editor({
   /* ------------------------------------------------------------ saving */
 
   // quiet: an autosave (the draft is kept; no message, and the AI isn't set to work: that's what pressing Save is for)
+  const [autoHeld, setAutoHeld] = useState(false);   // an autosave didn't go through: no more until a Save by hand does
   const save = useCallback(async (opts: { force?: boolean; then?: 'save' | 'publish'; quiet?: boolean } = {}): Promise<boolean> => {
     setSaving(true);
     try {
@@ -401,12 +405,14 @@ function Editor({
       });
       const d = await res.json();
       if (res.status === 409) {   // someone else saved since this editor loaded
+        if (opts.quiet) setAutoHeld(true);
         setConflict({ ...d.conflict, then: opts.then ?? 'save' });
         return false;
       }
       if (res.status === 401) throw new Error('You were locked out: unlock again in a new tab, then press Save.');
       if (!res.ok || d.error) throw new Error(d.error || `Save failed (${res.status})`);
       ed.setDirty(false);
+      setAutoHeld(false);
       baseRev.current = d.editRev;
       setSaved({ at: d.savedAt, by: d.by });
       if (d.warning) flash(`Saved, but: ${d.warning}`, 'warn');
@@ -414,7 +420,8 @@ function Editor({
       if (!opts.quiet) runAi();   // fill in blanks and make audio for what changed, in the background
       return true;
     } catch (e) {
-      flash(e instanceof Error ? e.message : String(e), 'error');
+      if (opts.quiet) setAutoHeld(true);
+      flash(`${e instanceof Error ? e.message : String(e)}${opts.quiet ? ' (Autosave is paused until you press Save.)' : ''}`, 'error');
       return false;
     } finally {
       setSaving(false);
@@ -428,10 +435,10 @@ function Editor({
   useEffect(() => { try { setAutosave(localStorage.getItem('editor:autosave') !== '0'); } catch { /* fine */ } }, []);
   const toggleAutosave = () => setAutosave((v) => { try { localStorage.setItem('editor:autosave', v ? '0' : '1'); } catch { /* fine */ } return !v; });
   useEffect(() => {
-    if (!autosave || !ed.dirty || saving || conflict) return;
+    if (!autosave || autoHeld || !ed.dirty || saving || conflict) return;
     const t = setTimeout(() => { void save({ quiet: true }); }, 20_000);
     return () => clearTimeout(t);
-  }, [autosave, ed.dirty, saving, conflict, deck, save]);
+  }, [autosave, autoHeld, ed.dirty, saving, conflict, deck, save]);
 
   /* ----------------------------------------------------- save-time AI */
 
@@ -969,6 +976,13 @@ function Editor({
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      // A dialog, or an open menu the key was pressed in: the keys are its own (was: Delete with a dialog's button
+      // in focus deleted the box selected behind it)
+      const at = e.target as HTMLElement | null;
+      if (!versionsOpen.current && (document.querySelector('[role="dialog"]:not([data-assistant-panel]), [role="alertdialog"]') || at?.closest?.('[role="menu"]'))) {
+        if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') { e.preventDefault(); save(); }
+        return;
+      }
       if (versionsOpen.current) {   // a popup is open: only Escape, to close it
         if (e.key === 'Escape') { setVersions(null); setConfirmDelete(null); setSavedOpen(false); }
         return;
@@ -1080,7 +1094,7 @@ function Editor({
             onAddText={(text) => { addElement({ id: newId('el'), type: 'text', x: 8, y: 68, w: 84, h: 20, text, style: 'body', color: '#0f172a' }); flash('Added the sentence as a text box (Ctrl+Z undoes it)'); }} />
         </div>
         <span className="hidden min-[1500px]:inline text-xs text-slate-300 whitespace-nowrap" data-save-state>
-          {saving ? 'Saving…' : ed.dirty ? <span className="text-amber-300 font-bold">● Unsaved changes{autosave ? ' (saving soon)' : ''}</span> : saved.at ? `Saved ${when(saved.at)}${saved.by ? ` by ${saved.by}` : ''}` : 'Not saved yet'}
+          {saving ? 'Saving…' : ed.dirty ? <span className="text-amber-300 font-bold">● Unsaved changes{autosave ? (autoHeld ? ' (autosave paused: press Save)' : ' (saving soon)') : ''}</span> : saved.at ? `Saved ${when(saved.at)}${saved.by ? ` by ${saved.by}` : ''}` : 'Not saved yet'}
         </span>
         <button data-help="undo" className={ghostIcon} onClick={ed.undo} disabled={!ed.canUndo} title="Undo (Ctrl+Z)" aria-label="Undo"><Icon name="undo" size={17} /></button>
         <button className={ghostIcon} onClick={ed.redo} disabled={!ed.canRedo} title="Redo (Ctrl+Shift+Z)" aria-label="Redo"><Icon name="redo" size={17} /></button>

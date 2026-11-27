@@ -141,6 +141,27 @@ export default function EditCanvas({
     onPlace?.(round(((bx - r.x) / r.w) * 100), round(((by - r.y) / r.h) * 100));
   };
 
+  // Where the selected box's toolbar sits: above it, below it, or to a side, the first of those that is on the slide
+  // and not over another box (was: always above, on top of whatever was there, often the slide's title)
+  const toolbarPlace = (el: SlideElement): React.CSSProperties => {
+    const w = wrapRef.current?.getBoundingClientRect();
+    const tw = w ? (176 / w.width) * 100 : 22, th = w ? (40 / w.height) * 100 : 8;   // the toolbar's size, in % of the slide
+    const others = slide.elements.filter((o) => o.id !== el.id && !(o.type === 'image' && o.silent && o.w * o.h > 6000));   // (not a background picture)
+    const free = (x: number, y: number) => x >= 0 && y >= 0 && x + tw <= 100 && y + th <= 100
+      && !others.some((o) => x < o.x + o.w && x + tw > o.x && y < o.y + o.h && y + th > o.y);
+    const left = el.x, right = el.x + el.w - tw;
+    const spots: [number, number, React.CSSProperties][] = [
+      [left, el.y - th, { bottom: 'calc(100% + 6px)', left: 0 }], [right, el.y - th, { bottom: 'calc(100% + 6px)', right: 0 }],
+      [left, el.y + el.h, { top: 'calc(100% + 6px)', left: 0 }], [right, el.y + el.h, { top: 'calc(100% + 6px)', right: 0 }],
+      [el.x + el.w, el.y, { left: 'calc(100% + 6px)', top: 0 }], [el.x - tw, el.y, { right: 'calc(100% + 6px)', top: 0 }],
+    ];
+    const hit = spots.find(([x, y]) => free(x, y));
+    if (hit) return hit[2];
+    // nowhere clear: above if there's room on the slide, else below, else inside its top corner
+    return el.y >= th ? { bottom: 'calc(100% + 6px)', ...(el.x + el.w / 2 > 70 ? { right: 0 } : { left: 0 }) }
+      : el.y + el.h <= 100 - th ? { top: 'calc(100% + 6px)', ...(el.x + el.w / 2 > 70 ? { right: 0 } : { left: 0 }) } : { top: 18, right: 18 };
+  };
+
   // Front-most first, so clicks land on what's on top
   const ordered = [...slide.elements].sort((a, b) => (a.z ?? 1) - (b.z ?? 1));
 
@@ -171,7 +192,7 @@ export default function EditCanvas({
               }}
             >
               {el.silent && !isSel && (
-                <span className="absolute -top-0.5 -left-0.5 px-1 rounded-br bg-slate-700/70 text-[11px] text-white pointer-events-none">silent</span>
+                <span className="absolute -top-0.5 -left-0.5 px-1 rounded-br bg-slate-700/70 text-[11px] text-white pointer-events-none hidden group-hover:block">silent</span>
               )}
               {/* Written by the AI (spoken words or plain version): a faint dashed purple outline and a tag */}
               {(el.sayByAI || el.plainByAI) && (
@@ -221,7 +242,7 @@ export default function EditCanvas({
               {isSel && !placing && onDelete && (
                 <div data-box-toolbar onPointerDown={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()}
                   className="absolute flex items-center gap-0.5 p-0.5 rounded-md bg-slate-900 text-white shadow-lg cursor-default"
-                  style={{ zIndex: 5, ...(el.y >= 9 ? { bottom: 'calc(100% + 6px)' } : el.y + el.h <= 91 ? { top: 'calc(100% + 6px)' } : { top: 18 }), ...(el.x + el.w / 2 > 70 ? { right: 0 } : { left: 0 }) }}>
+                  style={{ zIndex: 5, ...toolbarPlace(el) }}>
                   {([
                     ['copy', 'Duplicate (Ctrl+D)', onDuplicate],
                     ['layer-up', 'Bring forward', () => onLayer?.(1)],

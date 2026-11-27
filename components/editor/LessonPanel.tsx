@@ -198,7 +198,11 @@ export default function LessonPanel({ deck, onChange }: {
       </div></Section>
       <Section id="lesson-teacher" icon="person" title="The teacher and the class" hint={p.teacher.name}><div>
       <label className={label}>Teacher’s name</label>
-      <input className={input} value={p.teacher.name} maxLength={60} onChange={(e) => setTeacher('name', e.target.value)} />
+      <input className={input} value={p.teacher.name} maxLength={60} onChange={(e) => {
+        // (a sign-off that was the old name's own, "Marine out!", follows the new name)
+        const was = `${p.teacher.name.trim().split(/\s+/).pop()} out!`, next = e.target.value.trim().split(/\s+/).pop();
+        onChange({ ...p, teacher: { ...p.teacher, name: e.target.value, ...(p.teacher.signOff === was && next ? { signOff: `${next} out!` } : {}) } }, 'profile:teacher:name');
+      }} />
       <label className={label}>Sign-off at the end</label>
       <input className={input} value={p.teacher.signOff} maxLength={60} placeholder="Marine out!" onChange={(e) => setTeacher('signOff', e.target.value)} />
       <label className={label}>Teacher’s picture</label>

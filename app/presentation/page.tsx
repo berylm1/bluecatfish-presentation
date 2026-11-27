@@ -527,6 +527,7 @@ function Player({ deck, preview, startAt = 0, study = null, staticMode = false, 
   // Who the professor is answering now, when several questions are answered together ("→ Maya" in the chat)
   const answerTo = useRef<string | null>(null);
   const [optionsOpen, setOptionsOpen] = useState(false);          // the ⚙ Options menu
+  const [optionsRoom, setOptionsRoom] = useState<number | null>(null);   // how tall it may be: the room above its button
   const optionsRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (!optionsOpen) return;
@@ -576,10 +577,10 @@ function Player({ deck, preview, startAt = 0, study = null, staticMode = false, 
   }, [easierToSee]);
   useEffect(() => {
     const root = document.documentElement;
-    root.style.fontSize = bigText ? '120%' : '';
+    root.classList.toggle('lesson-big', bigText);   // (the words only, a fifth bigger: globals.css)
     root.classList.toggle('lesson-hc', highContrast);
     root.classList.toggle('lesson-keys', easierToSee);   // (the keyboard's place, ringed: globals.css)
-    return () => { root.style.fontSize = ''; root.classList.remove('lesson-hc', 'lesson-keys'); };
+    return () => { root.classList.remove('lesson-big', 'lesson-hc', 'lesson-keys'); };
   }, [bigText, highContrast, easierToSee]);
   // "Practise with new numbers" in a typed-answer box (components/canvas/Activity.tsx): the lesson waits while they do
   const holdRef = useRef<() => void>(() => {});
@@ -3703,14 +3704,14 @@ function Player({ deck, preview, startAt = 0, study = null, staticMode = false, 
         </button>
         {/* The on/off switches, in one menu (was: five more buttons, so the controls took two rows) */}
         <div className="relative" ref={optionsRef}>
-          <button className={`${btn} ${optionsOpen ? 'bg-white/25' : ''}`} onClick={() => setOptionsOpen((o) => !o)} aria-expanded={optionsOpen}
+          <button className={`${btn} ${optionsOpen ? 'bg-white/25' : ''}`} onClick={(e) => { const top = e.currentTarget.getBoundingClientRect().top; setOptionsRoom(window.innerWidth >= 640 && window.innerHeight > 500 ? Math.max(160, top - 16) : null); setOptionsOpen((o) => !o); }} aria-expanded={optionsOpen}
             title="Voice speed, interrupt, camera, classmates, sounds, class chat" aria-label="Options">
             <Icon name="settings" /><span className={label}> Options</span>
             {/* what's on, at a glance */}
             <span className="ml-1.5 text-xs opacity-80">{SHOW_OPTION_ICONS && ([interruptOn && 'microphone', cameraOn && 'camera', classmateOn && 'classmates', soundsOn && 'bell', chatOpen && 'chat-bubble'] as (IconName | false)[]).map((n) => n && <Icon key={n} name={n} className="mr-0.5" />)}{voiceSpeed !== 1 && ` ${voiceSpeed}×`}</span>
           </button>
           {optionsOpen && (
-            <div className="absolute bottom-full mb-2 right-0 z-30 w-72 max-h-[calc(100dvh-5rem)] overflow-y-auto rounded-xl bg-slate-900/95 border border-white/15 shadow-2xl p-2 flex flex-col gap-1 max-sm:fixed max-sm:inset-x-2 max-sm:bottom-2 max-sm:mb-0 max-sm:w-auto max-sm:max-h-[80dvh] [@media(max-height:500px)]:fixed [@media(max-height:500px)]:top-2 [@media(max-height:500px)]:bottom-2 [@media(max-height:500px)]:right-2 [@media(max-height:500px)]:mb-0 [@media(max-height:500px)]:max-h-none [@media(max-height:500px)]:z-50 max-sm:z-50" role="menu" data-options-menu>
+            <div className="absolute bottom-full mb-2 right-0 z-30 w-72 max-h-[calc(100dvh-5rem)] overflow-y-auto rounded-xl bg-slate-900/95 border border-white/15 shadow-2xl p-2 flex flex-col gap-1 max-sm:fixed max-sm:inset-x-2 max-sm:bottom-2 max-sm:mb-0 max-sm:w-auto max-sm:max-h-[80dvh] [@media(max-height:500px)]:fixed [@media(max-height:500px)]:top-2 [@media(max-height:500px)]:bottom-2 [@media(max-height:500px)]:right-2 [@media(max-height:500px)]:mb-0 [@media(max-height:500px)]:max-h-none [@media(max-height:500px)]:z-50 max-sm:z-50" role="menu" data-options-menu style={optionsRoom ? { maxHeight: optionsRoom } : undefined}>
               {/* Voice speed: three steps, not a switch */}
               <div className="px-2.5 pt-1.5 pb-2 border-b border-white/10 mb-1">
                 <span className="block text-sm font-medium" id="speed-label"><Icon name="speaker" /> Voice speed</span>
