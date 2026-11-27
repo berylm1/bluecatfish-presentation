@@ -908,7 +908,9 @@ function Editor({
   /** The helper's "Show me": that part of the page, scrolled to and flashing (a right-panel tab is opened too) */
   const showPart = (where: string) => {
     if (where === 'tab-edit') setPanel('props');
-    else if (where === 'tab-images' || where === 'tab-repeats' || where === 'tab-check') setPanel(where.slice(4) as 'images' | 'repeats' | 'check');
+    else if (where === 'tab-images' || where === 'tab-repeats' || where === 'tab-check' || where === 'tab-ideas') setPanel(where.slice(4) as 'images' | 'repeats' | 'check' | 'ideas');
+    else if (where === 'lesson-settings') setPanel('lesson');
+    else if (where === 'slide-list' || where === 'new-slide' || where === 'overview') setLeftOpen(true);
     else if (where === 'describe-all' && !missingDescriptions) setPanel('check');
     setTimeout(() => {
       const el = document.querySelector<HTMLElement>(`[data-help="${CSS.escape(where)}"]`)
@@ -1366,7 +1368,7 @@ function Editor({
                   );
                 })()}
                 <div className="flex rounded-md border border-slate-300 overflow-hidden text-xs font-semibold" role="tablist" aria-label="Which check">
-                  {([['check', 'Facts and pictures', 'tab-check2'], ['repeats', 'Repeats', 'tab-repeats'], ['ideas', 'Idea map', 'tab-ideas']] as [Panel, string, string][]).map(([id, name, help], i) => (
+                  {([['check', 'Facts and pictures', 'tab-facts'], ['repeats', 'Repeats', 'tab-repeats'], ['ideas', 'Idea map', 'tab-ideas']] as [Panel, string, string][]).map(([id, name, help], i) => (
                     <button key={id} role="tab" aria-selected={panel === id} data-help={help} onClick={() => setPanel(id)}
                       className={`flex-1 py-1.5 ${i ? 'border-l border-slate-300' : ''} ${panel === id ? 'bg-slate-900 text-white' : 'bg-white text-slate-700 hover:bg-slate-100'}`}>{name}</button>
                   ))}
