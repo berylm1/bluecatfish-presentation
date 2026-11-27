@@ -72,7 +72,7 @@ export async function POST(request: NextRequest) {
     if (limited) return limited;
     // (the lesson asking: its profile fills the AI's instructions, lib/canvas/lessonContext.ts)
     enterProfile(await lessonOf(request));
-    const body = await request.json();
+    const body = (await request.json().catch(() => null)) ?? {};
     const systemPrompt = body.systemPrompt as string | undefined;
     // Only real earlier turns: a "system" turn from the browser would sit
     // beside the server's rules and could override them

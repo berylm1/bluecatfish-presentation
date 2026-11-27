@@ -14,7 +14,7 @@ export async function POST(req: Request) {
   const limited = await rateLimit(req, 'practice');
   if (limited) return limited;
   enterProfile(await lessonOf(req));
-  const body = await req.json().catch(() => ({}));
+  const body = await req.json().catch(() => null) ?? {};
   const question = typeof body.question === 'string' ? body.question.trim().slice(0, 400) : '';
   const answer = typeof body.answer === 'string' ? body.answer.trim().slice(0, 120) : '';
   if (!question || !answer) return NextResponse.json({ error: 'Bad question' }, { status: 400 });

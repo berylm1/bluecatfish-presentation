@@ -44,7 +44,7 @@ const FIELDS = {
 export async function POST(req: Request) {
   const limited = await rateLimit(req, 'assistant', { editorsToo: true });
   if (limited) return limited;
-  const body = await req.json().catch(() => ({}));
+  const body = await req.json().catch(() => null) ?? {};
   const field = String(body?.field ?? '') as keyof typeof FIELDS;
   if (!isLessonId(body?.lesson) || !(field in FIELDS)) return NextResponse.json({ error: 'Bad request' }, { status: 400 });
   const text = String(body?.text ?? '').replace(/[\u0000-\u0008\u000b-\u001f]/g, ' ').slice(0, 9000);

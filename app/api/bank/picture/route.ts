@@ -19,7 +19,7 @@ const MIN_MATCH = 0.2;
 export async function POST(req: NextRequest) {
   const limited = await rateLimit(req, 'bank');
   if (limited) return limited;
-  const body = await req.json().catch(() => ({}));
+  const body = await req.json().catch(() => null) ?? {};
   const question = String(body.question ?? '').replace(/\s+/g, ' ').trim().slice(0, 300);
   const exclude = new Set((Array.isArray(body.exclude) ? body.exclude : []).slice(0, 20).map(String));
   if (!question) return NextResponse.json({ picture: null });

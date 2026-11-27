@@ -11,7 +11,7 @@ export const maxDuration = 60;
 // from the slide being edited (editors only: under /api/editor, see proxy.ts).
 export async function POST(req: Request) {
   enterProfile(await lessonOf(req));   // (the lesson being edited: its ages, subject and knowledge base)
-  const body = await req.json().catch(() => ({}));
+  const body = await req.json().catch(() => null) ?? {};
   if (!body?.slide || typeof body.slide !== 'object') return NextResponse.json({ error: 'Bad slide' }, { status: 400 });
   let slide;
   try {

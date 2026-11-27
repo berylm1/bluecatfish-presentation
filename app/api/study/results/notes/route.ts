@@ -13,7 +13,7 @@ const MAX = 5000;
 
 export async function POST(req: NextRequest) {
   if (!(await verifyToken(req.cookies.get(AUTH_COOKIE)?.value))) return NextResponse.json({ error: 'Locked' }, { status: 401 });
-  const body = await req.json().catch(() => ({}));
+  const body = await req.json().catch(() => null) ?? {};
   if (typeof body?.id !== 'string' || !UUID.test(body.id) || typeof body?.notes !== 'string') return NextResponse.json({ error: 'Bad request' }, { status: 400 });
   const notes = body.notes.trim().slice(0, MAX) || null;
   const { data, error } = await supabase.from(studyOf(body.study).table).update({ interview_notes: notes }).eq('id', body.id).select('id');

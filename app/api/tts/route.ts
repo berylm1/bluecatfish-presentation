@@ -9,8 +9,8 @@ export async function POST(request: NextRequest) {
   try {
     const limited = await rateLimit(request, 'tts');
     if (limited) return limited;
-    const body = await request.json();
-    const text = (body.text as string)?.trim();
+    const body = (await request.json().catch(() => null)) ?? {};   // (not JSON: the same as nothing sent, a 400 below)
+    const text = typeof body.text === 'string' ? body.text.trim() : '';
     // Who speaks decides the voice (chosen here, not by the page): the professor, or a classmate (lib/classmates.ts)
     // was: const voice = (body.voice as string) || TTS_VOICE;
     const classmate = classmateOf(body.who);

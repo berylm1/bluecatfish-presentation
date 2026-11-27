@@ -11,7 +11,7 @@ export const maxDuration = 120;
 // (editors only: under /api/editor, see proxy.ts)
 export async function POST(req: Request) {
   enterProfile(await lessonOf(req));
-  const body = await req.json().catch(() => ({}));
+  const body = await req.json().catch(() => null) ?? {};
   const instruction = typeof body.instruction === 'string' ? body.instruction.trim().slice(0, 500) : '';
   if (!instruction) return NextResponse.json({ error: 'Say what to change' }, { status: 400 });
   let slide;

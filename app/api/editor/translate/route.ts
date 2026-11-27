@@ -14,7 +14,7 @@ const PER_ROUND = 3;   // slides translated in one request (each round fits well
 // from: 0 starts (the title, recap and settings are done with the first slides); the caller asks again with `next`
 // until it's null. Meant for a fresh copy (/api/editor/copy-lesson), before anyone edits it.
 export async function POST(req: Request) {
-  const body = await req.json().catch(() => ({}));
+  const body = await req.json().catch(() => null) ?? {};
   const language = typeof body.language === 'string' ? body.language.trim().slice(0, 40) : '';
   const from = Number.isInteger(body.from) && body.from >= 0 ? body.from : 0;
   if (!isLessonId(body.lesson)) return NextResponse.json({ error: 'Bad lesson' }, { status: 400 });

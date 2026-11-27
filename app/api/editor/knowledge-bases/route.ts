@@ -19,7 +19,7 @@ export async function GET() {
 }
 
 export async function POST(req: Request) {
-  const body = await req.json().catch(() => ({}));
+  const body = await req.json().catch(() => null) ?? {};
   const title = typeof body.title === 'string' ? body.title.trim().slice(0, 100) : '';
   const id = typeof body.id === 'string' && isKbId(body.id) ? body.id
     : title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 50);

@@ -12,7 +12,7 @@ export const dynamic = 'force-dynamic';
 // `saveAs` (a name not used before: lib/canvas/saved.ts), to load again later.
 // DELETE { lesson } → takes the live deck down (the presentation goes back to the AI lesson).
 export async function POST(req: Request) {
-  const { lesson, baseRev, saveAs } = await req.json().catch(() => ({}));
+  const { lesson, baseRev, saveAs } = await req.json().catch(() => null) ?? {};
   if (!isLessonId(lesson)) return NextResponse.json({ error: 'Bad lesson' }, { status: 400 });
   // The name it's saved as: checked before anything goes live
   const name = cleanName(saveAs);
@@ -52,7 +52,7 @@ export async function POST(req: Request) {
 }
 
 export async function DELETE(req: Request) {
-  const { lesson } = await req.json().catch(() => ({}));
+  const { lesson } = await req.json().catch(() => null) ?? {};
   if (!isLessonId(lesson)) return NextResponse.json({ error: 'Bad lesson' }, { status: 400 });
   const warning = await deleteDeck(lesson, 'live');
   return NextResponse.json({ ok: true, warning });

@@ -6,9 +6,10 @@ export async function POST(req: Request) {
     const limited = await rateLimit(req, "transcribe");
     if (limited) return limited;
     if (Number(req.headers.get("content-length") ?? 0) > MAX.audioBytes) return tooLarge("recording");
-    const incoming = await req.formData();
-    const file = incoming.get("file") as File;
-    if (!file) throw new Error("Missing audio file");
+    const incoming = await req.formData().catch(() => null);
+    if (!incoming) return NextResponse.json({ error: 'No recording' }, { status: 400 });
+    const file = incoming.get("file");
+    if (!(file instanceof File)) return NextResponse.json({ error: "No recording" }, { status: 400 });
     if (file.size > MAX.audioBytes) return tooLarge("recording");
 
     const formData = new FormData();

@@ -43,7 +43,7 @@ export async function POST(req: NextRequest) {
   try {
     const limited = await rateLimit(req, 'search');
     if (limited) return limited;
-    const body = await req.json();
+    const body = (await req.json().catch(() => null)) ?? {};
     const query = String(body.query ?? '').trim().slice(0, 200);
     const docs = (Array.isArray(body.docs) ? body.docs : []).slice(0, 80) as Doc[];
     if (!query || docs.length === 0) {

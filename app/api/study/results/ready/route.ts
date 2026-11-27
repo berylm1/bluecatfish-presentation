@@ -128,7 +128,7 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   const editor = await verifyToken(req.cookies.get(AUTH_COOKIE)?.value);
   if (!editor) return NextResponse.json({ error: 'Locked' }, { status: 401 });
-  const body = await req.json().catch(() => ({}));
+  const body = await req.json().catch(() => null) ?? {};
   if (!MANUAL.some((m) => m.id === body?.id) || typeof body?.done !== 'boolean') return NextResponse.json({ error: 'Bad check' }, { status: 400 });
   const S = studyOf(body?.study);
   const { data, error } = await supabase.from('study_settings').select('manual').eq('id', S.id).maybeSingle();

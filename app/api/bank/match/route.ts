@@ -48,7 +48,7 @@ export async function POST(req: NextRequest) {
   // (the lesson asking: its profile fills the AI's instructions, lib/canvas/lessonContext.ts)
   enterProfile(await lessonOf(req));
   try {
-    const body = await req.json().catch(() => ({}));
+    const body = await req.json().catch(() => null) ?? {};
     const question = String(body.question ?? '').replace(/\s+/g, ' ').trim().slice(0, 300);
     const items = (Array.isArray(body.items) ? body.items : []).slice(0, 120)
       .map((x: any) => ({ id: String(x?.id ?? '').slice(0, 64), q: String(x?.q ?? '').replace(/\s+/g, ' ').trim().slice(0, 200) }))

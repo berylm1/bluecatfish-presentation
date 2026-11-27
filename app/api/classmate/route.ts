@@ -124,7 +124,7 @@ export async function POST(req: Request) {
   if (limited) return limited;
   // (the lesson asking: its profile fills the AI's instructions, lib/canvas/lessonContext.ts)
   enterProfile(await lessonOf(req));
-  const body = await req.json().catch(() => ({}));
+  const body = await req.json().catch(() => null) ?? {};
 
   // followup: the learner answered whether Finn was right. Is that enough, or does the professor ask them to say more?
   //   POST { followup: { mistake, truth, turns: [{ who: 'professor' | 'learner', text }] } } → { kind, complete, said, ask? }

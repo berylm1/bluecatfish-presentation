@@ -68,7 +68,7 @@ export async function POST(req: Request) {
   if (limited) return limited;
   // (the lesson asking: its profile fills the AI's instructions, lib/canvas/lessonContext.ts)
   enterProfile(await lessonOf(req));
-  const body = await req.json().catch(() => ({}));
+  const body = await req.json().catch(() => null) ?? {};
   const question = String(body.question ?? '').replace(/\s+/g, ' ').trim().slice(0, 300);
   const parts: Part[] = (Array.isArray(body.parts) ? body.parts : []).slice(0, 160)
     .filter((p: any) => /^[TPV]\d{1,3}$/.test(String(p?.id)) && typeof p?.about === 'string' && p?.el && typeof p.el === 'object')

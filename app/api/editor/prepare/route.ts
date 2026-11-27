@@ -20,7 +20,7 @@ const HARD_STOP_MS = 100_000;
 // versions, topics, audio) for up to ~40s. The editor calls again while
 // `remaining` is above 0.
 export async function POST(req: Request) {
-  const { lesson, kind = 'draft' } = await req.json().catch(() => ({}));
+  const { lesson, kind = 'draft' } = await req.json().catch(() => null) ?? {};
   if (!isLessonId(lesson) || !['draft', 'ai'].includes(kind)) return NextResponse.json({ error: 'Bad lesson' }, { status: 400 });
   const draft = await readDeck(lesson, kind);
   if (!draft) return NextResponse.json({ error: 'Save the draft first' }, { status: 400 });

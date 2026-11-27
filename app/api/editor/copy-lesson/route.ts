@@ -10,7 +10,7 @@ export const maxDuration = 60;
 // the same knowledge bases, so its facts and pictures are still found). Not published; the original isn't touched.
 // (the first step of "Translate a copy…" too: /api/editor/translate then puts the copy in the other language)
 export async function POST(req: Request) {
-  const body = await req.json().catch(() => ({}));
+  const body = await req.json().catch(() => null) ?? {};
   const title = typeof body.title === 'string' ? body.title.trim().slice(0, 100) : '';
   if (!isLessonId(body.from)) return NextResponse.json({ error: 'Bad lesson' }, { status: 400 });
   if (!title) return NextResponse.json({ error: 'Give the copy a name' }, { status: 400 });

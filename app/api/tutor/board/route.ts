@@ -44,7 +44,7 @@ export async function POST(req: Request) {
   if (limited) return limited;
   // (the lesson asking: its profile fills the AI's instructions, lib/canvas/lessonContext.ts)
   enterProfile(await lessonOf(req));
-  const body = await req.json().catch(() => ({}));
+  const body = await req.json().catch(() => null) ?? {};
   const question = String(body.question ?? '').trim().slice(0, 500);
   const topic = String(body.topic ?? '').slice(0, 200);
   const slideText = String(body.slideText ?? '').slice(0, 1500);

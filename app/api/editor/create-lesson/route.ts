@@ -14,7 +14,7 @@ export const maxDuration = 120;
 // lesson, its own knowledge base with the material in it, and its draft holding the profile (no slides yet: the AI
 // drafts them next, /api/editor/ai-deck with the outline's sections)
 export async function POST(req: Request) {
-  const body = await req.json().catch(() => ({}));
+  const body = await req.json().catch(() => null) ?? {};
   const outline = sanitizeOutline(body.outline);
   if (!outline) return NextResponse.json({ error: 'The outline needs a title and at least one section' }, { status: 400 });
   const material = typeof body.material === 'string' ? body.material.trim().slice(0, 60000) : '';

@@ -27,7 +27,7 @@ export async function GET(req: Request) {
 // (the "New lesson" flow: { lesson, sections, material?, draft: true }: written from its outline's sections, under the
 // lesson's profile; with draft, also its draft, if that has no slides yet: never over someone's work)
 export async function POST(req: Request) {
-  const body = await req.json().catch(() => ({}));
+  const body = await req.json().catch(() => null) ?? {};
   const { lesson } = body;
   if (!isLessonId(lesson)) return NextResponse.json({ error: 'Bad lesson' }, { status: 400 });
   const info = (await listLessons()).find((l) => l.id === lesson) ?? { id: lesson, title: lesson };

@@ -12,7 +12,7 @@ export async function GET() {
 }
 
 export async function POST(req: Request) {
-  const { title } = await req.json().catch(() => ({}));
+  const { title } = await req.json().catch(() => null) ?? {};
   const clean = typeof title === 'string' ? title.trim().slice(0, 100) : '';
   if (!clean) return NextResponse.json({ error: 'Give the lesson a name' }, { status: 400 });
   const base = clean.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 50) || 'lesson';
@@ -24,7 +24,7 @@ export async function POST(req: Request) {
 }
 
 export async function DELETE(req: Request) {
-  const { id } = await req.json().catch(() => ({}));
+  const { id } = await req.json().catch(() => null) ?? {};
   if (!isLessonId(id)) return NextResponse.json({ error: 'Bad lesson' }, { status: 400 });
   if (id === DEFAULT_LESSON.id) {
     return NextResponse.json({ error: `“${DEFAULT_LESSON.title}” is the lesson the home page plays, so it can’t be deleted. You can take its live deck down instead.` }, { status: 400 });
