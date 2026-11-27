@@ -249,6 +249,6 @@ export async function GET(request: NextRequest) {
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     console.error('tutor/variant error:', message);
-    return NextResponse.json({ ok: false, error: message, variant: null }, { status: 500 });
+    return NextResponse.json({ ok: false, error: 'No other way to show it this time.', variant: null }, { status: 500 });   // (was the error's own text: it's in the log above)
   }
 }

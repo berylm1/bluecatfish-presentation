@@ -11,7 +11,7 @@ export const maxDuration = 30;
 // POST { kind: 'fresh', question, answer }       → { question, answer } | { none: true }   (the same sum, new numbers)
 // From the lesson page's "Type the answer" boxes (components/canvas/Activity.tsx).
 export async function POST(req: Request) {
-  const limited = await rateLimit(req, 'tutor');
+  const limited = await rateLimit(req, 'practice');
   if (limited) return limited;
   enterProfile(await lessonOf(req));
   const body = await req.json().catch(() => ({}));
@@ -29,6 +29,7 @@ export async function POST(req: Request) {
     }
     return NextResponse.json({ error: 'Bad kind' }, { status: 400 });
   } catch (e) {
-    return NextResponse.json({ error: e instanceof Error ? e.message : String(e) }, { status: 500 });
+    console.error('tutor/practice error:', e instanceof Error ? e.message : e);
+    return NextResponse.json({ error: 'That didn’t work this time.' }, { status: 500 });
   }
 }

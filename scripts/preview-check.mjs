@@ -10,7 +10,7 @@ import { chromium } from 'playwright';
 
 const BASE = (process.argv[2] ?? process.env.BASE_URL ?? '').replace(/\/$/, '');
 const LESSON = process.argv[3] ?? process.env.LESSON ?? '';
-if (!/^https?:\/\//.test(BASE)) { console.error('Give the address to check: node scripts/preview-check.mjs https://…'); process.exit(2); }
+if (!/^https?:\/\/[a-z0-9.-]+(:\d+)?$/i.test(BASE)) { console.error('Give the address to check: node scripts/preview-check.mjs https://…'); process.exit(2); }
 const q = LESSON ? `?lesson=${encodeURIComponent(LESSON)}` : '';
 const fail = (what) => { console.error(`FAILED: ${what}`); process.exit(1); };
 const ok = (what) => console.log(`ok: ${what}`);

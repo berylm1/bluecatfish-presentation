@@ -149,8 +149,8 @@ export function slideStats(rows: EventRow[]): Record<string, SlideStats> {
               w[v.item] = (w[v.item] ?? 0) + 1;
               // (newer events say the question and the answer apart; older ones as "question → answer")
               const cut = v.item.lastIndexOf(' → ');
-              const question = typeof v.question === 'string' && v.question ? v.question : cut > 0 ? v.item.slice(0, cut) : '';
-              const chosen = typeof v.chosen === 'string' && v.chosen ? v.chosen : cut > 0 ? v.item.slice(cut + 3) : '';
+              const question = (typeof v.question === 'string' && v.question ? v.question : cut > 0 ? v.item.slice(0, cut) : '').slice(0, 140);
+              const chosen = (typeof v.chosen === 'string' && v.chosen ? v.chosen : cut > 0 ? v.item.slice(cut + 3) : '').slice(0, 60);
               if (question && chosen) {
                 const q = ((wrongAnswers[slide] ??= {})[question] ??= {});
                 const key = chosen.trim().toLowerCase();

@@ -2,12 +2,15 @@ import { NextResponse } from 'next/server';
 import { isLessonId, readDeck } from '@/lib/canvas/store';
 import { STUDY_LESSON } from '@/lib/study/content';
 import { studyDeck } from '@/lib/study/version';
+import { rateLimit } from '@/lib/rateLimit';
 
 export const dynamic = 'force-dynamic';
 
 // Public: GET ?lesson= → the published (live) deck; with none, the AI-made
 // canvas deck; with neither, null (the presentation then uses the old AI lesson).
 export async function GET(req: Request) {
+  const limited = await rateLimit(req, 'deck');
+  if (limited) return limited;
   const lesson = new URL(req.url).searchParams.get('lesson');
   if (!isLessonId(lesson)) return NextResponse.json({ error: 'Bad lesson' }, { status: 400 });
   // A study (&study=<their id>, or 1 / 2, the study, before they have one): the saved version it's frozen to (lib/study/version.ts)

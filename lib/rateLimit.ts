@@ -38,6 +38,11 @@ export const LIMITS = {
   // Learner events (/api/signals/events), in batches of ~5: a lesson sends a few batches a minute
   events: { perSession: 60, perAddress: 1000, windowSec: 60, label: 'updates' },
   classmate: { perSession: 18, perAddress: 300, windowSec: 60, perDay: 3000, label: 'classmate questions' },   // (a Finn turn can be 3: his line, and up to 2 follow-ups)
+  // Hints and "Practise with new numbers" (/api/tutor/practice): their own allowance (was the questions' one: a few
+  // wrong answers used up a learner's questions to the professor). A practice round asks for up to 5 at once
+  practice: { perSession: 24, perAddress: 300, windowSec: 60, perDay: 4000, label: 'hints' },
+  // Opening a lesson (/api/deck, /api/deck/info): once a visit; a class on one address opens it together
+  deck: { perSession: 60, perAddress: 1200, windowSec: 60, label: 'lesson loads' },
   board: { perSession: 10, perAddress: 200, windowSec: 60, perDay: 3000, label: 'drawings' },
   // The question bank (/api/bank/match): one lookup per question asked (an embedding, cheap)
   bank: { perSession: 20, perAddress: 300, windowSec: 60, perDay: 5000, label: 'question lookups' },

@@ -4,6 +4,7 @@ import { AUDIO_FOLDER, SECTIONS_CACHE_KEY } from "@/src/cacheVersion";
 import { getValue } from "@/src/redisClient";
 import { COMMAND_ACK_TEXT } from "@/lib/deckCommands";
 import { TTS_VOICE, VOICE_INSTRUCTIONS, SIMPLE_VOICE_INSTRUCTIONS } from "@/lib/voice";
+import { rateLimit } from "@/lib/rateLimit";
 
 const supabase = lazySupabaseAdmin();   // created on first use, so the build doesn't need env vars
 
@@ -423,6 +424,9 @@ function buildSectionJobs(sections: any[]): AudioJob[] {
  * ========================================================================== */
 export async function POST(req: Request) {
   try {
+    // (each call lists the audio folder and may record what's missing: a few a minute is plenty for one lesson page)
+    const limited = await rateLimit(req, "slides");
+    if (limited) return limited;
     // The lesson text comes from the server's own cache, never from the
     // request. This endpoint is public: taking `sections` from the body let
     // anyone pay for text to speech of any text, and (files are named by

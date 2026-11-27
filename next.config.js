@@ -12,7 +12,8 @@ const nextConfig = {
             headers: [
                 // Other sites can't show our pages in a frame (clickjacking)
                 { key: 'X-Frame-Options', value: 'SAMEORIGIN' },
-                { key: 'Content-Security-Policy', value: "frame-ancestors 'self'" },
+                // (and: no <base> pointing elsewhere, forms only post to this site, no plugin content)
+                { key: 'Content-Security-Policy', value: "frame-ancestors 'self'; base-uri 'self'; form-action 'self'; object-src 'none'" },
                 { key: 'X-Content-Type-Options', value: 'nosniff' },
                 { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
                 // Only our own pages may ask for the camera and microphone

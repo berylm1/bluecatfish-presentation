@@ -76,6 +76,6 @@ export async function POST(req: NextRequest) {
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     console.error('deck/search error:', message);
-    return NextResponse.json({ found: false, error: message }, { status: 500 });
+    return NextResponse.json({ found: false, error: 'The search didn’t work this time.' }, { status: 500 });   // (was the error's own text: it's in the log above)
   }
 }

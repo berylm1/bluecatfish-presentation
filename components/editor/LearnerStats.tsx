@@ -163,7 +163,13 @@ function TimeOverview({ all, slides, current, onGo }: { all: Record<string, Slid
 
 /** Every slide's numbers as a CSV file (opens in any spreadsheet). */
 function downloadCsv(all: Record<string, SlideStats>, slides: { id: string; topic?: string }[], days: number) {
-  const cell = (v: string | number | null | undefined) => { const t = v === null || v === undefined ? '' : String(v); return /[",\n]/.test(t) ? `"${t.replace(/"/g, '""')}"` : t; };
+  // (words learners typed end up in here: one that starts like a formula, = + - @, gets a ' in front, so a spreadsheet
+  // shows it as text and never runs it)
+  const cell = (v: string | number | null | undefined) => {
+    let t = v === null || v === undefined ? '' : String(v);
+    if (typeof v !== 'number' && /^[=+\-@\t\r]/.test(t)) t = `'${t}`;
+    return /[",\n\r]/.test(t) ? `"${t.replace(/"/g, '""')}"` : t;
+  };
   const head = ['Slide', 'Topic', 'Learners', 'Struggled', 'Struggled %', 'Average seconds', 'I am lost', 'Simpler please', 'Repeats', 'Questions', 'Puzzled faces', 'Looked away',
     'Self-check got it', 'Self-check kind of', 'Self-check lost', 'Hands-on started', 'Hands-on done', 'Hands-on skipped', 'Hands-on wrong moves', 'Hands-on average seconds', 'Wrong answers'];
   const rows = slides.map((s, i) => {

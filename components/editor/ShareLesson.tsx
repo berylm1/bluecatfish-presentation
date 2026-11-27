@@ -40,7 +40,7 @@ export default function ShareLesson({ lessonId, title, published, onClose }: { l
     <div className="fixed inset-0 z-[1000] bg-slate-900/50 flex items-center justify-center p-4" role="dialog" aria-label="Share with learners" onPointerDown={onClose} data-share-lesson>
       <div className="w-full max-w-md rounded-2xl bg-white shadow-2xl p-6 text-slate-800 flex flex-col gap-3" onPointerDown={(e) => e.stopPropagation()}>
         <h2 className="text-lg font-bold">Share “{title}” with learners</h2>
-        {!published && <p className="text-sm rounded-md bg-amber-50 border border-amber-300 text-amber-950 px-3 py-2">This lesson isn’t published yet: the link plays the AI-made version until you press Publish.</p>}
+        {!published && <p className="text-sm rounded-md bg-amber-50 border border-amber-300 text-amber-950 px-3 py-2">This lesson isn’t published yet. Until you press Publish, the link plays the AI-made version if the lesson has one, and says it isn’t open yet if it doesn’t.</p>}
         <div className="flex gap-2">
           <input readOnly value={link} aria-label="The lesson’s link" onFocus={(e) => e.currentTarget.select()} className="flex-1 min-w-0 px-3 py-2 rounded-lg border border-slate-300 text-sm text-slate-900 bg-slate-50" />
           <button className="px-4 py-2 rounded-lg bg-slate-900 hover:bg-slate-700 text-white text-sm font-semibold whitespace-nowrap" onClick={copy}>{copied ? 'Copied' : 'Copy link'}</button>

@@ -44,11 +44,12 @@ export default function Home() {
   // profile, /api/deck/info; the blue catfish lesson's page is as it always was)
   const [lesson, setLesson] = useState<string | null>(null);
   const [info, setInfo] = useState<{ title: string; pitch: string; about: string; teacher: string; picture: string } | null>(null);
+  const [missing, setMissing] = useState(false);   // (no such lesson, or one that isn't open to learners yet)
   useEffect(() => {
     const id = new URLSearchParams(window.location.search).get('lesson');
     if (!id || !/^[a-z0-9][a-z0-9-]{0,60}$/.test(id) || /^blue-catfish$/.test(id)) return;
     setLesson(id);
-    fetch(`/api/deck/info?lesson=${encodeURIComponent(id)}`).then((r) => (r.ok ? r.json() : null)).then((d) => { if (d?.title) setInfo(d); }).catch(() => {});
+    fetch(`/api/deck/info?lesson=${encodeURIComponent(id)}`).then((r) => { if (r.status === 404) setMissing(true); return r.ok ? r.json() : null; }).then((d) => { if (d?.title) setInfo(d); }).catch(() => {});
   }, []);
   /** The lesson's page, for this lesson and these choices */
   const lessonUrl = (o: { mode?: string; camera?: boolean } = {}) => {
@@ -76,9 +77,9 @@ export default function Home() {
           )}
           {/* eslint-enable @next/next/no-img-element */}
           <p className="text-xs uppercase tracking-[0.25em] text-cyan-300/80 mb-3" data-home-teacher>{lesson ? (info ? `A lesson with ${info.teacher}` : '\u00a0') : 'A lesson with Professor Marine'}</p>
-          <h1 className="text-5xl md:text-7xl font-bold mb-5" data-home-title>{lesson ? info?.title ?? '\u00a0' : 'Meet the Blue Catfish'}</h1>
+          <h1 className="text-5xl md:text-7xl font-bold mb-5" data-home-title>{lesson ? info?.title ?? (missing ? 'This lesson isn’t open yet' : '\u00a0') : 'Meet the Blue Catfish'}</h1>
           <p className="text-lg md:text-xl text-slate-300 mb-10 max-w-xl">
-            {lesson ? info?.pitch || (info ? `A short, hands-on lesson about ${info.about}.` : '\u00a0') : <>A short, hands-on lesson about the giant fish that&apos;s changing the Chesapeake Bay.</>}
+            {lesson ? info?.pitch || (info ? `A short, hands-on lesson about ${info.about}.` : missing ? 'It may not be published yet. Check the link with your teacher.' : '\u00a0') : <>A short, hands-on lesson about the giant fish that&apos;s changing the Chesapeake Bay.</>}
           </p>
           {STUDY_OPEN ? (
             <>

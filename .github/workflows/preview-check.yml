@@ -25,4 +25,7 @@ jobs:
           npm install --no-save --no-audit --no-fund playwright@1
           npx playwright install --with-deps chromium
       - name: Check the preview
-        run: node scripts/preview-check.mjs "${{ github.event.deployment_status.environment_url || github.event.deployment_status.target_url }}"
+        # (through the environment: put straight into the command, an address with shell characters in it would run as one)
+        env:
+          BASE_URL: ${{ github.event.deployment_status.environment_url || github.event.deployment_status.target_url }}
+        run: node scripts/preview-check.mjs
