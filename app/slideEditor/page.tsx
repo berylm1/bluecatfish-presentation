@@ -10,7 +10,7 @@ import { ElementInspector, SlideInspector } from '@/components/editor/Inspector'
 import { useEditorDeck, blankDeck, blankSlide, cloneSlide, newId, elementsOf, helperView } from '@/components/editor/useEditorDeck';
 import SlideCanvas from '@/components/canvas/SlideCanvas';
 import { answersToLookAt, claimKey, factBasis, lessonBasis, slideWarnings, slidesToFactCheck, type Warning } from '@/lib/canvas/checks';
-import { speakingOrder } from '@/lib/canvas/queue';
+import { shownWords, speakingOrder } from '@/lib/canvas/queue';
 import { topicRepeats } from '@/lib/canvas/topicRuns';
 import { deckFromAnyVersion } from '@/lib/canvas/fromLegacy';
 import { growMedia } from '@/lib/canvas/fillSpace';
@@ -1404,6 +1404,8 @@ function Editor({
               )
             ) : (
               <ImageLibrary
+                slide={{ words: slide.elements.map((e) => [shownWords(e), e.say].filter(Boolean).join(': ')).filter(Boolean).join('\n'), topic: slide.topic,
+                  has: slide.elements.flatMap((e) => (e.type === 'image' ? [e.src] : [])) }}
                 lesson={deck.lessonId}
                 kb={profileOf(deck).knowledgeBases[0]}
                 onSuggestPlaces={() => {

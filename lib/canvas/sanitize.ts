@@ -163,6 +163,9 @@ function element(raw: any, fallbackId: string): SlideElement | null {
       src,
       alt: str(raw.alt, 2000),
       fit: raw.fit === 'cover' ? 'cover' : 'contain',
+      ...(typeof raw.zoom === 'number' && raw.zoom > 1.01 ? { zoom: num(raw.zoom, 1, 4, 1) } : {}),
+      ...(raw.focus && typeof raw.focus === 'object' && typeof raw.focus.x === 'number' && typeof raw.focus.y === 'number' && (Math.abs(raw.focus.x - 50) > 0.5 || Math.abs(raw.focus.y - 50) > 0.5)
+        ? { focus: { x: num(raw.focus.x, 0, 100, 50), y: num(raw.focus.y, 0, 100, 50) } } : {}),
       caption: str(raw.caption, 120),
       captionByAI: bool(raw.captionByAI),
       captionFrom: tag(raw.captionFrom),

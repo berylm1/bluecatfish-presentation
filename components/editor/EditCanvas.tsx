@@ -119,7 +119,7 @@ export default function EditCanvas({
     if (el.type !== 'image') return { x: 0, y: 0, w: 100, h: 100 };
     const img = wrapRef.current?.querySelector<HTMLImageElement>(`[data-element-id="${CSS.escape(el.id)}"] img`);
     const box = img?.parentElement?.getBoundingClientRect();
-    return img && box ? contentRect(box.width, box.height, img.naturalWidth, img.naturalHeight, el.fit ?? 'contain') : { x: 0, y: 0, w: 100, h: 100 };
+    return img && box ? contentRect(box.width, box.height, img.naturalWidth, img.naturalHeight, el.fit ?? 'contain', el.focus, el.zoom) : { x: 0, y: 0, w: 100, h: 100 };
   };
   const placeAt = (e: React.PointerEvent, el: SlideElement) => {
     e.stopPropagation();

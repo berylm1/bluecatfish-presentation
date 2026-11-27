@@ -1,5 +1,6 @@
 'use client';
 
+import Icon from '@/components/Icon';
 import { useEffect, useRef, useState } from 'react';
 import type { ActivityElement, ChartElement, DeckBank, DeckQuiz, DiagramElement, Slide, SlideElement, TextStyle } from '@/lib/canvas/types';
 import SlideCanvas from '@/components/canvas/SlideCanvas';
@@ -186,6 +187,27 @@ export function ElementInspector({
               <option value="contain">Show the whole image</option>
               <option value="cover">Fill the box (crops edges)</option>
             </select>
+          </div>
+          {/* Crop: zoom in on a part of the picture, and which part stays in view */}
+          <div data-crop>
+            <label className={label}><Icon name="crop" size={13} /> Zoom in on a part</label>
+            <div className="flex items-center gap-2">
+              <input type="range" min={1} max={4} step={0.05} value={el.zoom ?? 1} aria-label="Zoom" className="flex-1 accent-slate-900"
+                onChange={(e) => update({ zoom: Number(e.target.value) > 1.01 ? Number(e.target.value) : undefined } as Partial<SlideElement>)} />
+              <span className="w-10 text-xs text-slate-600 tabular-nums text-right">{(el.zoom ?? 1).toFixed(1)}×</span>
+            </div>
+            {((el.zoom ?? 1) > 1 || el.fit === 'cover') && (
+              <div className="grid grid-cols-2 gap-2 mt-1.5">
+                {(['x', 'y'] as const).map((k) => (
+                  <label key={k} className="text-xs text-slate-600">{k === 'x' ? 'Left ↔ right' : 'Top ↕ bottom'}
+                    <input type="range" min={0} max={100} step={1} value={el.focus?.[k] ?? 50} aria-label={k === 'x' ? 'Which part, left to right' : 'Which part, top to bottom'} className="w-full accent-slate-900"
+                      onChange={(e) => update({ focus: { x: el.focus?.x ?? 50, y: el.focus?.y ?? 50, [k]: Number(e.target.value) } } as Partial<SlideElement>)} />
+                  </label>
+                ))}
+              </div>
+            )}
+            {(el.zoom || el.focus) && <button className="text-xs underline text-slate-600 mt-1" onClick={() => update({ zoom: undefined, focus: undefined } as Partial<SlideElement>)}>Show the whole picture again</button>}
+            <p className="text-xs text-slate-400 mt-0.5">Laser-pointer marks move with the picture.</p>
           </div>
         </>
       )}

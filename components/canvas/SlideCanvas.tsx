@@ -5,7 +5,7 @@ import type { Slide, SlideElement, TextElement, TextStyle } from '@/lib/canvas/t
 import { ChartView, DiagramView } from './Visuals';
 import ActivityView, { type ActivityMistake, type FinnEvent, type FinnMove } from './Activity';
 import { planMorph, sameBase, type MorphPlan } from '@/lib/canvas/morph';
-import { contentRect } from '@/lib/canvas/laser';
+import { contentRect, pictureStyle } from '@/lib/canvas/laser';
 import { typeset } from '@/lib/mathText';
 import type { Pointer } from '@/lib/canvas/types';
 
@@ -78,7 +78,7 @@ function LaserDot({ el, p, imgRef }: { el: SlideElement; p: Pointer; imgRef: Rea
   const img = imgRef.current;
   const box = img?.parentElement?.getBoundingClientRect();
   const r = el.type === 'image' && img && box
-    ? contentRect(box.width, box.height, img.naturalWidth, img.naturalHeight, el.fit ?? 'contain')
+    ? contentRect(box.width, box.height, img.naturalWidth, img.naturalHeight, el.fit ?? 'contain', el.focus, el.zoom)
     : { x: 0, y: 0, w: 100, h: 100 };
   useLayoutEffect(() => { if (el.type === 'image' && img && !img.complete) img.addEventListener('load', () => rerender((n) => n + 1), { once: true }); }, [el.type, img]);
   return (
@@ -146,15 +146,18 @@ function ElementView({ el, active, laser, dim = 1, interactive = false, onActivi
           onMistake={(m) => onActivityMistake?.(el.id, m)}
           finnMove={finnMoves?.[el.id] ?? null} onFinn={(e) => onFinn?.(el.id, e)} guide={activityGuides?.[el.id]} turn={yourTurn === el.id} />
       ) : (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img
-          ref={imgRef}
-          src={el.src}
-          alt={decorative ? '' : el.alt ?? ''}
-          aria-hidden={decorative || undefined}
-          draggable={false}
-          style={{ width: '100%', height: '100%', objectFit: el.fit ?? 'contain', borderRadius: 'inherit', pointerEvents: 'none' }}
-        />
+        // (its own clipping box: a picture zoomed in on a part stays inside its place)
+        <span style={{ position: 'absolute', inset: 0, overflow: 'hidden', borderRadius: 'inherit', display: 'block' }}>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            ref={imgRef}
+            src={el.src}
+            alt={decorative ? '' : el.alt ?? ''}
+            aria-hidden={decorative || undefined}
+            draggable={false}
+            style={{ width: '100%', height: '100%', ...pictureStyle(el), borderRadius: 'inherit', pointerEvents: 'none' }}
+          />
+        </span>
       )}
       {el.type === 'image' && el.caption?.trim() && !el.captionOff && <Caption text={el.caption.trim()} />}
       {el.type === 'image' && el.credit && (
@@ -202,8 +205,10 @@ function Content({ el }: { el: SlideElement }) {
   return (
     <>
       {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img src={el.src} alt="" draggable={false}
-        style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: el.fit ?? 'contain', borderRadius: 'inherit', pointerEvents: 'none' }} />
+      <span style={{ position: 'absolute', inset: 0, overflow: 'hidden', borderRadius: 'inherit', display: 'block' }}>
+        <img src={el.src} alt="" draggable={false}
+          style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', ...pictureStyle(el), borderRadius: 'inherit', pointerEvents: 'none' }} />
+      </span>
       {/* the caption goes along with its picture (was: gone during the morph, then back) */}
       {el.caption?.trim() && !el.captionOff && <Caption text={el.caption.trim()} />}
     </>

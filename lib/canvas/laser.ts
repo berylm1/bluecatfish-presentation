@@ -10,11 +10,20 @@ import type { Pointer, SlideElement } from './types';
 export const LASER_MS = 5000;
 
 /** Where a picture is drawn inside its box, in % of the box ("contain" letterboxes, "cover" crops). */
-export function contentRect(boxW: number, boxH: number, natW: number, natH: number, fit: 'contain' | 'cover' = 'contain') {
+export function contentRect(boxW: number, boxH: number, natW: number, natH: number, fit: 'contain' | 'cover' = 'contain', focus?: { x: number; y: number }, zoom = 1) {
   if (!boxW || !boxH || !natW || !natH) return { x: 0, y: 0, w: 100, h: 100 };
   const scale = fit === 'cover' ? Math.max(boxW / natW, boxH / natH) : Math.min(boxW / natW, boxH / natH);
   const w = (natW * scale / boxW) * 100, h = (natH * scale / boxH) * 100;
-  return { x: (100 - w) / 2, y: (100 - h) / 2, w, h };
+  // (a picture zoomed in on a point: placed by that point, then grown around it; see pictureStyle)
+  const px = focus?.x ?? 50, py = focus?.y ?? 50, z = Math.max(1, zoom);
+  const x = ((100 - w) * px) / 100, y = ((100 - h) * py) / 100;
+  return { x: px + (x - px) * z, y: py + (y - py) * z, w: w * z, h: h * z };
+}
+
+/** How a picture is drawn in its box: its fit, and (zoomed in) the point it's zoomed on. The box clips it. */
+export function pictureStyle(el: { fit?: 'cover' | 'contain'; zoom?: number; focus?: { x: number; y: number } }): { objectFit: 'cover' | 'contain'; objectPosition?: string; transform?: string; transformOrigin?: string } {
+  const at = el.focus ? `${el.focus.x}% ${el.focus.y}%` : undefined;
+  return { objectFit: el.fit ?? 'contain', ...(at ? { objectPosition: at } : {}), ...(el.zoom && el.zoom > 1 ? { transform: `scale(${el.zoom})`, transformOrigin: at ?? '50% 50%' } : {}) };
 }
 
 /** When (0-1 of the clip) the mark's phrase is said, or null if the words don't contain it. */

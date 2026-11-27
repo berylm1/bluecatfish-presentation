@@ -60,6 +60,9 @@ export interface ImageElement extends ElementBase {
   /** Description: shown to screen readers and used to write the spoken words. */
   alt?: string;
   fit?: 'cover' | 'contain';
+  /** Zoomed in on a part of it: how much (1 = whole, up to 4) and the point kept in view (% of the picture's box; not set: its middle) */
+  zoom?: number;
+  focus?: { x: number; y: number };
   /** A short caption under the picture ("A blue catfish caught in the James River") */
   caption?: string;
   captionByAI?: boolean;

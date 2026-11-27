@@ -2,7 +2,9 @@ import { NextResponse } from 'next/server';
 import { isLessonId } from '@/lib/canvas/store';
 import { profileForLesson } from '@/lib/canvas/lessonProfiles';
 import { enterProfile } from '@/lib/canvas/lessonContext';
-import { addOpenPicture, findLessonPictures, openPictureById, searchOpenPictures, type Added } from '@/lib/canvas/openPictures';
+import { addOpenPicture, findLessonPictures, findSlidePicture, openPictureById, searchOpenPictures, type Added } from '@/lib/canvas/openPictures';
+import { imagesFor } from '@/lib/canvas/generate';
+import { hasWords } from '@/lib/canvas/pictures';
 import { rateLimit } from '@/lib/rateLimit';
 
 export const dynamic = 'force-dynamic';
@@ -19,7 +21,8 @@ export async function GET(req: Request) {
   const q = new URL(req.url).searchParams.get('q')?.replace(/\s+/g, ' ').trim().slice(0, 120) ?? '';
   if (!q) return NextResponse.json({ pictures: [] });
   try {
-    return NextResponse.json({ pictures: await searchOpenPictures(q, 18) });
+    const kind = new URL(req.url).searchParams.get('kind');
+    return NextResponse.json({ pictures: await searchOpenPictures(q, 18, kind === 'photo' || kind === 'drawing' ? kind : undefined) });
   } catch (e) {
     return NextResponse.json({ pictures: [], error: e instanceof Error ? e.message : String(e) }, { status: 502 });
   }
@@ -44,6 +47,17 @@ export async function POST(req: Request) {
         if ('skipped' in r) notes.push(`“${pic.title}” wasn’t added: ${r.skipped}`); else added.push(r);
       }
       return NextResponse.json({ added, notes });
+    }
+    // "Find a picture for this slide": the lesson's own library first (a close match that isn't on the slide yet), then the free picture sites
+    if (typeof body.slideWords === 'string' && body.slideWords.trim()) {
+      const words = body.slideWords.replace(/\s+/g, ' ').trim().slice(0, 1500);
+      const topic = typeof body.topic === 'string' ? body.topic.slice(0, 120) : undefined;
+      const exclude = new Set((Array.isArray(body.exclude) ? body.exclude : []).slice(0, 20).map(String));
+      const mine = (await imagesFor(`${topic ?? ''} ${words}`.slice(0, 500), 6).catch(() => []))
+        .find((i) => /^https:\/\//.test(i.url) && !exclude.has(i.url) && !hasWords(i.description ?? '') && (i.score ?? 0) >= 0.45);
+      if (mine) return NextResponse.json({ added: [{ url: mine.url, description: mine.description, credit: mine.credit, creditUrl: mine.creditUrl }], notes: ['From this lesson’s own pictures.'], from: 'library' });
+      const r = await findSlidePicture({ kb, about, slideWords: words, topic, deadline: Date.now() + 80_000 });
+      return NextResponse.json({ added: r.added ? [r.added] : [], notes: [r.note], from: 'free' });
     }
     const sections = (Array.isArray(body.sections) ? body.sections : []).slice(0, 8)
       .map((s: any) => ({ title: String(s?.title ?? '').slice(0, 120), covers: Array.isArray(s?.covers) ? s.covers.map((c: unknown) => String(c).slice(0, 120)).slice(0, 6) : [] }))

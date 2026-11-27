@@ -86,8 +86,13 @@ function fromCommons(pages: any): OpenPicture[] {
   });
 }
 
-async function searchCommons(query: string, count: number): Promise<OpenPicture[]> {
-  const d = await getJson(`${COMMONS}&generator=search&gsrnamespace=6&gsrlimit=${Math.min(30, count * 2)}&gsrsearch=${encodeURIComponent(`${query} filetype:bitmap|drawing`)}`);
+/** Just photos, or just drawings (none: both) */
+export type PictureKind = 'photo' | 'drawing';
+
+async function searchCommons(query: string, count: number, kind?: PictureKind): Promise<OpenPicture[]> {
+  // (Commons files by kind: drawings are its vector files, and photos are almost always JPEGs)
+  const type = kind === 'drawing' ? 'filetype:drawing' : kind === 'photo' ? 'filetype:bitmap filemime:jpeg' : 'filetype:bitmap|drawing';
+  const d = await getJson(`${COMMONS}&generator=search&gsrnamespace=6&gsrlimit=${Math.min(30, count * 2)}&gsrsearch=${encodeURIComponent(`${query} ${type}`)}`);
   return fromCommons(d?.query?.pages).slice(0, count);
 }
 
@@ -101,19 +106,20 @@ function fromOpenverse(r: any): OpenPicture | null {
   };
 }
 
-async function searchOpenverse(query: string, count: number): Promise<OpenPicture[]> {
-  const d = await getJson(`https://api.openverse.org/v1/images/?q=${encodeURIComponent(query)}&license=by,by-sa,cc0,pdm&mature=false&page_size=${Math.min(20, count)}`);
+async function searchOpenverse(query: string, count: number, kind?: PictureKind): Promise<OpenPicture[]> {
+  const category = kind === 'photo' ? '&category=photograph' : kind === 'drawing' ? '&category=illustration,digitized_artwork' : '';
+  const d = await getJson(`https://api.openverse.org/v1/images/?q=${encodeURIComponent(query)}&license=by,by-sa,cc0,pdm&mature=false${category}&page_size=${Math.min(20, count)}`);
   return (Array.isArray(d?.results) ? d.results : []).flatMap((r: any) => fromOpenverse(r) ?? []).slice(0, count);
 }
 
 /** Openly licensed pictures for these words: Wikimedia Commons first, Openverse to fill up */
-export async function searchOpenPictures(query: string, count = 12): Promise<OpenPicture[]> {
+export async function searchOpenPictures(query: string, count = 12, kind?: PictureKind): Promise<OpenPicture[]> {
   const q = query.replace(/\s+/g, ' ').trim().slice(0, 120);
   if (!q) return [];
-  const commons = await searchCommons(q, count).catch((e) => { console.warn('Commons search failed:', e instanceof Error ? e.message : e); return [] as OpenPicture[]; });
+  const commons = await searchCommons(q, count, kind).catch((e) => { console.warn('Commons search failed:', e instanceof Error ? e.message : e); return [] as OpenPicture[]; });
   // (Openverse only when Commons has little: it allows few searches a day without an account)
   if (commons.length >= Math.min(count, 4)) return commons;
-  const more = await searchOpenverse(q, count - commons.length).catch((e) => { console.warn('Openverse search failed:', e instanceof Error ? e.message : e); return [] as OpenPicture[]; });
+  const more = await searchOpenverse(q, count - commons.length, kind).catch((e) => { console.warn('Openverse search failed:', e instanceof Error ? e.message : e); return [] as OpenPicture[]; });
   return [...commons, ...more];
 }
 
@@ -250,4 +256,39 @@ export async function findLessonPictures(opts: { kb: string; about: string; sect
     ? `Added ${added.length} free picture${added.length === 1 ? '' : 's'} to the lesson's library (Wikimedia Commons / Openverse, each with its credit)${left ? `; ${left} left out (didn't fit, or not right for children)` : ''}.`
     : 'Free pictures were found, but none fit the lesson well enough to add.');
   return { added, notes };
+}
+
+/**
+ * One picture for one slide ("Find a picture for this slide"): the AI names what a picture of it could show, the free
+ * picture sites are searched, and the first one that fits (the AI looks at each: addOpenPicture, strict) is added to
+ * the lesson's library. null: nothing a picture would help with, or none that fit.
+ */
+export async function findSlidePicture(opts: { kb: string; about: string; slideWords: string; topic?: string; deadline?: number }): Promise<{ added: Added | null; note: string }> {
+  const deadline = opts.deadline ?? Date.now() + 70_000;
+  let queries: string[] = [];
+  try {
+    const out = JSON.parse(await chat(
+      'You pick ONE picture for a slide of a lesson for {{ages}} year olds about {{about}}. Name up to 3 CONCRETE things a photo or drawing could show that ' +
+        'would help teach THIS slide: a real object, animal, place, or people doing something (1 to 4 plain words each, to search a photo library with; the best first). ' +
+        'No abstract ideas, no diagrams with text, nothing unsuitable for children. If no picture would help (a pure calculation, a definition), reply {"queries":[]}. ' +
+        'Reply as JSON: {"queries":["...","..."]}',
+      `Topic: ${opts.topic ?? '(not set)'}\nThe slide:\n${opts.slideWords.slice(0, 1500)}`, true, 200,
+    ));
+    queries = (Array.isArray(out?.queries) ? out.queries : []).map((q: unknown) => String(q).replace(/\s+/g, ' ').trim().slice(0, 60)).filter(Boolean).slice(0, 3);
+  } catch (e) {
+    return { added: null, note: `Couldn’t work out what to look for (${e instanceof Error ? e.message : String(e)}).` };
+  }
+  if (!queries.length) return { added: null, note: 'The AI didn’t find anything on this slide that a picture would help with.' };
+  let tried = 0;
+  for (const q of queries) {
+    if (Date.now() > deadline - 25_000) break;
+    const found = await searchOpenPictures(q, 4).catch(() => [] as OpenPicture[]);
+    for (const pic of found.slice(0, 3)) {
+      if (Date.now() > deadline - 12_000) break;
+      tried++;
+      const r = await addOpenPicture(pic, opts.kb, `${opts.about}. This slide: ${opts.slideWords.slice(0, 300)}`, true).catch((e) => ({ skipped: e instanceof Error ? e.message : String(e) }));
+      if (!('skipped' in r)) return { added: r, note: `Found “${r.title}” for “${q}” (${r.credit}).` };
+    }
+  }
+  return { added: null, note: tried ? `Looked for ${queries.map((q) => `“${q}”`).join(', ')}: none of the free pictures fit well enough.` : `Nothing found for ${queries.map((q) => `“${q}”`).join(', ')} (the picture sites may not be reachable).` };
 }
