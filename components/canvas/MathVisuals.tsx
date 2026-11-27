@@ -136,11 +136,27 @@ export function FractionBars({ el }: { el: DiagramElement }) {
 
 export function Graph({ el }: { el: DiagramElement }) {
   const pts = el.items.filter((it) => it.x !== undefined && it.value !== undefined).map((it) => ({ ...it, x: it.x!, y: it.value! }));
+  type P = (typeof pts)[number];
+  const plain = (p: P) => !p.label || p.label === `(${p.x}, ${p.y})`;
+  // The lines: by each point's "line"; or, with none named, a new line each time x goes back (two lines listed one
+  // after the other: "A" from 0 to 3, then "B" from 0 to 3), named by its first point if that has a name
+  const lines: { name: string; pts: P[] }[] = [];
+  if (pts.some((p) => p.line)) {
+    for (const p of pts) { const name = p.line ?? ''; (lines.find((l) => l.name === name) ?? lines[lines.push({ name, pts: [] }) - 1]).pts.push(p); }
+  } else {
+    for (const [i, p] of pts.entries()) {
+      if (i === 0 || (el.connect && p.x < pts[i - 1].x)) lines.push({ name: '', pts: [] });
+      lines[lines.length - 1].pts.push(p);
+    }
+    if (lines.length > 1) for (const l of lines) if (!plain(l.pts[0])) l.name = l.pts[0].label;
+  }
+  const many = lines.length > 1;
   const xs = pts.map((p) => p.x), ys = pts.map((p) => p.y);
   // the axes always show zero, and end on round numbers
   const range = (vals: number[]) => {
     const lo = Math.min(0, ...vals), hi = Math.max(0, ...vals);
-    const step = niceStep(hi - lo || 1, 6);
+    // (whole numbers on an axis whose points are all whole: 0, 1, 2, 3, not 0.5 steps)
+    const step = Math.max(vals.every((v) => Number.isInteger(v)) ? 1 : 0, niceStep(hi - lo || 1, 6));
     return { lo: Math.floor(lo / step) * step, hi: Math.max(Math.ceil(hi / step) * step, Math.floor(lo / step) * step + step), step };
   };
   const X = range(xs), Y = range(ys);
@@ -148,39 +164,49 @@ export function Graph({ el }: { el: DiagramElement }) {
   const px = (v: number) => L + ((v - X.lo) / (X.hi - X.lo)) * (R - L);
   const py = (v: number) => B - ((v - Y.lo) / (Y.hi - Y.lo)) * (B - T);
   const ticks = (r: { lo: number; hi: number; step: number }) => { const out: number[] = []; for (let v = r.lo; v <= r.hi + 1e-9; v += r.step) out.push(round(v)); return out; };
-  const line = [...pts].sort((a, b) => a.x - b.x);
   const [xName, yName] = el.columns ?? ['', ''];
   return (
-    <div style={{ position: 'absolute', inset: 0 }} data-math="graph">
+    <div style={{ position: 'absolute', inset: 0 }} data-math="graph" data-lines={lines.length}>
       <svg viewBox="0 0 100 100" preserveAspectRatio="none" style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', overflow: 'visible' }} aria-hidden>
         {ticks(X).map((v) => <line key={`x${v}`} x1={px(v)} y1={T} x2={px(v)} y2={B} stroke="#e2e8f0" strokeWidth={1} vectorEffect="non-scaling-stroke" />)}
         {ticks(Y).map((v) => <line key={`y${v}`} x1={L} y1={py(v)} x2={R} y2={py(v)} stroke="#e2e8f0" strokeWidth={1} vectorEffect="non-scaling-stroke" />)}
         <line x1={L} y1={py(0)} x2={R} y2={py(0)} stroke={LINE} strokeWidth={2.5} vectorEffect="non-scaling-stroke" />
         <line x1={px(0)} y1={T} x2={px(0)} y2={B} stroke={LINE} strokeWidth={2.5} vectorEffect="non-scaling-stroke" />
-        {el.connect && line.length > 1 && (
-          <g style={{ animation: 'reveal-x 1100ms ease-out 300ms both' }}>
-            <path d={line.map((p, i) => `${i ? 'L' : 'M'}${px(p.x)},${py(p.y)}`).join(' ')} fill="none" stroke={PALETTE[0]} strokeWidth={4} strokeLinejoin="round" strokeLinecap="round" vectorEffect="non-scaling-stroke" />
+        {el.connect && lines.map((l, k) => l.pts.length > 1 && (
+          <g key={k} style={{ animation: `reveal-x 1100ms ease-out ${300 + k * 500}ms both` }}>
+            <path d={[...l.pts].sort((a, b) => a.x - b.x).map((p, i) => `${i ? 'L' : 'M'}${px(p.x)},${py(p.y)}`).join(' ')} fill="none" stroke={PALETTE[k % PALETTE.length]} strokeWidth={4} strokeLinejoin="round" strokeLinecap="round" vectorEffect="non-scaling-stroke" />
           </g>
-        )}
+        ))}
       </svg>
       {ticks(X).map((v) => <span key={`tx${v}`} style={{ position: 'absolute', left: `${px(v)}%`, top: `${B + 1.5}%`, transform: 'translateX(-50%)', fontSize: '2.6cqh', fontWeight: 600, color: SOFT }}>{String(v).replace('-', '−')}</span>)}
       {ticks(Y).filter((v) => v !== 0 || X.lo === 0).map((v) => <span key={`ty${v}`} style={{ position: 'absolute', right: `${100 - L + 1.2}%`, top: `${py(v)}%`, transform: 'translateY(-50%)', fontSize: '2.6cqh', fontWeight: 600, color: SOFT }}>{String(v).replace('-', '−')}</span>)}
       {xName && <span style={{ position: 'absolute', left: `${(L + R) / 2}%`, bottom: 0, transform: 'translateX(-50%)', fontSize: '2.9cqh', fontWeight: 800, color: INK, whiteSpace: 'nowrap' }}>{xName}</span>}
       {yName && <span style={{ position: 'absolute', left: 0, top: `${(T + B) / 2}%`, transform: 'translate(-40%, -50%) rotate(-90deg)', fontSize: '2.9cqh', fontWeight: 800, color: INK, whiteSpace: 'nowrap' }}>{yName}</span>}
-      {pts.map((p, i) => {
-        const color = p.color ?? (el.connect ? PALETTE[0] : PALETTE[i % PALETTE.length]);
-        const named = p.label && p.label !== `(${p.x}, ${p.y})`;
+      {/* more than one line: which is which (each line's colour and name) */}
+      {many && (
+        <div data-graph-key style={{ position: 'absolute', left: `${L + 2}%`, top: `${T}%`, display: 'flex', flexDirection: 'column', gap: '0.5cqh', background: 'rgba(255,255,255,0.85)', borderRadius: '0.8cqh', padding: '0.6cqh 1cqh' }}>
+          {lines.map((l, k) => (
+            <span key={k} style={{ display: 'flex', alignItems: 'center', gap: '0.8cqh', fontSize: '2.8cqh', fontWeight: 800, color: INK, whiteSpace: 'nowrap' }}>
+              <span aria-hidden style={{ width: '3.4cqh', height: '0.8cqh', borderRadius: '1cqh', background: PALETTE[k % PALETTE.length] }} />{l.name || `Line ${k + 1}`}
+            </span>
+          ))}
+        </div>
+      )}
+      {lines.flatMap((l, k) => l.pts.map((p, i) => {
+        const color = p.color ?? (el.connect || many ? PALETTE[k % PALETTE.length] : PALETTE[i % PALETTE.length]);
+        // (with several lines the key names them: only a point with a name of its own is labelled)
+        const show = many ? !plain(p) && p.label !== l.name : !plain(p) || pts.length <= 6;
         return (
-          <div key={i} data-point={`${p.x},${p.y}`}>
+          <div key={`${k}-${i}`} data-point={`${p.x},${p.y}`}>
             <span aria-hidden style={{ position: 'absolute', left: `${px(p.x)}%`, top: `${py(p.y)}%`, width: '2.8cqh', height: '2.8cqh', margin: '-1.4cqh 0 0 -1.4cqh', borderRadius: '50%',
-              background: color, border: '0.45cqh solid #fff', boxShadow: `0 0 0 0.25cqh ${color}`, animation: pop(i, 400) }} />
-            {(named || pts.length <= 6) && (
+              background: color, border: '0.45cqh solid #fff', boxShadow: `0 0 0 0.25cqh ${color}`, animation: pop(i, 400 + k * 500) }} />
+            {show && (
               <span style={{ position: 'absolute', left: `${px(p.x)}%`, top: `${py(p.y)}%`, transform: `translate(${px(p.x) > 82 ? '-110%' : '14%'}, -130%)`, fontSize: '2.8cqh', fontWeight: 800, color: INK, whiteSpace: 'nowrap',
-                background: 'rgba(255,255,255,0.8)', borderRadius: '0.6cqh', padding: '0 0.6cqh', animation: pop(i, 500) }}>{math(p.label)}</span>
+                background: 'rgba(255,255,255,0.8)', borderRadius: '0.6cqh', padding: '0 0.6cqh', animation: pop(i, 500 + k * 500) }}>{math(p.label)}</span>
             )}
           </div>
         );
-      })}
+      }))}
     </div>
   );
 }

@@ -747,14 +747,14 @@ function DiagramFields({ el, update }: { el: DiagramElement; update: Update }) {
       <LinesField id="diagram-items" title="Items (one per line, up to 8)"
         hint={el.kind === 'compare' ? 'Left | Right' : el.kind === 'sizes' ? 'Label | value | note' : el.kind === 'timeline' ? 'When | What happened'
           : el.kind === 'numberline' ? 'What’s written (3/4) | where (0.75) | note' : el.kind === 'fraction' ? 'Fraction (3/4) | note'
-          : el.kind === 'graph' ? 'x | y | name (optional)' : el.kind === 'worked' ? 'The line of working | why' : 'Label | detail'}
+          : el.kind === 'graph' ? 'x | y | name (optional) | line (when there are two)' : el.kind === 'worked' ? 'The line of working | why' : 'Label | detail'}
         initial={el.items.map((i) => (el.kind === 'sizes' || el.kind === 'numberline' ? join(i.label, i.value, i.detail)
-          : el.kind === 'graph' ? join(i.x, i.value, i.label === `(${i.x}, ${i.value})` ? undefined : i.label) : join(i.label, i.detail))).join('\n')}
+          : el.kind === 'graph' ? join(i.x, i.value, i.label === `(${i.x}, ${i.value})` ? (i.line ? '' : undefined) : i.label, i.line) : join(i.label, i.detail))).join('\n')}
         onLines={(lines) => set({
           items: lines.slice(0, el.kind === 'graph' ? 12 : 8).map((c) => (el.kind === 'sizes'
             ? { label: c[0], value: numOr(c[1]) ?? 1, detail: c[2] || undefined }
             : el.kind === 'numberline' ? { label: c[0], value: numOr(c[1]) ?? fractionValue(c[0]) ?? 0, detail: c[2] || undefined }
-            : el.kind === 'graph' ? { x: numOr(c[0]) ?? 0, value: numOr(c[1]) ?? 0, label: c[2] || `(${numOr(c[0]) ?? 0}, ${numOr(c[1]) ?? 0})` }
+            : el.kind === 'graph' ? { x: numOr(c[0]) ?? 0, value: numOr(c[1]) ?? 0, label: c[2] || `(${numOr(c[0]) ?? 0}, ${numOr(c[1]) ?? 0})`, ...(c[3] ? { line: c[3] } : {}) }
             : { label: c[0], detail: c[1] || undefined })),
         })} />
       {el.kind === 'sizes' && (

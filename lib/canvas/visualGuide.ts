@@ -20,7 +20,7 @@ export const MATH_VISUALS_GUIDE = `
   More kinds of diagram, for math (write a fraction as 3/4: it is shown stacked, as on a board):
   numberline = numbers or fractions as points on a line: "from":0,"to":1,"parts":4 (the equal parts marked in each whole), items = the points {"label":"3/4","value":0.75} (1-5 points; w at least 70, h at least 35)
   fraction = fraction bars: each item's "label" is a fraction ("3/4" draws a bar cut into 4 with 3 shaded), "detail" = a short note; 1-4 bars, one under another, to compare fractions or show equal ones (w at least 60, h at least 14 per bar)
-  graph = points on x and y axes: items = the points {"x":2,"value":5,"label":"optional"}, "columns":["x axis name","y axis name"], "connect":true joins them with a line (2-8 points; h at least 50)
+  graph = points on x and y axes: items = the points {"x":2,"value":5,"label":"optional"}, "columns":["x axis name","y axis name"], "connect":true joins them with a line (2-8 points; h at least 50). To compare TWO lines on one graph, give every point "line":"its line's name" (2-6 points each)
   worked = a worked example, one line of working per item, in order: "label" = the line ("1/2 + 1/3 = 3/6 + 2/6"), "detail" = why, under 8 words; 2-5 lines, the last is the answer. It is shown one line at a time while its "say" walks through the lines in the same order, about as many words for each (w at least 70, h at least 14 per line)
   For a calculation with steps use worked, not steps; for fractions as amounts use fraction or numberline.
   A graph ONLY when the slide itself is about two amounts that change together (hours and miles, cups and servings), with both named on its axes: never beside something it has nothing to do with.`;
@@ -29,7 +29,7 @@ export const ACTIVITY_GUIDE = `Hands-on box (the learner DOES something with wha
 {"type":"activity","kind":"...","prompt":"what to do, under 9 words", x,y,w,h, "say": "20-40 words starting with 'Your turn': why, and exactly what to do (never the answers)"}
 - sort: "groups":["Native","Invader"], "items":[{"text":"Blue crab","group":0},{"text":"Blue catfish","group":1}]  (2-4 groups, 3-8 items; group = index)
 - order: "items":[{"text":"first step"},{"text":"second step"}, ...]  (3-6 steps in the RIGHT order; they're shuffled for the learner)
-- cards: "items":[{"text":"Guess: how heavy?","back":"Over 100 pounds!"}, ...]  (2-6 cards: a question or guess on the front, the answer on the back)
+- cards: "items":[{"text":"Guess: how heavy?","back":"Over 100 pounds!"}, ...]  (2-6 cards: a question or guess on the front, under 70 characters, the answer on the back)
 - hotspots: "image":"img2", "items":[{"text":"Whiskers","back":"They taste the water","x":12,"y":60}, ...]  (a picture from AVAILABLE IMAGES; 2-5 spots, x/y = % of the picture)
 - slider: "slider":{"label":"Age","unit":"years","min":0,"max":20,"stops":[{"at":0,"text":"Hand-sized","scale":0.4},{"at":10,"text":"As long as your arm","scale":1}]}, optional "image" that grows with "scale" (2-6 stops)
 - answer: "items":[{"text":"What is 1/4 + 2/4?","back":"3/4 | three quarters"}, ...]  (1-5 questions the learner TYPES the answer to: a problem to work out, a number or key word to recall; "back" = the answer, other wordings that count after "|"; numbers are compared by value, so 3/4 = 0.75 = 6/8 already. Best for math, spelling and short facts. The answer must be SHORT and easy to type exactly: a number, a fraction or 1-3 words, never a sentence; a "why" or "explain" question belongs on a card instead)

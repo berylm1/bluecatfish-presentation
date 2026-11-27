@@ -105,7 +105,8 @@ export interface ChartElement extends ElementBase {
 export interface DiagramElement extends ElementBase {
   type: 'diagram';
   kind: 'steps' | 'cycle' | 'timeline' | 'compare' | 'sizes' | 'numberline' | 'fraction' | 'graph' | 'worked';
-  items: { label: string; detail?: string; value?: number; x?: number; color?: string }[];
+  /** line (a graph): which line the point is on, when there's more than one to compare ("A", "Walking") */
+  items: { label: string; detail?: string; value?: number; x?: number; line?: string; color?: string }[];
   columns?: [string, string];
   unit?: string;
   alt?: string;

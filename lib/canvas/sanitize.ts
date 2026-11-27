@@ -84,7 +84,7 @@ function element(raw: any, fallbackId: string): SlideElement | null {
         const x = kind === 'graph' && typeof it?.x === 'number' ? num(it.x, -1e6, 1e6, 0) : undefined;
         const label = str(it?.label, kind === 'worked' ? 70 : 40)
           ?? (kind === 'graph' && x !== undefined && value !== undefined ? `(${x}, ${value})` : kind === 'numberline' && value !== undefined ? String(value) : '');
-        return { label, detail: str(it?.detail, 80), value, ...(x !== undefined ? { x } : {}), color: color(it?.color) };
+        return { label, detail: str(it?.detail, 80), value, ...(x !== undefined ? { x } : {}), ...(kind === 'graph' && str(it?.line, 24) ? { line: str(it.line, 24) } : {}), color: color(it?.color) };
       })
       .filter((it: { label: string; value?: number; x?: number }) => it.label && (kind !== 'graph' || (it.x !== undefined && it.value !== undefined)) && (kind !== 'numberline' || it.value !== undefined));
     if (!items.length) return null;
@@ -107,7 +107,8 @@ function element(raw: any, fallbackId: string): SlideElement | null {
     const groups = (Array.isArray(raw.groups) ? raw.groups : []).slice(0, 4).map((g: unknown) => str(g, 30) ?? '').filter(Boolean);
     const items = (Array.isArray(raw.items) ? raw.items : []).slice(0, 8)
       .map((it: any) => ({
-        text: str(it?.text, kind === 'answer' ? 140 : 60) ?? '', back: str(it?.back, 160),   // (a typed-answer question can be longer)
+        // (a typed-answer question can be longer; so can a flip card's front, a question: was cut at 60, mid-word)
+        text: str(it?.text, kind === 'answer' ? 140 : kind === 'cards' ? 110 : 60) ?? '', back: str(it?.back, 160),
         group: typeof it?.group === 'number' ? num(Math.round(it.group), 0, Math.max(0, groups.length - 1), 0) : undefined,
         x: typeof it?.x === 'number' ? num(it.x, 0, 100, 50) : undefined,
         y: typeof it?.y === 'number' ? num(it.y, 0, 100, 50) : undefined,
