@@ -8,7 +8,7 @@ import { sanitizeProfile } from './profile';
 const STYLES: TextStyle[] = ['title', 'body', 'caption', 'bigNumber'];
 const MAX_SLIDES = 200;
 const MAX_ELEMENTS = 60;
-const DIAGRAMS = ['steps', 'cycle', 'timeline', 'compare', 'sizes'];
+const DIAGRAMS = ['steps', 'cycle', 'timeline', 'compare', 'sizes', 'numberline', 'fraction', 'graph', 'worked'];
 const ACTIVITIES = ['sort', 'order', 'cards', 'hotspots', 'slider', 'answer'];
 
 const str = (v: unknown, max: number): string | undefined =>
@@ -76,17 +76,28 @@ function element(raw: any, fallbackId: string): SlideElement | null {
   }
   if (raw.type === 'diagram') {
     const kind = DIAGRAMS.includes(raw.kind) ? raw.kind : 'steps';
-    const items = (Array.isArray(raw.items) ? raw.items : []).slice(0, 8)
-      .map((it: any) => ({
-        label: str(it?.label, 40) ?? '', detail: str(it?.detail, 80),
-        value: typeof it?.value === 'number' ? num(it.value, 0, 1e9, 0) : undefined, color: color(it?.color),
-      }))
-      .filter((it: { label: string }) => it.label);
+    // (a number line and a graph can go below zero; a point with nothing written by it is named by its numbers)
+    const signed = kind === 'numberline' || kind === 'graph';
+    const items = (Array.isArray(raw.items) ? raw.items : []).slice(0, kind === 'graph' ? 12 : 8)
+      .map((it: any) => {
+        const value = typeof it?.value === 'number' ? num(it.value, signed ? -1e6 : 0, signed ? 1e6 : 1e9, 0) : undefined;
+        const x = kind === 'graph' && typeof it?.x === 'number' ? num(it.x, -1e6, 1e6, 0) : undefined;
+        const label = str(it?.label, kind === 'worked' ? 70 : 40)
+          ?? (kind === 'graph' && x !== undefined && value !== undefined ? `(${x}, ${value})` : kind === 'numberline' && value !== undefined ? String(value) : '');
+        return { label, detail: str(it?.detail, 80), value, ...(x !== undefined ? { x } : {}), color: color(it?.color) };
+      })
+      .filter((it: { label: string; value?: number; x?: number }) => it.label && (kind !== 'graph' || (it.x !== undefined && it.value !== undefined)) && (kind !== 'numberline' || it.value !== undefined));
     if (!items.length) return null;
     const cols = Array.isArray(raw.columns) ? raw.columns.map((c: unknown) => str(c, 30) ?? '') : null;
     const el: DiagramElement = {
       ...base, type: 'diagram', kind, items, unit: str(raw.unit, 12), alt: str(raw.alt, 2000),
       columns: cols && cols.length >= 2 && (cols[0] || cols[1]) ? [cols[0], cols[1]] : undefined,
+      ...(kind === 'numberline' ? {
+        from: typeof raw.from === 'number' ? num(raw.from, -1e6, 1e6, 0) : undefined,
+        to: typeof raw.to === 'number' ? num(raw.to, -1e6, 1e6, 1) : undefined,
+        parts: typeof raw.parts === 'number' ? num(Math.round(raw.parts), 1, 20, 1) : undefined,
+      } : {}),
+      ...(kind === 'graph' && raw.connect === true ? { connect: true } : {}),
     };
     return el;
   }

@@ -45,7 +45,7 @@ export function shownWords(el: SlideElement): string {
     case 'text': return el.text;
     case 'image': return el.alt ?? '';
     case 'chart': return el.alt ?? `${el.kind === 'line' ? 'line chart' : el.kind === 'pie' ? 'pie chart' : 'bar chart'}: ${el.bars.map((b) => `${b.label} ${b.value}${el.unit ? ` ${el.unit}` : ''}`).join(', ')}`;
-    case 'diagram': return el.alt ?? `${el.kind}: ${el.columns ? `${el.columns.join(' vs ')}: ` : ''}${el.items.map((i) => [i.label, i.detail, i.value !== undefined ? `${i.value}${el.unit ? ` ${el.unit}` : ''}` : ''].filter(Boolean).join(' – ')).join('; ')}`;
+    case 'diagram': return el.alt ?? `${el.kind}: ${el.columns ? `${el.columns.join(' vs ')}: ` : ''}${el.items.map((i) => [i.label, i.detail, i.x !== undefined ? `x ${i.x}` : '', i.value !== undefined ? `${i.value}${el.unit ? ` ${el.unit}` : ''}` : ''].filter(Boolean).join(' – ')).join('; ')}`;
     case 'activity': {
       const what = el.kind === 'sort' ? `sort into ${(el.groups ?? []).join(' / ')}: ${(el.items ?? []).map((i) => `${i.text} → ${el.groups?.[i.group ?? 0] ?? ''}`).join(', ')}`
         : el.kind === 'order' ? `put in order: ${(el.items ?? []).map((i) => i.text).join(' → ')}`

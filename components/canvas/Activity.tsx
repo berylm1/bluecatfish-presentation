@@ -8,6 +8,7 @@ import { activityReady } from '@/lib/canvas/queue';
 import { answerMatches } from '@/lib/canvas/answerMatch';
 import { playSound, type HandsOnSound } from '@/lib/canvas/sounds';
 import Icon from '@/components/Icon';
+import { typeset } from '@/lib/mathText';
 
 /**
  * Words as big as fit their box, between `min` and `max` (% of the slide's height). A card's words were one fixed
@@ -126,7 +127,7 @@ export default function ActivityView({ el, interactive, onDone, hintNonce = 0, s
     <div data-activity={el.kind} style={{ position: 'absolute', inset: '1.2cqh 1.4cqh', display: 'flex', flexDirection: 'column', gap: '1.2cqh' }}>   {/* (inset was 0: the box's padding doesn't reach an absolute child, so the cards sat on its edge) */}
       {el.prompt && (
         <div style={{ fontSize: '3.8cqh', fontWeight: 800, color: INK, textAlign: 'center', lineHeight: 1.15 }}>
-          <Icon name="hands-on-activity" /> {el.prompt}
+          <Icon name="hands-on-activity" /> {typeset(el.prompt)}
         </div>
       )}
       <div ref={setArea} style={{ position: 'relative', flex: 1, minHeight: 0 }}>
@@ -324,7 +325,7 @@ function Sort({ el, kit }: { el: ActivityElement; kit: Kit }) {
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '1cqh', justifyContent: 'center', alignContent: 'center', minHeight: '26%' }}>
         {left.map((i) => (
           <button key={i} type="button" disabled={!kit.interactive} data-hint-from={i === hintItem ? '' : undefined} {...movable(i, '#64748b')}>
-            {items[i].text}
+            {typeset(items[i].text)}
           </button>
         ))}
       </div>
@@ -339,16 +340,16 @@ function Sort({ el, kit }: { el: ActivityElement; kit: Kit }) {
               background: wrong?.bin === b ? 'rgba(225,29,72,0.08)' : `${PALETTE[b % PALETTE.length]}12`, padding: '1cqh', display: 'flex', flexDirection: 'column',
               gap: '0.8cqh', alignItems: 'center', cursor: kit.interactive && selected !== null ? 'pointer' : 'default', transition: 'background 200ms',
             }}>
-            <div data-bin={b} style={{ fontSize: '3.8cqh', fontWeight: 900, color: PALETTE[b % PALETTE.length] }}>{g}</div>
+            <div data-bin={b} style={{ fontSize: '3.8cqh', fontWeight: 900, color: PALETTE[b % PALETTE.length] }}>{typeset(g)}</div>
             {items.map((it, i) => placed[i] !== b ? null : finn?.item === i ? (
               // Finn's pick: his badge, and the learner can drag it out to where it really goes
               <button key={i} type="button" disabled={!kit.interactive} data-bin={b} data-finn-pick=""
                 data-hint-from={i === hintItem ? '' : undefined} title={`Finn put this here. Is he right?`}
                 {...movable(i, '#f59e0b', { borderStyle: 'dashed', background: '#fffbeb', fontSize: '3.2cqh', animation: wrong?.item === i ? 'shake 450ms ease' : 'pop-in 450ms ease both' })}>
-                <Icon name="raised-hand" /> {it.text}
+                <Icon name="raised-hand" /> {typeset(it.text)}
               </button>
             ) : (
-              <div key={i} data-bin={b} style={chip(PALETTE[b % PALETTE.length], { animation: 'pop-in 350ms ease both', fontSize: '3.2cqh' })}><Icon name="check-mark" /> {it.text}</div>
+              <div key={i} data-bin={b} style={chip(PALETTE[b % PALETTE.length], { animation: 'pop-in 350ms ease both', fontSize: '3.2cqh' })}><Icon name="check-mark" /> {typeset(it.text)}</div>
             ))}
           </div>
         ))}
@@ -416,7 +417,7 @@ function TypeAnswer({ el, kit }: { el: ActivityElement; kit: Kit }) {
     <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '2.4cqh' }} data-type-answer>
       {items.length > 1 && <div style={{ fontSize: '2.4cqh', fontWeight: 700, color: '#64748b' }}>{Math.min(at, items.length - 1) + 1} of {items.length}</div>}
       <FitBox fitKey={item.text} min={3} max={7} style={{ width: '92%', maxHeight: '38%', textAlign: 'center', fontWeight: 800, color: INK, lineHeight: 1.15, overflow: 'hidden' }}>
-        {item.text}
+        {typeset(item.text)}
       </FitBox>
       <form onSubmit={(e) => { e.preventDefault(); check(); }} style={{ display: 'flex', gap: '1.4cqh', width: '70%', maxWidth: '90cqh' }}>
         <input ref={input} value={value} disabled={!kit.interactive || result === 'right' || result === 'shown'} inputMode="text" autoComplete="off"
@@ -432,7 +433,7 @@ function TypeAnswer({ el, kit }: { el: ActivityElement; kit: Kit }) {
       <div role="status" style={{ minHeight: '4.4cqh', fontSize: '3.2cqh', fontWeight: 700, color, display: 'flex', alignItems: 'center', gap: '1.6cqh' }}>
         {result === 'right' && <><Icon name="check-mark" /> Right!</>}
         {result === 'wrong' && <>Not quite. Try again!</>}
-        {result === 'shown' && <>The answer: {answer}</>}
+        {result === 'shown' && <>The answer: {typeset(answer)}</>}
         {result !== 'right' && result !== 'shown' && tries >= TRIES_BEFORE_SHOW && kit.interactive && (
           <button type="button" onClick={show} style={{ fontSize: '2.8cqh', fontWeight: 700, padding: '0.6cqh 1.8cqh', borderRadius: '99cqh', border: '0.3cqh solid #0891b2', color: '#0891b2', background: '#fff', cursor: 'pointer' }}>Show me</button>
         )}
@@ -474,7 +475,7 @@ function Order({ el, kit }: { el: ActivityElement; kit: Kit }) {
             <span style={{ position: 'absolute', left: '1.6cqh', top: '50%', transform: 'translateY(-50%)', width: '4cqh', height: '4cqh', borderRadius: '50%',
               background: doneStep ? '#16a34a' : '#e2e8f0', color: doneStep ? '#fff' : '#94a3b8', fontSize: '2.6cqh', fontWeight: 900,
               display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{doneStep ? k + 1 : '?'}</span>
-            {items[k].text}
+            {typeset(items[k].text)}
           </button>
         );
       })}
@@ -550,7 +551,7 @@ function Cards({ el, kit }: { el: ActivityElement; kit: Kit }) {
               ...(kit.hint && !open ? glow(true) : {}) }}>
             <div style={{ position: 'absolute', inset: 0, transformStyle: 'preserve-3d', transition: 'transform 600ms cubic-bezier(0.4, 0.2, 0.2, 1)', transform: open ? 'rotateY(180deg)' : 'none' }}>
               <FitBox fitKey={`${it.text}|${items.length}`} style={{ ...face, background: PALETTE[i % PALETTE.length], color: '#fff', fontWeight: 800, boxShadow: '0 0.8cqh 2cqh rgba(15,23,42,0.18)' }}>
-                {it.text}<span aria-hidden style={{ position: 'absolute', right: '1.2cqh', bottom: '0.8cqh', fontSize: '2.2cqh', opacity: 0.8 }}><Icon name="repeat" /></span>
+                {typeset(it.text)}<span aria-hidden style={{ position: 'absolute', right: '1.2cqh', bottom: '0.8cqh', fontSize: '2.2cqh', opacity: 0.8 }}><Icon name="repeat" /></span>
                 {finn?.item === i && (
                   // Finn's sticky note: his (wrong) guess, before the learner checks
                   <span data-finn-pick="" style={{ position: 'absolute', left: '6%', right: '6%', top: '5%', padding: '0.6cqh 1cqh', background: '#fef08a', color: INK,
@@ -560,7 +561,7 @@ function Cards({ el, kit }: { el: ActivityElement; kit: Kit }) {
               </FitBox>
               <FitBox fitKey={`${it.back ?? it.text}|${items.length}|${finn?.item === i}`} style={{ ...face, background: '#fff', color: INK, fontWeight: 700, transform: 'rotateY(180deg)', border: `0.45cqh solid ${PALETTE[i % PALETTE.length]}` }}>
                 <span>
-                  {it.back ?? it.text}
+                  {typeset(it.back ?? it.text)}
                   {finn?.item === i && <span style={{ display: 'block', marginTop: '0.8cqh', fontSize: '2.4cqh', fontWeight: 600, color: '#b45309' }}><Icon name="raised-hand" /> Finn guessed “{finn.guess}”</span>}
                 </span>
               </FitBox>
@@ -620,8 +621,8 @@ function Hotspots({ el, kit }: { el: ActivityElement; kit: Kit }) {
                 // under the spots and see-through to taps: it never blocks the next spot
                 bottom: top > 55 ? `${100 - top + 5}%` : undefined, width: '30%', zIndex: 3, pointerEvents: 'none', background: '#fff', borderRadius: '1.4cqh', padding: '1cqh 1.4cqh',
                 boxShadow: '0 1cqh 3cqh rgba(15,23,42,0.25)', border: '0.35cqh solid #f97316', animation: 'pop-in 300ms ease both' }}>
-                <div style={{ fontSize: '3.4cqh', fontWeight: 900, color: INK }}>{it.text}</div>
-                {it.back && <div style={{ fontSize: '3cqh', color: '#334155', lineHeight: 1.25, marginTop: '0.4cqh' }}>{it.back}</div>}
+                <div style={{ fontSize: '3.4cqh', fontWeight: 900, color: INK }}>{typeset(it.text)}</div>
+                {it.back && <div style={{ fontSize: '3cqh', color: '#334155', lineHeight: 1.25, marginTop: '0.4cqh' }}>{typeset(it.back)}</div>}
               </div>
             )}
           </div>
@@ -690,7 +691,7 @@ function Slider({ el, kit }: { el: ActivityElement; kit: Kit }) {
         )}
         <div key={stop.text} role="status" style={{ maxWidth: el.src ? '45%' : '90%', fontSize: '4cqh', fontWeight: 700, color: INK, lineHeight: 1.25, textAlign: el.src ? 'left' : 'center',
           background: '#fff', border: '0.4cqh solid #0891b2', borderRadius: '1.6cqh', padding: '1.2cqh 1.6cqh', animation: 'pop-in 300ms ease both' }}>
-          {stop.text}
+          {typeset(stop.text)}
         </div>
       </div>
       <div style={{ fontSize: '3.8cqh', fontWeight: 900, color: '#0891b2' }}>{s.label ? `${s.label}: ` : ''}{fmt(value)}</div>

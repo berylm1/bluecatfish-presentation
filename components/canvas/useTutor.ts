@@ -3,6 +3,7 @@
 import { useCallback, useRef, useState } from 'react';
 import { useSpeechQueue } from '@/components/hooks/useSpeechQueue';
 import { learnerHeaders } from '@/lib/learnerSession';
+import { plainMath } from '@/lib/mathText';
 import { reportError } from '@/lib/reportError';
 
 // Questions for the professor on the canvas page: the learner's question goes
@@ -24,7 +25,8 @@ const VOICE =
   'Answer the question in 1 or 2 short spoken sentences, like a teacher answering a hand that went up mid-lesson ' +
   '(unless what follows asks for a different length). ' +
   'Talk in the same voice as the slides: funny, a bit goofy, lightly sarcastic about {{jokesAt}} (never about the student), ' +
-  'with the facts kept exactly right. No lists or headings: this is read out loud. If you don\'t know, say so.';
+  'with the facts kept exactly right. No lists or headings: this is read out loud. Plain words only: no LaTeX, no markdown, ' +
+  'no backslashes or dollar signs; write a fraction like 1/2. If you don\'t know, say so.';
 
 /** lessonOnly: answer only from the study's lesson (its own words: static vs adaptive), not the knowledge base */
 export function useTutor(lessonOnly = false) {
@@ -99,18 +101,18 @@ export function useTutor(lessonOnly = false) {
         const { done, value } = await reader.read();
         if (done || seq !== askSeq.current) break;
         const chunk = decoder.decode(value, { stream: true });
-        full += chunk;
+        full = plainMath(full + chunk);   // (LaTeX the model slipped in, "\\(1/2\\)": shown and said as 1/2)
         pending += chunk;
         setThinking(false);
         setExchange({ id: seq, question, asker: opts.asker, answer: full, done: false });
         // Speak each finished sentence right away
         let m;
         while ((m = pending.match(/^([\s\S]*?[.!?])(\s+)([\s\S]*)$/))) {
-          speech.enqueue(m[1]);
+          speech.enqueue(plainMath(m[1]));
           pending = m[3];
         }
       }
-      if (seq === askSeq.current && pending.trim()) speech.enqueue(pending);
+      if (seq === askSeq.current && pending.trim()) speech.enqueue(plainMath(pending));
       speech.endStream();
       // A classmate's line is remembered as theirs, not as something the learner said
       historyRef.current.push({ role: 'user', content: opts.remember ?? (opts.asker ? `(${opts.asker}, a classmate, said: ${question})` : question) }, { role: 'assistant', content: full });

@@ -2,7 +2,7 @@
 
 import { useRef, useState } from 'react';
 import type { Deck } from '@/lib/canvas/types';
-import { MARINE_PICTURE, profileOf, teacherPicture, type LessonProfile } from '@/lib/canvas/profile';
+import { MARINE_PICTURE, profileOf, teacherPicture, usesMath, type LessonProfile } from '@/lib/canvas/profile';
 import { TEACHER_VOICES, TTS_VOICE } from '@/lib/voice';
 
 /*
@@ -146,6 +146,14 @@ export default function LessonPanel({ deck, onChange }: {
       <input className={input} value={p.knowledgeBases.join(', ')} placeholder="blue-catfish"
         onChange={(e) => set('knowledgeBases', e.target.value.split(',').map((x) => x.trim().toLowerCase()).filter(Boolean))} />
       <p className={hint}>Its sources and pictures (Text upload and Image upload put new ones in one). Pictures in “shared” are offered to every lesson.</p>
+      <label className={label}>Math on the slides</label>
+      <select className={input} value={p.mathText === undefined ? 'auto' : p.mathText ? 'on' : 'off'} aria-label="Math on the slides"
+        onChange={(e) => onChange({ ...p, mathText: e.target.value === 'auto' ? undefined : e.target.value === 'on' }, 'profile:mathText')}>
+        <option value="auto">Automatic ({usesMath({ ...p, mathText: undefined }) ? 'on: this is a math lesson' : 'off: not a math lesson'})</option>
+        <option value="on">On</option>
+        <option value="off">Off</option>
+      </select>
+      <p className={hint}>On: a fraction typed 3/4 is shown stacked, x^2 raised, and the AI can draw number lines, fraction bars, graphs and worked examples.</p>
       <label className={label}>About how long (minutes)</label>
       <input className={`${input} w-24`} type="number" min={3} max={120} value={p.targetMinutes} onChange={(e) => set('targetMinutes', Number(e.target.value) || p.targetMinutes)} />
 

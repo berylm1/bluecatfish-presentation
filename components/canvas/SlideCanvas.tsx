@@ -6,6 +6,7 @@ import { ChartView, DiagramView } from './Visuals';
 import ActivityView, { type ActivityMistake, type FinnEvent, type FinnMove } from './Activity';
 import { planMorph, sameBase, type MorphPlan } from '@/lib/canvas/morph';
 import { contentRect } from '@/lib/canvas/laser';
+import { typeset } from '@/lib/mathText';
 import type { Pointer } from '@/lib/canvas/types';
 
 // Font sizes are % of the slide height (container query units), so text keeps
@@ -62,7 +63,7 @@ function FitText({ el }: { el: TextElement }) {
         whiteSpace: 'pre-wrap',
       }}
     >
-      {el.text}
+      {typeset(el.text)}
     </div>
   );
 }
@@ -137,7 +138,7 @@ function ElementView({ el, active, laser, dim = 1, interactive = false, onActivi
       ) : el.type === 'chart' ? (
         <ChartView el={el} />
       ) : el.type === 'diagram' ? (
-        <DiagramView el={el} />
+        <DiagramView el={el} active={active} />
       ) : el.type === 'activity' ? (
         // a fresh start whenever the box itself changes (the editor)
         <ActivityView key={JSON.stringify([el.kind, el.items, el.groups, el.slider, el.src, !!revealedActivities?.has(el.id)])} el={el} interactive={interactive} onDone={(shown) => onActivityDone?.(el.id, shown)} hintNonce={activityHint}

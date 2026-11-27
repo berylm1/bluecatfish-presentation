@@ -55,7 +55,9 @@ import {
   CLASSMATES_ON_SCREEN, FOLLOW_UP_SAME_MIN, MID_AFTER_ASK_MS, MID_ON_SCREEN_MIN,
 } from '@/lib/settings';
 import { FamilyCard, FinnBadge } from '@/components/TakeHome';
-import { BLUE_CATFISH, profileOf, teacherPicture, type LessonProfile } from '@/lib/canvas/profile';
+import { BLUE_CATFISH, profileOf, teacherPicture, usesMath, type LessonProfile } from '@/lib/canvas/profile';
+import { setMathText } from '@/lib/mathText';
+import { ClipAudio } from '@/components/canvas/MathVisuals';
 import { LIVE_VERSION, preloadedDeck, studyLesson, studyPost, writeStudy, type StudyRecord } from '@/lib/study/client';
 import { STUDIES } from '@/lib/study/content';
 import { signals } from '@/lib/signals';
@@ -497,6 +499,7 @@ function Player({ deck, preview, startAt = 0, study = null, staticMode = false, 
   setTeacherName(profile.teacher.name);
   setTeacherPicture(teacherPicture(profile));
   enterProfile(profile);   // (which recorded clips are this lesson's voice: lib/canvas/aiFields.ts audioKey)
+  setMathText(usesMath(profile));   // (a math lesson: fractions shown stacked, lib/mathText.tsx)
   setLearnerLesson(deck.lessonId);
   // The classmates go by what's on the screen (the lesson on its own: the study is as it was, CLASSMATES_ON_SCREEN)
   const onScreen = CLASSMATES_ON_SCREEN && !study;
@@ -3391,10 +3394,12 @@ function Player({ deck, preview, startAt = 0, study = null, staticMode = false, 
             {!study && <Link href={`/sources?lesson=${encodeURIComponent(deck.lessonId)}`} target="_blank" className="text-sm underline text-slate-500 hover:text-slate-700">Where the lesson’s facts come from: view sources</Link>}
           </div>
         ) : (
+          <ClipAudio.Provider value={variant ? null : player.getAudio}>
           <SlideCanvas slide={shownSlide} width={SLIDE_WIDTH} activeId={variant ? helperActive : player.activeId} morph={MORPH_HELPERS} laser={laser} spotlight={SPOTLIGHT}
             interactive onActivityDone={onActivityDone} activityHint={activityHint}
             solvedActivities={activitiesSolved.current} revealedActivities={activitiesRevealed.current} settledActivities={activitiesDone.current} settledTick={settledTick} activitySounds={soundsOn} onActivityMistake={onActivityMistake}
             finnMoves={finnMoves} onFinn={onFinn} activityGuides={activityGuides} yourTurn={variant || selfCheck ? null : yourTurn} />
+          </ClipAudio.Provider>
         )}
         {/* A topic's introduction is being said: a small title card for the part that's starting */}
         {isIntroId(player.activeId) && !variant && deck.slides[player.slideIndex]?.topic && (

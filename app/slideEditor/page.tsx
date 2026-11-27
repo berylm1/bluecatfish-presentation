@@ -26,7 +26,8 @@ import PullFromOriginal from '@/components/editor/PullFromOriginal';
 import { pullSlides } from '@/lib/canvas/studyLesson';
 import { STUDY_LESSON, STUDY_SOURCE } from '@/lib/study/content';
 import CheckPanel, { picturesWithoutDescription, type Described } from '@/components/editor/CheckPanel';
-import { profileOf } from '@/lib/canvas/profile';
+import { profileOf, usesMath } from '@/lib/canvas/profile';
+import { setMathText } from '@/lib/mathText';
 import { enterProfile } from '@/lib/canvas/lessonContext';
 import { deckAbout, deckSections, findCrossSectionRepeats } from '@/lib/lessonOverlap';
 import { DEFAULT_PDF, type PdfOptions } from '@/components/editor/exportPdf';
@@ -198,6 +199,7 @@ function Editor({
   const { deck, slide, slideIdx, element } = ed;
   // (the lesson being edited: which recorded clips are in its teacher's voice, lib/canvas/aiFields.ts audioKey)
   enterProfile(profileOf(deck));
+  setMathText(usesMath(profileOf(deck)));   // (a math lesson: fractions shown stacked)
   const [panel, setPanel] = useState<'props' | 'images' | 'background' | 'repeats' | 'check' | 'ideas' | 'lesson'>('props');
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState<{ at?: string; by?: string }>({ at: initialSavedAt, by: initialSavedBy });

@@ -90,14 +90,27 @@ export interface ChartElement extends ElementBase {
  *   timeline  a line with dated events (label = when, detail = what)
  *   compare   a two-column table (columns = the headers; label | detail per row)
  *   sizes     circles sized by value (how big next to something familiar)
+ * and, for math (drawn by components/canvas/MathVisuals.tsx):
+ *   numberline  points on a number line (value = where, label = what's written: "3/4"; from/to = its ends,
+ *               parts = equal parts per whole: 4 marks the quarters)
+ *   fraction    fraction bars: each item's label is a fraction ("3/4": a bar cut in 4, 3 shaded); detail = a note
+ *   graph       points on x/y axes (x, value = y; columns = the axes' names; connect: joined by a line)
+ *   worked      a worked example: one line of working per item, in order (label = the line, detail = why),
+ *               shown one line at a time as the professor goes through it
  */
 export interface DiagramElement extends ElementBase {
   type: 'diagram';
-  kind: 'steps' | 'cycle' | 'timeline' | 'compare' | 'sizes';
-  items: { label: string; detail?: string; value?: number; color?: string }[];
+  kind: 'steps' | 'cycle' | 'timeline' | 'compare' | 'sizes' | 'numberline' | 'fraction' | 'graph' | 'worked';
+  items: { label: string; detail?: string; value?: number; x?: number; color?: string }[];
   columns?: [string, string];
   unit?: string;
   alt?: string;
+  /** numberline: where it starts and ends, and the equal parts marked in each whole */
+  from?: number;
+  to?: number;
+  parts?: number;
+  /** graph: the points are joined by a line */
+  connect?: boolean;
 }
 
 /**

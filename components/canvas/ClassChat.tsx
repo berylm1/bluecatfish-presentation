@@ -2,6 +2,7 @@
 
 import Icon from '@/components/Icon';
 import { teacherInitials, teacherName, teacherPictureNow } from '@/lib/teacher';
+import { typeset } from '@/lib/mathText';
 
 import { useEffect, useRef, useState } from 'react';
 import { splitSentences, sentenceStops } from './useDeckPlayer';
@@ -69,8 +70,8 @@ function LiveText({ text, getAudio }: { text: string; getAudio?: () => HTMLAudio
     tick();
     return () => cancelAnimationFrame(raf);
   }, [text, getAudio]);
-  if (!getAudio) return <>{text}</>;
-  return <>{sentences.map((s, i) => <span key={i} className={i === current ? 'text-white' : i < current ? 'text-white/50' : 'text-white/65'}>{s}</span>)}</>;
+  if (!getAudio) return <>{typeset(text)}</>;
+  return <>{sentences.map((s, i) => <span key={i} className={i === current ? 'text-white' : i < current ? 'text-white/50' : 'text-white/65'}>{typeset(s)}</span>)}</>;
 }
 
 export default function ClassChat({ entries, learnerName, liveSlide, getAudio, thinking, speaking, onSend, onClose, closeLabel = 'Hide the chat', className = '', solid = false, mates = true, compact = false }: {
@@ -157,10 +158,10 @@ export default function ClassChat({ entries, learnerName, liveSlide, getAudio, t
                 </button>
                 {shown && lines.length > 0 && (
                   <div className="px-2.5 pb-2 flex flex-col gap-1.5">
-                    {live && open.has(e.id) && e.lines.slice(0, -1).map((l) => <p key={l.key} className="text-white/55">{l.text}</p>)}
+                    {live && open.has(e.id) && e.lines.slice(0, -1).map((l) => <p key={l.key} className="text-white/55">{typeset(l.text)}</p>)}
                     {lines.map((l, i) => (
                       <p key={l.key} className={live ? '' : 'text-white/60'}>
-                        {live && i === lines.length - 1 ? <LiveText text={l.text} getAudio={getAudio} /> : l.text}
+                        {live && i === lines.length - 1 ? <LiveText text={l.text} getAudio={getAudio} /> : typeset(l.text)}
                       </p>
                     ))}
                   </div>
@@ -177,7 +178,7 @@ export default function ClassChat({ entries, learnerName, liveSlide, getAudio, t
               <Avatar who={who} learnerName={learnerName} size={26} />
               <div className={`max-w-[85%] rounded-2xl px-3 py-2 ${mine ? 'bg-cyan-500/90 text-slate-950 rounded-br-md' : 'bg-white/10 rounded-bl-md'}`}>
                 {!mine && <div className="text-[12px] font-semibold mb-0.5" style={{ color: who === 'professor' ? '#67e8f9' : s.color }}>{s.name}{e.kind === 'line' && e.to && <span className="font-normal text-white/50"> → {e.to}</span>}</div>}
-                {text || <span className="inline-flex gap-1 py-1" aria-label="thinking"><Dot /><Dot d={150} /><Dot d={300} /></span>}
+                {typeset(text) || <span className="inline-flex gap-1 py-1" aria-label="thinking"><Dot /><Dot d={150} /><Dot d={300} /></span>}
               </div>
             </div>
           );

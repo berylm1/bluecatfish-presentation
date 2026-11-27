@@ -13,7 +13,16 @@ export const VISUALS_GUIDE = `Drawn visuals (they draw themselves in; keep label
   cycle = something that goes round (a life cycle, what eats what in a loop; 3-6 items; a box about as tall as wide, h at least 55)
   timeline = dated events (label = the year, detail = what happened; 2-6 items; w at least 70, h at least 40)
   compare = two sides row by row, add "columns":["Left header","Right header"] (label = left cell, detail = right cell; 2-5 rows)
-  sizes = how big things are next to something familiar ("value" sets each circle's size; 2-4 items; h at least 45)`;
+  sizes = how big things are next to something familiar ("value" sets each circle's size; 2-4 items; h at least 45){{mathVisuals}}`;
+
+/** For a lesson that uses math ({{mathVisuals}}, lib/canvas/profile.ts): the math kinds of diagram */
+export const MATH_VISUALS_GUIDE = `
+  More kinds of diagram, for math (write a fraction as 3/4: it is shown stacked, as on a board):
+  numberline = numbers or fractions as points on a line: "from":0,"to":1,"parts":4 (the equal parts marked in each whole), items = the points {"label":"3/4","value":0.75} (1-5 points; w at least 70, h at least 35)
+  fraction = fraction bars: each item's "label" is a fraction ("3/4" draws a bar cut into 4 with 3 shaded), "detail" = a short note; 1-4 bars, one under another, to compare fractions or show equal ones (w at least 60, h at least 14 per bar)
+  graph = points on x and y axes: items = the points {"x":2,"value":5,"label":"optional"}, "columns":["x axis name","y axis name"], "connect":true joins them with a line (2-8 points; h at least 50)
+  worked = a worked example, one line of working per item, in order: "label" = the line ("1/2 + 1/3 = 3/6 + 2/6"), "detail" = why, under 8 words; 2-5 lines, the last is the answer. It is shown one line at a time while its "say" walks through the lines in the same order, about as many words for each (w at least 70, h at least 14 per line)
+  For a calculation with steps use worked, not steps; for fractions as amounts use fraction or numberline.`;
 
 export const ACTIVITY_GUIDE = `Hands-on box (the learner DOES something with what the slide teaches; the lesson waits until it's done):
 {"type":"activity","kind":"...","prompt":"what to do, under 9 words", x,y,w,h, "say": "20-40 words starting with 'Your turn': why, and exactly what to do (never the answers)"}

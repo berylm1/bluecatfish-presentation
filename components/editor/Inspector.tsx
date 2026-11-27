@@ -7,6 +7,7 @@ import { CLASSMATES } from '@/lib/classmates';
 import type { Warning } from '@/lib/canvas/checks';
 import { answerBasis, BANK_PER_TOPIC, QUIZ_ASKED, QUIZ_POOL } from '@/lib/canvas/aiFields';
 import { activityReady } from '@/lib/canvas/queue';
+import { parseFraction } from '@/lib/mathText';
 
 // Right-hand panel: everything about the selected element, or the slide when
 // nothing is selected.
@@ -669,6 +670,12 @@ const join = (...cols: (string | number | undefined)[]) => {
 
 type Update = (patch: Partial<SlideElement>) => void;
 
+/** "3/4" or "1 1/2" as a number (a number line's point typed without its place) */
+const fractionValue = (s: string): number | undefined => {
+  const f = parseFraction(s ?? '');
+  return f ? f.whole + f.top / f.bottom : numOr(s);
+};
+
 function DiagramFields({ el, update }: { el: DiagramElement; update: Update }) {
   const set = (patch: Partial<DiagramElement>) => update(patch as Partial<SlideElement>);
   return (
@@ -681,8 +688,35 @@ function DiagramFields({ el, update }: { el: DiagramElement; update: Update }) {
           <option value="timeline">Timeline (label = when)</option>
           <option value="compare">Compare (two columns)</option>
           <option value="sizes">Sizes (circles by value)</option>
+          <option value="numberline">Number line (points on a line)</option>
+          <option value="fraction">Fraction bars (3/4 = 3 of 4 shaded)</option>
+          <option value="graph">Graph (points on x and y)</option>
+          <option value="worked">Worked example (one line at a time)</option>
         </select>
       </div>
+      {el.kind === 'numberline' && (
+        <div className="grid grid-cols-3 gap-2">
+          {([['from', 'From', 0], ['to', 'To', 1], ['parts', 'Parts per whole', 1]] as const).map(([k, name, dflt]) => (
+            <div key={k}>
+              <label className={label}>{name}</label>
+              <input className={input} type="number" value={el[k] ?? dflt} onChange={(e) => set({ [k]: e.target.value === '' ? undefined : Number(e.target.value) } as Partial<DiagramElement>)} />
+            </div>
+          ))}
+        </div>
+      )}
+      {el.kind === 'graph' && (
+        <>
+          <div className="grid grid-cols-2 gap-2">
+            {[0, 1].map((i) => (
+              <input key={i} className={input} placeholder={i ? 'Up the side (y) is…' : 'Along the bottom (x) is…'} value={el.columns?.[i] ?? ''}
+                onChange={(e) => { const c: [string, string] = [el.columns?.[0] ?? '', el.columns?.[1] ?? '']; c[i] = e.target.value; set({ columns: c[0] || c[1] ? c : undefined }); }} />
+            ))}
+          </div>
+          <label className="flex items-center gap-2 text-xs text-slate-600">
+            <input type="checkbox" checked={!!el.connect} onChange={(e) => set({ connect: e.target.checked || undefined })} /> Join the points with a line
+          </label>
+        </>
+      )}
       {el.kind === 'compare' && (
         <div className="grid grid-cols-2 gap-2">
           {[0, 1].map((i) => (
@@ -692,11 +726,16 @@ function DiagramFields({ el, update }: { el: DiagramElement; update: Update }) {
         </div>
       )}
       <LinesField id="diagram-items" title="Items (one per line, up to 8)"
-        hint={el.kind === 'compare' ? 'Left | Right' : el.kind === 'sizes' ? 'Label | value | note' : el.kind === 'timeline' ? 'When | What happened' : 'Label | detail'}
-        initial={el.items.map((i) => (el.kind === 'sizes' ? join(i.label, i.value, i.detail) : join(i.label, i.detail))).join('\n')}
+        hint={el.kind === 'compare' ? 'Left | Right' : el.kind === 'sizes' ? 'Label | value | note' : el.kind === 'timeline' ? 'When | What happened'
+          : el.kind === 'numberline' ? 'What’s written (3/4) | where (0.75) | note' : el.kind === 'fraction' ? 'Fraction (3/4) | note'
+          : el.kind === 'graph' ? 'x | y | name (optional)' : el.kind === 'worked' ? 'The line of working | why' : 'Label | detail'}
+        initial={el.items.map((i) => (el.kind === 'sizes' || el.kind === 'numberline' ? join(i.label, i.value, i.detail)
+          : el.kind === 'graph' ? join(i.x, i.value, i.label === `(${i.x}, ${i.value})` ? undefined : i.label) : join(i.label, i.detail))).join('\n')}
         onLines={(lines) => set({
-          items: lines.slice(0, 8).map((c) => (el.kind === 'sizes'
+          items: lines.slice(0, el.kind === 'graph' ? 12 : 8).map((c) => (el.kind === 'sizes'
             ? { label: c[0], value: numOr(c[1]) ?? 1, detail: c[2] || undefined }
+            : el.kind === 'numberline' ? { label: c[0], value: numOr(c[1]) ?? fractionValue(c[0]) ?? 0, detail: c[2] || undefined }
+            : el.kind === 'graph' ? { x: numOr(c[0]) ?? 0, value: numOr(c[1]) ?? 0, label: c[2] || `(${numOr(c[0]) ?? 0}, ${numOr(c[1]) ?? 0})` }
             : { label: c[0], detail: c[1] || undefined })),
         })} />
       {el.kind === 'sizes' && (

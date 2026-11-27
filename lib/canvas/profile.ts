@@ -10,6 +10,7 @@
 import type { Source } from '@/lib/sources';
 import { SOURCES } from '@/lib/sources';
 import { isTeacherVoice } from '@/lib/voice';
+import { MATH_VISUALS_GUIDE } from './visualGuide';
 
 export interface LessonProfile {
   /** The lesson's name ("Blue Catfish") */
@@ -48,6 +49,9 @@ export interface LessonProfile {
   learnMore: { label: string; url: string } | null;
   /** Where the lesson's facts come from (the sources page, the PDF) */
   sources: Source[];
+  /** Math as on a board (a typed "3/4" shown stacked, lib/mathText.tsx) and the math visuals offered to the AI
+   * (a number line, fraction bars, a graph, a worked example). Not set: on when the subject is a math one (usesMath) */
+  mathText?: boolean;
   /** The knowledge bases it searches (its source chunks and pictures: supabase/migrations/024_knowledge_bases.sql).
    * Pictures in 'shared' are offered to every lesson too */
   knowledgeBases: string[];
@@ -121,9 +125,15 @@ export const MARINE_PICTURE = '/avatars/professor-marine.png';
 export const teacherPicture = (p: Pick<LessonProfile, 'teacher'>): string =>
   p.teacher.picture ?? (p.teacher.name === BLUE_CATFISH.teacher.name ? MARINE_PICTURE : '');
 
+/** Does the lesson use math (stacked fractions, the math visuals)? What's set, else by its subject */
+export const usesMath = (p: Pick<LessonProfile, 'subject' | 'about' | 'mathText'>): boolean =>
+  p.mathText ?? /\b(math|maths|mathematics|arithmetic|algebra|geometry|trigonometry|calculus|statistics|fractions?|decimals?|percent\w*|physics)\b/i.test(`${p.subject} ${p.about}`);
+
 /** The placeholders in the AI's instructions, and what each becomes for this lesson */
 export function placeholders(p: LessonProfile): Record<string, string> {
   return {
+    // (the math visuals' formats, for a lesson that uses math: lib/canvas/visualGuide.ts. Any other lesson: nothing, its instructions are as they were)
+    mathVisuals: usesMath(p) ? MATH_VISUALS_GUIDE : '',
     teacher: p.teacher.name,
     about: p.about,
     subject: p.subject,
@@ -187,6 +197,7 @@ export function sanitizeProfile(raw: unknown): Partial<LessonProfile> | undefine
       ...(typeof t.picture === 'string' && (t.picture === '' || picture(t.picture)) ? { picture: picture(t.picture) ?? '' } : {}),
       ...(isTeacherVoice(t.voice) ? { voice: t.voice } : {}),
     } : undefined,
+    mathText: typeof r.mathText === 'boolean' ? r.mathText : undefined,
     practical: str(r.practical, 200),
     jokesAt: str(r.jokesAt, 80),
     familyThings: list(r.familyThings, 5, 300),

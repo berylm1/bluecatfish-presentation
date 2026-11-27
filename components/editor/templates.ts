@@ -11,6 +11,7 @@ import { newId } from './useEditorDeck';
 export const VISUAL_KINDS = [
   ['bar', 'Bar chart'], ['line', 'Line chart (over time)'], ['pie', 'Pie chart (parts of a whole)'],
   ['steps', 'Steps (arrows)'], ['cycle', 'Cycle (round a circle)'], ['timeline', 'Timeline'], ['compare', 'Compare (two columns)'], ['sizes', 'Sizes (circles)'],
+  ['numberline', 'Number line (math)'], ['fraction', 'Fraction bars (math)'], ['graph', 'Graph (math)'], ['worked', 'Worked example (math)'],
 ] as const;
 
 export const ACTIVITY_KINDS = [
@@ -34,10 +35,17 @@ export function visualTemplate(kind: (typeof VISUAL_KINDS)[number][0]): SlideEle
     timeline: [{ label: '1970s', detail: 'Brought to Virginia rivers' }, { label: '1990s', detail: 'Numbers climb' }, { label: 'Today', detail: 'Most of the fish in some rivers' }],
     compare: [{ label: 'Eat almost anything', detail: 'Pickier eaters' }, { label: 'Can top 100 lbs', detail: 'Usually under 20 lbs' }],
     sizes: [{ label: 'Blue catfish', value: 100 }, { label: 'You', value: 90 }, { label: 'Blue crab', value: 1 }],
+    numberline: [{ label: '1/4', value: 0.25 }, { label: '3/4', value: 0.75 }],
+    fraction: [{ label: '1/2' }, { label: '2/4', detail: 'the same amount' }],
+    graph: [{ label: '', x: 0, value: 1 }, { label: '', x: 1, value: 3 }, { label: '', x: 2, value: 5 }, { label: '', x: 3, value: 7 }],
+    worked: [{ label: '1/2 + 1/3', detail: 'the bottoms differ' }, { label: '= 3/6 + 2/6', detail: 'make them both sixths' }, { label: '= 5/6', detail: 'add the tops' }],
   };
   return {
-    ...box, type: 'diagram', kind, items: items[kind],
-    columns: kind === 'compare' ? ['Blue catfish', 'Native fish'] : undefined, unit: kind === 'sizes' ? 'lbs' : undefined,
+    ...box, type: 'diagram', kind, items: kind === 'graph' ? items.graph.map((p) => ({ ...p, label: `(${p.x}, ${p.value})` })) : items[kind],
+    columns: kind === 'compare' ? ['Blue catfish', 'Native fish'] : kind === 'graph' ? ['x', 'y'] : undefined, unit: kind === 'sizes' ? 'lbs' : undefined,
+    ...(kind === 'numberline' ? { from: 0, to: 1, parts: 4 } : {}), ...(kind === 'graph' ? { connect: true } : {}),
+    // (a worked example is talked through, one line at a time: it speaks)
+    ...(kind === 'worked' ? { silent: undefined } : {}),
   };
 }
 
