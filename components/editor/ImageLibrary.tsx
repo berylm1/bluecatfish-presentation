@@ -3,7 +3,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { IMAGE_DRAG_TYPE } from './EditCanvas';
 
-type Img = { url: string; description: string };
+type Img = { url: string; description: string; credit?: string; creditUrl?: string };
+/** A free picture found outside (lib/canvas/openPictures.ts), before it's in the library */
+type Found = { source: string; id: string; title: string; thumb: string; page: string; author: string; license: string };
 
 // Images already in Supabase, with search. Click to add to the slide, drag to
 // place it where you drop it. Upload runs the normal image pipeline, which
@@ -12,8 +14,11 @@ export default function ImageLibrary({
   onAdd,
   mode = 'add',
   lesson,
+  kb,
 }: {
   onAdd: (img: Img) => void;
+  /** The knowledge base an upload goes in (the lesson's own; not given: the blue catfish lesson's) */
+  kb?: string;
   /** The lesson being edited: its knowledge bases' pictures (and the shared ones) */
   lesson?: string;
   /** 'background': picking a slide background instead of adding an element */
@@ -45,6 +50,7 @@ export default function ImageLibrary({
     try {
       const form = new FormData();
       form.append('file', file);
+      if (kb) form.append('kb', kb);   // (was: every upload went into the blue catfish lesson's library, whatever the lesson)
       const res = await fetch('/api/image-Ingest', { method: 'POST', body: form });
       const data = await res.json();
       if (!res.ok || data.error) throw new Error(data.error || `Upload failed (${res.status})`);
@@ -52,6 +58,42 @@ export default function ImageLibrary({
       setStatus(null);
     } catch (e) {
       setStatus(`Upload failed: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  };
+
+  // Free pictures from outside: Wikimedia Commons and Openverse, openly licensed, each added with its credit
+  const [freeOpen, setFreeOpen] = useState(false);
+  const [freeQ, setFreeQ] = useState('');
+  const [found, setFound] = useState<Found[] | null>(null);
+  const [freeStatus, setFreeStatus] = useState<string | null>(null);
+  const [adding, setAdding] = useState<string | null>(null);
+  const searchFree = async () => {
+    if (!freeQ.trim()) return;
+    setFreeStatus('Searching Wikimedia Commons and Openverse…'); setFound(null);
+    try {
+      const d = await fetch(`/api/editor/open-pictures?q=${encodeURIComponent(freeQ.trim())}`).then((r) => r.json());
+      if (d.error && !d.pictures?.length) throw new Error(d.error);
+      setFound(d.pictures ?? []);
+      setFreeStatus(d.pictures?.length ? null : 'Nothing found: try other words (what the picture shows: “pizza slices”, “measuring cup”).');
+    } catch (e) {
+      setFreeStatus(`Couldn't search: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  };
+  const addFree = async (p: Found) => {
+    if (!lesson || adding) return;
+    setAdding(p.id); setFreeStatus(`Adding “${p.title}” (the AI looks at it first)…`);
+    try {
+      const d = await fetch('/api/editor/open-pictures', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ lesson, picks: [{ source: p.source, id: p.id }] }) }).then((r) => r.json());
+      if (d.error) throw new Error(d.error);
+      const got: Img | undefined = d.added?.[0];
+      if (!got) throw new Error(d.notes?.[0] ?? 'It wasn’t added');
+      setImages((list) => [got, ...list.filter((x) => x.url !== got.url)]);
+      onAdd(got);
+      setFreeStatus(`Added, with its credit (${got.credit}).`);
+    } catch (e) {
+      setFreeStatus(e instanceof Error ? e.message : String(e));
+    } finally {
+      setAdding(null);
     }
   };
 
@@ -95,6 +137,36 @@ export default function ImageLibrary({
       >
         ＋ Add the PDF deck slides to the library
       </button>
+      {lesson && (
+        <div className="rounded-md border border-slate-200" data-free-pictures>
+          <button onClick={() => setFreeOpen((v) => !v)} className="w-full px-2 py-1.5 text-left text-sm text-slate-700 hover:bg-slate-50">
+            🌍 Find free pictures {freeOpen ? '▴' : '▾'}
+          </button>
+          {freeOpen && (
+            <div className="p-2 pt-0 flex flex-col gap-2">
+              <p className="text-[11px] text-slate-400 leading-snug">From Wikimedia Commons and Openverse: free to use with credit. A picture you pick is copied into this lesson’s library, and its credit is shown on the slide and the sources page.</p>
+              <form onSubmit={(e) => { e.preventDefault(); void searchFree(); }} className="flex gap-1">
+                <input value={freeQ} onChange={(e) => setFreeQ(e.target.value)} placeholder="What it shows: pizza slices…" aria-label="Find free pictures"
+                  className="flex-1 min-w-0 px-2 py-1.5 rounded-md border border-slate-300 text-sm text-slate-900 outline-none focus:border-cyan-500" />
+                <button className="px-2 py-1.5 rounded-md bg-slate-800 text-white text-sm">Find</button>
+              </form>
+              {freeStatus && <p className="text-xs text-slate-500">{freeStatus}</p>}
+              {found && found.length > 0 && (
+                <div className="grid grid-cols-3 gap-1 max-h-64 overflow-y-auto">
+                  {found.map((p) => (
+                    <button key={`${p.source}|${p.id}`} disabled={!!adding} onClick={() => void addFree(p)} title={`${p.title}\n${p.author || 'Unknown author'} · ${p.license}`}
+                      className={`relative aspect-square rounded overflow-hidden border bg-slate-100 ${adding === p.id ? 'border-cyan-500 opacity-60' : 'border-slate-200 hover:border-cyan-500'}`}>
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img src={p.thumb} alt={p.title} loading="lazy" className="w-full h-full object-cover" />
+                      <span className="absolute left-0 bottom-0 px-1 bg-black/65 text-[9px] text-white">{p.license}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
       {mode === 'background' && <p className="text-xs text-cyan-700">Click an image to use it as this slide’s background.</p>}
       {status && <p className="text-xs text-slate-500">{status}</p>}
       {/* Each picture whole, at its own shape (was: cropped to squares to save space); two columns, like a wall of photos */}
@@ -111,7 +183,7 @@ export default function ImageLibrary({
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img src={img.url} alt={img.description} loading="lazy" className="block w-full h-auto" />
             <span className="absolute inset-x-0 bottom-0 p-1 bg-black/60 text-[10px] leading-tight text-white text-left line-clamp-3 opacity-0 group-hover:opacity-100">
-              {img.description}
+              {img.description}{img.credit ? ` (${img.credit})` : ''}
             </span>
           </button>
         ))}

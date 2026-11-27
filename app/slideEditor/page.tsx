@@ -604,10 +604,11 @@ function Editor({
     setPanel('props');
   };
   const addText = () => addElement({ id: newId('el'), type: 'text', x: 30, y: 40, w: 40, h: 16, text: 'New text', style: 'body', color: '#0f172a' });
-  const addImage = (img: { url: string; description: string }, cx = 50, cy = 50) => {
+  const addImage = (img: { url: string; description: string; credit?: string; creditUrl?: string }, cx = 50, cy = 50) => {
     const w = 30, h = 36;
     addElement({
       id: newId('el'), type: 'image', src: img.url, alt: img.description || undefined, fit: 'contain',
+      ...(img.credit ? { credit: img.credit, creditUrl: img.creditUrl } : {}),   // (a free picture from outside: who made it)
       w, h, x: Math.min(100 - w, Math.max(0, cx - w / 2)), y: Math.min(100 - h, Math.max(0, cy - h / 2)),
     });
   };
@@ -1216,6 +1217,7 @@ function Editor({
             ) : (
               <ImageLibrary
                 lesson={deck.lessonId}
+                kb={profileOf(deck).knowledgeBases[0]}
                 mode={panel === 'background' ? 'background' : 'add'}
                 onAdd={(img) => {
                   if (panel === 'background') {

@@ -25,14 +25,15 @@ export async function GET(req: Request) {
       const embedding = emb?.data?.[0]?.embedding;
       if (!embedding) throw new Error('Could not search images (embedding failed)');
       const data = await matchImages(embedding, 40, kbs);
-      return NextResponse.json({ images: data.map((r) => ({ url: r.url, description: r.description ?? '' })) });
+      return NextResponse.json({ images: data.map((r) => ({ url: r.url, description: r.description ?? '', ...(r.credit ? { credit: r.credit, creditUrl: r.source_url ?? undefined } : {}) })) });
     }
     // Newest first when the table has an id column; otherwise any order
     // (by knowledge base once migration 024 is run; before it, everything is the blue catfish lesson's)
     if (await kbColumns()) {
-      const res = await supabase.from('images2').select('url, description').in('kb', [...kbs, 'shared']).order('id', { ascending: false }).limit(80);
+      const res = await supabase.from('images2').select('url, description, credit, source_url').in('kb', [...kbs, 'shared']).order('id', { ascending: false }).limit(80);
       if (res.error) throw new Error(res.error.message);
-      return NextResponse.json({ images: res.data ?? [] });
+      return NextResponse.json({ images: (res.data ?? []).map((r: { url: string; description: string | null; credit: string | null; source_url: string | null }) =>
+        ({ url: r.url, description: r.description ?? '', ...(r.credit ? { credit: r.credit, creditUrl: r.source_url ?? undefined } : {}) })) });
     }
     if (!kbs.includes('blue-catfish')) return NextResponse.json({ images: [] });
     let res = await supabase.from('images2').select('url, description').order('id', { ascending: false }).limit(80);

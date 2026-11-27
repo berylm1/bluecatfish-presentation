@@ -41,6 +41,8 @@ export default function NewLessonWizard({ onClose, onCreated, onBlank }: {
   const [outline, setOutline] = useState<Outline | null>(null);
   const [busy, setBusy] = useState('');
   const [error, setError] = useState('');
+  // Free pictures (Wikimedia Commons, Openverse) for the new lesson's library, before its slides are written
+  const [freePictures, setFreePictures] = useState(true);
 
   const propose = async (avoid?: string) => {
     setError(''); setBusy(avoid ? 'Thinking of another version…' : 'Planning the lesson…');
@@ -72,13 +74,26 @@ export default function NewLessonWizard({ onClose, onCreated, onBlank }: {
       const res = await fetch('/api/editor/create-lesson', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ outline, material: material.trim() || undefined }) });
       const made = await res.json();
       if (!res.ok || !made.lesson) throw new Error(made.error ?? 'The lesson couldn’t be made');
+      // Its pictures first (a new lesson's library is empty): the slides are then written with them to hand.
+      // (none found, or the picture sites can't be reached: the lesson is made without, and says so)
+      const pictureNotes: string[] = [];
+      if (freePictures) {
+        setBusy('Finding free pictures for the lesson (Wikimedia Commons and Openverse): the AI looks at each one first. About a minute…');
+        try {
+          const found = await fetch('/api/editor/open-pictures', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ lesson: made.lesson.id, sections: outline.sections }), signal: AbortSignal.timeout(125_000) })
+            .then((r) => r.json());
+          pictureNotes.push(...(found.notes ?? []), ...(found.error ? [`Free pictures couldn’t be added (${found.error}).`] : []));
+        } catch {
+          pictureNotes.push('Free pictures couldn’t be added this time: add some in the Images tab (🌍 Find free pictures).');
+        }
+      }
       setBusy(`Writing the slides for “${made.lesson.title}”: each section in turn, then the pictures, the story order and the recap. This takes a few minutes…`);
       const res2 = await fetch('/api/editor/ai-deck', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ lesson: made.lesson.id, sections: outline.sections, material: material.trim() || undefined, draft: true }),
       });
       const drafted = await res2.json().catch(() => ({}));
-      const notes: string[] = [...(made.notes ?? []), ...(drafted.notes ?? [])];
+      const notes: string[] = [...(made.notes ?? []), ...pictureNotes, ...(drafted.notes ?? [])];
       if (!res2.ok || drafted.error) notes.unshift(`The slides couldn’t be drafted (${drafted.error ?? res2.status}): the lesson is made, with its outline in 📘 Lesson. Try More ▾ → Start from AI… in it.`);
       onCreated(made.lesson, notes);
     } catch (e) {
@@ -207,6 +222,13 @@ export default function NewLessonWizard({ onClose, onCreated, onBlank }: {
               ))}
             </ol>
             {outline.sections.length < 8 && <button className="mt-2 text-xs text-cyan-700 underline" onClick={() => set('sections', [...outline.sections, { title: 'New section', covers: [] }])}>＋ Add a section</button>}
+
+            <label className="mt-5 flex items-start gap-2 text-sm text-slate-700" data-free-pictures-choice>
+              <input type="checkbox" className="mt-0.5" checked={freePictures} onChange={(e) => setFreePictures(e.target.checked)} />
+              <span>Find free pictures for it
+                <span className="block text-xs text-slate-400">From Wikimedia Commons and Openverse, free to use with credit (shown on the slide and the sources page). The AI looks at each one and leaves out any that don’t fit or aren’t right for children. You can change them afterwards.</span>
+              </span>
+            </label>
 
             <div className="mt-6 flex items-center justify-between gap-2">
               <button className={secondary} onClick={() => setStep('who')} disabled={!!busy}>Back</button>

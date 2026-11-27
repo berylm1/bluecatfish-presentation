@@ -157,6 +157,12 @@ function ElementView({ el, active, laser, dim = 1, interactive = false, onActivi
         />
       )}
       {el.type === 'image' && el.caption?.trim() && !el.captionOff && <Caption text={el.caption.trim()} />}
+      {el.type === 'image' && el.credit && (
+        <span data-credit title={el.credit} style={{ position: 'absolute', right: '0.6cqh', top: '0.6cqh', zIndex: 4, maxWidth: '92%', padding: '0.2cqh 0.8cqh', borderRadius: '0.7cqh',
+          background: 'rgba(8, 20, 35, 0.6)', color: 'rgba(255,255,255,0.92)', fontSize: '1.5cqh', lineHeight: 1.3, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', pointerEvents: 'none' }}>
+          {el.credit}
+        </span>
+      )}
       {laser && <LaserDot el={el} p={laser} imgRef={imgRef} />}
     </div>
   );

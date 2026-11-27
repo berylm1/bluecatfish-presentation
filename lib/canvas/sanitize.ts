@@ -159,6 +159,8 @@ function element(raw: any, fallbackId: string): SlideElement | null {
       captionByAI: bool(raw.captionByAI),
       captionFrom: tag(raw.captionFrom),
       captionOff: bool(raw.captionOff),
+      credit: str(raw.credit, 200),
+      creditUrl: typeof raw.creditUrl === 'string' && /^https:\/\//.test(raw.creditUrl) ? safeUrl(raw.creditUrl) : undefined,
     };
     return el;
   }

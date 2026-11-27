@@ -30,15 +30,24 @@ async function search<T>(fn: string, old: string, args: { query_embedding: numbe
 }
 
 export type DocRow = { id?: number | string; content?: string; source?: string; metadata?: { source?: string }; similarity?: number };
-export type ImageRow = { id?: number; url: string; description?: string; credit?: string | null; license?: string | null; similarity?: number };
+export type ImageRow = { id?: number; url: string; description?: string; credit?: string | null; license?: string | null; source_url?: string | null; similarity?: number };
 
 /** The source chunks closest to an embedding, in the lesson's knowledge bases */
 export const matchDocuments = (embedding: number[], count: number, kbs = kbsNow()): Promise<DocRow[]> =>
   search<DocRow>('match_documents_in', 'match_documents3', { query_embedding: embedding, match_count: count }, kbs);
 
 /** The pictures closest to an embedding, in the lesson's knowledge bases and the shared ones */
-export const matchImages = (embedding: number[], count: number, kbs = kbsNow()): Promise<ImageRow[]> =>
-  search<ImageRow>('match_images_in', 'match_images2', { query_embedding: embedding, match_count: count }, kbs);
+export async function matchImages(embedding: number[], count: number, kbs = kbsNow()): Promise<ImageRow[]> {
+  const rows = await search<ImageRow>('match_images_in', 'match_images2', { query_embedding: embedding, match_count: count }, kbs);
+  // (a credited picture's page at its source: the search doesn't return it, so it's read here. Our own pictures have no credit: nothing extra)
+  const credited = rows.filter((r) => r.credit && r.source_url === undefined);
+  if (credited.length) {
+    const { data } = await supabase.from('images2').select('url, source_url').in('url', credited.map((r) => r.url)).limit(200);
+    const pages = new Map((data ?? []).map((d: { url: string; source_url: string | null }) => [d.url, d.source_url]));
+    for (const r of credited) r.source_url = pages.get(r.url) ?? null;
+  }
+  return rows;
+}
 
 /** Whether rows can carry a knowledge base yet (the migration's kb column): false before it's run */
 export async function kbColumns(): Promise<boolean> {

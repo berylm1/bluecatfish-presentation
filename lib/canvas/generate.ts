@@ -39,6 +39,15 @@ const supabase = lazySupabaseAdmin();
 
 /** score: how close it is to the search (0-1), when the library search gives it; used: the lesson already shows it (the picture check) */
 export type LibImage = { id: string; url: string; description: string; score?: number; used?: boolean };
+
+// Pictures from outside (lib/canvas/openPictures.ts) come with a credit: remembered per picture as the library is
+// searched, and put on every slide picture made from one (autoFix: every maker of slides calls it)
+const CREDITS = new Map<string, { credit: string; creditUrl?: string }>();
+function addCredits(slide: Slide): void {
+  const put = (els: SlideElement[]) => { for (const e of els) if (e.type === 'image' && !e.credit) { const c = CREDITS.get(e.src); if (c) Object.assign(e, c); } };
+  put(slide.elements);
+  if (slide.helper?.elements) put(slide.helper.elements);
+}
 export type TopicPlan = { title: string; query: string; covers: string[] };
 
 export async function imagesFor(query: string, count: number): Promise<LibImage[]> {
@@ -49,6 +58,8 @@ export async function imagesFor(query: string, count: number): Promise<LibImage[
       body: JSON.stringify({ model: 'text-embedding-3-small', input: query }),
     }).then((r) => r.json());
     const data = await matchImages(emb.data[0].embedding, count);   // (the lesson's knowledge bases and the shared ones, kb.ts)
+    if (CREDITS.size > 5000) CREDITS.clear();
+    for (const r of data) if (r.credit && typeof r.url === 'string') CREDITS.set(r.url, { credit: r.credit, ...(r.source_url ? { creditUrl: r.source_url } : {}) });
     return data.map((r: any, i: number) => ({ id: `img${i + 1}`, url: r.url, description: r.description ?? '', ...(typeof r.similarity === 'number' ? { score: r.similarity } : {}) }));
   } catch (e) {
     console.warn('Image lookup failed:', e);
@@ -198,6 +209,7 @@ export function problems(raw: any, slide: Slide, images: LibImage[]): string[] {
  * that's mostly empty gets its pictures, charts and diagrams grown into the space (fillSpace.ts).
  */
 export function autoFix(slide: Slide): void {
+  addCredits(slide);
   for (const e of slide.elements) {
     if (e.type !== 'text' || fitStatus(e) !== 'overflows') continue;
     const want = Math.ceil(neededHeight(e, 0.8));

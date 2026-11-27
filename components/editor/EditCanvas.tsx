@@ -36,7 +36,7 @@ export default function EditCanvas({
   onSelect: (id: string | null) => void;
   /** group: one undo step per drag */
   onChange: (id: string, patch: Partial<SlideElement>, group: string) => void;
-  onDropImage: (img: { url: string; description: string }, x: number, y: number) => void;
+  onDropImage: (img: { url: string; description: string; credit?: string; creditUrl?: string }, x: number, y: number) => void;
   onEditText: () => void;
   warnIds: Set<string>;
   /** Placing a laser mark on this element: the next click on it puts the mark there */

@@ -182,6 +182,12 @@ export function ElementInspector({
             </label>
           </div>
           <div>
+            <label className={label}>Credit</label>
+            <input className={input} value={el.credit ?? ''} maxLength={200} placeholder="Who made it and its licence (a picture from outside)"
+              onChange={(e) => update({ credit: e.target.value || undefined, ...(e.target.value ? {} : { creditUrl: undefined }) })} />
+            <p className="text-[11px] text-slate-400 mt-0.5">Shown small on the picture and listed on the sources page. Filled in for free pictures (🌍 in Images).</p>
+          </div>
+          <div>
             <label className={label}>Fit</label>
             <select className={input} value={el.fit ?? 'contain'} onChange={(e) => update({ fit: e.target.value as 'cover' | 'contain' })}>
               <option value="contain">Show the whole image</option>

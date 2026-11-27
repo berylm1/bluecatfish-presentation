@@ -66,6 +66,10 @@ export interface ImageElement extends ElementBase {
   captionFrom?: string;   // fingerprint of the description it was written from
   /** "No caption": the AI won't write one */
   captionOff?: boolean;
+  /** A picture from outside (lib/canvas/openPictures.ts): who made it and its licence ("Jane Doe · CC BY-SA 4.0 ·
+   * Wikimedia Commons"), shown small on the picture and listed on the sources page; creditUrl: its page there */
+  credit?: string;
+  creditUrl?: string;
 }
 
 /**
