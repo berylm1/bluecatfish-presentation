@@ -5,6 +5,7 @@ import SlideCanvas from '@/components/canvas/SlideCanvas';
 import type { Slide, SlideElement } from '@/lib/canvas/types';
 import { contentRect } from '@/lib/canvas/laser';
 import { answerState } from '@/lib/canvas/aiFields';
+import Icon, { type IconName } from '@/components/Icon';
 
 // The slide being edited: the real renderer underneath, and on top a box per
 // element that can be clicked, dragged and resized. Positions stay in percent.
@@ -30,7 +31,17 @@ export default function EditCanvas({
   warnIds,
   placing,
   onPlace,
+  width,
+  onDuplicate,
+  onDelete,
+  onLayer,
 }: {
+  /** How wide the slide is drawn (the page fits it to the room there is) */
+  width?: string;
+  /** The little toolbar on the selected box */
+  onDuplicate?: () => void;
+  onDelete?: () => void;
+  onLayer?: (dir: 1 | -1) => void;
   slide: Slide;
   selected: string | null;
   onSelect: (id: string | null) => void;
@@ -137,7 +148,7 @@ export default function EditCanvas({
     <div
       ref={wrapRef}
       className="relative select-none"
-      style={{ width: 'min(100%, calc((100vh - 190px) * 16 / 9))' }}
+      style={{ width: width ?? 'min(100%, calc((100vh - 190px) * 16 / 9))' }}
       onPointerDown={() => onSelect(null)}
       onDragOver={(e) => { if (e.dataTransfer.types.includes(IMAGE_DRAG_TYPE)) e.preventDefault(); }}
       onDrop={onDrop}
@@ -159,37 +170,37 @@ export default function EditCanvas({
                 boxShadow: warnIds.has(el.id) ? 'inset 0 0 0 2px rgba(245, 158, 11, 0.8)' : undefined,
               }}
             >
-              {el.silent && (
-                <span className="absolute -top-0.5 -left-0.5 px-1 rounded-br bg-slate-700/70 text-[10px] text-white pointer-events-none">silent</span>
+              {el.silent && !isSel && (
+                <span className="absolute -top-0.5 -left-0.5 px-1 rounded-br bg-slate-700/70 text-[11px] text-white pointer-events-none">silent</span>
               )}
               {/* Written by the AI (spoken words or plain version): a faint dashed purple outline and a tag */}
               {(el.sayByAI || el.plainByAI) && (
                 <>
                   {!isSel && <span className="absolute inset-0 rounded-sm border border-dashed border-violet-500/60 pointer-events-none" />}
                   <span
-                    className="absolute -top-0.5 -right-0.5 px-1 rounded-bl bg-violet-600/75 text-[10px] text-white pointer-events-none"
+                    className="absolute -top-0.5 -right-0.5 px-1 rounded-bl bg-violet-600/80 text-[11px] text-white pointer-events-none flex items-center gap-0.5"
                     title={`AI-written: ${[el.sayByAI && 'spoken words', el.plainByAI && 'plain version'].filter(Boolean).join(' and ')}`}
                   >
-                    ✨ AI
+                    <Icon name="sparkle" size={11} /> AI
                   </span>
                 </>
               )}
               {/* A picture that needs a description (the AI writes its words, caption and laser marks from it) */}
               {el.type === 'image' && !el.alt?.trim() && (!el.silent || ((el.z ?? 1) > 0 && el.w * el.h >= 100)) && (
-                <span className="absolute bottom-0 left-4 px-1 rounded-t bg-amber-500 text-[10px] font-semibold text-white pointer-events-none" data-no-description
-                  title="No description: select it and press ✨ Describe it with AI (or ✨ Describe all at the top)">
-                  🖼 No description
+                <span className="absolute bottom-0 left-4 px-1 rounded-t bg-amber-500 text-[11px] font-semibold text-white pointer-events-none" data-no-description
+                  title="No description: select it and press Describe it with AI (or Describe all at the top)">
+                  No description
                 </span>
               )}
               {/* A hands-on box whose answers the knowledge base doesn't back up, or that the AI fixed */}
               {el.type === 'activity' && answerState(el) === 'flagged' && (
-                <span className="absolute bottom-0 left-4 px-1 rounded-t bg-amber-500 text-[10px] font-semibold text-white pointer-events-none" data-answer-flag
+                <span className="absolute bottom-0 left-4 px-1 rounded-t bg-amber-500 text-[11px] font-semibold text-white pointer-events-none" data-answer-flag
                   title={`Check the answers: ${(el.answerCheck?.notes ?? []).join('; ')}`}>
-                  ⚠ Check answers
+                  Check answers
                 </span>
               )}
               {el.type === 'activity' && answerState(el) === 'fixed' && (
-                <span className="absolute bottom-0 left-4 px-1 rounded-t bg-emerald-600 text-[10px] font-semibold text-white pointer-events-none" data-answer-fixed
+                <span className="absolute bottom-0 left-4 px-1 rounded-t bg-emerald-600 text-[11px] font-semibold text-white pointer-events-none" data-answer-fixed
                   title={`The AI fixed: ${(el.answerCheck?.fixed ?? []).join('; ')}`}>
                   ✓ AI fixed answers
                 </span>
@@ -198,13 +209,29 @@ export default function EditCanvas({
               {isSel && (el.pointers ?? []).map((m, i) => {
                 const r = picRect(el);
                 return (
-                  <span key={i} className="absolute w-4 h-4 -ml-2 -mt-2 rounded-full bg-red-500 border-2 border-white text-[9px] font-bold text-white flex items-center justify-center pointer-events-none shadow"
+                  <span key={i} className="absolute w-5 h-5 -ml-2.5 -mt-2.5 rounded-full bg-red-500 border-2 border-white text-[11px] font-bold text-white flex items-center justify-center pointer-events-none shadow"
                     style={{ left: `${r.x + (m.x / 100) * r.w}%`, top: `${r.y + (m.y / 100) * r.h}%`, zIndex: 2 }}>{i + 1}</span>
                 );
               })}
               {placing?.elId === el.id && (
                 <div className="absolute inset-0 cursor-crosshair bg-red-500/10 outline outline-2 outline-dashed outline-red-500" style={{ zIndex: 3 }}
                   onPointerDown={(e) => placeAt(e, el)} title={el.type === 'activity' ? 'Click where the spot goes on the picture' : 'Click where the laser should point'} />
+              )}
+              {/* The selected box's own little toolbar (was: Duplicate / Delete / Bring forward in the side panel) */}
+              {isSel && !placing && onDelete && (
+                <div data-box-toolbar onPointerDown={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()}
+                  className="absolute flex items-center gap-0.5 p-0.5 rounded-md bg-slate-900 text-white shadow-lg cursor-default"
+                  style={{ zIndex: 5, ...(el.y >= 9 ? { bottom: 'calc(100% + 6px)' } : el.y + el.h <= 91 ? { top: 'calc(100% + 6px)' } : { top: 18 }), ...(el.x + el.w / 2 > 70 ? { right: 0 } : { left: 0 }) }}>
+                  {([
+                    ['copy', 'Duplicate (Ctrl+D)', onDuplicate],
+                    ['layer-up', 'Bring forward', () => onLayer?.(1)],
+                    ['layer-down', 'Send backward', () => onLayer?.(-1)],
+                  ] as [IconName, string, (() => void) | undefined][]).map(([icon, label, act]) => (
+                    <button key={icon} type="button" title={label} aria-label={label} onClick={act} className="w-7 h-7 rounded hover:bg-white/20 flex items-center justify-center"><Icon name={icon} size={16} /></button>
+                  ))}
+                  <span className="w-px h-5 bg-white/25 mx-0.5" />
+                  <button type="button" title="Delete (Del)" aria-label="Delete" onClick={onDelete} className="w-7 h-7 rounded hover:bg-red-500 flex items-center justify-center"><Icon name="trash" size={16} /></button>
+                </div>
               )}
               {isSel && HANDLES.map((h) => (
                 <span

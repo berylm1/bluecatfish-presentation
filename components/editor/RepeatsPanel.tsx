@@ -106,9 +106,9 @@ export default function RepeatsPanel({ deck, active, runSignal = 0, onAccept, on
 
       <section className="border-t border-slate-200 pt-3">
         <h4 className="text-xs font-semibold uppercase tracking-wider text-slate-500 mb-1.5">Everything, with the AI</h4>
-        <button className="w-full px-3 py-2 rounded-md bg-cyan-600 hover:bg-cyan-700 text-white font-semibold disabled:opacity-50" onClick={() => check()} disabled={state.busy}>
-          {state.busy ? (state.whole ? '✨ Reading the whole lesson…' : '✨ Checking what changed…')
-            : changed?.length ? `✨ Check what changed (${changed.length} slide${changed.length === 1 ? '' : 's'})` : '✨ Check the whole lesson'}
+        <button className="w-full px-3 py-2 rounded-md bg-slate-900 hover:bg-slate-700 text-white font-semibold disabled:opacity-50" onClick={() => check()} disabled={state.busy}>
+          {state.busy ? (state.whole ? 'Reading the whole lesson…' : 'Checking what changed…')
+            : changed?.length ? `Check what changed (${changed.length} slide${changed.length === 1 ? '' : 's'})` : 'Check the whole lesson'}
         </button>
         <p className="text-xs text-slate-500 mt-1">
           {changed?.length ? 'Compares the slides changed since the last check with the whole lesson. ' : ''}Reads what&apos;s shown and what&apos;s said (not the hands-on boxes). Takes up to a minute.
@@ -149,7 +149,7 @@ export default function RepeatsPanel({ deck, active, runSignal = 0, onAccept, on
               )}
               {!done[i] && (
                 <div className="flex gap-1.5 mt-2">
-                  <button className={`${btn} border-cyan-600 text-cyan-800`} onClick={() => {
+                  <button className={`${btn} border-slate-400 text-slate-900`} onClick={() => {
                     // (not inside the state updater: React may run that twice, which made two undo steps)
                     const ok = onAccept(s);
                     setDone((d) => ({ ...d, [i]: ok ? 'accepted' : 'changed' }));

@@ -180,8 +180,8 @@ export default function ConceptsPanel({ deck, onChange, onDraft, onGoTo }: Props
         The ideas the slides teach, and which build on which. The classmates only ask about an idea once its slide has played, and the professor knows what’s been taught so far.
       </p>
       <div className="flex flex-wrap gap-2">
-        <button className={`${btn} font-semibold`} disabled={state.busy} onClick={draft}>{state.busy ? 'Reading the slides…' : ideas.length ? '✨ Draft again' : '✨ Draft with AI'}</button>
-        {ideas.length > 0 && <button className={btn} onClick={() => setMapOpen(true)}>◎ Open the map</button>}
+        <button className={`${btn} font-semibold`} disabled={state.busy} onClick={draft}>{state.busy ? 'Reading the slides…' : ideas.length ? 'Draft again' : 'Draft with AI'}</button>
+        {ideas.length > 0 && <button className={btn} onClick={() => setMapOpen(true)}>Open the map</button>}
         <button className={btn} onClick={addIdea} disabled={!deck.slides.length}>＋ Idea</button>
       </div>
       {state.error && <p className="text-rose-700">{state.error}</p>}
@@ -198,7 +198,7 @@ export default function ConceptsPanel({ deck, onChange, onDraft, onGoTo }: Props
         </ul>
       )}
       {sel && !mapOpen && (
-        <div className="rounded-md border border-cyan-300 bg-cyan-50/50 p-2">
+        <div className="rounded-md border border-slate-300 bg-slate-100/50 p-2">
           <div className="flex justify-end"><button className="text-slate-400 hover:text-slate-700" onClick={() => setSelected(null)} aria-label="Close">×</button></div>
           {editor(sel)}
         </div>
@@ -210,14 +210,14 @@ export default function ConceptsPanel({ deck, onChange, onDraft, onGoTo }: Props
             const at = slideOf.get(c.id);
             return (
               <li key={c.id}>
-                <button className={`w-full text-left rounded-md border px-2 py-1.5 hover:border-cyan-500 ${selected === c.id ? 'border-cyan-500 bg-cyan-50' : 'border-slate-200'}`} onClick={() => setSelected(c.id)}>
+                <button className={`w-full text-left rounded-md border px-2 py-1.5 hover:border-slate-900 ${selected === c.id ? 'border-cyan-500 bg-slate-100' : 'border-slate-200'}`} onClick={() => setSelected(c.id)}>
                   <span className="flex items-baseline gap-2">
                     <span className="inline-block w-2.5 h-2.5 rounded-full shrink-0" style={{ background: colorOf(c) }} />
                     <span className="font-semibold text-slate-900 flex-1 min-w-0">{c.name}</span>
                     <span className="text-slate-400 shrink-0">{at === undefined ? 'no slide' : `slide ${at + 1}`}</span>
                   </span>
                   {c.means && <span className="block text-slate-600 mt-0.5">{c.means}</span>}
-                  <span className="block text-slate-400 mt-0.5">{c.needs.length ? `builds on: ${c.needs.map((n) => byId.get(n)?.name ?? '?').join(', ')}` : 'a starting idea'}{c.byAI ? ' · ✨ AI' : ''}</span>
+                  <span className="block text-slate-400 mt-0.5">{c.needs.length ? `builds on: ${c.needs.map((n) => byId.get(n)?.name ?? '?').join(', ')}` : 'a starting idea'}{c.byAI ? ' · AI' : ''}</span>
                 </button>
               </li>
             );
@@ -322,7 +322,7 @@ function MapView({ ideas, slideOf, slides, colorOf, topics, selected, onSelect, 
             })}
           </svg>
           {topics.length > 1 && (
-            <div className="flex flex-wrap gap-x-4 gap-y-1 px-4 py-2 text-[11px] text-slate-300">
+            <div className="flex flex-wrap gap-x-4 gap-y-1 px-4 py-2 text-xs text-slate-300">
               {topics.map((t, i) => <span key={t} className="inline-flex items-center gap-1.5"><span className="inline-block w-2.5 h-2.5 rounded-full" style={{ background: COLORS[i % COLORS.length] }} />{t}</span>)}
               <span className="text-slate-500">the number in a circle is its slide</span>
             </div>

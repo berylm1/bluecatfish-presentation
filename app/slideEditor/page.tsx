@@ -38,6 +38,8 @@ import { ACTIVITY_KINDS, VISUAL_KINDS, activityTemplate, visualTemplate } from '
 import { applyMove, clearRewordedWords, moveDone, moveKey, openMoves, slideName } from '@/lib/canvas/order';
 import SavedVersions from '@/components/editor/SavedVersions';
 import AssistantBox from '@/components/editor/AssistantBox';
+import SlideGrid from '@/components/editor/SlideGrid';
+import Icon, { type IconName } from '@/components/Icon';
 
 /*
  * Slide editor (docs/customization-plan.md, step 3). Password-protected by the
@@ -76,6 +78,13 @@ const primary = 'px-4 py-1.5 rounded-md text-sm font-bold bg-cyan-600 hover:bg-c
 const addBtn = 'px-3 py-1.5 text-sm font-semibold bg-cyan-50 hover:bg-cyan-100 text-cyan-950 disabled:opacity-40 flex items-center gap-1.5';
 const iconBtn = 'w-9 h-9 rounded-md text-base font-bold border border-slate-400 bg-white hover:bg-slate-100 text-slate-900 shadow-sm disabled:opacity-40';
 
+// (on the dark top bar)
+const ghost = 'h-8 px-3 rounded-md text-sm font-semibold bg-white/10 hover:bg-white/20 text-white disabled:opacity-40 flex items-center gap-1.5 whitespace-nowrap';
+const ghostIcon = 'w-8 h-8 shrink-0 rounded-md bg-white/10 hover:bg-white/20 text-white disabled:opacity-40 flex items-center justify-center';
+// (the canvas toolbar: quiet, so the slide is what stands out)
+const tool = 'h-8 px-2.5 rounded-md text-sm font-medium text-slate-800 hover:bg-slate-100 disabled:opacity-40 flex items-center gap-1.5 whitespace-nowrap';
+const toolIcon = 'w-8 h-8 shrink-0 rounded-md text-slate-700 hover:bg-slate-100 flex items-center justify-center';
+
 const TAG_TONES = {
   cyan: 'bg-cyan-100 text-cyan-800',
   slate: 'bg-slate-100 text-slate-700',
@@ -83,7 +92,7 @@ const TAG_TONES = {
   violet: 'bg-violet-100 text-violet-800',
 };
 function Tag({ tone, children }: { tone: keyof typeof TAG_TONES; children: React.ReactNode }) {
-  return <span className={`px-1.5 py-0.5 rounded text-[11px] font-normal ${TAG_TONES[tone]}`}>{children}</span>;
+  return <span className={`px-1.5 py-0.5 rounded text-xs font-normal ${TAG_TONES[tone]}`}>{children}</span>;
 }
 
 const when = (iso?: string) =>
@@ -205,7 +214,41 @@ function Editor({
   // (the lesson being edited: which recorded clips are in its teacher's voice, lib/canvas/aiFields.ts audioKey)
   enterProfile(profileOf(deck));
   setMathText(usesMath(profileOf(deck)));   // (a math lesson: fractions shown stacked)
-  const [panel, setPanel] = useState<'props' | 'images' | 'background' | 'repeats' | 'check' | 'ideas' | 'lesson'>('props');
+  type Panel = 'props' | 'images' | 'background' | 'repeats' | 'check' | 'ideas' | 'lesson';
+  const [panel, setPanelRaw] = useState<Panel>('props');
+  // The side panels fold away, so the slide can have the room (remembered in this browser)
+  const [leftOpen, setLeftOpen] = useState(true);
+  const [rightOpen, setRightOpen] = useState(true);
+  useEffect(() => {
+    try { setLeftOpen(localStorage.getItem('editor:left') !== '0'); setRightOpen(localStorage.getItem('editor:right') !== '0'); } catch { /* fine */ }
+  }, []);
+  const toggleSide = (side: 'left' | 'right') => {
+    const set = side === 'left' ? setLeftOpen : setRightOpen;
+    set((v) => { try { localStorage.setItem(`editor:${side}`, v ? '0' : '1'); } catch { /* fine */ } return !v; });
+  };
+  // (asking for a panel opens the side it's in)
+  const setPanel = useCallback((p: Panel) => { setPanelRaw(p); setRightOpen(true); }, []);
+  const [gridOpen, setGridOpen] = useState(false);   // every slide at once (components/editor/SlideGrid.tsx)
+  // The slide is drawn as big as the room it has (was: a fixed share of the window's height)
+  const stage = useRef<HTMLDivElement>(null);
+  const [fitW, setFitW] = useState<number | null>(null);
+  useEffect(() => {
+    const el = stage.current;
+    if (!el) return;
+    const measure = () => { const r = el.getBoundingClientRect(); setFitW(Math.max(240, Math.floor(Math.min(r.width, (r.height * 16) / 9)))); };
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    measure();
+    return () => ro.disconnect();
+  }, []);
+  // Who unlocked the editor (the top bar's menu: "Unlocked as …", Lock)
+  const [editorName, setEditorName] = useState<string | null>(null);
+  useEffect(() => { const m = document.cookie.match(/(?:^|;\s*)editor_name=([^;]*)/); setEditorName(m ? decodeURIComponent(m[1]) : null); }, []);
+  const lockEditor = async () => {
+    if (ed.dirty && !window.confirm('You have unsaved changes. Lock the editor and lose them?')) return;
+    await fetch('/api/editor/lock', { method: 'POST' });
+    window.location.href = '/';
+  };
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState<{ at?: string; by?: string }>({ at: initialSavedAt, by: initialSavedBy });
   const [notice, setNotice] = useState<{ text: string; tone: 'ok' | 'warn' | 'error' } | null>(null);
@@ -217,7 +260,7 @@ function Editor({
   const versionsOpen = useRef(false);
   versionsOpen.current = versions !== null || confirmDelete !== null || conflict !== null || savedOpen || pullOpen;
   const [overflow, setOverflow] = useState<Record<string, string[]>>({});
-  // 📊 Learners: how each slide went for learners (a heatmap on the slide list)
+  // Learners: how each slide went for learners (a heatmap on the slide list)
   const HEAT_DAYS = 30;
   const [heat, setHeat] = useState<Record<string, SlideStats> | null>(null);
   const [heatLoading, setHeatLoading] = useState(false);
@@ -238,7 +281,7 @@ function Editor({
     }
   };
 
-  // "⬇ PDF": the lesson as it is in the editor (unsaved changes too), as a teacher script or a handout
+  // "PDF": the lesson as it is in the editor (unsaved changes too), as a teacher script or a handout
   const [pdfProgress, setPdfProgress] = useState<string | null>(null);
   const [pdfOpts, setPdfOpts] = useState<PdfOptions>(DEFAULT_PDF);
   const downloadPdf = async () => {
@@ -342,7 +385,8 @@ function Editor({
   const [ai, setAi] = useState<{ running: boolean; remaining: number; errors: string[] }>({ running: false, remaining: 0, errors: [] });
   const aiRun = useRef<Promise<void> | null>(null);
   const aiAgain = useRef(false);
-  const todoHere = useMemo(() => todoTotal(countTodo(deck)), [deck]);
+  const todo = useMemo(() => countTodo(deck), [deck]);
+  const todoHere = todoTotal(todo);
 
   const runAi = useCallback((): Promise<void> => {
     if (aiRun.current) { aiAgain.current = true; return aiRun.current; }
@@ -383,7 +427,7 @@ function Editor({
     repeats: number;                 // the free word match
     repeatsAi: 'none' | 'changed' | 'ok';   // the AI repeat check: never run / the lesson changed since / up to date
     factsToCheck: number;            // slides never fact-checked, or changed since
-    factsOpen: { bad: number; missing: number };   // ❌ / ⚠️ not marked fine, on checked slides
+    factsOpen: { bad: number; missing: number };   // / not marked fine, on checked slides
     pictures: number;                // pictures without a description
     answers: { flagged: number; fixed: number; unchecked: number };   // hands-on answer keys: not backed up by the knowledge base / fixed by the AI, not looked at / not checked yet
     orderMoves: number;              // story-order moves suggested, not made or skipped
@@ -416,8 +460,8 @@ function Editor({
     return base;
   };
   const [repeatRun, setRepeatRun] = useState(0);   // bumped: the Repeats panel runs the AI check
-  const publish = async () => {
-    // What's been checked is remembered (deck.checks): only what changed since needs looking at
+  // What's been checked is remembered (deck.checks): only what changed since needs looking at
+  const checkLesson = (): PublishCheck => {
     const fine = new Set(deck.checks?.factsOk ?? []);
     const open = { bad: 0, missing: 0 };
     for (const sl of deck.slides) {
@@ -429,7 +473,7 @@ function Editor({
       }
     }
     const last = deck.checks?.repeats;
-    setPublishAsk({
+    return {
       warnings: allWarnings.flat().filter((w) => w.level === 'warn' && w.kind !== 'answers').length,   // (answers: their own row)
       repeats: findCrossSectionRepeats(deckSections(deck), deckAbout(deck)).length,
       repeatsAi: !last ? 'none' : last.from === lessonBasis(deck) ? 'ok' : 'changed',
@@ -438,7 +482,14 @@ function Editor({
       pictures: picturesWithoutDescription(deck).length,
       answers: answersToLookAt(deck),
       orderMoves: openMoves(deck).length,
-    });
+    };
+  };
+  const inReview = panel === 'check' || panel === 'repeats' || panel === 'ideas';
+  // (the Review tab's list: worked out while it's open)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const review = useMemo(() => (inReview && rightOpen ? checkLesson() : null), [inReview, rightOpen, deck, allWarnings]);
+  const publish = async () => {
+    setPublishAsk(checkLesson());
     setPublishName('');
     suggestName().then((n) => setPublishName((cur) => cur || n));
   };
@@ -618,7 +669,7 @@ function Editor({
     });
   };
 
-  // ✨ The AI makes a hands-on slide from what this slide teaches; it goes in after it
+  // The AI makes a hands-on slide from what this slide teaches; it goes in after it
   const [handsOnBusy, setHandsOnBusy] = useState(false);
   const aiHandsOn = async () => {
     const from = ed.mainSlide;
@@ -683,7 +734,7 @@ function Editor({
     if (fine) ok.add(key); else ok.delete(key);
     d.checks = { ...d.checks, factsOk: [...ok] };
   });
-  /** "Use this": a ❌ fact's fix into its box (an undoable edit), unless the box changed since the check */
+  /** "Use this": a fact's fix into its box (an undoable edit), unless the box changed since the check */
   const applyFix = (slideId: string, c: CheckedClaim) => {
     if (!c.rewrite || !c.elId) return false;
     const fix: RepeatSuggestion = { slideIndex: 0, slideId, elId: c.elId, say: c.rewrite.say, text: c.rewrite.text, why: '', beforeSay: c.rewrite.beforeSay, beforeText: c.rewrite.beforeText };
@@ -691,7 +742,7 @@ function Editor({
     ed.change((d) => { applyRepeatFix(d, fix, 'person'); }, `fix:${slideId}:${c.elId}`);
     return true;
   };
-  /** ✨ Describe all: the descriptions in one undo step, only where there's still none and it's the same picture */
+  /** Describe all: the descriptions in one undo step, only where there's still none and it's the same picture */
   const fillDescriptions = (list: Described[]) => {
     let n = 0;
     const fits = (d: Deck, x: Described) => {
@@ -730,7 +781,7 @@ function Editor({
     setSplitAsk(null);
     flash(`Split into “${first}” and “${second}” (Ctrl+Z undoes it)`);
   };
-  // The Check tab's count: open ❌ / ⚠️ facts on up-to-date checks, and pictures without a description
+  // The Check tab's count: open / facts on up-to-date checks, and pictures without a description
   const checkBadge = useMemo(() => {
     const fine = new Set(deck.checks?.factsOk ?? []);
     let n = picturesWithoutDescription(deck).length + openMoves(deck).length + openPictureIdeas(deck).length;
@@ -772,11 +823,11 @@ function Editor({
     if (c) d.checks = { ...d.checks, pictureSkips: [...(d.checks?.pictureSkips ?? []), pictureSkipKey(slideId, c.from)].slice(-300) };
   });
 
-  // Pictures with no description (the chip in the top row, More ▾): the Check tab's ✨ Describe all, started from here
+  // Pictures with no description (the chip in the top row, More ▾): the Check tab's Describe all, started from here
   const missingDescriptions = useMemo(() => picturesWithoutDescription(deck).length, [deck]);
   const [describeRun, setDescribeRun] = useState(0);
   const describeAllPictures = () => { setPanel('check'); setDescribeRun((n) => n + 1); };
-  /** The ✨ helper's "Show me": that part of the page, scrolled to and flashing (a right-panel tab is opened too) */
+  /** The helper's "Show me": that part of the page, scrolled to and flashing (a right-panel tab is opened too) */
   const showPart = (where: string) => {
     if (where === 'tab-edit') setPanel('props');
     else if (where === 'tab-images' || where === 'tab-repeats' || where === 'tab-check') setPanel(where.slice(4) as 'images' | 'repeats' | 'check');
@@ -889,121 +940,112 @@ function Editor({
   /* ------------------------------------------------------------ view */
 
   return (
-    <div className="flex flex-col h-[calc(100vh-40px)] bg-slate-100 text-slate-900">
-      {/* toolbar, row 1: the lesson, its state, and saving / previewing / publishing */}
-      <div className="flex flex-wrap items-center gap-2 px-3 pt-2 pb-1.5 bg-white">
-        <select data-help="lesson" className="px-2 py-1.5 rounded-md border border-slate-300 text-sm font-semibold max-w-56" value={lessonId} aria-label="Lesson"
+    <div className="flex flex-col h-screen bg-slate-100 text-slate-900">
+      {/* The one top bar: the lesson, what's left for the AI, the helper, then undo, save, preview, publish and the menus
+          (was: a dark bar of page links, a row of saving and a row of adding: three bars before any slide) */}
+      <header className="flex items-center gap-2 px-3 h-12 shrink-0 bg-slate-900 text-white" data-editor-toolbar>
+        <select data-help="lesson" className="h-8 px-2 rounded-md bg-slate-800 border border-slate-600 text-sm font-semibold text-white max-w-48" value={lessonId} aria-label="Lesson"
           onChange={(e) => (e.target.value === '__new' ? onNewLesson() : confirmSwitch(e.target.value))}>
           {lessons.map((l) => <option key={l.id} value={l.id}>{l.title}</option>)}
           <option value="__new">+ New lesson…</option>
         </select>
-        <span className="text-xs text-slate-600" data-save-state>
-          {saving ? 'Saving…' : ed.dirty ? <span className="text-amber-800 font-bold">● Unsaved changes</span> : saved.at ? `Saved ${when(saved.at)}${saved.by ? ` by ${saved.by}` : ''}` : 'Not saved yet'}
-        </span>
-        <span data-help="ai-status"
-          className={`text-xs font-semibold px-2.5 py-1 rounded-full border ${ai.running ? 'bg-violet-100 text-violet-900 border-violet-300' : ai.errors.length ? 'bg-red-100 text-red-900 border-red-300' : todoHere ? 'bg-amber-100 text-amber-950 border-amber-300' : 'bg-emerald-50 text-emerald-900 border-emerald-300'}`}
-          title={ai.errors.join('\n') || 'Spoken words, plain versions, topics, intros, captions and audio the AI fills in when you save'}
-        >
-          {ai.running
-            ? <>✨ The AI is writing and recording… {ai.remaining ? <b>{ai.remaining} left</b> : ''}</>
+        {/* What the AI still has to write or record: the number, and (click) what it's made of */}
+        <Menu help="ai-status" width="w-80" title={ai.errors.join('\n') || 'What the AI fills in when you save: click to see it'}
+          className={`h-8 px-3 rounded-full text-xs font-semibold flex items-center gap-1.5 whitespace-nowrap ${ai.running ? 'bg-violet-500 text-white' : ai.errors.length ? 'bg-red-500 text-white' : todoHere ? 'bg-amber-400 text-slate-950' : 'bg-white/10 text-emerald-300'}`}
+          label={ai.running
+            ? <><Icon name="sparkle" size={14} /> Writing and recording…{ai.remaining ? <b>{ai.remaining} left</b> : null}</>
             : ai.errors.length
-              ? `⚠ AI step had problems (hover)`
+              ? <><Icon name="warning" size={14} /> The AI step had problems</>
               : todoHere
-                ? <><b className="text-sm">{todoHere}</b> to write or record · press Save to start</>
-                : '✓ Words and audio ready'}
-        </span>
-        {/* Pictures with no description: one click for the AI to describe them all (was: only in the Check tab) */}
-        {missingDescriptions > 0 && (
-          <button data-help="describe-all" className="text-xs px-2 py-0.5 rounded-full bg-amber-50 text-amber-900 border border-amber-300 hover:bg-amber-100"
-            onClick={describeAllPictures} title="The AI looks at each picture and writes what it shows (Ctrl+Z undoes them all)">
-            🖼 {missingDescriptions} without a description · <b>✨ Describe all</b>
-          </button>
-        )}
-        <div className="flex-1 min-w-[14rem] flex justify-center">
+                ? <><b className="text-sm">{todoHere}</b> to write or record</>
+                : <><Icon name="check-mark" size={14} /> Words and audio ready</>}>
+          {(close) => {
+            const rows: [number, string][] = [
+              [todo.say, 'spoken words to write'], [todo.plain, 'simpler versions to write'], [todo.audio, 'voice clips to record'],
+              [todo.helpers, 'helper slides to draft'], [todo.bank, 'topics that need class questions'], [todo.quiz, 'end-of-lesson quiz to write'],
+              [todo.intros, 'topic introductions to write'], [todo.topics, 'slides that need a topic name'], [todo.captions, 'picture captions to write'],
+              [todo.pointers, 'pictures that need laser-pointer marks'], [todo.answers, 'hands-on boxes whose answers need checking'],
+              [todo.pictures, 'slides to look at for pictures'], [todo.order, 'story-order check'],
+            ];
+            const open = rows.filter(([n]) => n > 0);
+            return (
+              <div className="p-2 text-slate-800 flex flex-col gap-2" data-status-breakdown>
+                <div className="font-bold text-slate-900">{ai.running ? 'The AI is working' : todoHere ? `${todoHere} to write or record` : 'Nothing left to write or record'}</div>
+                {open.length > 0 && (
+                  <ul className="flex flex-col gap-1">
+                    {open.map(([n, what]) => <li key={what} className="flex gap-2"><b className="w-7 text-right tabular-nums">{n}</b><span>{what}</span></li>)}
+                  </ul>
+                )}
+                {ai.errors.length > 0 && <ul className="text-xs text-red-700 list-disc pl-4">{ai.errors.slice(0, 5).map((e, i) => <li key={i}>{e}</li>)}</ul>}
+                {missingDescriptions > 0 && (
+                  <button data-help="describe-all" className="text-left text-xs px-2 py-1.5 rounded-md bg-amber-50 text-amber-950 border border-amber-300 hover:bg-amber-100"
+                    onClick={() => { close(); describeAllPictures(); }}>
+                    {missingDescriptions} picture{missingDescriptions === 1 ? ' has' : 's have'} no description. <b>Describe {missingDescriptions === 1 ? 'it' : 'them'} with the AI</b>
+                  </button>
+                )}
+                <p className="text-xs text-slate-500">The AI does these in the background each time you save. You can keep editing while it works.</p>
+                {todoHere > 0 && !ai.running && <button className={primary} onClick={() => { close(); save(); }}>Save and start</button>}
+              </div>
+            );
+          }}
+        </Menu>
+        <div className="flex-1 min-w-[9rem] flex justify-center">
           <AssistantBox lesson={lessonId} onShow={showPart} onAddImage={(img) => { addImage(img); flash('Added the picture to this slide (Ctrl+Z undoes it)'); }}
             onAddText={(text) => { addElement({ id: newId('el'), type: 'text', x: 8, y: 68, w: 84, h: 20, text, style: 'body', color: '#0f172a' }); flash('Added the sentence as a text box (Ctrl+Z undoes it)'); }} />
         </div>
-        <span className="text-xs text-slate-500" data-help="live">
-          {live === undefined ? '' : live ? <>🟢 Live{live.savedAs ? <>: <b className="font-semibold">“{live.savedAs}”</b></> : ''} since {when(live.at)}{live.by ? ` (${live.by})` : ''} · <button className="underline" onClick={unpublish}>take down</button></> : '⚪ Not published: learners get the AI lesson'}
+        <span className="hidden xl:inline text-xs text-slate-300 whitespace-nowrap" data-save-state>
+          {saving ? 'Saving…' : ed.dirty ? <span className="text-amber-300 font-bold">● Unsaved changes</span> : saved.at ? `Saved ${when(saved.at)}${saved.by ? ` by ${saved.by}` : ''}` : 'Not saved yet'}
         </span>
-        <button data-help="save" className={ed.dirty ? 'px-4 py-1.5 rounded-md text-sm font-bold bg-slate-900 hover:bg-slate-700 text-white shadow-sm disabled:opacity-40' : btn} onClick={() => save()} disabled={saving} title="Ctrl+S">Save</button>
-        <Menu help="preview" className={btn} label="▶ Preview ▾" title="Play the saved lesson in a new tab" width="w-56">
+        <button data-help="undo" className={ghostIcon} onClick={ed.undo} disabled={!ed.canUndo} title="Undo (Ctrl+Z)" aria-label="Undo"><Icon name="undo" size={17} /></button>
+        <button className={ghostIcon} onClick={ed.redo} disabled={!ed.canRedo} title="Redo (Ctrl+Shift+Z)" aria-label="Redo"><Icon name="redo" size={17} /></button>
+        <button data-help="save" className={ed.dirty ? 'h-8 px-3.5 rounded-md text-sm font-bold bg-white hover:bg-slate-200 text-slate-950 disabled:opacity-40 flex items-center gap-1.5' : ghost} onClick={() => save()} disabled={saving} title="Ctrl+S"><Icon name="save" size={16} /> Save</button>
+        <Menu help="preview" className={ghost} label={<><Icon name="play" size={15} /> Preview</>} title="Play the saved lesson in a new tab" width="w-56">
           {(close) => (
             <>
-              <MenuItem onClick={() => { close(); preview(); }} hint="Opens in a new tab">From the start ↗</MenuItem>
-              <MenuItem onClick={() => { close(); preview(true); }} hint="Opens in a new tab">From slide {slideIdx + 1} ↗</MenuItem>
+              <MenuItem onClick={() => { close(); preview(); }} hint="Opens in a new tab">From the start</MenuItem>
+              <MenuItem onClick={() => { close(); preview(true); }} hint="Opens in a new tab">From slide {slideIdx + 1}</MenuItem>
             </>
           )}
         </Menu>
-        <button data-help="publish" className={primary} onClick={publish}>Publish</button>
-      </div>
-
-      {/* toolbar, row 2: editing, then the lesson-wide tools */}
-      <div className="flex flex-wrap items-center gap-2 px-3 py-2 bg-slate-200/70 border-y border-slate-300" data-editor-toolbar>
-        <button data-help="undo" className={iconBtn} onClick={ed.undo} disabled={!ed.canUndo} title="Undo (Ctrl+Z)" aria-label="Undo">↶</button>
-        <button className={iconBtn} onClick={ed.redo} disabled={!ed.canRedo} title="Redo (Ctrl+Shift+Z)" aria-label="Redo">↷</button>
-        <div className="w-px h-7 bg-slate-400 mx-1" />
-        {/* What can go on the slide: one group, so it reads as "add one of these" (was: four loose buttons among the others) */}
-        <span className="text-xs font-bold uppercase tracking-wide text-slate-600">Add to slide</span>
-        <div className="flex rounded-md border border-cyan-600 shadow-sm divide-x divide-cyan-600/60 bg-cyan-50" role="group" aria-label="Add to this slide" data-add-group>
-        <button data-help="add-text" className={`${addBtn} rounded-l-md`} onClick={addText}><span aria-hidden className="font-serif font-bold">T</span> Text</button>
-        <button data-help="add-image" className={addBtn} onClick={() => setPanel('images')}><span aria-hidden>🖼</span> Picture</button>
-        <Menu help="add-chart" className={addBtn} label={<><span aria-hidden>📊</span> Chart or diagram ▾</>} width="w-56">
-          {(close) => VISUAL_KINDS.map(([k, name]) => <MenuItem key={k} onClick={() => { close(); addElement(visualTemplate(k)); }}>{name}</MenuItem>)}
-        </Menu>
-        <Menu help="hands-on" className={`${addBtn} rounded-r-md`} label={handsOnBusy ? '✨ Making a hands-on slide…' : <><span aria-hidden>🖐</span> Hands-on ▾</>} disabled={!!handsOnBusy} width="w-72">
-          {(close) => (
-            <>
-              <MenuItem onClick={() => { close(); aiHandsOn(); }} hint="The AI makes a hands-on slide from what this slide teaches">✨ Hands-on slide from this slide</MenuItem>
-              <MenuHeading>Add an example to edit</MenuHeading>
-              {ACTIVITY_KINDS.map(([k, name]) => <MenuItem key={k} onClick={() => { close(); addElement(activityTemplate(k)); }}>{name}</MenuItem>)}
-            </>
-          )}
-        </Menu>
-        </div>
-        <div className="flex-1" />
-        {/* The lesson's profile (what it's about, who it's for, the teacher…): in the side panel (was a 6th tab: too tight) */}
-        <button className={`${btn} ${panel === 'lesson' ? '!bg-cyan-600 !text-white !border-cyan-700' : ''}`} onClick={() => setPanel(panel === 'lesson' ? 'props' : 'lesson')}
+        {/* (the one coloured button: the main thing to do) */}
+        <button data-help="publish" className="h-8 px-4 rounded-md text-sm font-bold bg-cyan-400 hover:bg-cyan-300 text-slate-950" onClick={publish}>Publish</button>
+        <span className="w-px h-6 bg-white/20" />
+        {/* The lesson's profile (what it's about, who it's for, the teacher…): in the side panel */}
+        <button className={`${ghost} ${panel === 'lesson' && rightOpen ? '!bg-white !text-slate-950' : ''}`} onClick={() => setPanel(panel === 'lesson' ? 'props' : 'lesson')}
           title="What the lesson is about, who it’s for, the teacher, the family card, the sources" aria-pressed={panel === 'lesson'} data-help="lesson-settings">
-          📘 Lesson settings
+          <Icon name="settings" size={16} /> <span className="hidden lg:inline">Lesson settings</span>
         </button>
-        {/* Everything else about the lesson, in one menu (was: Learners, PDF and More as three more buttons in the row) */}
-        <Menu help="more" className={`${btn} ${heat ? '!bg-cyan-50 !border-cyan-600' : ''}`} label={pdfProgress ? `⬇ PDF ${pdfProgress}…` : heatLoading ? 'Loading…' : 'More ▾'} width="w-72">
+        {/* Everything else about the lesson, and the other editor pages, in one menu */}
+        <Menu help="more" className={`${ghostIcon} ${heat ? '!bg-white !text-slate-950' : ''}`} title="More" label={pdfProgress ? <span className="text-xs">{pdfProgress}</span> : <Icon name="more" size={18} />} width="w-72">
           {(close) => (
             <>
               <MenuHeading>This lesson</MenuHeading>
               <MenuItem onClick={() => { close(); toggleHeat(); }} disabled={heatLoading}
                 hint="Puzzled faces, “I’m lost”, simpler please… on each slide, for the last 30 days">
-                📊 How learners did{heat ? ' ✓ (showing: click to hide)' : ''}
+                How learners did{heat ? ' (showing: click to hide)' : ''}
               </MenuItem>
-              <MenuItem onClick={() => { close(); setPdfAsk(true); }} disabled={pdfProgress !== null} hint="Teacher script, handout or narration only">⬇ Download as a PDF…</MenuItem>
-              <MenuItem onClick={() => { close(); removeLongDashes(); }} disabled={longDashes === 0}
-                hint={longDashes ? 'Each “—” becomes a comma or goes. Ctrl+Z takes it back; changed narration is recorded again when you save' : 'There are none in this lesson'}>
-                ✂ Remove long dashes{longDashes ? ` (${longDashes})` : ''}
-              </MenuItem>
-              <MenuItem onClick={() => { close(); describeAllPictures(); }} disabled={missingDescriptions === 0}
-                hint={missingDescriptions ? `${missingDescriptions} picture${missingDescriptions === 1 ? ' has' : 's have'} no description: the AI writes them` : 'Every picture has a description'}>
-                ✨ Describe all pictures{missingDescriptions ? ` (${missingDescriptions})` : ''}
-              </MenuItem>
-              {lessonId === STUDY_LESSON && (
-                <MenuItem onClick={() => { close(); setPullOpen(true); }} hint={`Bring changed or new slides across from “${lessons.find((l) => l.id === STUDY_SOURCE)?.title ?? STUDY_SOURCE}”, one by one`}>⇣ Pull from the original…</MenuItem>
-              )}
+              <MenuItem onClick={() => { close(); setPdfAsk(true); }} disabled={pdfProgress !== null} hint="Teacher script, handout or narration only">Download as a PDF…</MenuItem>
               <MenuItem onClick={() => { close(); setSavedOpen(true); }} hint="Versions saved when they were published: copy a slide back, or go back to one">Saved versions…</MenuItem>
               <MenuItem onClick={() => { close(); openVersions(); }} hint="Replace this draft with an AI-made deck">Start from AI…</MenuItem>
-              <MenuItem onClick={() => { close(); window.open(`/lessonReview?lesson=${encodeURIComponent(lessonId)}&preview=1`, '_blank', 'noopener'); }} hint="The saved draft as a readable page, to print">📖 Lesson review ↗</MenuItem>
-              {/* the admin pages (editors only, like this one); the studies, as components/study/StudyTabs lists them */}
-              <MenuHeading>Studies</MenuHeading>
-              <MenuItem onClick={() => { close(); window.open('/studyResults', '_blank', 'noopener'); }} hint="The main study: results, its lesson version, checklist and pilot report (people take it at /study)">⚖️ Static vs adaptive ↗</MenuItem>
-              <MenuItem onClick={() => { close(); window.open('/studyResults/classmates', '_blank', 'noopener'); }} hint="With or without the AI classmates: results, its lesson version, checklist and pilot report (people take it at /study2)">📊 Classmates study ↗</MenuItem>
-              <MenuHeading>Admin</MenuHeading>
-              <MenuItem onClick={() => { close(); window.open('/lessonBackup', '_blank', 'noopener'); }} hint="Copy every lesson into Supabase; pictures to upload again">💾 Lesson backup ↗</MenuItem>
+              {lessonId === STUDY_LESSON && (
+                <MenuItem onClick={() => { close(); setPullOpen(true); }} hint={`Bring changed or new slides across from “${lessons.find((l) => l.id === STUDY_SOURCE)?.title ?? STUDY_SOURCE}”, one by one`}>Pull from the original…</MenuItem>
+              )}
+              {/*MORE-LESSON*/}
+              <MenuHeading>Other pages (new tab)</MenuHeading>
+              <MenuItem onClick={() => { close(); window.open(`/lessonReview?lesson=${encodeURIComponent(lessonId)}&preview=1`, '_blank', 'noopener'); }}>Lesson review, to read or print</MenuItem>
+              <MenuItem onClick={() => { close(); window.open('/textIngest', '_blank', 'noopener'); }}>Add source text to a knowledge base</MenuItem>
+              <MenuItem onClick={() => { close(); window.open('/studyResults', '_blank', 'noopener'); }}>Study: static vs adaptive</MenuItem>
+              <MenuItem onClick={() => { close(); window.open('/studyResults/classmates', '_blank', 'noopener'); }}>Study: classmates</MenuItem>
+              <MenuItem onClick={() => { close(); window.open('/lessonBackup', '_blank', 'noopener'); }}>Lesson backup</MenuItem>
+              <MenuHeading>{editorName ? `Unlocked as ${editorName}` : 'Editor'}</MenuHeading>
+              <MenuItem onClick={() => { close(); lockEditor(); }}>Lock the editor</MenuItem>
               {lessonId !== DEFAULT_LESSON.id && (
                 <MenuItem danger onClick={() => { close(); setConfirmDelete({ busy: false }); }}>Delete this lesson…</MenuItem>
               )}
             </>
           )}
         </Menu>
-      </div>
+      </header>
 
       {notice && (
         <div className={`px-4 py-1.5 text-sm flex justify-between ${notice.tone === 'error' ? 'bg-red-100 text-red-800' : notice.tone === 'warn' ? 'bg-amber-100 text-amber-900' : 'bg-emerald-100 text-emerald-900'}`}>
@@ -1014,8 +1056,9 @@ function Editor({
 
       <div className="flex flex-1 min-h-0">
         {/* slides */}
-        <aside data-help="slide-list" className="w-56 shrink-0 p-2 border-r border-slate-300 bg-slate-50 min-h-0">
+        <aside data-help="slide-list" className={`w-56 shrink-0 p-2 border-r border-slate-300 bg-slate-50 min-h-0 ${leftOpen ? '' : 'hidden'}`}>
           <SlideList
+            onOverview={() => setGridOpen(true)}
             onSplitTopic={askSplit}
             slides={deck.slides}
             current={slideIdx}
@@ -1030,26 +1073,52 @@ function Editor({
         </aside>
 
         {/* canvas */}
-        <main className="flex-1 min-w-0 flex flex-col items-center justify-center p-4 gap-2" onPointerDown={() => ed.setSelected(null)}>
-          <div className="flex flex-wrap items-center justify-center gap-3 text-xs text-slate-500" onPointerDown={(e) => e.stopPropagation()}>
-            <span>Slide {slideIdx + 1} of {deck.slides.length}{main?.topic ? ` · ${main.topic}` : ''}</span>
-            <div data-help="layers" className="inline-flex rounded-md border border-slate-300 overflow-hidden" role="tablist" aria-label="Which version">
+        <main className="flex-1 min-w-0 flex flex-col" onPointerDown={() => ed.setSelected(null)}>
+          {/* The slide's own toolbar: fold the sides, add to the slide, which version of it */}
+          <div className="flex items-center gap-1 px-2 h-11 shrink-0 bg-white border-b border-slate-300" onPointerDown={(e) => e.stopPropagation()} data-canvas-toolbar>
+            <button className={`${toolIcon} ${leftOpen ? '' : 'bg-slate-200'}`} onClick={() => toggleSide('left')} title={leftOpen ? 'Hide the slide list' : 'Show the slide list'} aria-label="Slide list" aria-pressed={leftOpen}><Icon name="panel-left" size={18} /></button>
+            <span className="w-px h-6 bg-slate-300 mx-1" />
+            <span className="text-xs font-semibold text-slate-500 mr-1 hidden xl:inline">Add</span>
+            <div className="flex items-center gap-0.5" role="group" aria-label="Add to this slide" data-add-group>
+              <button data-help="add-text" className={tool} onClick={addText}><Icon name="text" size={16} /> Text</button>
+              <button data-help="add-image" className={tool} onClick={() => setPanel('images')}><Icon name="image" size={16} /> Picture</button>
+              <Menu help="add-chart" className={tool} title="A chart or a diagram" label={<><Icon name="chart" size={16} /> Chart <Icon name="chevron-down" size={13} /></>} width="w-56">
+                {(close) => VISUAL_KINDS.map(([k, name]) => <MenuItem key={k} onClick={() => { close(); addElement(visualTemplate(k)); }}>{name}</MenuItem>)}
+              </Menu>
+              <Menu help="hands-on" className={tool} label={handsOnBusy ? 'Making a hands-on slide…' : <><Icon name="hands-on-activity" size={16} /> Hands-on <Icon name="chevron-down" size={13} /></>} disabled={!!handsOnBusy} width="w-72">
+                {(close) => (
+                  <>
+                    <MenuItem onClick={() => { close(); aiHandsOn(); }} hint="The AI makes a hands-on slide from what this slide teaches"><span className="text-violet-700"><Icon name="sparkle" size={14} /> Hands-on slide from this slide</span></MenuItem>
+                    <MenuHeading>Add an example to edit</MenuHeading>
+                    {ACTIVITY_KINDS.map(([k, name]) => <MenuItem key={k} onClick={() => { close(); addElement(activityTemplate(k)); }}>{name}</MenuItem>)}
+                  </>
+                )}
+              </Menu>
+              {/*SLIDE-AI*/}
+            </div>
+            <div className="flex-1" />
+            <div data-help="layers" className="inline-flex rounded-md border border-slate-300 overflow-hidden text-xs" role="tablist" aria-label="Which version">
               <button role="tab" aria-selected={ed.layer === 'main'} onClick={() => switchLayer('main')}
-                className={`px-3 py-1 ${ed.layer === 'main' ? 'bg-cyan-600 text-white' : 'bg-white hover:bg-slate-50 text-slate-700'}`}>Main slide</button>
+                className={`px-3 py-1.5 ${ed.layer === 'main' ? 'bg-slate-900 text-white font-semibold' : 'bg-white hover:bg-slate-100 text-slate-700'}`} title="The slide as learners first see it">Main</button>
               <button role="tab" aria-selected={ed.layer === 'helper'} onClick={() => switchLayer('helper')}
-                className={`px-3 py-1 border-l border-slate-300 ${ed.layer === 'helper' ? 'bg-violet-600 text-white' : 'bg-white hover:bg-slate-50 text-slate-700'}`}
-                title="What this slide morphs into when a learner says they're lost">
-                Helper (when lost){helperState === 'ai' ? ' ✨' : helperState === 'none' ? ' (none yet)' : helperState === 'off' ? ' ✕' : ''}
+                className={`px-3 py-1.5 border-l border-slate-300 ${ed.layer === 'helper' ? 'bg-slate-900 text-white font-semibold' : 'bg-white hover:bg-slate-100 text-slate-700'}`}
+                title={`What this slide turns into when a learner says they're lost${helperState === 'ai' ? ' (drafted by the AI)' : ''}`}>
+                Helper{helperState === 'none' ? ' · none' : helperState === 'off' ? ' · off' : ''}
               </button>
             </div>
             {ed.layer === 'helper' && helperState !== 'none' && helperState !== 'off' && (
-              <>
-                <button className="underline" onClick={() => setMorphPreview(true)}>▶ Preview the morph</button>
+              <span className="flex items-center gap-2 text-xs text-slate-600 ml-1 whitespace-nowrap">
+                <button className="underline" onClick={() => setMorphPreview(true)}>Preview the morph</button>
                 <button className="underline" onClick={aiHelper} title="Throw this helper away; the AI drafts a new one when you save">Redo with AI</button>
                 <button className="underline text-red-600" onClick={noHelper}>No helper</button>
-              </>
+              </span>
             )}
+            <div className="flex-1" />
+            <span className="text-xs text-slate-500 whitespace-nowrap" title={main?.topic || undefined}>Slide {slideIdx + 1} of {deck.slides.length}</span>
+            <span className="w-px h-6 bg-slate-300 mx-1" />
+            <button className={`${toolIcon} ${rightOpen ? '' : 'bg-slate-200'}`} onClick={() => toggleSide('right')} title={rightOpen ? 'Hide the side panel' : 'Show the side panel'} aria-label="Side panel" aria-pressed={rightOpen}><Icon name="panel-right" size={18} /></button>
           </div>
+          <div ref={stage} className="flex-1 min-h-0 flex items-center justify-center p-4 overflow-hidden" data-stage>
           {ed.layer === 'helper' && (helperState === 'none' || helperState === 'off') ? (
             <div className="w-full max-w-2xl aspect-video rounded-xl border-2 border-dashed border-violet-300 bg-violet-50/60 flex flex-col items-center justify-center gap-3 p-6 text-center text-sm text-slate-700" onPointerDown={(e) => e.stopPropagation()}>
               <p className="max-w-md">
@@ -1068,6 +1137,10 @@ function Editor({
           ) : (
           <div data-help="canvas" className="w-full flex justify-center" onPointerDown={(e) => e.stopPropagation()}>
             <EditCanvas
+              width={fitW ? `${fitW}px` : undefined}
+              onDuplicate={duplicateElement}
+              onDelete={deleteElement}
+              onLayer={layer}
               slide={slide}
               selected={ed.selected}
               onSelect={ed.setSelected}
@@ -1094,52 +1167,108 @@ function Editor({
             />
           </div>
           )}
-          {heat && <SlideStatsPanel stats={heat[main.id]} days={HEAT_DAYS} onClose={() => setHeat(null)} all={heat} slides={deck.slides} current={main.id} onGo={(i) => goToRepeat(i)} />}
+          </div>
+          {heat && <div className="shrink-0 px-4 pb-2 flex justify-center" onPointerDown={(e) => e.stopPropagation()}><SlideStatsPanel stats={heat[main.id]} days={HEAT_DAYS} onClose={() => setHeat(null)} all={heat} slides={deck.slides} current={main.id} onGo={(i) => goToRepeat(i)} /></div>}
           {morphPreview !== null && main && (
             <div className="fixed inset-0 z-50 bg-slate-950/70 flex flex-col items-center justify-center gap-3 p-6" onPointerDown={(e) => { e.stopPropagation(); setMorphPreview(null); }} role="dialog" aria-label="Morph preview">
               <SlideCanvas slide={morphPreview ? helperView(main) : main} morph width="min(80vw, calc(75vh * 16 / 9))" />
               <p className="text-sm text-white/80">{morphPreview ? 'Helper (when lost)' : 'Main slide'} · loops until you click</p>
             </div>
           )}
-          <div className="text-[11px] text-slate-600">
-            Drag to move · corners to resize · arrows nudge (Shift = more) · Del removes · Ctrl+Z undo · Ctrl+S save ·{' '}
-            <span className="text-violet-600">dashed purple ✨ AI = words written by the AI</span>
+          {/* What learners see now, against this draft (was: a line in the top row); the keys, a hover away */}
+          <div className="shrink-0 flex items-center gap-3 px-3 h-8 bg-white border-t border-slate-300 text-xs text-slate-600" onPointerDown={(e) => e.stopPropagation()} data-help="live" data-live-strip>
+            {live === undefined ? <span /> : live ? (
+              <span className="flex items-center gap-1.5 min-w-0">
+                <span className="w-2 h-2 rounded-full bg-emerald-500 shrink-0" />
+                <span className="truncate">Learners see {live.savedAs ? <b className="text-slate-900">“{live.savedAs}”</b> : 'the published lesson'}, published {when(live.at)}{live.by ? ` by ${live.by}` : ''}</span>
+                {(ed.dirty || (saved.at && live.at && saved.at > live.at)) && <span className="px-1.5 py-0.5 rounded bg-amber-100 text-amber-900 font-semibold whitespace-nowrap" data-unpublished>Your changes since then are not published</span>}
+                <button className="underline whitespace-nowrap" onClick={unpublish}>take down</button>
+              </span>
+            ) : (
+              <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-slate-400" />Not published yet: learners get the AI-made lesson</span>
+            )}
+            <span className="flex-1" />
+            <span className="relative group cursor-help underline decoration-dotted whitespace-nowrap">Keys and marks
+              <span className="hidden group-hover:block absolute right-0 bottom-full mb-1 z-40 w-72 whitespace-normal rounded-md border border-slate-300 bg-white shadow-xl p-3 text-xs leading-relaxed text-slate-700 no-underline">
+                <b>Drag</b> to move, <b>corners</b> to resize<br /><b>Arrows</b> nudge (Shift: more)<br /><b>Del</b> removes the box, <b>Ctrl+D</b> copies it<br /><b>Ctrl+Z</b> undo, <b>Ctrl+S</b> save<br /><b>PageUp / PageDown</b>: the slide before or after<br />
+                <span className="text-violet-700">Dashed purple “AI” on a box: its words were written by the AI</span><br />
+                <span className="text-amber-700">Amber on a slide or box: something to check</span>
+              </span>
+            </span>
           </div>
         </main>
 
         {/* properties / images */}
-        <aside className="w-80 shrink-0 border-l border-slate-300 bg-white flex flex-col min-h-0">
-          {/* tabs: what's selected, pictures, and the two lesson checks (a count when something needs a look) */}
+        <aside className={`w-80 shrink-0 border-l border-slate-300 bg-white flex flex-col min-h-0 ${rightOpen ? '' : 'hidden'}`}>
+          {/* Three tabs: the selected thing, pictures, and the lesson's checks in one place (was five) */}
           {panel === 'lesson' ? (
             // The lesson's settings take the panel over: named, with the way back
-            <div className="flex items-center justify-between px-3 py-2 bg-cyan-600 text-white" data-panel-title>
-              <span className="font-bold">📘 Lesson settings</span>
-              <button className="px-2 py-0.5 rounded-md bg-white/15 hover:bg-white/25 text-sm font-semibold" onClick={() => setPanel('props')}>✕ Close</button>
+            <div className="flex items-center justify-between px-3 h-11 border-b border-slate-300" data-panel-title>
+              <span className="font-bold flex items-center gap-2"><Icon name="settings" size={17} /> Lesson settings</span>
+              <button className="w-7 h-7 rounded-md hover:bg-slate-100 flex items-center justify-center" onClick={() => setPanel('props')} aria-label="Close" title="Close"><Icon name="close" size={16} /></button>
             </div>
           ) : (
-          <div className="flex bg-slate-100 border-b border-slate-300 text-[13px]" role="tablist">
+          <div className="flex border-b border-slate-300 text-sm h-11" role="tablist">
             {([
-              ['props', '✏️', 'Edit', 'The selected box, or the slide'],
-              ['images', '🖼', 'Images', 'Add a picture from the library'],
-              ['repeats', '🔁', 'Repeats', 'Where the lesson says the same thing twice'],
-              ['check', '🔎', 'Check', 'Facts against the knowledge base; pictures without a description; story order'],
-              ['ideas', '◎', 'Ideas', 'The concept map: the ideas the slides teach and which build on which'],
-            ] as const).map(([id, icon, name, hint]) => {
-              const on = panel === id || (id === 'images' && panel === 'background');
+              ['props', 'pencil', 'Edit', 'The selected box, or the slide'],
+              ['images', 'image', 'Pictures', 'Your library, free pictures and uploads'],
+              ['check', 'checklist', 'Review', 'Everything to look at before publishing: facts, pictures, repeats, the idea map'],
+            ] as [Panel, IconName, string, string][]).map(([id, icon, name, hint]) => {
+              const on = panel === id || (id === 'images' && panel === 'background') || (id === 'check' && inReview);
               const badge = id === 'check' ? checkBadge : 0;
               return (
                 <button key={id} data-help={`tab-${id === 'props' ? 'edit' : id}`} role="tab" aria-selected={on} title={hint} onClick={() => setPanel(id)}
-                  className={`flex-1 py-2.5 flex flex-col items-center justify-center gap-0.5 border-b-[3px] ${on ? 'font-bold border-cyan-600 text-cyan-900 bg-white' : 'border-transparent font-medium text-slate-600 hover:text-slate-900 hover:bg-slate-200'}`}>
-                  <span aria-hidden className="text-base leading-none">{icon}</span>
-                  <span className="flex items-center gap-1">{name}
-                    {badge > 0 && <span className="min-w-4 px-1 rounded-full bg-amber-400 text-[10px] font-bold text-slate-900 leading-4" aria-label={`${badge} to look at`}>{badge}</span>}
-                  </span>
+                  className={`flex-1 flex items-center justify-center gap-1.5 border-b-2 -mb-px ${on ? 'font-bold border-slate-900 text-slate-950' : 'border-transparent font-medium text-slate-500 hover:text-slate-900 hover:bg-slate-50'}`}>
+                  <Icon name={icon} size={16} />
+                  {name}
+                  {badge > 0 && <span className="min-w-5 px-1 rounded-full bg-amber-400 text-xs font-bold text-slate-900 leading-5" aria-label={`${badge} to look at`}>{badge}</span>}
                 </button>
               );
             })}
           </div>
           )}
           <div className="flex-1 min-h-0 overflow-y-auto p-3">
+            {/* Review: the list of what to look at, then the three checks it's made of */}
+            {inReview && (
+              <div className="mb-3 flex flex-col gap-2" data-review>
+                {review && (() => {
+                  const r = review;
+                  const rows: [tone: 'ok' | 'warn' | 'bad', text: string, act?: () => void][] = [
+                    r.warnings ? ['warn', `${r.warnings} layout warning${r.warnings === 1 ? '' : 's'} on the slides`, () => { const i = allWarnings.findIndex((w) => w.some((x) => x.level === 'warn')); if (i >= 0) goToRepeat(i); setPanel('props'); }] : ['ok', 'No layout warnings'],
+                    r.pictures ? ['warn', `${r.pictures} picture${r.pictures === 1 ? '' : 's'} without a description`, describeAllPictures] : ['ok', 'Every picture has a description'],
+                    r.answers.flagged ? ['bad', `${r.answers.flagged} hands-on box${r.answers.flagged === 1 ? '' : 'es'} with answers to check`, () => { const is = (e: SlideElement) => e.type === 'activity' && answerState(e) === 'flagged'; const i = deck.slides.findIndex((sl) => sl.elements.some(is)); if (i >= 0) { goToRepeat(i, deck.slides[i].elements.find(is)?.id); setPanel('props'); } }] : r.answers.unchecked ? ['warn', `${r.answers.unchecked} hands-on box${r.answers.unchecked === 1 ? '' : 'es'} not checked yet (checked when you save)`] : ['ok', 'Hands-on answers checked'],
+                    r.factsOpen.bad || r.factsOpen.missing ? [r.factsOpen.bad ? 'bad' : 'warn', `${r.factsOpen.bad + r.factsOpen.missing} fact${r.factsOpen.bad + r.factsOpen.missing === 1 ? '' : 's'} the sources don’t back up`, () => setPanel('check')] : r.factsToCheck ? ['warn', `${r.factsToCheck} slide${r.factsToCheck === 1 ? '' : 's'} not fact-checked since ${r.factsToCheck === 1 ? 'it' : 'they'} changed`, () => { setPanel('check'); setFactRun((n) => n + 1); }] : ['ok', 'Facts checked on every slide'],
+                    r.orderMoves ? ['warn', `${r.orderMoves} suggested move${r.orderMoves === 1 ? '' : 's'} for the story order`, () => setPanel('check')] : ['ok', 'Slides are in story order'],
+                    r.repeats ? ['warn', `${r.repeats} possible repeat${r.repeats === 1 ? '' : 's'} across topics`, () => setPanel('repeats')] : r.repeatsAi !== 'ok' ? ['warn', r.repeatsAi === 'none' ? 'Not checked for repeats with the AI yet' : 'Changed since the last AI repeat check', () => { setPanel('repeats'); setRepeatRun((n) => n + 1); }] : ['ok', 'No repeats found'],
+                    longDashes ? ['warn', `${longDashes} long dash${longDashes === 1 ? '' : 'es'} in the words (click to remove)`, removeLongDashes] : ['ok', 'No long dashes'],
+                    todoHere ? ['warn', `${todoHere} to write or record (click to save and start)`, () => save()] : ['ok', 'Words and audio ready'],
+                  ];
+                  const left = rows.filter(([t]) => t !== 'ok').length;
+                  return (
+                    <div className="rounded-lg border border-slate-300 overflow-hidden" data-review-list>
+                      <div className={`px-3 py-2 text-sm font-bold ${left ? 'bg-amber-50 text-amber-950' : 'bg-emerald-50 text-emerald-900'}`}>{left ? `${left} thing${left === 1 ? '' : 's'} to look at before publishing` : 'Ready to publish'}</div>
+                      <ul className="divide-y divide-slate-200 text-sm">
+                        {rows.map(([tone, text, act]) => (
+                          <li key={text}>
+                            <button disabled={!act} onClick={act} className={`w-full flex items-center gap-2 px-3 py-1.5 text-left ${act ? 'hover:bg-slate-50' : 'cursor-default'}`}>
+                              <span className={`w-5 h-5 shrink-0 rounded-full flex items-center justify-center ${tone === 'ok' ? 'bg-emerald-100 text-emerald-700' : tone === 'warn' ? 'bg-amber-400 text-slate-900' : 'bg-red-500 text-white'}`}><Icon name={tone === 'ok' ? 'check-mark' : 'warning'} size={12} /></span>
+                              <span className={`flex-1 ${tone === 'ok' ? 'text-slate-500' : 'text-slate-900 font-medium'}`}>{text}</span>
+                              {act && <Icon name="chevron-right" size={14} className="text-slate-400" />}
+                            </button>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  );
+                })()}
+                <div className="flex rounded-md border border-slate-300 overflow-hidden text-xs font-semibold" role="tablist" aria-label="Which check">
+                  {([['check', 'Facts and pictures', 'tab-check2'], ['repeats', 'Repeats', 'tab-repeats'], ['ideas', 'Idea map', 'tab-ideas']] as [Panel, string, string][]).map(([id, name, help], i) => (
+                    <button key={id} role="tab" aria-selected={panel === id} data-help={help} onClick={() => setPanel(id)}
+                      className={`flex-1 py-1.5 ${i ? 'border-l border-slate-300' : ''} ${panel === id ? 'bg-slate-900 text-white' : 'bg-white text-slate-700 hover:bg-slate-100'}`}>{name}</button>
+                  ))}
+                </div>
+              </div>
+            )}
             {/* kept mounted, so its results stay while you edit (and switch tabs) */}
             <div className={panel === 'repeats' ? '' : 'hidden'}>
               <RepeatsPanel deck={deck} active={panel === 'repeats'} runSignal={repeatRun} onAccept={acceptRepeat} onGoTo={goToRepeat}
@@ -1172,9 +1301,6 @@ function Editor({
                   el={element}
                   order={element.silent ? null : order.findIndex((e) => e.id === element.id) + 1 || null}
                   update={(patch) => ed.updateElement(element.id, patch)}
-                  onDelete={deleteElement}
-                  onDuplicate={duplicateElement}
-                  onLayer={layer}
                   warnings={slideWarns.filter((w) => w.elementId === element.id)}
                   placing={placingMark}
                   onPlacePointer={setPlacingMark}
@@ -1217,7 +1343,7 @@ function Editor({
                 onSuggestPlaces={() => {
                   // (every slide's picture check is forgotten: the next save looks at them all again, with the library as it is now)
                   ed.change((d) => { d.checks = { ...d.checks, pictures: {} }; });
-                  flash('Press Save: the AI looks at every slide for pictures from the library. Its suggestions come up in the 🔎 Check tab.');
+                  flash('Press Save: the AI looks at every slide for pictures from the library. Its suggestions come up in the Review tab.');
                 }}
                 mode={panel === 'background' ? 'background' : 'add'}
                 onAdd={(img) => {
@@ -1233,6 +1359,9 @@ function Editor({
           </div>
         </aside>
       </div>
+
+      {gridOpen && <SlideGrid slides={deck.slides} current={slideIdx} warnCounts={allWarnings.map((w) => w.filter((x) => x.level === 'warn').length)}
+        onOpen={(i) => { ed.setSlideIdx(i); ed.setSelected(null); }} onMove={moveSlide} onClose={() => setGridOpen(false)} />}
 
       {/* Download as a PDF: its choices (was a menu of its own in the toolbar) */}
       {pdfAsk && (
@@ -1280,9 +1409,9 @@ function Editor({
           if (run === 'repeats') setRepeatRun((n) => n + 1);
           if (run === 'facts') setFactRun((n) => n + 1);
         };
-        const row = (tone: 'ok' | 'warn' | 'bad', icon: string, text: React.ReactNode, action?: React.ReactNode) => (
+        const row = (tone: 'ok' | 'warn' | 'bad', _icon: string, text: React.ReactNode, action?: React.ReactNode) => (
           <li className={`flex items-start gap-2 rounded-md px-3 py-2 border ${tone === 'ok' ? 'bg-emerald-50 border-emerald-200' : tone === 'warn' ? 'bg-amber-50 border-amber-200' : 'bg-red-50 border-red-200'}`}>
-            <span aria-hidden>{icon}</span><span className="flex-1">{text}</span>{action}
+            <span className={`w-5 h-5 shrink-0 rounded-full flex items-center justify-center ${tone === 'ok' ? 'bg-emerald-200 text-emerald-800' : tone === 'warn' ? 'bg-amber-400 text-slate-900' : 'bg-red-500 text-white'}`}><Icon name={tone === 'ok' ? 'check-mark' : 'warning'} size={12} /></span><span className="flex-1">{text}</span>{action}
           </li>
         );
         const link = (label: string, onClick: () => void) => <button className="underline shrink-0" onClick={onClick}>{label}</button>;
@@ -1309,24 +1438,24 @@ function Editor({
                 {a.warnings > 0
                   ? row('warn', '⚠', <>{a.warnings === 1 ? '1 warning' : `${a.warnings} warnings`} on the slides (marked ⚠)</>)
                   : row('ok', '✓', 'No layout warnings')}
-                {a.pictures > 0 && row('warn', '🖼', <>{a.pictures} picture{a.pictures === 1 ? '' : 's'} without a description</>, link('Describe', () => go('check')))}
+                {a.pictures > 0 && row('warn', '', <>{a.pictures} picture{a.pictures === 1 ? '' : 's'} without a description</>, link('Describe', () => go('check')))}
                 {a.answers.flagged > 0
                   ? row('bad', '⚠', <>{a.answers.flagged} hands-on box{a.answers.flagged === 1 ? '' : 'es'} with answers the knowledge base doesn&apos;t back up (marked ⚠ Check answers)</>, link('Show', () => showBox('flagged')))
                   : a.answers.unchecked > 0
-                    ? row('warn', '🖐', <>{a.answers.unchecked} hands-on box{a.answers.unchecked === 1 ? '' : 'es'} not checked yet: the answers are checked against the knowledge base as you publish</>)
+                    ? row('warn', '', <>{a.answers.unchecked} hands-on box{a.answers.unchecked === 1 ? '' : 'es'} not checked yet: the answers are checked against the knowledge base as you publish</>)
                     : row('ok', '✓', 'Hands-on answers checked against the knowledge base')}
-                {a.answers.fixed > 0 && row('warn', '🛠', <>The AI fixed the answers in {a.answers.fixed} hands-on box{a.answers.fixed === 1 ? '' : 'es'} (marked ✓ AI fixed answers): have a look</>, link('Show', () => showBox('fixed')))}
-                {a.orderMoves > 0 && row('warn', '📖', <>{a.orderMoves} suggested move{a.orderMoves === 1 ? '' : 's'} to put the slides in story order</>, link('Review', () => go('check')))}
+                {a.answers.fixed > 0 && row('warn', '', <>The AI fixed the answers in {a.answers.fixed} hands-on box{a.answers.fixed === 1 ? '' : 'es'} (marked ✓ AI fixed answers): have a look</>, link('Show', () => showBox('fixed')))}
+                {a.orderMoves > 0 && row('warn', '', <>{a.orderMoves} suggested move{a.orderMoves === 1 ? '' : 's'} to put the slides in story order</>, link('Review', () => go('check')))}
                 {a.factsToCheck > 0
-                  ? row('warn', '🔎', <>{a.factsToCheck} slide{a.factsToCheck === 1 ? '' : 's'} not fact-checked since {a.factsToCheck === 1 ? 'it' : 'they'} changed</>, link('Check now', () => go('check', 'facts')))
+                  ? row('warn', '', <>{a.factsToCheck} slide{a.factsToCheck === 1 ? '' : 's'} not fact-checked since {a.factsToCheck === 1 ? 'it' : 'they'} changed</>, link('Check now', () => go('check', 'facts')))
                   : row('ok', '✓', 'Facts checked on every slide')}
-                {(a.factsOpen.bad > 0 || a.factsOpen.missing > 0) && row(a.factsOpen.bad ? 'bad' : 'warn', a.factsOpen.bad ? '❌' : '⚠️',
+                {(a.factsOpen.bad > 0 || a.factsOpen.missing > 0) && row(a.factsOpen.bad ? 'bad' : 'warn', a.factsOpen.bad ? '' : '',
                   <>{a.factsOpen.bad ? `${a.factsOpen.bad} fact${a.factsOpen.bad === 1 ? '' : 's'} the sources disagree with` : ''}{a.factsOpen.bad && a.factsOpen.missing ? ', ' : ''}{a.factsOpen.missing ? `${a.factsOpen.missing} not found in the sources` : ''}</>,
                   link('Review', () => go('check')))}
-                {a.repeats > 0 && row('warn', '🔁', <>{a.repeats === 1 ? '1 possible repeat' : `${a.repeats} possible repeats`}: the same words on screen in two topics</>, link('Review', () => go('repeats')))}
+                {a.repeats > 0 && row('warn', '', <>{a.repeats === 1 ? '1 possible repeat' : `${a.repeats} possible repeats`}: the same words on screen in two topics</>, link('Review', () => go('repeats')))}
                 {a.repeatsAi === 'ok'
                   ? row('ok', '✓', 'Checked for repeats with the AI, nothing changed since')
-                  : row('warn', '✨', a.repeatsAi === 'none' ? 'Not checked for repeats with the AI yet' : 'Changed since the last AI repeat check', link('Check now', () => go('repeats', 'repeats')))}
+                  : row('warn', '', a.repeatsAi === 'none' ? 'Not checked for repeats with the AI yet' : 'Changed since the last AI repeat check', link('Check now', () => go('repeats', 'repeats')))}
               </ul>
               <label className="flex flex-col gap-1 text-sm" data-publish-name>
                 <span className="font-semibold text-slate-800">Save this version as</span>
@@ -1354,7 +1483,7 @@ function Editor({
         <div className="fixed inset-0 z-[1000] bg-black/40 flex items-center justify-center p-6" onClick={() => setSplitAsk(null)}>
           <div className="bg-white rounded-xl shadow-2xl w-full max-w-md p-6 flex flex-col gap-3" role="dialog" aria-labelledby="split-title" onClick={(e) => e.stopPropagation()}>
             <h2 id="split-title" className="font-bold text-lg">Split “{deck.slides[splitAsk.start]?.topic || 'this topic'}”</h2>
-            {splitAsk.busy && <p className="text-sm text-slate-600" role="status">✨ Finding the best place to split it…</p>}
+            {splitAsk.busy && <p className="text-sm text-slate-600" role="status">Finding the best place to split it…</p>}
             {splitAsk.error && <p className="text-sm text-red-700">{splitAsk.error}</p>}
             {splitAsk.split && (() => {
               const sp = splitAsk.split;
@@ -1499,12 +1628,12 @@ function Editor({
               </div>
               {aiDeck && !aiGen && (aiDeck.todo ?? 0) > 0 && (
                 <button className={btn} onClick={recordAiAudio} title="The audio (and the rest the AI fills in) was cut short: carry on from where it stopped">
-                  🔊 Finish the audio ({aiDeck.todo} left)
+                  Finish the audio ({aiDeck.todo} left)
                 </button>
               )}
               <button className={primary} onClick={generateAi} disabled={!!aiGen}>
-                {aiGen?.phase === 'writing' ? '✨ Writing the slides… (a few minutes)'
-                  : aiGen?.phase === 'audio' ? `🔊 Recording audio…${aiGen.remaining ? ` ${aiGen.remaining} left` : ''}`
+                {aiGen?.phase === 'writing' ? 'Writing the slides… (a few minutes)'
+                  : aiGen?.phase === 'audio' ? `Recording audio…${aiGen.remaining ? ` ${aiGen.remaining} left` : ''}`
                   : aiDeck ? 'Make a new AI deck' : 'Make an AI deck'}
               </button>
               {aiNotes.length > 0 && (

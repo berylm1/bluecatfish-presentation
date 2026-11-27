@@ -28,13 +28,13 @@ function HandsOnRow({ h }: { h: NonNullable<SlideStats['handsOn']> }) {
   const doneShare = h.started ? Math.round((h.done / h.started) * 100) : null;
   return (
     <div className="mt-1.5 pt-1.5 border-t border-slate-100 flex flex-wrap gap-x-4 gap-y-1">
-      <span className="font-semibold text-slate-900">🖐 Hands-on</span>
+      <span className="font-semibold text-slate-900">Hands-on</span>
       <span className="whitespace-nowrap">done <b>{h.done}</b> of <b>{h.started}</b>{doneShare !== null && ` (${doneShare}%)`}</span>
       {h.skipped > 0 && <span className="whitespace-nowrap" title="Learners who pressed Skip">skipped <b>{h.skipped}</b></span>}
-      {h.avgSeconds !== null && <span className="whitespace-nowrap">⏱ avg <b>{h.avgSeconds}</b>s to finish</span>}
+      {h.avgSeconds !== null && <span className="whitespace-nowrap">avg <b>{h.avgSeconds}</b>s to finish</span>}
       {h.wrong > 0 && <span className="whitespace-nowrap" title="Drops in the wrong group, steps tapped out of order">✗ wrong moves <b>{h.wrong}</b></span>}
-      {h.steppedIn > 0 && <span className="whitespace-nowrap" title="The same item wrong twice: the professor explained it">🧑‍🏫 professor stepped in <b>{h.steppedIn}</b></span>}
-      {h.finn > 0 && <span className="whitespace-nowrap" title="Finn put an item in the wrong group (or guessed wrong) for the learner to catch">🙋 caught Finn&apos;s mistake <b>{h.finnCaught}</b> of <b>{h.finn}</b></span>}
+      {h.steppedIn > 0 && <span className="whitespace-nowrap" title="The same item wrong twice: the professor explained it">professor stepped in <b>{h.steppedIn}</b></span>}
+      {h.finn > 0 && <span className="whitespace-nowrap" title="Finn put an item in the wrong group (or guessed wrong) for the learner to catch">caught Finn&apos;s mistake <b>{h.finnCaught}</b> of <b>{h.finn}</b></span>}
       {h.hints > 0 && <span className="whitespace-nowrap" title="“I’m lost” or a puzzled face while doing it: the hand showed again">👆 needed the hint <b>{h.hints}</b></span>}
       {h.hardest.length > 0 && (
         <span className="whitespace-nowrap" title="What went wrong most often">
@@ -95,7 +95,7 @@ function HandsOnOverview({ all, slides, current, onGo }: {
   if (!boxes.length) return null;
   return (
     <div className="mt-1.5 pt-1.5 border-t border-slate-100" data-handson-overview>
-      <span className="font-semibold text-slate-900">🖐 Hands-on boxes in this lesson</span>
+      <span className="font-semibold text-slate-900">Hands-on boxes in this lesson</span>
       <span className="text-slate-400"> · most skipped or needing help first</span>
       <ul className="mt-1 flex flex-col">
         {boxes.slice(0, 6).map(({ i, s, h }) => {
@@ -104,8 +104,8 @@ function HandsOnOverview({ all, slides, current, onGo }: {
           return (
             <li key={s.id}>
               <button onClick={() => onGo(i)} disabled={s.id === current}
-                className="w-full flex items-center gap-2 px-1.5 py-1 rounded hover:bg-slate-50 disabled:bg-cyan-50 text-left">
-                <span className={`shrink-0 w-11 text-center rounded px-1 text-[10px] font-semibold ${tone}`} title="Skipped or needed help">{pct}%</span>
+                className="w-full flex items-center gap-2 px-1.5 py-1 rounded hover:bg-slate-50 disabled:bg-slate-100 text-left">
+                <span className={`shrink-0 w-11 text-center rounded px-1 text-xs font-semibold ${tone}`} title="Skipped or needed help">{pct}%</span>
                 <span className="shrink-0 font-medium text-slate-900">Slide {i + 1}</span>
                 <span className="truncate text-slate-500">{s.topic}</span>
                 <span className="ml-auto shrink-0 whitespace-nowrap">
@@ -132,7 +132,7 @@ export function SlideStatsPanel({ stats, days, onClose, all, slides, current, on
   return (
     <div className="w-full max-w-3xl rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-700">
       <div className="flex items-center justify-between mb-1">
-        <span className="font-semibold text-slate-900">📊 Learners on this slide · last {days} days</span>
+        <span className="font-semibold text-slate-900">Learners on this slide · last {days} days</span>
         <button className="text-slate-400 hover:text-slate-700" onClick={onClose} aria-label="Hide learner data">✕</button>
       </div>
       {!stats || stats.learners === 0 ? (
@@ -158,7 +158,7 @@ export function SlideStatsPanel({ stats, days, onClose, all, slides, current, on
           {stats.selfCheck.got + stats.selfCheck.kind + stats.selfCheck.lost > 0 && (
             <span className="whitespace-nowrap">self-check 😀 <b>{stats.selfCheck.got}</b> 😐 <b>{stats.selfCheck.kind}</b> 😕 <b>{stats.selfCheck.lost}</b></span>
           )}
-          {row('⏱ avg seconds here', stats.avgSeconds)}
+          {row('avg seconds here', stats.avgSeconds)}
         </div>
       )}
       {stats?.meter && <MeterRow m={stats.meter} elements={slides?.find((s) => s.id === current)?.elements} />}

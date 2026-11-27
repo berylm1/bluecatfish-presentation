@@ -18,7 +18,7 @@ const AI = '';   // (a setting left to the AI)
 const box = 'w-full px-3 py-2 rounded-lg border border-slate-300 text-sm text-slate-900 focus:border-cyan-500 outline-none';
 const lbl = 'block text-sm font-medium text-slate-700 mt-4 mb-1';
 const hint = 'text-xs text-slate-500 mt-1';
-const primary = 'px-4 py-2 rounded-lg bg-cyan-600 hover:bg-cyan-700 text-white text-sm font-semibold disabled:opacity-50';
+const primary = 'px-4 py-2 rounded-lg bg-slate-900 hover:bg-slate-700 text-white text-sm font-semibold disabled:opacity-50';
 const secondary = 'px-4 py-2 rounded-lg border border-slate-300 hover:bg-slate-50 text-sm';
 const tiny = 'px-1.5 text-slate-400 hover:text-slate-800 disabled:opacity-30';
 
@@ -112,7 +112,7 @@ export default function NewLessonWizard({ onClose, onCreated, onBlank }: {
         }
       }
       const notes: string[] = [...(made.notes ?? []), ...pictureNotes, ...(drafted.notes ?? []), ...voiceNotes];
-      if (!res2.ok || drafted.error) notes.unshift(`The slides couldn’t be drafted (${drafted.error ?? res2.status}): the lesson is made, with its outline in 📘 Lesson. Try More ▾ → Start from AI… in it.`);
+      if (!res2.ok || drafted.error) notes.unshift(`The slides couldn’t be drafted (${drafted.error ?? res2.status}): the lesson is made, with its outline in Lesson. Try More ▾ → Start from AI… in it.`);
       onCreated(made.lesson, notes);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -136,7 +136,7 @@ export default function NewLessonWizard({ onClose, onCreated, onBlank }: {
       <div className="w-full max-w-2xl max-h-[92vh] overflow-y-auto rounded-2xl bg-white shadow-2xl p-6 text-slate-800">
         <div className="flex items-start justify-between gap-4">
           <div>
-            <p className="text-xs font-bold uppercase tracking-wider text-cyan-700">New lesson · {{ what: '1 of 3: what to teach', who: '2 of 3: who it’s for', outline: '3 of 3: the outline', making: 'making it' }[step]}</p>
+            <p className="text-xs font-bold uppercase tracking-wider text-slate-900">New lesson · {{ what: '1 of 3: what to teach', who: '2 of 3: who it’s for', outline: '3 of 3: the outline', making: 'making it' }[step]}</p>
             <h2 className="text-xl font-bold mt-1">{{ what: 'What do you want to teach?', who: 'Who is it for?', outline: outline?.title || 'The outline', making: 'Making the lesson' }[step]}</h2>
           </div>
           {step !== 'making' && <button className="text-slate-400 hover:text-slate-800 text-xl" aria-label="Close" onClick={onClose}>✕</button>}
@@ -210,7 +210,7 @@ export default function NewLessonWizard({ onClose, onCreated, onBlank }: {
             <input className={box} value={outline.title} maxLength={120} onChange={(e) => set('title', e.target.value)} />
             <label className={lbl}>In one line</label>
             <input className={box} value={outline.pitch} maxLength={300} onChange={(e) => set('pitch', e.target.value)} />
-            <p className={hint}>{outline.subject} · ages {outline.ageMin} to {outline.ageMax} · about {outline.minutes} minutes · facts from {outline.sourceMode === 'general' ? 'general knowledge' : outline.sourceMode === 'sources-first' ? 'the material first' : 'the material'} · all of it in 📘 Lesson later</p>
+            <p className={hint}>{outline.subject} · ages {outline.ageMin} to {outline.ageMax} · about {outline.minutes} minutes · facts from {outline.sourceMode === 'general' ? 'general knowledge' : outline.sourceMode === 'sources-first' ? 'the material first' : 'the material'} · all of it in Lesson later</p>
 
             <label className={lbl}>Goals: by the end, they can…</label>
             {outline.goals.map((g, i) => (
@@ -219,7 +219,7 @@ export default function NewLessonWizard({ onClose, onCreated, onBlank }: {
                 <button className={tiny} aria-label="Take this goal out" onClick={() => set('goals', outline.goals.filter((_, j) => j !== i))}>✕</button>
               </div>
             ))}
-            {outline.goals.length < 8 && <button className="text-xs text-cyan-700 underline" onClick={() => set('goals', [...outline.goals, ''])}>＋ Add a goal</button>}
+            {outline.goals.length < 8 && <button className="text-xs text-slate-900 underline" onClick={() => set('goals', [...outline.goals, ''])}>＋ Add a goal</button>}
 
             <label className={lbl}>Sections, in order</label>
             <ol className="flex flex-col gap-2">
@@ -239,7 +239,7 @@ export default function NewLessonWizard({ onClose, onCreated, onBlank }: {
                 </li>
               ))}
             </ol>
-            {outline.sections.length < 8 && <button className="mt-2 text-xs text-cyan-700 underline" onClick={() => set('sections', [...outline.sections, { title: 'New section', covers: [] }])}>＋ Add a section</button>}
+            {outline.sections.length < 8 && <button className="mt-2 text-xs text-slate-900 underline" onClick={() => set('sections', [...outline.sections, { title: 'New section', covers: [] }])}>＋ Add a section</button>}
 
             <label className="mt-5 flex items-start gap-2 text-sm text-slate-700" data-free-pictures-choice>
               <input type="checkbox" className="mt-0.5" checked={freePictures} onChange={(e) => setFreePictures(e.target.checked)} />
@@ -260,7 +260,7 @@ export default function NewLessonWizard({ onClose, onCreated, onBlank }: {
 
         {step === 'making' && (
           <div className="py-8 flex flex-col items-center gap-4 text-center">
-            <div className="w-10 h-10 rounded-full border-4 border-cyan-200 border-t-cyan-600 animate-spin" aria-hidden />
+            <div className="w-10 h-10 rounded-full border-4 border-slate-300 border-t-slate-900 animate-spin" aria-hidden />
             <p className="text-sm text-slate-600 max-w-md">{busy}</p>
             <p className="text-xs text-slate-400">Keep this tab open. The editor opens the lesson when it’s ready.</p>
           </div>

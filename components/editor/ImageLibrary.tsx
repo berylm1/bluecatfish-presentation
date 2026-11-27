@@ -106,28 +106,28 @@ export default function ImageLibrary({
     <div className="flex flex-col gap-3 h-full" data-images-panel>
       {/* Three places a picture comes from, one at a time (was: all of them stacked in one long panel) */}
       <div className="flex rounded-md border border-slate-400 overflow-hidden text-xs font-semibold shadow-sm" role="tablist" aria-label="Where the picture comes from">
-        {([['mine', '🖼 This lesson’s'], ...(lesson ? [['free', '🌍 Find free'] as const] : []), ['upload', '⬆ Upload']] as const).map(([id, name], n) => (
+        {([['mine', 'This lesson’s'], ...(lesson ? [['free', '🌍 Find free'] as const] : []), ['upload', 'Upload']] as const).map(([id, name], n) => (
           <button key={id} role="tab" aria-selected={tab === id} onClick={() => setTab(id)} data-images-tab={id}
-            className={`flex-1 py-2 ${n ? 'border-l border-slate-400' : ''} ${tab === id ? 'bg-cyan-600 text-white' : 'bg-white text-slate-800 hover:bg-slate-100'}`}>{name}</button>
+            className={`flex-1 py-2 ${n ? 'border-l border-slate-400' : ''} ${tab === id ? 'bg-slate-900 text-white' : 'bg-white text-slate-800 hover:bg-slate-100'}`}>{name}</button>
         ))}
       </div>
-      {mode === 'background' && <p className="text-xs font-semibold text-cyan-800 bg-cyan-50 border border-cyan-200 rounded-md px-2 py-1.5">Click a picture to use it as this slide’s background.</p>}
+      {mode === 'background' && <p className="text-xs font-semibold text-slate-900 bg-slate-100 border border-slate-300 rounded-md px-2 py-1.5">Click a picture to use it as this slide’s background.</p>}
 
       {tab === 'mine' && (
         <>
           <form onSubmit={(e) => { e.preventDefault(); load(q.trim()); }} className="flex gap-1">
-            <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search this lesson’s pictures…" aria-label="Search this lesson’s pictures" className="w-full min-w-0 px-2 py-1.5 rounded-md border border-slate-400 text-sm text-slate-900 outline-none focus:border-cyan-600 focus:ring-1 focus:ring-cyan-600" />
+            <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search this lesson’s pictures…" aria-label="Search this lesson’s pictures" className="w-full min-w-0 px-2 py-1.5 rounded-md border border-slate-400 text-sm text-slate-900 outline-none focus:border-slate-400 focus:ring-1 focus:ring-cyan-600" />
             <button className="px-3 py-1.5 rounded-md bg-slate-900 hover:bg-slate-700 text-white text-sm font-semibold">Search</button>
           </form>
-          <p className="text-[11px] text-slate-500 -mt-1">Click a picture to add it to the slide, or drag it where you want it.</p>
+          <p className="text-xs text-slate-500 -mt-1">Click a picture to add it to the slide, or drag it where you want it.</p>
           {onSuggestPlaces && mode === 'add' && images.length > 0 && (
             <button onClick={onSuggestPlaces} data-suggest-places title="The AI looks at every slide again and suggests pictures from this library for the ones they fit. You say yes or no to each, in the Check tab."
               className="px-2 py-1.5 rounded-md border border-violet-400 bg-violet-50 hover:bg-violet-100 text-xs font-semibold text-violet-900 text-left">
-              ✨ Suggest where these pictures go
+              Suggest where these pictures go
               <span className="block font-normal text-violet-800/80">The AI checks every slide when you save. You pick which to keep.</span>
             </button>
           )}
-          {status && <p className="text-xs text-slate-600">{status}{!images.length && lesson && status.startsWith('No images') ? ' Try 🌍 Find free, or ⬆ Upload.' : ''}</p>}
+          {status && <p className="text-xs text-slate-600">{status}{!images.length && lesson && status.startsWith('No images') ? ' Try 🌍 Find free, or Upload.' : ''}</p>}
       {/* Each picture whole, at its own shape (was: cropped to squares to save space); two columns, like a wall of photos */}
       <div className="columns-2 gap-2 overflow-y-auto pr-1" data-image-library>
         {images.map((img) => (
@@ -137,11 +137,11 @@ export default function ImageLibrary({
             onDragStart={(e) => e.dataTransfer.setData(IMAGE_DRAG_TYPE, JSON.stringify(img))}
             onClick={() => onAdd(img)}
             title={img.description}
-            className="group relative block w-full mb-2 break-inside-avoid rounded-md overflow-hidden bg-slate-100 border border-slate-200 hover:border-cyan-500"
+            className="group relative block w-full mb-2 break-inside-avoid rounded-md overflow-hidden bg-slate-100 border border-slate-200 hover:border-slate-900"
           >
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img src={img.url} alt={img.description} loading="lazy" className="block w-full h-auto" />
-            <span className="absolute inset-x-0 bottom-0 p-1 bg-black/60 text-[10px] leading-tight text-white text-left line-clamp-3 opacity-0 group-hover:opacity-100">
+            <span className="absolute inset-x-0 bottom-0 p-1 bg-black/60 text-xs leading-tight text-white text-left line-clamp-3 opacity-0 group-hover:opacity-100">
               {img.description}{img.credit ? ` (${img.credit})` : ''}
             </span>
           </button>
@@ -163,7 +163,7 @@ export default function ImageLibrary({
                 <div className="grid grid-cols-2 gap-1.5 overflow-y-auto">
                   {found.map((p) => (
                     <button key={`${p.source}|${p.id}`} disabled={!!adding} onClick={() => void addFree(p)} title={`${p.title}\n${p.author || 'Unknown author'} · ${p.license}`}
-                      className={`relative aspect-square rounded overflow-hidden border bg-slate-100 ${adding === p.id ? 'border-cyan-500 opacity-60' : 'border-slate-200 hover:border-cyan-500'}`}>
+                      className={`relative aspect-square rounded overflow-hidden border bg-slate-100 ${adding === p.id ? 'border-cyan-500 opacity-60' : 'border-slate-200 hover:border-slate-900'}`}>
                       {/* eslint-disable-next-line @next/next/no-img-element */}
                       <img src={p.thumb} alt={p.title} loading="lazy" className="w-full h-full object-cover" />
                       <span className="absolute left-0 bottom-0 px-1 bg-black/65 text-[9px] text-white">{p.license}</span>
@@ -176,8 +176,8 @@ export default function ImageLibrary({
 
       {tab === 'upload' && (
         <div className="flex flex-col gap-2">
-          <button onClick={() => fileRef.current?.click()} className="px-3 py-6 rounded-lg border-2 border-dashed border-slate-400 text-sm font-semibold text-slate-800 hover:bg-slate-50 hover:border-cyan-600" data-upload>
-            ⬆ Choose a picture to upload
+          <button onClick={() => fileRef.current?.click()} className="px-3 py-6 rounded-lg border-2 border-dashed border-slate-400 text-sm font-semibold text-slate-800 hover:bg-slate-50 hover:border-slate-400" data-upload>
+            Choose a picture to upload
             <span className="block text-xs font-normal text-slate-500 mt-1">JPG, PNG, WebP or GIF, up to 10 MB. The AI writes its description.</span>
           </button>
           <input ref={fileRef} type="file" accept="image/*" hidden onChange={(e) => { const f = e.target.files?.[0]; if (f) upload(f); e.target.value = ''; }} />

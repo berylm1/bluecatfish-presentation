@@ -36,13 +36,13 @@ export default function KbPicker({ value, onChange, pictures = false }: { value:
       {adding && (
         <div className="flex gap-2">
           <input className="flex-1 px-3 py-2 rounded-lg border border-slate-300 text-sm" value={name} onChange={(e) => setName(e.target.value)} placeholder="Its name, e.g. Fractions" maxLength={100} />
-          <button type="button" className="px-3 py-2 rounded-lg bg-cyan-600 text-white text-sm disabled:opacity-50" disabled={!name.trim()} onClick={add}>Add</button>
+          <button type="button" className="px-3 py-2 rounded-lg bg-slate-900 text-white text-sm disabled:opacity-50" disabled={!name.trim()} onClick={add}>Add</button>
           <button type="button" className="px-2 text-slate-500 text-sm" onClick={() => setAdding(false)}>Cancel</button>
         </div>
       )}
       <p className="text-xs text-slate-500">
         {!migrated ? 'Everything goes in the blue catfish lesson’s until migration 024 is run in Supabase.'
-          : pictures ? 'Lessons search their own knowledge bases. “Shared” pictures are offered to every lesson.' : 'Each lesson searches its own knowledge bases (set in the editor’s 📘 Lesson panel).'}
+          : pictures ? 'Lessons search their own knowledge bases. “Shared” pictures are offered to every lesson.' : 'Each lesson searches its own knowledge bases (set in the editor’s Lesson panel).'}
       </p>
       {error && <p className="text-xs text-red-600">{error}</p>}
     </div>

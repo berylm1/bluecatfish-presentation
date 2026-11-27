@@ -65,8 +65,8 @@ export default function PullFromOriginal({ source, sourceTitle, deck, onPull, on
             : !diff ? <p className="text-sm text-slate-500">Loading the original…</p>
             : rows.length === 0 ? <p className="text-sm text-slate-600">Nothing to pull: every slide of the original is the same here.</p>
             : rows.map((r) => (
-              <label key={r.id} className={`rounded-lg border p-3 flex gap-3 cursor-pointer ${picked.has(r.id) ? 'border-cyan-600 bg-cyan-50/50' : 'border-slate-200 hover:border-slate-400'}`} data-pull-row>
-                <input type="checkbox" className="mt-1 w-4 h-4 accent-cyan-600 shrink-0" checked={picked.has(r.id)} onChange={() => toggle(r.id)} />
+              <label key={r.id} className={`rounded-lg border p-3 flex gap-3 cursor-pointer ${picked.has(r.id) ? 'border-slate-400 bg-slate-100/50' : 'border-slate-200 hover:border-slate-400'}`} data-pull-row>
+                <input type="checkbox" className="mt-1 w-4 h-4 accent-slate-900 shrink-0" checked={picked.has(r.id)} onChange={() => toggle(r.id)} />
                 <span className="flex-1 min-w-0">
                   <span className="text-sm font-semibold">
                     {r.kind === 'changed' ? `Slide ${r.at + 1}: changed in the original` : `New in the original (its slide ${r.from + 1}): goes in as slide ${r.at + 1}`}
@@ -95,7 +95,7 @@ export default function PullFromOriginal({ source, sourceTitle, deck, onPull, on
           {rows.length > 1 && <button className="text-sm underline text-slate-600" onClick={() => setPicked(picked.size === rows.length ? new Set() : new Set(rows.map((r) => r.id)))}>{picked.size === rows.length ? 'Untick all' : 'Tick all'}</button>}
           <span className="flex-1" />
           <button className="px-3 py-1.5 rounded-md border border-slate-300 text-sm" onClick={onClose}>Cancel</button>
-          <button className="px-3 py-1.5 rounded-md bg-cyan-600 hover:bg-cyan-700 disabled:opacity-40 text-white text-sm font-semibold" disabled={!picked.size || !original}
+          <button className="px-3 py-1.5 rounded-md bg-slate-900 hover:bg-slate-700 disabled:opacity-40 text-white text-sm font-semibold" disabled={!picked.size || !original}
             onClick={() => onPull(original!, picked)}>Pull {picked.size || ''} slide{picked.size === 1 ? '' : 's'}</button>
         </div>
       </div>
