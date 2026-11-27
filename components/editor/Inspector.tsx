@@ -8,13 +8,14 @@ import type { Warning } from '@/lib/canvas/checks';
 import { answerBasis, BANK_PER_TOPIC, QUIZ_ASKED, QUIZ_POOL } from '@/lib/canvas/aiFields';
 import { activityReady } from '@/lib/canvas/queue';
 import { parseFraction } from '@/lib/mathText';
+import Section from './Section';
 
 // Right-hand panel: everything about the selected element, or the slide when
 // nothing is selected.
 
-const label = 'block text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1';
-const input = 'w-full px-2 py-1.5 rounded-md border border-slate-300 bg-white text-sm text-slate-900 outline-none focus:border-cyan-500';
-const small = 'px-2 py-1 rounded-md border border-slate-300 bg-white hover:bg-slate-50 text-xs text-slate-700';
+const label = 'block text-xs font-bold text-slate-700 mb-1';
+const input = 'w-full px-2 py-1.5 rounded-md border border-slate-400 bg-white text-sm text-slate-900 outline-none focus:border-cyan-600 focus:ring-1 focus:ring-cyan-600';
+const small = 'px-2 py-1 rounded-md border border-slate-400 bg-white hover:bg-slate-100 text-xs font-semibold text-slate-800';
 
 function AiBadge({ show }: { show?: boolean }) {
   return show ? <span className="ml-2 px-1.5 py-0.5 rounded bg-violet-100 text-violet-700 text-[10px] font-semibold normal-case tracking-normal">AI-written</span> : null;
@@ -61,9 +62,10 @@ export function ElementInspector({
   warnings: Warning[];
 }) {
   return (
-    <div className="flex flex-col gap-4">
-      <div className="flex items-center justify-between">
-        <h3 className="font-bold text-slate-900">{el.type === 'text' ? 'Text box' : el.type === 'chart' ? 'Chart' : el.type === 'diagram' ? 'Diagram' : el.type === 'activity' ? 'Hands-on box' : 'Image'}</h3>
+    <div className="flex flex-col gap-3" data-inspector="element">
+      {/* (stays at the top while the parts below scroll: what's selected, and Duplicate / Delete) */}
+      <div className="sticky -top-3 z-10 -mx-3 -mt-3 px-3 py-2 bg-white border-b border-slate-200 flex items-center justify-between">
+        <h3 className="font-bold text-slate-900 text-base">{el.type === 'text' ? 'Text box' : el.type === 'chart' ? 'Chart' : el.type === 'diagram' ? 'Diagram' : el.type === 'activity' ? 'Hands-on box' : 'Picture'}</h3>
         <div className="flex gap-1">
           <button className={small} onClick={onDuplicate} title="Duplicate (Ctrl+D)">Duplicate</button>
           <button className={`${small} text-red-600`} onClick={onDelete} title="Delete (Del)">Delete</button>
@@ -75,6 +77,7 @@ export function ElementInspector({
         <p key={i} className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-md px-2 py-1.5">⚠ {w.message}</p>
       ))}
 
+      <Section id={`el-shows-${el.type}`} icon="🖊" title="What it shows" hint={el.type === 'text' ? 'The words, their style and color' : el.type === 'image' ? 'Description, caption, credit, fit' : 'What’s in it'} open>
       {el.type === 'text' ? (
         <>
           <div>
@@ -97,9 +100,9 @@ export function ElementInspector({
             </div>
           </div>
           <div className="flex items-center gap-2">
-            <button className={`${small} ${el.bold ? 'bg-slate-800 text-white hover:bg-slate-700' : ''}`} onClick={() => update({ bold: !el.bold || undefined })}><b>B</b></button>
+            <button className={`${small} ${el.bold ? '!bg-slate-900 !text-white hover:!bg-slate-700' : ''}`} onClick={() => update({ bold: !el.bold || undefined })}><b>B</b></button>
             {(['left', 'center', 'right'] as const).map((a) => (
-              <button key={a} className={`${small} ${(el.align ?? 'left') === a ? 'bg-slate-800 text-white hover:bg-slate-700' : ''}`} onClick={() => update({ align: a })}>
+              <button key={a} className={`${small} ${(el.align ?? 'left') === a ? '!bg-slate-900 !text-white hover:!bg-slate-700' : ''}`} onClick={() => update({ align: a })}>
                 {a === 'left' ? '⯇ Left' : a === 'center' ? 'Center' : 'Right ⯈'}
               </button>
             ))}
@@ -196,8 +199,9 @@ export function ElementInspector({
           </div>
         </>
       )}
+      </Section>
 
-      <div className="border-t border-slate-200 pt-4 flex flex-col gap-3">
+      <Section id="el-says" icon="🗣" title="What the professor says" hint={el.silent ? 'Silent: it doesn’t speak' : order ? `Speaks #${order} on this slide` : 'Spoken words and the simpler version'} open>
         <label className="flex items-center gap-2 text-sm text-slate-800">
           <input type="checkbox" checked={!!el.silent} onChange={(e) => update({ silent: e.target.checked || undefined })} />
           Silent {el.type === 'image' ? '(decoration: no audio, can sit behind text)' : '(titles, labels)'}
@@ -233,6 +237,12 @@ export function ElementInspector({
                 onChange={(e) => update({ plain: e.target.value || undefined, plainByAI: undefined })}
               />
             </div>
+          </>
+        )}
+      </Section>
+
+      {!el.silent && (
+        <Section id="el-order" icon="🔴" title="Speaking order and laser pointer" hint={`${el.queue ? `Queue ${el.queue}` : 'Reading order'}${el.type !== 'activity' ? ` · ${el.pointers?.length ?? 0} laser mark${el.pointers?.length === 1 ? '' : 's'}` : ''}`}>
             <div>
               <label className={label}>Queue number</label>
               <input
@@ -246,16 +256,11 @@ export function ElementInspector({
             </div>
             {/* (a hands-on box has its own spots to place; a laser on it would make no sense) */}
             {el.type !== 'activity' && <LaserMarks el={el} update={update} placing={placing ?? null} onPlace={onPlacePointer} />}
-          </>
-        )}
-        {el.silent && el.type !== 'activity' && (
-          <p className="text-xs text-slate-500">
-            🔴 No laser pointer: silent elements don’t speak, so there’s nothing for the dot to follow. Untick Silent to give it words (and laser marks).
-          </p>
-        )}
-      </div>
+        </Section>
+      )}
 
-      <div className="border-t border-slate-200 pt-4">
+      <Section id="el-place" icon="📐" title="Size and position" hint={`At ${Math.round(el.x)}, ${Math.round(el.y)} · ${Math.round(el.w)} wide, ${Math.round(el.h)} tall`}>
+      <div>
         <label className={label}>Position and size (% of the slide)</label>
         <div className="grid grid-cols-4 gap-1 text-[10px] text-slate-500">
           <span>X</span><span>Y</span><span>Width</span><span>Height</span>
@@ -269,6 +274,7 @@ export function ElementInspector({
           <button className={small} onClick={() => onLayer(-1)}>Send backward</button>
         </div>
       </div>
+      </Section>
     </div>
   );
 }
@@ -316,8 +322,27 @@ export function SlideInspector({
   onQuiz: (change: (quiz: DeckQuiz | undefined) => DeckQuiz | undefined) => void;
 }) {
   return (
-    <div className="flex flex-col gap-4">
-      <h3 className="font-bold text-slate-900">Slide</h3>
+    <div className="flex flex-col gap-3" data-inspector="slide">
+      <div className="sticky -top-3 z-10 -mx-3 -mt-3 px-3 py-2 bg-white border-b border-slate-200">
+        <h3 className="font-bold text-slate-900 text-base">This slide</h3>
+        <p className="text-xs text-slate-600">Click a box on the slide to edit it. Drag to move it, pull its corners to resize.</p>
+      </div>
+      {warnings.length > 0 && (
+        <div className="flex flex-col gap-1.5" data-slide-checks>
+          {warnings.map((w, i) => (
+            <p key={i} className={`text-xs rounded-md px-2 py-1.5 border ${w.level === 'warn' ? 'text-amber-900 bg-amber-50 border-amber-300' : 'text-slate-700 bg-slate-50 border-slate-200'}`}>
+              {w.level === 'warn' ? '⚠' : 'ℹ'} {w.message}
+              {w.kind === 'space' && (
+                onGrowMedia && <button className="ml-1.5 underline text-cyan-700 hover:text-cyan-600" onClick={onGrowMedia}>⤢ Make them bigger</button>
+              )}
+              {w.kind === 'topic' && w.topic && (
+                <button className="ml-1.5 underline text-cyan-700 hover:text-cyan-600" onClick={() => update({ topic: w.topic, topicByAI: undefined })}>Use “{w.topic}”</button>
+              )}
+            </p>
+          ))}
+        </div>
+      )}
+      <Section id="slide-basics" icon="🗂" title="Topic and background" hint={slide.topic?.trim() || 'No topic yet'} open>
       <div>
         <label className={label}>Topic <AiBadge show={slide.topicByAI} /></label>
         <input
@@ -361,27 +386,16 @@ export function SlideInspector({
           )}
         </div>
       </div>
-      {warnings.length > 0 && (
-        <div className="flex flex-col gap-1.5">
-          <label className={label}>Checks</label>
-          {warnings.map((w, i) => (
-            <p key={i} className={`text-xs rounded-md px-2 py-1.5 border ${w.level === 'warn' ? 'text-amber-800 bg-amber-50 border-amber-200' : 'text-slate-600 bg-slate-50 border-slate-200'}`}>
-              {w.level === 'warn' ? '⚠' : 'ℹ'} {w.message}
-              {w.kind === 'space' && (
-                onGrowMedia && <button className="ml-1.5 underline text-cyan-700 hover:text-cyan-600" onClick={onGrowMedia}>⤢ Make them bigger</button>
-              )}
-              {w.kind === 'topic' && w.topic && (
-                <button className="ml-1.5 underline text-cyan-700 hover:text-cyan-600" onClick={() => update({ topic: w.topic, topicByAI: undefined })}>Use “{w.topic}”</button>
-              )}
-            </p>
-          ))}
-        </div>
-      )}
-      <p className="text-xs text-slate-500">Click a box to edit it. Drag to move, pull the corners to resize. Drop images from the Images tab onto the slide.</p>
+      </Section>
 
-      {/* Lesson-wide, so it sits apart from the slide's own settings */}
-      <div className="border-t border-slate-200 pt-4">
-        <h3 className="font-bold text-slate-900 mb-2">Lesson</h3>
+      {/* Lesson-wide, so they sit apart from the slide's own settings (each folds: they're long) */}
+      {onBank && (
+        <Section id="slide-bank" icon="🙋" title="Class questions" hint={`What the classmates ask in “${slide.topic?.trim() || 'this topic'}”`}>
+          <BankSection bank={bank} topic={slide.topic?.trim() ?? ''} pending={bankPending ?? []} onBank={onBank} slides={slides} />
+        </Section>
+      )}
+      <Section id="lesson-end" icon="🏁" title="The end of the lesson" hint="The recap the professor says, and the quiz">
+      <div>
         <label className={label}>End-of-lesson recap <AiBadge show={recapByAI} /></label>
         <textarea
           rows={5}
@@ -394,8 +408,8 @@ export function SlideInspector({
           {recapByAI ? 'Written by the AI: it is rewritten on each publish until you edit it.' : recap?.trim() ? 'Yours: publishing keeps it as it is.' : ''}
         </p>
         <QuizSection quiz={quiz} stale={quizStale} onQuiz={onQuiz} />
-        {onBank && <BankSection bank={bank} topic={slide.topic?.trim() ?? ''} pending={bankPending ?? []} onBank={onBank} slides={slides} />}
       </div>
+      </Section>
     </div>
   );
 }
@@ -418,8 +432,7 @@ function BankSection({ bank, topic, pending, onBank, slides = [] }: {
   const edit = (id: string, change: (q: DeckBank['questions'][number]) => DeckBank['questions'][number] | null) =>
     onBank((b) => b && { ...b, questions: b.questions.flatMap((q) => (q.id === id ? (change(q) ? [change(q)!] : []) : [q])) });
   return (
-    <div className="mt-4" data-bank-section>
-      <label className={label}>Class questions</label>
+    <div data-bank-section>
       <label className="flex items-center gap-2 text-sm text-slate-700">
         <input type="checkbox" checked={!off}
           onChange={(e) => onBank((b) => ({ questions: b?.questions ?? [], from: b?.from ?? {}, off: !e.target.checked || undefined }))} />
@@ -622,7 +635,7 @@ function LaserMarks({ el, update, placing, onPlace }: {
                   placeholder="Phrase from the spoken words"
                   onChange={(e) => set(marks.map((x, j) => (j === i ? { ...x, word: e.target.value } : x)))}
                 />
-                <button className={`${small} ${placing === i ? 'bg-red-500 text-white hover:bg-red-600' : ''}`} onClick={() => onPlace?.(placing === i ? null : i)}>
+                <button className={`${small} ${placing === i ? '!bg-red-500 !text-white hover:!bg-red-600' : ''}`} onClick={() => onPlace?.(placing === i ? null : i)}>
                   {placing === i ? 'Click the slide…' : 'Place'}
                 </button>
                 <button className={`${small} text-red-600`} onClick={() => { onPlace?.(null); set(marks.filter((_, j) => j !== i)); }} aria-label={`Remove mark ${i + 1}`}>✕</button>
@@ -777,7 +790,7 @@ function SpotRows({ el, set, placing, onPlace }: {
             <div className="flex gap-1 items-center">
               <span className="w-5 h-5 shrink-0 rounded-full bg-orange-500 text-white text-[10px] font-bold flex items-center justify-center">{i + 1}</span>
               <input className={input} value={it.text} placeholder="Name (Whiskers)" onChange={(e) => change(i, { text: e.target.value })} />
-              <button className={`${small} ${placing === i ? 'bg-orange-500 text-white hover:bg-orange-600' : ''}`} onClick={() => onPlace?.(placing === i ? null : i)}>
+              <button className={`${small} ${placing === i ? '!bg-orange-500 !text-white hover:!bg-orange-600' : ''}`} onClick={() => onPlace?.(placing === i ? null : i)}>
                 {placing === i ? 'Click the picture…' : 'Place'}
               </button>
               <button className={`${small} text-red-600`} aria-label={`Remove spot ${i + 1}`}

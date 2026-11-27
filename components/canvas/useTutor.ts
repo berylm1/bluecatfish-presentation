@@ -4,6 +4,7 @@ import { useCallback, useRef, useState } from 'react';
 import { useSpeechQueue } from '@/components/hooks/useSpeechQueue';
 import { learnerHeaders } from '@/lib/learnerSession';
 import { plainMath } from '@/lib/mathText';
+import { noLongDashes } from '@/lib/dashes';
 import { reportError } from '@/lib/reportError';
 
 // Questions for the professor on the canvas page: the learner's question goes
@@ -96,24 +97,33 @@ export function useTutor(lessonOnly = false) {
       const decoder = new TextDecoder();
       speech.beginStream();
       let full = '';
+      let raw = '';
       let pending = '';
+      // What's shown as it comes in: LaTeX the model slipped in ("\\(1/2\\)") as plain 1/2, and no long dashes. A dash at
+      // the very end waits for the words after it (they may not have arrived yet)
+      const shown = (t: string, over = false) => {
+        const tail = over ? '' : t.match(/\s*[—–]+\s*$/)?.[0] ?? '';
+        return noLongDashes(plainMath(tail ? t.slice(0, -tail.length) : t)) + tail;
+      };
       for (;;) {
         const { done, value } = await reader.read();
         if (done || seq !== askSeq.current) break;
         const chunk = decoder.decode(value, { stream: true });
-        full = plainMath(full + chunk);   // (LaTeX the model slipped in, "\\(1/2\\)": shown and said as 1/2)
+        raw += chunk;
+        full = shown(raw);
         pending += chunk;
         setThinking(false);
         setExchange({ id: seq, question, asker: opts.asker, answer: full, done: false });
         // Speak each finished sentence right away
         let m;
         while ((m = pending.match(/^([\s\S]*?[.!?])(\s+)([\s\S]*)$/))) {
-          speech.enqueue(plainMath(m[1]));
+          speech.enqueue(noLongDashes(plainMath(m[1])));
           pending = m[3];
         }
       }
-      if (seq === askSeq.current && pending.trim()) speech.enqueue(plainMath(pending));
+      if (seq === askSeq.current && pending.trim()) speech.enqueue(noLongDashes(plainMath(pending)));
       speech.endStream();
+      full = shown(raw, true);
       // A classmate's line is remembered as theirs, not as something the learner said
       historyRef.current.push({ role: 'user', content: opts.remember ?? (opts.asker ? `(${opts.asker}, a classmate, said: ${question})` : question) }, { role: 'assistant', content: full });
       setExchange({ id: seq, question, asker: opts.asker, answer: full, done: true });

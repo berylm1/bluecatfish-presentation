@@ -27,6 +27,7 @@ import { pullSlides } from '@/lib/canvas/studyLesson';
 import { STUDY_LESSON, STUDY_SOURCE } from '@/lib/study/content';
 import CheckPanel, { picturesWithoutDescription, type Described } from '@/components/editor/CheckPanel';
 import { profileOf, usesMath } from '@/lib/canvas/profile';
+import { countDeckLongDashes, removeDeckLongDashes } from '@/lib/dashes';
 import { setMathText } from '@/lib/mathText';
 import { enterProfile } from '@/lib/canvas/lessonContext';
 import { deckAbout, deckSections, findCrossSectionRepeats } from '@/lib/lessonOverlap';
@@ -68,8 +69,12 @@ type LiveInfo = { at?: string; by?: string; basedOn?: string; savedAs?: string }
 type AiDeckInfo = { at?: string; slides: number; topics: number; todo?: number } | null;
 type Version = { key: string; label: string; slides: number; current: boolean };
 
-const btn = 'px-3 py-1.5 rounded-md text-sm font-medium border border-slate-300 bg-white hover:bg-slate-50 text-slate-800 disabled:opacity-40';
-const primary = 'px-3 py-1.5 rounded-md text-sm font-semibold bg-cyan-600 hover:bg-cyan-700 text-white disabled:opacity-40';
+// The editor's buttons: an everyday one (white, a clear edge), the main action (filled), "add to the slide" (tinted,
+// so the four of them read as one group), and a quiet one for the toolbar's undo/redo
+const btn = 'px-3 py-1.5 rounded-md text-sm font-semibold border border-slate-400 bg-white hover:bg-slate-100 text-slate-900 shadow-sm disabled:opacity-40';
+const primary = 'px-4 py-1.5 rounded-md text-sm font-bold bg-cyan-600 hover:bg-cyan-700 text-white shadow-sm disabled:opacity-40';
+const addBtn = 'px-3 py-1.5 text-sm font-semibold bg-cyan-50 hover:bg-cyan-100 text-cyan-950 disabled:opacity-40 flex items-center gap-1.5';
+const iconBtn = 'w-9 h-9 rounded-md text-base font-bold border border-slate-400 bg-white hover:bg-slate-100 text-slate-900 shadow-sm disabled:opacity-40';
 
 const TAG_TONES = {
   cyan: 'bg-cyan-100 text-cyan-800',
@@ -778,7 +783,9 @@ function Editor({
     else if (where === 'describe-all' && !missingDescriptions) setPanel('check');
     setTimeout(() => {
       const el = document.querySelector<HTMLElement>(`[data-help="${CSS.escape(where)}"]`)
-        ?? (where === 'describe-all' ? document.querySelector<HTMLElement>('[data-help="tab-check"]') : null);
+        ?? (where === 'describe-all' ? document.querySelector<HTMLElement>('[data-help="tab-check"]') : null)
+        // (How learners did and the PDF are in the More menu now)
+        ?? (where === 'learners' || where === 'pdf' ? document.querySelector<HTMLElement>('[data-help="more"]') : null);
       if (!el) return;
       el.scrollIntoView({ block: 'nearest', inline: 'nearest' });
       el.classList.remove('help-flash');
@@ -864,6 +871,16 @@ function Editor({
     return () => window.removeEventListener('beforeunload', warn);
   }, [ed.dirty]);
 
+  // Download as a PDF: its choices (from the More menu)
+  const [pdfAsk, setPdfAsk] = useState(false);
+  // Long dashes ("—") in the lesson's words, and taking them out (lib/dashes.ts): one undo step
+  const longDashes = useMemo(() => countDeckLongDashes(deck), [deck]);
+  const removeLongDashes = () => {
+    let gone = 0;
+    ed.change((d) => { gone = removeDeckLongDashes(d); });
+    flash(`Took out ${gone} long dash${gone === 1 ? '' : 'es'} (Ctrl+Z puts them back). Narration that changed is recorded again when you save.`);
+  };
+
   const confirmSwitch = (id: string) => {
     if (ed.dirty && !window.confirm('You have unsaved changes. Switch lessons and lose them?')) return;
     onSwitchLesson(id);
@@ -880,20 +897,20 @@ function Editor({
           {lessons.map((l) => <option key={l.id} value={l.id}>{l.title}</option>)}
           <option value="__new">+ New lesson…</option>
         </select>
-        <span className="text-xs text-slate-500">
-          {saving ? 'Saving…' : ed.dirty ? <span className="text-amber-700 font-medium">● Unsaved changes</span> : saved.at ? `Saved ${when(saved.at)}${saved.by ? ` by ${saved.by}` : ''}` : 'Not saved yet'}
+        <span className="text-xs text-slate-600" data-save-state>
+          {saving ? 'Saving…' : ed.dirty ? <span className="text-amber-800 font-bold">● Unsaved changes</span> : saved.at ? `Saved ${when(saved.at)}${saved.by ? ` by ${saved.by}` : ''}` : 'Not saved yet'}
         </span>
         <span data-help="ai-status"
-          className={`text-xs px-2 py-0.5 rounded-full ${ai.running ? 'bg-violet-100 text-violet-800' : ai.errors.length ? 'bg-red-100 text-red-800' : todoHere ? 'bg-amber-50 text-amber-800' : 'bg-emerald-50 text-emerald-800'}`}
+          className={`text-xs font-semibold px-2.5 py-1 rounded-full border ${ai.running ? 'bg-violet-100 text-violet-900 border-violet-300' : ai.errors.length ? 'bg-red-100 text-red-900 border-red-300' : todoHere ? 'bg-amber-100 text-amber-950 border-amber-300' : 'bg-emerald-50 text-emerald-900 border-emerald-300'}`}
           title={ai.errors.join('\n') || 'Spoken words, plain versions, topics, intros, captions and audio the AI fills in when you save'}
         >
           {ai.running
-            ? `✨ AI writing & recording… ${ai.remaining ? `${ai.remaining} left` : ''}`
+            ? <>✨ The AI is writing and recording… {ai.remaining ? <b>{ai.remaining} left</b> : ''}</>
             : ai.errors.length
               ? `⚠ AI step had problems (hover)`
               : todoHere
-                ? `${todoHere} to write/record: Save to start`
-                : '✓ Words & audio ready'}
+                ? <><b className="text-sm">{todoHere}</b> to write or record · press Save to start</>
+                : '✓ Words and audio ready'}
         </span>
         {/* Pictures with no description: one click for the AI to describe them all (was: only in the Check tab) */}
         {missingDescriptions > 0 && (
@@ -909,7 +926,7 @@ function Editor({
         <span className="text-xs text-slate-500" data-help="live">
           {live === undefined ? '' : live ? <>🟢 Live{live.savedAs ? <>: <b className="font-semibold">“{live.savedAs}”</b></> : ''} since {when(live.at)}{live.by ? ` (${live.by})` : ''} · <button className="underline" onClick={unpublish}>take down</button></> : '⚪ Not published: learners get the AI lesson'}
         </span>
-        <button data-help="save" className={btn} onClick={() => save()} disabled={saving} title="Ctrl+S">Save</button>
+        <button data-help="save" className={ed.dirty ? 'px-4 py-1.5 rounded-md text-sm font-bold bg-slate-900 hover:bg-slate-700 text-white shadow-sm disabled:opacity-40' : btn} onClick={() => save()} disabled={saving} title="Ctrl+S">Save</button>
         <Menu help="preview" className={btn} label="▶ Preview ▾" title="Play the saved lesson in a new tab" width="w-56">
           {(close) => (
             <>
@@ -922,16 +939,19 @@ function Editor({
       </div>
 
       {/* toolbar, row 2: editing, then the lesson-wide tools */}
-      <div className="flex flex-wrap items-center gap-1.5 px-3 pb-2 bg-white border-b border-slate-200">
-        <button data-help="undo" className={btn} onClick={ed.undo} disabled={!ed.canUndo} title="Undo (Ctrl+Z)">↶</button>
-        <button className={btn} onClick={ed.redo} disabled={!ed.canRedo} title="Redo (Ctrl+Shift+Z)">↷</button>
-        <div className="w-px h-6 bg-slate-200 mx-1" />
-        <button data-help="add-text" className={btn} onClick={addText}>＋ Text</button>
-        <button data-help="add-image" className={btn} onClick={() => setPanel('images')}>＋ Image</button>
-        <Menu help="add-chart" className={btn} label="＋ Chart or diagram ▾" width="w-56">
+      <div className="flex flex-wrap items-center gap-2 px-3 py-2 bg-slate-200/70 border-y border-slate-300" data-editor-toolbar>
+        <button data-help="undo" className={iconBtn} onClick={ed.undo} disabled={!ed.canUndo} title="Undo (Ctrl+Z)" aria-label="Undo">↶</button>
+        <button className={iconBtn} onClick={ed.redo} disabled={!ed.canRedo} title="Redo (Ctrl+Shift+Z)" aria-label="Redo">↷</button>
+        <div className="w-px h-7 bg-slate-400 mx-1" />
+        {/* What can go on the slide: one group, so it reads as "add one of these" (was: four loose buttons among the others) */}
+        <span className="text-xs font-bold uppercase tracking-wide text-slate-600">Add to slide</span>
+        <div className="flex rounded-md border border-cyan-600 shadow-sm divide-x divide-cyan-600/60 bg-cyan-50" role="group" aria-label="Add to this slide" data-add-group>
+        <button data-help="add-text" className={`${addBtn} rounded-l-md`} onClick={addText}><span aria-hidden className="font-serif font-bold">T</span> Text</button>
+        <button data-help="add-image" className={addBtn} onClick={() => setPanel('images')}><span aria-hidden>🖼</span> Picture</button>
+        <Menu help="add-chart" className={addBtn} label={<><span aria-hidden>📊</span> Chart or diagram ▾</>} width="w-56">
           {(close) => VISUAL_KINDS.map(([k, name]) => <MenuItem key={k} onClick={() => { close(); addElement(visualTemplate(k)); }}>{name}</MenuItem>)}
         </Menu>
-        <Menu help="hands-on" className={btn} label={handsOnBusy ? '✨ Making a hands-on slide…' : '🖐 Hands-on ▾'} disabled={!!handsOnBusy} width="w-72">
+        <Menu help="hands-on" className={`${addBtn} rounded-r-md`} label={handsOnBusy ? '✨ Making a hands-on slide…' : <><span aria-hidden>🖐</span> Hands-on ▾</>} disabled={!!handsOnBusy} width="w-72">
           {(close) => (
             <>
               <MenuItem onClick={() => { close(); aiHandsOn(); }} hint="The AI makes a hands-on slide from what this slide teaches">✨ Hands-on slide from this slide</MenuItem>
@@ -940,55 +960,27 @@ function Editor({
             </>
           )}
         </Menu>
+        </div>
         <div className="flex-1" />
         {/* The lesson's profile (what it's about, who it's for, the teacher…): in the side panel (was a 6th tab: too tight) */}
-        <button className={`${btn} ${panel === 'lesson' ? 'bg-cyan-50 border-cyan-500' : ''}`} onClick={() => setPanel(panel === 'lesson' ? 'props' : 'lesson')}
-          title="What the lesson is about, who it’s for, the teacher, the family card, the sources" aria-pressed={panel === 'lesson'}>
-          📘 Lesson
+        <button className={`${btn} ${panel === 'lesson' ? '!bg-cyan-600 !text-white !border-cyan-700' : ''}`} onClick={() => setPanel(panel === 'lesson' ? 'props' : 'lesson')}
+          title="What the lesson is about, who it’s for, the teacher, the family card, the sources" aria-pressed={panel === 'lesson'} data-help="lesson-settings">
+          📘 Lesson settings
         </button>
-        <button data-help="learners"
-          className={`${btn} ${heat ? 'bg-cyan-50 border-cyan-500' : ''}`}
-          onClick={toggleHeat}
-          disabled={heatLoading}
-          title="How each slide went for learners: puzzled faces, “I’m lost”, simpler please… (last 30 days)"
-        >
-          {heatLoading ? 'Loading…' : '📊 Learners'}
-        </button>
-        <Menu help="pdf" className={btn} label={pdfProgress ? `⬇ PDF ${pdfProgress}…` : '⬇ PDF ▾'} disabled={pdfProgress !== null} title="Download the lesson as a PDF" width="w-72">
-          {(close) => (
-            <div className="p-1.5 flex flex-col gap-2" aria-label="PDF options">
-              <label className="flex items-start gap-2">
-                <input type="radio" name="pdf-kind" className="mt-1" checked={pdfOpts.kind === 'script'} onChange={() => setPdfOpts((o) => ({ ...o, kind: 'script' }))} />
-                <span><b>Teacher script</b><br /><span className="text-xs text-slate-500">One slide per page, each part with what the professor says</span></span>
-              </label>
-              <label className="flex items-start gap-2">
-                <input type="radio" name="pdf-kind" className="mt-1" checked={pdfOpts.kind === 'handout'} onChange={() => setPdfOpts((o) => ({ ...o, kind: 'handout' }))} />
-                <span><b>Handout</b><br /><span className="text-xs text-slate-500">Just the slides, two per page, for learners</span></span>
-              </label>
-              <label className="flex items-start gap-2">
-                <input type="radio" name="pdf-kind" className="mt-1" checked={pdfOpts.kind === 'narration'} onChange={() => setPdfOpts((o) => ({ ...o, kind: 'narration' }))} />
-                <span><b>Narration only</b><br /><span className="text-xs text-slate-500">Just what the professor says, in order: no pictures</span></span>
-              </label>
-              <div className="border-t border-slate-200 pt-2 flex flex-col gap-1.5">
-                <label className={`flex items-center gap-2 text-xs ${pdfOpts.kind === 'handout' ? 'opacity-40' : ''}`}>
-                  <input type="checkbox" disabled={pdfOpts.kind === 'handout'} checked={pdfOpts.helpers && pdfOpts.kind !== 'handout'} onChange={(e) => setPdfOpts((o) => ({ ...o, helpers: e.target.checked }))} />
-                  Helper slides (after each slide)
-                </label>
-                <label className="flex items-center gap-2 text-xs">
-                  <input type="checkbox" checked={pdfOpts.sources} onChange={(e) => setPdfOpts((o) => ({ ...o, sources: e.target.checked }))} />
-                  Sources page at the end
-                </label>
-              </div>
-              <div className="flex gap-2 justify-end">
-                <button className={btn} onClick={close}>Cancel</button>
-                <button className={primary} onClick={() => { close(); downloadPdf(); }}>Download</button>
-              </div>
-            </div>
-          )}
-        </Menu>
-        <Menu help="more" className={btn} label="More ▾" width="w-64">
+        {/* Everything else about the lesson, in one menu (was: Learners, PDF and More as three more buttons in the row) */}
+        <Menu help="more" className={`${btn} ${heat ? '!bg-cyan-50 !border-cyan-600' : ''}`} label={pdfProgress ? `⬇ PDF ${pdfProgress}…` : heatLoading ? 'Loading…' : 'More ▾'} width="w-72">
           {(close) => (
             <>
+              <MenuHeading>This lesson</MenuHeading>
+              <MenuItem onClick={() => { close(); toggleHeat(); }} disabled={heatLoading}
+                hint="Puzzled faces, “I’m lost”, simpler please… on each slide, for the last 30 days">
+                📊 How learners did{heat ? ' ✓ (showing: click to hide)' : ''}
+              </MenuItem>
+              <MenuItem onClick={() => { close(); setPdfAsk(true); }} disabled={pdfProgress !== null} hint="Teacher script, handout or narration only">⬇ Download as a PDF…</MenuItem>
+              <MenuItem onClick={() => { close(); removeLongDashes(); }} disabled={longDashes === 0}
+                hint={longDashes ? 'Each “—” becomes a comma or goes. Ctrl+Z takes it back; changed narration is recorded again when you save' : 'There are none in this lesson'}>
+                ✂ Remove long dashes{longDashes ? ` (${longDashes})` : ''}
+              </MenuItem>
               <MenuItem onClick={() => { close(); describeAllPictures(); }} disabled={missingDescriptions === 0}
                 hint={missingDescriptions ? `${missingDescriptions} picture${missingDescriptions === 1 ? ' has' : 's have'} no description: the AI writes them` : 'Every picture has a description'}>
                 ✨ Describe all pictures{missingDescriptions ? ` (${missingDescriptions})` : ''}
@@ -1022,7 +1014,7 @@ function Editor({
 
       <div className="flex flex-1 min-h-0">
         {/* slides */}
-        <aside data-help="slide-list" className="w-52 shrink-0 p-2 border-r border-slate-200 bg-slate-50 min-h-0">
+        <aside data-help="slide-list" className="w-56 shrink-0 p-2 border-r border-slate-300 bg-slate-50 min-h-0">
           <SlideList
             onSplitTopic={askSplit}
             slides={deck.slides}
@@ -1109,16 +1101,23 @@ function Editor({
               <p className="text-sm text-white/80">{morphPreview ? 'Helper (when lost)' : 'Main slide'} · loops until you click</p>
             </div>
           )}
-          <div className="text-[11px] text-slate-400">
+          <div className="text-[11px] text-slate-600">
             Drag to move · corners to resize · arrows nudge (Shift = more) · Del removes · Ctrl+Z undo · Ctrl+S save ·{' '}
             <span className="text-violet-600">dashed purple ✨ AI = words written by the AI</span>
           </div>
         </main>
 
         {/* properties / images */}
-        <aside className="w-80 shrink-0 border-l border-slate-200 bg-white flex flex-col min-h-0">
+        <aside className="w-80 shrink-0 border-l border-slate-300 bg-white flex flex-col min-h-0">
           {/* tabs: what's selected, pictures, and the two lesson checks (a count when something needs a look) */}
-          <div className="flex border-b border-slate-200 text-xs" role="tablist">
+          {panel === 'lesson' ? (
+            // The lesson's settings take the panel over: named, with the way back
+            <div className="flex items-center justify-between px-3 py-2 bg-cyan-600 text-white" data-panel-title>
+              <span className="font-bold">📘 Lesson settings</span>
+              <button className="px-2 py-0.5 rounded-md bg-white/15 hover:bg-white/25 text-sm font-semibold" onClick={() => setPanel('props')}>✕ Close</button>
+            </div>
+          ) : (
+          <div className="flex bg-slate-100 border-b border-slate-300 text-[13px]" role="tablist">
             {([
               ['props', '✏️', 'Edit', 'The selected box, or the slide'],
               ['images', '🖼', 'Images', 'Add a picture from the library'],
@@ -1130,13 +1129,16 @@ function Editor({
               const badge = id === 'check' ? checkBadge : 0;
               return (
                 <button key={id} data-help={`tab-${id === 'props' ? 'edit' : id}`} role="tab" aria-selected={on} title={hint} onClick={() => setPanel(id)}
-                  className={`flex-1 py-2 flex items-center justify-center gap-1 border-b-2 ${on ? 'font-semibold border-cyan-600 text-slate-900' : 'border-transparent text-slate-500 hover:text-slate-800'}`}>
-                  <span aria-hidden>{icon}</span>{name}
-                  {badge > 0 && <span className="min-w-4 px-1 rounded-full bg-amber-400 text-[10px] font-bold text-slate-900 leading-4" aria-label={`${badge} to look at`}>{badge}</span>}
+                  className={`flex-1 py-2.5 flex flex-col items-center justify-center gap-0.5 border-b-[3px] ${on ? 'font-bold border-cyan-600 text-cyan-900 bg-white' : 'border-transparent font-medium text-slate-600 hover:text-slate-900 hover:bg-slate-200'}`}>
+                  <span aria-hidden className="text-base leading-none">{icon}</span>
+                  <span className="flex items-center gap-1">{name}
+                    {badge > 0 && <span className="min-w-4 px-1 rounded-full bg-amber-400 text-[10px] font-bold text-slate-900 leading-4" aria-label={`${badge} to look at`}>{badge}</span>}
+                  </span>
                 </button>
               );
             })}
           </div>
+          )}
           <div className="flex-1 min-h-0 overflow-y-auto p-3">
             {/* kept mounted, so its results stay while you edit (and switch tabs) */}
             <div className={panel === 'repeats' ? '' : 'hidden'}>
@@ -1161,12 +1163,6 @@ function Editor({
                   d.checks = { ...d.checks, pictures: rest };
                 }); flash('This slide’s pictures are checked again when you save'); }} />
             </div>
-            {panel === 'lesson' && (
-              <div className="flex items-center justify-between mb-1">
-                <h2 className="text-sm font-semibold text-slate-900">📘 The lesson</h2>
-                <button className="w-6 h-6 rounded text-slate-400 hover:text-slate-800 hover:bg-slate-100" aria-label="Close the lesson settings" onClick={() => setPanel('props')}>✕</button>
-              </div>
-            )}
             {panel === 'lesson' && (
               <LessonPanel deck={deck} onChange={(profile, group) => ed.change((d) => { d.profile = profile; }, group)} />
             )}
@@ -1232,6 +1228,43 @@ function Editor({
           </div>
         </aside>
       </div>
+
+      {/* Download as a PDF: its choices (was a menu of its own in the toolbar) */}
+      {pdfAsk && (
+        <div className="fixed inset-0 z-50 bg-slate-950/50 flex items-center justify-center p-4" role="dialog" aria-label="Download as a PDF" onPointerDown={() => setPdfAsk(false)}>
+          <div className="w-full max-w-sm rounded-xl bg-white shadow-2xl p-5 text-sm text-slate-800 flex flex-col gap-3" onPointerDown={(e) => e.stopPropagation()} data-help="pdf">
+            <h2 className="text-lg font-bold text-slate-900">Download as a PDF</h2>
+            <div className="flex flex-col gap-2" aria-label="PDF options">
+              <label className="flex items-start gap-2">
+                <input type="radio" name="pdf-kind" className="mt-1" checked={pdfOpts.kind === 'script'} onChange={() => setPdfOpts((o) => ({ ...o, kind: 'script' }))} />
+                <span><b>Teacher script</b><br /><span className="text-xs text-slate-500">One slide per page, each part with what the professor says</span></span>
+              </label>
+              <label className="flex items-start gap-2">
+                <input type="radio" name="pdf-kind" className="mt-1" checked={pdfOpts.kind === 'handout'} onChange={() => setPdfOpts((o) => ({ ...o, kind: 'handout' }))} />
+                <span><b>Handout</b><br /><span className="text-xs text-slate-500">Just the slides, two per page, for learners</span></span>
+              </label>
+              <label className="flex items-start gap-2">
+                <input type="radio" name="pdf-kind" className="mt-1" checked={pdfOpts.kind === 'narration'} onChange={() => setPdfOpts((o) => ({ ...o, kind: 'narration' }))} />
+                <span><b>Narration only</b><br /><span className="text-xs text-slate-500">Just what the professor says, in order: no pictures</span></span>
+              </label>
+              <div className="border-t border-slate-200 pt-2 flex flex-col gap-1.5">
+                <label className={`flex items-center gap-2 text-xs ${pdfOpts.kind === 'handout' ? 'opacity-40' : ''}`}>
+                  <input type="checkbox" disabled={pdfOpts.kind === 'handout'} checked={pdfOpts.helpers && pdfOpts.kind !== 'handout'} onChange={(e) => setPdfOpts((o) => ({ ...o, helpers: e.target.checked }))} />
+                  Helper slides (after each slide)
+                </label>
+                <label className="flex items-center gap-2 text-xs">
+                  <input type="checkbox" checked={pdfOpts.sources} onChange={(e) => setPdfOpts((o) => ({ ...o, sources: e.target.checked }))} />
+                  Sources page at the end
+                </label>
+              </div>
+            </div>
+            <div className="flex gap-2 justify-end">
+              <button className={btn} onClick={() => setPdfAsk(false)}>Cancel</button>
+              <button className={primary} onClick={() => { setPdfAsk(false); downloadPdf(); }}>Download</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Publish? A checklist of what's been checked (remembered with the lesson: only what changed needs another look) */}
       {publishAsk && (() => {

@@ -1,5 +1,6 @@
 import { lazySupabaseAdmin } from '@/lib/supabase/admin';
 import { fillForLesson } from './lessonContext';
+import { NO_LONG_DASHES, noLongDashes } from '@/lib/dashes';
 import { matchDocuments } from './kb';
 
 // Shared by the save-time AI (prepare.ts), the AI deck (generate.ts) and the
@@ -57,7 +58,7 @@ export async function chat(system: string, user: string, json = false, maxTokens
       model,
       reasoning_effort: 'low',
       ...(json ? { response_format: { type: 'json_object' } } : {}),
-      messages: [{ role: 'system', content: system }, { role: 'user', content: user }],
+      messages: [{ role: 'system', content: `${system}\n${NO_LONG_DASHES}` }, { role: 'user', content: user }],
       // (the model's reasoning counts in this too: a small cap meant for the reply alone (60, 120, 200) could be used up
       // by the thinking, and the reply came back empty: the floor leaves room for both; only what's used is paid for)
       max_completion_tokens: Math.max(maxTokens, MIN_COMPLETION_TOKENS),
@@ -68,7 +69,8 @@ export async function chat(system: string, user: string, json = false, maxTokens
   try { data = JSON.parse(raw); } catch { /* not JSON: a proxy or outage page */ }
   const text = data?.choices?.[0]?.message?.content?.trim();
   if (!res.ok || !text) throw new Error(data?.error?.message || `OpenAI request failed (${res.status}): ${raw.slice(0, 120)}`);
-  return text;
+  // (any long dash that slipped through; one copied from what it was given, a name or an answer quoted back, stays)
+  return noLongDashes(text, `${system}\n${user}`);
 }
 
 /** An https address on a public host (not localhost or a private/link-local IP written out). */
@@ -125,7 +127,7 @@ export async function chatVision(system: string, user: string, imageUrl: string,
       reasoning_effort: 'low',
       response_format: { type: 'json_object' },
       messages: [
-        { role: 'system', content: system },
+        { role: 'system', content: `${system}\n${NO_LONG_DASHES}` },
         { role: 'user', content: [{ type: 'text', text: user }, { type: 'image_url', image_url: { url: imageUrl } }] },
       ],
       max_completion_tokens: 1500,
@@ -134,7 +136,7 @@ export async function chatVision(system: string, user: string, imageUrl: string,
   const data = await res.json().catch(() => null);
   const text = data?.choices?.[0]?.message?.content?.trim();
   if (!res.ok || !text) throw new Error(data?.error?.message || `OpenAI request failed (${res.status})`);
-  return text;
+  return noLongDashes(text, user);
 }
 
 export async function knowledge(query: string, count = 6): Promise<string> {

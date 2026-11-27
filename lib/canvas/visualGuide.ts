@@ -5,7 +5,7 @@
  * formats.
  */
 
-export const VISUALS_GUIDE = `Drawn visuals (they draw themselves in; keep labels SHORT, under 4 words; never invent numbers):
+export const VISUALS_GUIDE = `Drawn visuals (they draw themselves in; keep labels SHORT, under 4 words; never invent numbers; a visual shows what its own slide is about, nothing else):
 - Chart: {"type":"chart","kind":"bar"|"line"|"pie","bars":[{"label":"Blue catfish","value":100},{"label":"You","value":90}],"unit":"lbs", x,y,w,h}
   bar = compare amounts (2-6 bars); line = a change over time (label = the year or time, 3-6 points); pie = parts of a whole (2-5 slices). h at least 40.
 - Diagram: {"type":"diagram","kind":"steps"|"cycle"|"timeline"|"compare"|"sizes","items":[{"label":"...","detail":"optional, under 8 words","value":0}], x,y,w,h}
@@ -22,7 +22,8 @@ export const MATH_VISUALS_GUIDE = `
   fraction = fraction bars: each item's "label" is a fraction ("3/4" draws a bar cut into 4 with 3 shaded), "detail" = a short note; 1-4 bars, one under another, to compare fractions or show equal ones (w at least 60, h at least 14 per bar)
   graph = points on x and y axes: items = the points {"x":2,"value":5,"label":"optional"}, "columns":["x axis name","y axis name"], "connect":true joins them with a line (2-8 points; h at least 50)
   worked = a worked example, one line of working per item, in order: "label" = the line ("1/2 + 1/3 = 3/6 + 2/6"), "detail" = why, under 8 words; 2-5 lines, the last is the answer. It is shown one line at a time while its "say" walks through the lines in the same order, about as many words for each (w at least 70, h at least 14 per line)
-  For a calculation with steps use worked, not steps; for fractions as amounts use fraction or numberline.`;
+  For a calculation with steps use worked, not steps; for fractions as amounts use fraction or numberline.
+  A graph ONLY when the slide itself is about two amounts that change together (hours and miles, cups and servings), with both named on its axes: never beside something it has nothing to do with.`;
 
 export const ACTIVITY_GUIDE = `Hands-on box (the learner DOES something with what the slide teaches; the lesson waits until it's done):
 {"type":"activity","kind":"...","prompt":"what to do, under 9 words", x,y,w,h, "say": "20-40 words starting with 'Your turn': why, and exactly what to do (never the answers)"}

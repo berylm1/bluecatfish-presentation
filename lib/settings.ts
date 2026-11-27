@@ -115,3 +115,6 @@ export const STUDY_OPEN = false;
 export const CAMERA_CHECK_AFTER_GROUP = true;
 // The last screen's family card: a QR code to the Maryland DNR page (off: the link only)
 export const SHOW_QR = false;
+// "Learn more: <one link>" on the family card at the end. Off: a lesson has several sources, and one of them singled
+// out didn't feel right; the end screen's link to all of them (the sources page) is there instead
+export const SHOW_LEARN_MORE = false;

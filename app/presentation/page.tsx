@@ -3391,7 +3391,7 @@ function Player({ deck, preview, startAt = 0, study = null, staticMode = false, 
               <Link href="/" onClick={() => cues.stop()} className="px-6 py-3 rounded-xl bg-slate-200 hover:bg-slate-300 font-semibold"><Icon name="home" /> Back to home</Link>
             </div>
             )}
-            {!study && <Link href={`/sources?lesson=${encodeURIComponent(deck.lessonId)}`} target="_blank" className="text-sm underline text-slate-500 hover:text-slate-700">Where the lesson’s facts come from: view sources</Link>}
+            {!study && <Link href={`/sources?lesson=${encodeURIComponent(deck.lessonId)}`} target="_blank" className="text-sm underline text-slate-500 hover:text-slate-700" data-end-sources>{profile.sources.length > 1 ? `Where the lesson’s facts come from: all ${profile.sources.length} sources` : 'Where the lesson’s facts come from: view sources'}</Link>}
           </div>
         ) : (
           <ClipAudio.Provider value={variant ? null : player.getAudio}>

@@ -5,6 +5,8 @@ import type { Deck } from '@/lib/canvas/types';
 import { MARINE_PICTURE, profileOf, teacherPicture, usesMath, type LessonProfile } from '@/lib/canvas/profile';
 import { TEACHER_VOICES, TTS_VOICE } from '@/lib/voice';
 import { lessonText } from '@/lib/canvas/lessonText';
+import { SHOW_LEARN_MORE } from '@/lib/settings';
+import Section from './Section';
 
 /*
  * The editor's "Lesson" tab: the lesson's profile (lib/canvas/profile.ts), as type-ins. Each shows what the lesson
@@ -13,10 +15,10 @@ import { lessonText } from '@/lib/canvas/lessonText';
  * (the teacher's name, the family card, the sources page).
  */
 
-const label = 'block text-xs font-semibold text-slate-600 mt-3 mb-1';
-const input = 'w-full px-2 py-1.5 rounded border border-slate-200 text-sm text-slate-900 focus:border-cyan-500 outline-none';
-const small = 'px-2 py-1 rounded border border-slate-200 text-xs text-slate-600 hover:bg-slate-50';
-const hint = 'text-[11px] text-slate-400 mt-0.5 leading-snug';
+const label = 'block text-xs font-bold text-slate-700 mt-3 mb-1 first:mt-0';
+const input = 'w-full px-2 py-1.5 rounded-md border border-slate-400 text-sm text-slate-900 focus:border-cyan-600 focus:ring-1 focus:ring-cyan-600 outline-none';
+const small = 'px-2 py-1 rounded-md border border-slate-400 text-xs font-semibold text-slate-800 hover:bg-slate-100';
+const hint = 'text-[11px] text-slate-500 mt-0.5 leading-snug';
 
 /** A list of short texts (goals, family things): one box each, add and take out */
 function TextList({ items, onChange, add, max, placeholder }: { items: string[]; onChange: (v: string[]) => void; add: string; max: number; placeholder: string }) {
@@ -128,13 +130,13 @@ export default function LessonPanel({ deck, onChange }: {
   );
   const suggestNote = (field: Suggestable) => suggestError?.field === field && <p className="text-[11px] text-red-600 mt-0.5">{suggestError.text}</p>;
   return (
-    <div className="text-sm text-slate-700" data-lesson-panel>
-      <p className="text-xs text-slate-500">
+    <div className="text-sm text-slate-700 flex flex-col gap-3" data-lesson-panel>
+      <p className="text-xs text-slate-600">
         What this lesson is about and who it’s for. The AI goes by it when you save, and the lesson shows the teacher’s name, the family card and the sources from it.
         {!deck.profile && <> Shown: this lesson’s defaults (nothing changed yet).</>}
       </p>
 
-      <h3 className="mt-4 text-xs font-bold uppercase tracking-wider text-slate-400">The lesson</h3>
+      <Section id="lesson-basics" icon="📘" title="The lesson" hint={p.title} open><div>
       <label className={label}>Title</label>
       <input className={input} value={p.title} maxLength={120} onChange={(e) => set('title', e.target.value)} />
       {withSuggest('pitch', 'In one line')}
@@ -147,7 +149,8 @@ export default function LessonPanel({ deck, onChange }: {
       <input className={input} value={p.about} maxLength={200} onChange={(e) => set('about', e.target.value)} />
       <p className={hint}>As it reads in “a class about {p.about || '…'}”.</p>
 
-      <h3 className="mt-5 text-xs font-bold uppercase tracking-wider text-slate-400">Who it’s for</h3>
+      </div></Section>
+      <Section id="lesson-who" icon="👥" title="Who it’s for" hint={`Ages ${p.ageMin} to ${p.ageMax} · ${p.goals.length} goal${p.goals.length === 1 ? '' : 's'}`}><div>
       <label className={label}>Ages</label>
       <div className="flex items-center gap-2">
         <input className={`${input} w-20`} type="number" min={4} max={99} value={p.ageMin} onChange={(e) => set('ageMin', Number(e.target.value) || p.ageMin)} aria-label="Youngest" />
@@ -162,7 +165,8 @@ export default function LessonPanel({ deck, onChange }: {
       {withSuggest('goals', 'Goals: by the end, they can…')}
       <TextList items={p.goals} onChange={(v) => set('goals', v)} add="Add a goal" max={8} placeholder="Explain why…" />
 
-      <h3 className="mt-5 text-xs font-bold uppercase tracking-wider text-slate-400">How it’s made</h3>
+      </div></Section>
+      <Section id="lesson-made" icon="⚙️" title="How it’s made" hint={`About ${p.targetMinutes} minutes · math ${usesMath(p) ? 'on' : 'off'}`}><div>
       {suggestNote('goals')}
       <label className={label}>Facts come from</label>
       <select className={input} value={p.sourceMode} onChange={(e) => set('sourceMode', e.target.value as LessonProfile['sourceMode'])}>
@@ -191,7 +195,8 @@ export default function LessonPanel({ deck, onChange }: {
       <label className={label}>About how long (minutes)</label>
       <input className={`${input} w-24`} type="number" min={3} max={120} value={p.targetMinutes} onChange={(e) => set('targetMinutes', Number(e.target.value) || p.targetMinutes)} />
 
-      <h3 className="mt-5 text-xs font-bold uppercase tracking-wider text-slate-400">The teacher and the class</h3>
+      </div></Section>
+      <Section id="lesson-teacher" icon="🧑‍🏫" title="The teacher and the class" hint={p.teacher.name}><div>
       <label className={label}>Teacher’s name</label>
       <input className={input} value={p.teacher.name} maxLength={60} onChange={(e) => setTeacher('name', e.target.value)} />
       <label className={label}>Sign-off at the end</label>
@@ -214,16 +219,20 @@ export default function LessonPanel({ deck, onChange }: {
       <input className={input} value={p.jokesAt} maxLength={80} onChange={(e) => set('jokesAt', e.target.value)} />
       <p className={hint}>Never at the learner. The teacher’s tone stays the same for every lesson.</p>
 
-      <h3 className="mt-5 text-xs font-bold uppercase tracking-wider text-slate-400">The end of the lesson</h3>
+      </div></Section>
+      <Section id="lesson-ending" icon="🏁" title="The end of the lesson" hint={`${p.familyThings.length} thing${p.familyThings.length === 1 ? '' : 's'} to tell the family`}><div>
       {suggestNote('jokesAt')}
       {withSuggest('familyThings', '3 things to tell your family')}
       <TextList items={p.familyThings} onChange={(v) => set('familyThings', v)} add="Add one" max={5} placeholder="One thing worth telling at home…" />
       {suggestNote('familyThings')}
+      {SHOW_LEARN_MORE && (<>
       <label className={label}>Learn more (a link)</label>
       <input className={input} value={p.learnMore?.label ?? ''} maxLength={120} placeholder="Its name" onChange={(e) => set('learnMore', { label: e.target.value, url: p.learnMore?.url ?? '' })} />
       <input className={`${input} mt-1`} value={p.learnMore?.url ?? ''} maxLength={500} placeholder="https://…" onChange={(e) => set('learnMore', e.target.value || p.learnMore?.label ? { label: p.learnMore?.label ?? '', url: e.target.value } : null)} />
+      </>)}
 
-      <h3 className="mt-5 text-xs font-bold uppercase tracking-wider text-slate-400">Sources</h3>
+      </div></Section>
+      <Section id="lesson-sources" icon="📚" title="Sources" hint={`${p.sources.length} source${p.sources.length === 1 ? '' : 's'}`}><div>
       <p className={hint}>Shown on the sources page and in the PDF.</p>
       <div className="flex flex-col gap-2 mt-2">
         {p.sources.map((s, i) => (
@@ -238,6 +247,7 @@ export default function LessonPanel({ deck, onChange }: {
         ))}
         <button className={`${small} self-start`} onClick={() => set('sources', [...p.sources, { title: '', org: '', url: '' }])}>＋ Add a source</button>
       </div>
+      </div></Section>
     </div>
   );
 }

@@ -2,7 +2,7 @@
 
 import Icon from '@/components/Icon';
 import { FAMILY_THINGS, LEARN_MORE } from '@/lib/study/content';
-import { SHOW_QR } from '@/lib/settings';
+import { SHOW_LEARN_MORE, SHOW_QR } from '@/lib/settings';
 
 /*
  * What a learner takes home at the end: the badge for catching Finn's mix-ups, and "3 things to tell your family".
@@ -16,7 +16,7 @@ export function FamilyCard({ things = FAMILY_THINGS, learnMore = LEARN_MORE }: {
   learnMore?: { label: string; url: string; qr?: string } | null;
 }) {
   if (!things.length) return null;   // (a lesson with none set: no card)
-  const more = learnMore;
+  const more = SHOW_LEARN_MORE ? learnMore : null;
   return (
     <section className="mt-6 rounded-2xl border border-cyan-100 bg-gradient-to-br from-cyan-50 to-sky-50 p-5" aria-label="Three things to tell your family">
       <div className="flex items-start gap-5 max-sm:flex-col">
