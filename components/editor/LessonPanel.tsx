@@ -4,6 +4,7 @@ import { useRef, useState } from 'react';
 import type { Deck } from '@/lib/canvas/types';
 import { MARINE_PICTURE, profileOf, teacherPicture, usesMath, type LessonProfile } from '@/lib/canvas/profile';
 import { TEACHER_VOICES, TTS_VOICE } from '@/lib/voice';
+import { lessonText } from '@/lib/canvas/lessonText';
 
 /*
  * The editor's "Lesson" tab: the lesson's profile (lib/canvas/profile.ts), as type-ins. Each shows what the lesson
@@ -96,6 +97,36 @@ export default function LessonPanel({ deck, onChange }: {
   const p = profileOf(deck);
   const set = <K extends keyof LessonProfile>(k: K, v: LessonProfile[K]) => onChange({ ...p, [k]: v }, `profile:${String(k)}`);
   const setTeacher = (k: keyof LessonProfile['teacher'], v: string) => onChange({ ...p, teacher: { ...p.teacher, [k]: v } }, `profile:teacher:${k}`);
+  // ✨ Suggest: the AI fills a setting in from the lesson's slides (/api/editor/suggest). Undo (Ctrl+Z) takes it back.
+  type Suggestable = 'pitch' | 'priorKnowledge' | 'goals' | 'familyThings' | 'practical' | 'jokesAt';
+  const [suggesting, setSuggesting] = useState<Suggestable | null>(null);
+  const [suggestError, setSuggestError] = useState<{ field: Suggestable; text: string } | null>(null);
+  const suggest = async (field: Suggestable) => {
+    if (suggesting) return;
+    setSuggesting(field); setSuggestError(null);
+    try {
+      const res = await fetch('/api/editor/suggest', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ lesson: deck.lessonId, field, profile: p, text: lessonText(deck, 9000) }), signal: AbortSignal.timeout(60000) });
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok || d.error || d.value === undefined) throw new Error(d.error ?? `It didn’t work (${res.status})`);
+      onChange({ ...p, [field]: d.value }, `profile:${field}:suggested`);
+    } catch (e) {
+      setSuggestError({ field, text: e instanceof Error ? e.message : String(e) });
+    } finally {
+      setSuggesting(null);
+    }
+  };
+  /** A setting's name with its ✨ Suggest button */
+  const withSuggest = (field: Suggestable, name: string) => (
+    <div className="flex items-end justify-between gap-2 mt-3 mb-1">
+      <label className="block text-xs font-semibold text-slate-600">{name}</label>
+      <button className="text-[11px] text-violet-700 hover:text-violet-900 disabled:opacity-50 whitespace-nowrap" data-suggest={field} disabled={!!suggesting}
+        title="The AI writes this from the lesson’s slides. Ctrl+Z takes it back." onClick={() => void suggest(field)}>
+        {suggesting === field ? 'Thinking…' : '✨ Suggest'}
+      </button>
+    </div>
+  );
+  const suggestNote = (field: Suggestable) => suggestError?.field === field && <p className="text-[11px] text-red-600 mt-0.5">{suggestError.text}</p>;
   return (
     <div className="text-sm text-slate-700" data-lesson-panel>
       <p className="text-xs text-slate-500">
@@ -106,8 +137,9 @@ export default function LessonPanel({ deck, onChange }: {
       <h3 className="mt-4 text-xs font-bold uppercase tracking-wider text-slate-400">The lesson</h3>
       <label className={label}>Title</label>
       <input className={input} value={p.title} maxLength={120} onChange={(e) => set('title', e.target.value)} />
-      <label className={label}>In one line</label>
+      {withSuggest('pitch', 'In one line')}
       <textarea className={input} rows={2} value={p.pitch} maxLength={300} placeholder="A short, hands-on lesson about…" onChange={(e) => set('pitch', e.target.value)} />
+      {suggestNote('pitch')}
       <label className={label}>Subject</label>
       <input className={input} value={p.subject} maxLength={60} placeholder="science, math, history…" onChange={(e) => set('subject', e.target.value)} />
       <p className={hint}>The teacher is “a fun {p.subject || '…'} teacher”.</p>
@@ -124,12 +156,14 @@ export default function LessonPanel({ deck, onChange }: {
       </div>
       <label className={label}>Language</label>
       <input className={input} value={p.language} maxLength={40} onChange={(e) => set('language', e.target.value)} />
-      <label className={label}>What they already know</label>
+      {withSuggest('priorKnowledge', 'What they already know')}
       <textarea className={input} rows={2} value={p.priorKnowledge} maxLength={400} onChange={(e) => set('priorKnowledge', e.target.value)} />
-      <label className={label}>Goals: by the end, they can…</label>
+      {suggestNote('priorKnowledge')}
+      {withSuggest('goals', 'Goals: by the end, they can…')}
       <TextList items={p.goals} onChange={(v) => set('goals', v)} add="Add a goal" max={8} placeholder="Explain why…" />
 
       <h3 className="mt-5 text-xs font-bold uppercase tracking-wider text-slate-400">How it’s made</h3>
+      {suggestNote('goals')}
       <label className={label}>Facts come from</label>
       <select className={input} value={p.sourceMode} onChange={(e) => set('sourceMode', e.target.value as LessonProfile['sourceMode'])}>
         <option value="sources">Only the lesson’s sources</option>
@@ -173,15 +207,18 @@ export default function LessonPanel({ deck, onChange }: {
         <HearVoice voice={p.teacher.voice ?? TTS_VOICE} name={p.teacher.name} />
       </div>
       <p className={hint}>A new voice is recorded for every slide the next time you save (it takes a few minutes).</p>
-      <label className={label}>Leo’s practical questions are about</label>
+      {withSuggest('practical', 'Leo’s practical questions are about')}
       <input className={input} value={p.practical} maxLength={200} onChange={(e) => set('practical', e.target.value)} />
-      <label className={label}>The teacher’s jokes are aimed at</label>
+      {suggestNote('practical')}
+      {withSuggest('jokesAt', 'The teacher’s jokes are aimed at')}
       <input className={input} value={p.jokesAt} maxLength={80} onChange={(e) => set('jokesAt', e.target.value)} />
       <p className={hint}>Never at the learner. The teacher’s tone stays the same for every lesson.</p>
 
       <h3 className="mt-5 text-xs font-bold uppercase tracking-wider text-slate-400">The end of the lesson</h3>
-      <label className={label}>3 things to tell your family</label>
+      {suggestNote('jokesAt')}
+      {withSuggest('familyThings', '3 things to tell your family')}
       <TextList items={p.familyThings} onChange={(v) => set('familyThings', v)} add="Add one" max={5} placeholder="One thing worth telling at home…" />
+      {suggestNote('familyThings')}
       <label className={label}>Learn more (a link)</label>
       <input className={input} value={p.learnMore?.label ?? ''} maxLength={120} placeholder="Its name" onChange={(e) => set('learnMore', { label: e.target.value, url: p.learnMore?.url ?? '' })} />
       <input className={`${input} mt-1`} value={p.learnMore?.url ?? ''} maxLength={500} placeholder="https://…" onChange={(e) => set('learnMore', e.target.value || p.learnMore?.label ? { label: p.learnMore?.label ?? '', url: e.target.value } : null)} />
