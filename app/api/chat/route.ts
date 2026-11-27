@@ -63,7 +63,9 @@ async function runOpenClawAgent(message: string, sessionId: string): Promise<str
       '--json',
       '-m', message,
     ];
-    const proc = spawn(OPENCLAW_BIN, args, { env: process.env });
+    // (turbopackIgnore: the program's path is only known when it runs. Without it the build traced the WHOLE project
+    // into this route, with a warning on every deploy. This route is unused and behind the editor login: lib/editorAuth.ts)
+    const proc = spawn(/* turbopackIgnore: true */ OPENCLAW_BIN, args, { env: process.env });
     let stdout = '';
     let stderr = '';
     proc.stdout.on('data', (d) => { stdout += d.toString(); });
