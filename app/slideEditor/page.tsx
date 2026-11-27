@@ -1184,7 +1184,7 @@ function Editor({
             <Menu help="rewrite" className={`${tool} !text-violet-800 hover:!bg-violet-50`} disabled={rewriteBusy} width="w-80" title="The AI writes this slide again, the way you ask"
               label={rewriteBusy ? <><span className="w-3.5 h-3.5 rounded-full border-2 border-violet-200 border-t-violet-700 animate-spin" aria-hidden /> Rewriting…</> : <><Icon name="sparkle" size={16} /> <span className="hidden @2xl:inline">Rewrite</span> <Icon name="chevron-down" size={13} /></>}>
               {(close) => (
-                <div data-rewrite-menu>
+                <div data-rewrite-menu className="flex flex-col">
                   <MenuHeading>Rewrite this slide</MenuHeading>
                   {([
                     ['Make it simpler', 'Make this slide simpler: fewer and easier words, one idea at a time'],
