@@ -30,6 +30,9 @@ export function activityReady(el: SlideElement): boolean {
     case 'sort': return (el.groups?.length ?? 0) >= 2 && items.length >= 2;
     case 'slider': return !!el.slider && el.slider.stops.length >= 2 && el.slider.max > el.slider.min;
     case 'hotspots': return !!el.src && items.length >= 1;
+    case 'answer':
+    case 'blank': return items.length >= 1 && items.every((i) => !!i.back?.trim());
+    case 'match': return items.length >= 2 && items.every((i) => !!i.back?.trim());
     default: return items.length >= 2;
   }
 }
@@ -44,11 +47,14 @@ export function shownWords(el: SlideElement): string {
     case 'text': return el.text;
     case 'image': return el.alt ?? '';
     case 'chart': return el.alt ?? `${el.kind === 'line' ? 'line chart' : el.kind === 'pie' ? 'pie chart' : 'bar chart'}: ${el.bars.map((b) => `${b.label} ${b.value}${el.unit ? ` ${el.unit}` : ''}`).join(', ')}`;
-    case 'diagram': return el.alt ?? `${el.kind}: ${el.columns ? `${el.columns.join(' vs ')}: ` : ''}${el.items.map((i) => [i.label, i.detail, i.value !== undefined ? `${i.value}${el.unit ? ` ${el.unit}` : ''}` : ''].filter(Boolean).join(' – ')).join('; ')}`;
+    case 'diagram': return el.alt ?? `${el.kind}: ${el.columns ? `${el.columns.join(' vs ')}: ` : ''}${el.items.map((i) => [i.label, i.detail, i.x !== undefined ? `x ${i.x}` : '', i.value !== undefined ? `${i.value}${el.unit ? ` ${el.unit}` : ''}` : ''].filter(Boolean).join(' – ')).join('; ')}`;
     case 'activity': {
       const what = el.kind === 'sort' ? `sort into ${(el.groups ?? []).join(' / ')}: ${(el.items ?? []).map((i) => `${i.text} → ${el.groups?.[i.group ?? 0] ?? ''}`).join(', ')}`
         : el.kind === 'order' ? `put in order: ${(el.items ?? []).map((i) => i.text).join(' → ')}`
           : el.kind === 'slider' ? `slider "${el.slider?.label ?? ''}" from ${el.slider?.min} to ${el.slider?.max}: ${(el.slider?.stops ?? []).map((s) => `${s.at}: ${s.text}`).join('; ')}`
+            : el.kind === 'blank' ? `fill in the blank: ${(el.items ?? []).map((i) => `${i.text} (${(i.back ?? '').split('|')[0].trim()})`).join('; ')}`
+            : el.kind === 'match' ? `match the pairs: ${(el.items ?? []).map((i) => `${i.text} = ${i.back ?? ''}`).join('; ')}`
+            : el.kind === 'answer' ? `type the answer: ${(el.items ?? []).map((i) => `${i.text} = ${(i.back ?? '').split('|')[0].trim()}`).join('; ')}`
             : `${el.kind === 'cards' ? 'flip cards' : 'tap spots on a picture'}: ${(el.items ?? []).map((i) => [i.text, i.back].filter(Boolean).join(' = ')).join('; ')}`;
       return `hands-on activity${el.prompt ? ` (${el.prompt})` : ''}, ${what}`;
     }

@@ -1,6 +1,7 @@
 /*
  * The lesson's settings, in one place: the on/off switches and the timings worth tuning.
  * Change a value here and redeploy. (The code that uses each one imports it from here.)
+ * (Elsewhere, the same way: the rate limits are in lib/rateLimits.ts, the AI models in lib/canvas/ai.ts.)
  *
  * A switch that's off is a feature kept but hidden: switch it back on to bring it back.
  * Changing anything marked [study] while a study is collecting data changes what participants get:
@@ -115,3 +116,6 @@ export const STUDY_OPEN = false;
 export const CAMERA_CHECK_AFTER_GROUP = true;
 // The last screen's family card: a QR code to the Maryland DNR page (off: the link only)
 export const SHOW_QR = false;
+// "Learn more: <one link>" on the family card at the end. Off: a lesson has several sources, and one of them singled
+// out didn't feel right; the end screen's link to all of them (the sources page) is there instead
+export const SHOW_LEARN_MORE = false;

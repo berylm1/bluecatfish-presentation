@@ -11,10 +11,12 @@ import { newId } from './useEditorDeck';
 export const VISUAL_KINDS = [
   ['bar', 'Bar chart'], ['line', 'Line chart (over time)'], ['pie', 'Pie chart (parts of a whole)'],
   ['steps', 'Steps (arrows)'], ['cycle', 'Cycle (round a circle)'], ['timeline', 'Timeline'], ['compare', 'Compare (two columns)'], ['sizes', 'Sizes (circles)'],
+  ['numberline', 'Number line (math)'], ['fraction', 'Fraction bars (math)'], ['graph', 'Graph (math)'], ['worked', 'Worked example (math)'],
+  ['area', 'Area model or array (math)'], ['clock', 'Clock faces'], ['money', 'Coins and notes'], ['shape', 'Shapes and angles'], ['table', 'Table'],
 ] as const;
 
 export const ACTIVITY_KINDS = [
-  ['sort', 'Sort into groups'], ['order', 'Put in order'], ['cards', 'Guess & flip cards'], ['hotspots', 'Explore a picture'], ['slider', 'Slider'],
+  ['sort', 'Sort into groups'], ['order', 'Put in order'], ['cards', 'Guess & flip cards'], ['hotspots', 'Explore a picture'], ['slider', 'Slider'], ['answer', 'Type the answer'], ['blank', 'Fill in the blank'], ['match', 'Match the pairs'],
 ] as const;
 
 export function visualTemplate(kind: (typeof VISUAL_KINDS)[number][0]): SlideElement {
@@ -34,10 +36,22 @@ export function visualTemplate(kind: (typeof VISUAL_KINDS)[number][0]): SlideEle
     timeline: [{ label: '1970s', detail: 'Brought to Virginia rivers' }, { label: '1990s', detail: 'Numbers climb' }, { label: 'Today', detail: 'Most of the fish in some rivers' }],
     compare: [{ label: 'Eat almost anything', detail: 'Pickier eaters' }, { label: 'Can top 100 lbs', detail: 'Usually under 20 lbs' }],
     sizes: [{ label: 'Blue catfish', value: 100 }, { label: 'You', value: 90 }, { label: 'Blue crab', value: 1 }],
+    numberline: [{ label: '1/4', value: 0.25 }, { label: '3/4', value: 0.75 }],
+    fraction: [{ label: '1/2' }, { label: '2/4', detail: 'the same amount' }],
+    graph: [{ label: '', x: 0, value: 1 }, { label: '', x: 1, value: 3 }, { label: '', x: 2, value: 5 }, { label: '', x: 3, value: 7 }],
+    area: [{ label: '3 × 4 = 12' }],
+    clock: [{ label: '3:00', detail: 'three o’clock' }, { label: '3:30', detail: 'half past three' }],
+    money: [{ label: '25¢', value: 2, detail: '2 quarters' }, { label: '10¢', value: 1, detail: '1 dime' }],
+    shape: [{ label: 'triangle', detail: '3 sides' }, { label: 'square', detail: '4 equal sides' }, { label: 'angle', value: 60, detail: 'an acute angle' }],
+    table: [{ label: 'Time (s) | Distance (m)' }, { label: '1 | 5' }, { label: '2 | 10' }, { label: '3 | 15' }],
+    worked: [{ label: '1/2 + 1/3', detail: 'the bottoms differ' }, { label: '= 3/6 + 2/6', detail: 'make them both sixths' }, { label: '= 5/6', detail: 'add the tops' }],
   };
   return {
-    ...box, type: 'diagram', kind, items: items[kind],
-    columns: kind === 'compare' ? ['Blue catfish', 'Native fish'] : undefined, unit: kind === 'sizes' ? 'lbs' : undefined,
+    ...box, type: 'diagram', kind, items: kind === 'graph' ? items.graph.map((p) => ({ ...p, label: `(${p.x}, ${p.value})` })) : items[kind],
+    columns: kind === 'compare' ? ['Blue catfish', 'Native fish'] : kind === 'graph' ? ['x', 'y'] : undefined, unit: kind === 'sizes' ? 'lbs' : undefined,
+    ...(kind === 'numberline' ? { from: 0, to: 1, parts: 4 } : {}), ...(kind === 'area' ? { from: 3, to: 4 } : {}), ...(kind === 'money' ? { unit: '60¢' } : {}), ...(kind === 'graph' ? { connect: true } : {}),
+    // (a worked example is talked through, one line at a time: it speaks)
+    ...(kind === 'worked' ? { silent: undefined } : {}),
   };
 }
 
@@ -60,6 +74,15 @@ export function activityTemplate(kind: (typeof ACTIVITY_KINDS)[number][0]): Slid
       slider: { label: 'Age', unit: 'years', min: 0, max: 20, step: 1, stops: [
         { at: 0, text: 'Smaller than your hand', scale: 0.3 }, { at: 5, text: 'As long as your arm', scale: 0.7 }, { at: 12, text: 'Heavier than a big dog', scale: 1 }, { at: 20, text: 'As heavy as a grown-up!', scale: 1.2 }] },
       say: 'Your turn! Drag the slider to make the catfish older, and watch how big it gets over the years.' },
+    blank: { kind: 'blank', prompt: 'Pick the word that fits', groups: ['walks', 'flies'],
+      items: [{ text: 'A blue catfish ___ in rivers and the Bay.', back: 'swims' }, { text: 'It ___ almost anything it finds.', back: 'eats' }],
+      say: 'Your turn! Each sentence has a word missing. Tap the word that fits in the blank.' },
+    match: { kind: 'match', prompt: 'Tap a word, then what goes with it',
+      items: [{ text: 'Invasive', back: 'Spreads and causes harm' }, { text: 'Native', back: 'Has always lived there' }, { text: 'Predator', back: 'Hunts other animals' }],
+      say: 'Your turn! Tap a word on the left, then tap what it means on the right. Match them all.' },
+    answer: { kind: 'answer', prompt: 'Type your answer, then press Check',
+      items: [{ text: 'A blue catfish can weigh over how many pounds?', back: '100 | one hundred' }, { text: 'About how many years can a blue catfish live?', back: '20 | twenty' }],
+      say: 'Your turn! Type your answer in the box and press Check. Numbers are fine as digits or words.' },
   };
   return { ...box, type: 'activity', ...by[kind] } as ActivityElement;
 }

@@ -92,3 +92,20 @@ export const incrWindow = async (key: string, ttlSec: number): Promise<number | 
     return null;
   }
 };
+
+/** Adds to the numbers kept under a key (a Redis hash: each field a running total). Skipped when Redis can't be reached. */
+export const addToCounters = async (key: string, add: Record<string, number>): Promise<void> => {
+  await ensureConnected();
+  if (!redisClient.isReady) return;
+  const multi = redisClient.multi();
+  for (const [field, n] of Object.entries(add)) if (Number.isFinite(n) && n) multi.hIncrByFloat(key, field, n);
+  await multi.exec().catch((err) => console.warn('Redis counters failed:', (err as Error).message));
+};
+
+/** The numbers kept under a key (addToCounters), or {} */
+export const getCounters = async (key: string): Promise<Record<string, number>> => {
+  await ensureConnected();
+  if (!redisClient.isReady) return {};
+  const raw = await redisClient.hGetAll(key).catch(() => ({} as Record<string, string>));
+  return Object.fromEntries(Object.entries(raw).map(([k, v]) => [k, Number(v) || 0]));
+};

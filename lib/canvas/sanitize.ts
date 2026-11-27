@@ -1,4 +1,5 @@
 import type { ActivityElement, ChartElement, CheckedClaim, Deck, DeckChecks, DiagramElement, ImageElement, Slide, SlideElement, TextElement, TextStyle } from './types';
+import { sanitizeProfile } from './profile';
 
 // Cleans a deck that came from the editor (or an AI) before it's stored:
 // known fields only, numbers kept on the slide, strings capped, and only
@@ -7,8 +8,8 @@ import type { ActivityElement, ChartElement, CheckedClaim, Deck, DeckChecks, Dia
 const STYLES: TextStyle[] = ['title', 'body', 'caption', 'bigNumber'];
 const MAX_SLIDES = 200;
 const MAX_ELEMENTS = 60;
-const DIAGRAMS = ['steps', 'cycle', 'timeline', 'compare', 'sizes'];
-const ACTIVITIES = ['sort', 'order', 'cards', 'hotspots', 'slider'];
+const DIAGRAMS = ['steps', 'cycle', 'timeline', 'compare', 'sizes', 'numberline', 'fraction', 'graph', 'worked', 'area', 'clock', 'money', 'shape', 'table'];
+const ACTIVITIES = ['sort', 'order', 'cards', 'hotspots', 'slider', 'answer', 'blank', 'match'];
 
 const str = (v: unknown, max: number): string | undefined =>
   typeof v === 'string' && v.trim() ? v.slice(0, max) : undefined;
@@ -75,27 +76,46 @@ function element(raw: any, fallbackId: string): SlideElement | null {
   }
   if (raw.type === 'diagram') {
     const kind = DIAGRAMS.includes(raw.kind) ? raw.kind : 'steps';
-    const items = (Array.isArray(raw.items) ? raw.items : []).slice(0, 8)
-      .map((it: any) => ({
-        label: str(it?.label, 40) ?? '', detail: str(it?.detail, 80),
-        value: typeof it?.value === 'number' ? num(it.value, 0, 1e9, 0) : undefined, color: color(it?.color),
-      }))
-      .filter((it: { label: string }) => it.label);
+    // (a number line and a graph can go below zero; a point with nothing written by it is named by its numbers)
+    const signed = kind === 'numberline' || kind === 'graph';
+    const items = (Array.isArray(raw.items) ? raw.items : []).slice(0, kind === 'graph' ? 12 : 8)
+      .map((it: any) => {
+        const value = typeof it?.value === 'number' ? num(it.value, signed ? -1e6 : 0, signed ? 1e6 : 1e9, 0) : undefined;
+        const x = kind === 'graph' && typeof it?.x === 'number' ? num(it.x, -1e6, 1e6, 0) : undefined;
+        const label = str(it?.label, kind === 'worked' ? 70 : kind === 'table' ? 90 : 40)
+          ?? (kind === 'graph' && x !== undefined && value !== undefined ? `(${x}, ${value})` : kind === 'numberline' && value !== undefined ? String(value) : '');
+        return { label, detail: str(it?.detail, 80), value, ...(x !== undefined ? { x } : {}), ...(kind === 'graph' && str(it?.line, 24) ? { line: str(it.line, 24) } : {}), color: color(it?.color) };
+      })
+      .filter((it: { label: string; value?: number; x?: number }) => it.label && (kind !== 'graph' || (it.x !== undefined && it.value !== undefined)) && (kind !== 'numberline' || it.value !== undefined));
     if (!items.length) return null;
     const cols = Array.isArray(raw.columns) ? raw.columns.map((c: unknown) => str(c, 30) ?? '') : null;
     const el: DiagramElement = {
       ...base, type: 'diagram', kind, items, unit: str(raw.unit, 12), alt: str(raw.alt, 2000),
       columns: cols && cols.length >= 2 && (cols[0] || cols[1]) ? [cols[0], cols[1]] : undefined,
+      ...(kind === 'numberline' ? {
+        from: typeof raw.from === 'number' ? num(raw.from, -1e6, 1e6, 0) : undefined,
+        to: typeof raw.to === 'number' ? num(raw.to, -1e6, 1e6, 1) : undefined,
+        parts: typeof raw.parts === 'number' ? num(Math.round(raw.parts), 1, 20, 1) : undefined,
+      } : {}),
+      ...(kind === 'graph' && raw.connect === true ? { connect: true } : {}),
+      // (an area model: rows, columns, how many squares are shaded)
+      ...(kind === 'area' ? {
+        from: num(Math.round(typeof raw.from === 'number' ? raw.from : 3), 1, 30, 3),
+        to: num(Math.round(typeof raw.to === 'number' ? raw.to : 4), 1, 30, 4),
+        parts: typeof raw.parts === 'number' ? num(Math.round(raw.parts), 0, 900, 0) : undefined,
+      } : {}),
     };
     return el;
   }
   if (raw.type === 'activity') {
     const kind = ACTIVITIES.includes(raw.kind) ? raw.kind : null;
     if (!kind) return null;
-    const groups = (Array.isArray(raw.groups) ? raw.groups : []).slice(0, 4).map((g: unknown) => str(g, 30) ?? '').filter(Boolean);
+    // (a sort's groups; a fill-in-the-blank's word bank: up to 8 words)
+    const groups = (Array.isArray(raw.groups) ? raw.groups : []).slice(0, raw.kind === 'blank' ? 8 : 4).map((g: unknown) => str(g, 30) ?? '').filter(Boolean);
     const items = (Array.isArray(raw.items) ? raw.items : []).slice(0, 8)
       .map((it: any) => ({
-        text: str(it?.text, 60) ?? '', back: str(it?.back, 160),
+        // (a typed-answer question can be longer; so can a flip card's front, a question: was cut at 60, mid-word)
+        text: str(it?.text, kind === 'answer' || kind === 'blank' ? 140 : kind === 'cards' ? 110 : 60) ?? '', back: str(it?.back, 160),
         group: typeof it?.group === 'number' ? num(Math.round(it.group), 0, Math.max(0, groups.length - 1), 0) : undefined,
         x: typeof it?.x === 'number' ? num(it.x, 0, 100, 50) : undefined,
         y: typeof it?.y === 'number' ? num(it.y, 0, 100, 50) : undefined,
@@ -113,7 +133,7 @@ function element(raw: any, fallbackId: string): SlideElement | null {
     // Kept even half made (the editor saves work in progress); the lesson skips one that isn't ready (activityReady)
     const el: ActivityElement = {
       ...base, type: 'activity', kind, prompt: str(raw.prompt, 120), alt: str(raw.alt, 2000),
-      groups: kind === 'sort' ? groups : undefined, items: kind === 'slider' ? undefined : items,
+      groups: kind === 'sort' || (kind === 'blank' && groups.length) ? groups : undefined, items: kind === 'slider' ? undefined : items,
       src: safeUrl(raw.src), slider,
       answerCheck: raw.answerCheck && typeof raw.answerCheck === 'object' && tag(raw.answerCheck.from) ? {
         from: raw.answerCheck.from, ok: raw.answerCheck.ok === true,
@@ -143,10 +163,15 @@ function element(raw: any, fallbackId: string): SlideElement | null {
       src,
       alt: str(raw.alt, 2000),
       fit: raw.fit === 'cover' ? 'cover' : 'contain',
+      ...(typeof raw.zoom === 'number' && raw.zoom > 1.01 ? { zoom: num(raw.zoom, 1, 4, 1) } : {}),
+      ...(raw.focus && typeof raw.focus === 'object' && typeof raw.focus.x === 'number' && typeof raw.focus.y === 'number' && (Math.abs(raw.focus.x - 50) > 0.5 || Math.abs(raw.focus.y - 50) > 0.5)
+        ? { focus: { x: num(raw.focus.x, 0, 100, 50), y: num(raw.focus.y, 0, 100, 50) } } : {}),
       caption: str(raw.caption, 120),
       captionByAI: bool(raw.captionByAI),
       captionFrom: tag(raw.captionFrom),
       captionOff: bool(raw.captionOff),
+      credit: str(raw.credit, 200),
+      creditUrl: typeof raw.creditUrl === 'string' && /^https:\/\//.test(raw.creditUrl) ? safeUrl(raw.creditUrl) : undefined,
     };
     return el;
   }
@@ -281,7 +306,10 @@ export function bank(raw: any): Deck['bank'] {
     if (seen.has(qid)) qid = `${qid}-${i}`;
     seen.add(qid);
     const answer = slide({ ...q.slide, id: id(q.slide.id, `${qid}-s`) }, i);
-    return [{ id: qid, topic, q: text, asker: ASKERS.includes(q?.asker) ? q.asker : 'maya', slide: answer, byAI: bool(q?.byAI) }];
+    // (anchor: the slide it's asked on. Was: dropped here, so every save in the editor lost each question's slide,
+    // the one picked in the Questions panel too)
+    const anchor = typeof q?.anchor === 'string' && /^[\w-]{1,64}$/.test(q.anchor) ? q.anchor : undefined;
+    return [{ id: qid, topic, q: text, asker: ASKERS.includes(q?.asker) ? q.asker : 'maya', slide: answer, byAI: bool(q?.byAI), ...(anchor ? { anchor } : {}) }];
   });
   const from: Record<string, string> = {};
   if (raw.from && typeof raw.from === 'object') {
@@ -334,6 +362,7 @@ export function sanitizeDeck(raw: any, lessonId: string, source: Deck['source'])
     checks: checks(raw.checks),
     editRev: typeof raw.editRev === 'string' && /^[a-z0-9]{1,24}$/.test(raw.editRev) ? raw.editRev : undefined,
     basedOn: typeof raw.basedOn === 'string' && /^(bluecatfish_|canvas_ai:)[\w:.-]{1,120}$/.test(raw.basedOn) ? raw.basedOn : undefined,
+    profile: sanitizeProfile(raw.profile),
     source,
   };
 }

@@ -1,10 +1,13 @@
 import { NextResponse } from 'next/server';
+import { cacheTag, lessonOf } from '@/lib/canvas/lessonProfiles';
+import { enterProfile } from '@/lib/canvas/lessonContext';
 import { createHash } from 'crypto';
 import { rateLimit } from '@/lib/rateLimit';
 import { getValue, setValue } from '@/src/redisClient';
 import { chat } from '@/lib/canvas/ai';
 import { formatGuide } from '@/lib/canvas/generate';
 import { sanitizeDeck } from '@/lib/canvas/sanitize';
+import { dropOverlaps } from '@/lib/canvas/checks';
 import { autoFix } from '@/lib/canvas/generate';
 import type { Slide } from '@/lib/canvas/types';
 
@@ -25,7 +28,7 @@ export const maxDuration = 20;
 const PICK_MAX = 14;   // parts the AI chooses from (the closest to the question)
 const PICK_MAX_TOGETHER = 24;   // (several questions: more to choose from)
 
-const SYSTEM = `You build ONE slide that helps answer a learner's question (10-14 year olds), from READY-MADE PARTS of the lesson.
+const SYSTEM = `You build ONE slide that helps answer a learner's question ({{ages}} year olds), from READY-MADE PARTS of the lesson.
 Each part has an id (T = text box, P = picture, V = chart or diagram) and says what it is.
 Pick 2 to 4 parts that together show the answer, and place them on the slide. You may add ONE short title (under 7 words)
 naming the idea. Never write other text: everything else comes from the parts. Leave room for the title at the top.
@@ -63,7 +66,9 @@ type Part = { id: string; kind: string; about: string; el: any };
 export async function POST(req: Request) {
   const limited = await rateLimit(req, 'board');
   if (limited) return limited;
-  const body = await req.json().catch(() => ({}));
+  // (the lesson asking: its profile fills the AI's instructions, lib/canvas/lessonContext.ts)
+  enterProfile(await lessonOf(req));
+  const body = await req.json().catch(() => null) ?? {};
   const question = String(body.question ?? '').replace(/\s+/g, ' ').trim().slice(0, 300);
   const parts: Part[] = (Array.isArray(body.parts) ? body.parts : []).slice(0, 160)
     .filter((p: any) => /^[TPV]\d{1,3}$/.test(String(p?.id)) && typeof p?.about === 'string' && p?.el && typeof p.el === 'object')
@@ -72,7 +77,7 @@ export async function POST(req: Request) {
   const questions: string[] = (Array.isArray(body.questions) ? body.questions : []).slice(0, 5).map((q: unknown) => String(q).replace(/\s+/g, ' ').trim().slice(0, 200)).filter(Boolean);
   const together = questions.length > 1;
 
-  const key = `compose:v1:${createHash('sha1').update(`${question.toLowerCase()}|${questions.join('|')}|${parts.map((p) => `${p.id}:${p.about}`).join('|')}`).digest('hex').slice(0, 16)}`;
+  const key = `compose:v1:${cacheTag(req)}${createHash('sha1').update(`${question.toLowerCase()}|${questions.join('|')}|${parts.map((p) => `${p.id}:${p.about}`).join('|')}`).digest('hex').slice(0, 16)}`;
   const cached = await getValue(key);
   if (cached) return NextResponse.json({ slide: JSON.parse(cached) });
 
@@ -123,6 +128,9 @@ function build(raw: any, parts: Part[], most: number): Slide | null {
     const deck = sanitizeDeck({ slides: [{ id: 'spot', background: { color: '#f8fafc' }, elements }] }, 'spot', 'ai');
     const slide = deck.slides[0];
     autoFix(slide);
+    // (a part covering one placed before it is left out: the AI lists them most useful first)
+    slide.elements = dropOverlaps(slide.elements);
+    if (slide.elements.filter((e) => e.id !== 'spot-title').length < 1) return null;
     return slide;
   } catch {
     return null;

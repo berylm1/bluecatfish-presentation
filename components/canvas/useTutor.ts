@@ -3,6 +3,8 @@
 import { useCallback, useRef, useState } from 'react';
 import { useSpeechQueue } from '@/components/hooks/useSpeechQueue';
 import { learnerHeaders } from '@/lib/learnerSession';
+import { plainMath } from '@/lib/mathText';
+import { noLongDashes } from '@/lib/dashes';
 import { reportError } from '@/lib/reportError';
 
 // Questions for the professor on the canvas page: the learner's question goes
@@ -16,13 +18,16 @@ export type Exchange = { id?: number; question: string; answer: string; done: bo
 
 const HISTORY_TURNS = 6;   // earlier questions the tutor still remembers
 
+// ({{…}}: the lesson's own teacher, ages and topic, filled in on the server: lib/canvas/lessonContext.ts.
+// Was "a marine biologist … the blue catfish invasion of the Chesapeake Bay" for every lesson: a fractions lesson got "I'm here for our blue catfish lesson")
 const VOICE =
-  'You are "Professor Marine", a marine biologist teaching 10 to 14 year olds about the blue catfish invasion of the Chesapeake Bay. ' +
+  'You are "{{teacher}}", a {{subject}} teacher for {{ages}} year olds, teaching about {{about}}. ' +
   // (1 or 2: the learner can ask for more, "Tell me more" (SHORT_ANSWERS, app/presentation/page.tsx). Was: 2 to 4)
   'Answer the question in 1 or 2 short spoken sentences, like a teacher answering a hand that went up mid-lesson ' +
   '(unless what follows asks for a different length). ' +
-  'Talk in the same voice as the slides: funny, a bit goofy, lightly sarcastic about the fish and the problem (never about the student), ' +
-  'with the facts kept exactly right. No lists or headings: this is read out loud. If you don\'t know, say so.';
+  'Talk in the same voice as the slides: funny, a bit goofy, lightly sarcastic about {{jokesAt}} (never about the student), ' +
+  'with the facts kept exactly right. No lists or headings: this is read out loud. Plain words only: no LaTeX, no markdown, ' +
+  'no backslashes or dollar signs; write a fraction like 1/2. If you don\'t know, say so.';
 
 /** lessonOnly: answer only from the study's lesson (its own words: static vs adaptive), not the knowledge base */
 export function useTutor(lessonOnly = false) {
@@ -59,7 +64,7 @@ export function useTutor(lessonOnly = false) {
         body: JSON.stringify({
           // A classmate's question says who asked it (was: answered as the learner's, "Good question, Kai")
           userText: opts.asker ? `${opts.asker} (a classmate) asks: ${question}` : question,
-          topic: 'Blue Catfish invasion in the Chesapeake Bay',
+          topic: '{{about}}',
           stream: true,
           useKnowledgeBase: true,
           ...(lessonRef.current ? { lessonOnly: true } : {}),
@@ -92,24 +97,33 @@ export function useTutor(lessonOnly = false) {
       const decoder = new TextDecoder();
       speech.beginStream();
       let full = '';
+      let raw = '';
       let pending = '';
+      // What's shown as it comes in: LaTeX the model slipped in ("\\(1/2\\)") as plain 1/2, and no long dashes. A dash at
+      // the very end waits for the words after it (they may not have arrived yet)
+      const shown = (t: string, over = false) => {
+        const tail = over ? '' : t.match(/\s*[—–]+\s*$/)?.[0] ?? '';
+        return noLongDashes(plainMath(tail ? t.slice(0, -tail.length) : t)) + tail;
+      };
       for (;;) {
         const { done, value } = await reader.read();
         if (done || seq !== askSeq.current) break;
         const chunk = decoder.decode(value, { stream: true });
-        full += chunk;
+        raw += chunk;
+        full = shown(raw);
         pending += chunk;
         setThinking(false);
         setExchange({ id: seq, question, asker: opts.asker, answer: full, done: false });
         // Speak each finished sentence right away
         let m;
         while ((m = pending.match(/^([\s\S]*?[.!?])(\s+)([\s\S]*)$/))) {
-          speech.enqueue(m[1]);
+          speech.enqueue(noLongDashes(plainMath(m[1])));
           pending = m[3];
         }
       }
-      if (seq === askSeq.current && pending.trim()) speech.enqueue(pending);
+      if (seq === askSeq.current && pending.trim()) speech.enqueue(noLongDashes(plainMath(pending)));
       speech.endStream();
+      full = shown(raw, true);
       // A classmate's line is remembered as theirs, not as something the learner said
       historyRef.current.push({ role: 'user', content: opts.remember ?? (opts.asker ? `(${opts.asker}, a classmate, said: ${question})` : question) }, { role: 'assistant', content: full });
       setExchange({ id: seq, question, asker: opts.asker, answer: full, done: true });

@@ -1,4 +1,5 @@
 import type { Slide } from './types';
+import { dropOverlaps } from './checks';
 import { sanitizeDeck } from './sanitize';
 import { autoFix, type LibImage } from './generate';
 
@@ -24,6 +25,7 @@ export function toBoard(raw: any, images: LibImage[]): Slide | null {
     const deck = sanitizeDeck({ slides: [{ id: 'board', background: { color: raw.board.background }, elements }] }, 'board', 'ai');
     const slide = deck.slides[0];
     autoFix(slide);
+    slide.elements = dropOverlaps(slide.elements);   // (a short text box on top of the visual: left out)
     return slide.elements.length >= 2 ? slide : null;
   } catch {
     return null;

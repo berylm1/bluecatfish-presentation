@@ -15,7 +15,12 @@ export function learnerSessionId(): string {
   return id;
 }
 
+// The lesson on this page (its id): sent along so the server's AI goes by that lesson's profile (who the teacher is,
+// what it's about: lib/canvas/lessonContext.ts). Not set: the blue catfish lesson
+let lessonId: string | null = null;
+export function setLearnerLesson(id: string | null): void { lessonId = id; }
+
 /** Headers for fetch calls to the rate-limited endpoints. */
 export function learnerHeaders(extra: Record<string, string> = {}): Record<string, string> {
-  return { ...extra, 'X-Learner-Session': learnerSessionId() };
+  return { ...extra, 'X-Learner-Session': learnerSessionId(), ...(lessonId ? { 'X-Lesson': lessonId } : {}) };
 }

@@ -71,7 +71,7 @@ export default function SavedVersions({ lessonId, slideNumber, onReplace, onCopy
                       <>
                         <div className="flex items-center gap-2 mb-2">
                           <span className="text-xs text-slate-600 flex-1">Copy a slide in (it goes after slide {slideNumber}), or go back to the whole version:</span>
-                          <button className="px-3 py-1.5 rounded-md bg-cyan-600 hover:bg-cyan-700 text-white text-sm font-semibold"
+                          <button className="px-3 py-1.5 rounded-md bg-slate-900 hover:bg-slate-700 text-white text-sm font-semibold"
                             onClick={() => { if (window.confirm(`Replace the draft with “${v.name}” (${open.deck!.slides.length} slides)? Undo works until you save.`)) onReplace(open.deck!, v.name); }}>
                             Replace the draft with it
                           </button>
@@ -84,7 +84,7 @@ export default function SavedVersions({ lessonId, slideNumber, onReplace, onCopy
                               </div>
                               <div className="flex items-center gap-1 text-xs">
                                 <span className="flex-1 text-slate-500 truncate">{i + 1}. {s.topic ?? ''}</span>
-                                <button className="px-2 py-0.5 rounded border border-cyan-600 text-cyan-800 bg-white hover:bg-cyan-50" onClick={() => onCopySlide(s, v.name)}>Copy in</button>
+                                <button className="px-2 py-0.5 rounded border border-slate-400 text-slate-900 bg-white hover:bg-slate-100" onClick={() => onCopySlide(s, v.name)}>Copy in</button>
                               </div>
                             </div>
                           ))}

@@ -34,7 +34,7 @@ export async function POST(request: NextRequest) {
   const limited = await rateLimit(request, 'learnerState');
   if (limited) return limited;
   try {
-    const body = (await request.json()) as Record<string, unknown>;
+    const body = ((await request.json().catch(() => null)) ?? {}) as Record<string, unknown>;
     const sessionId = body.session_id;
     const section = body.section;
     // Sessions are made by lib/signals.ts (s_<time>_<random>). Topics: was 0-9,
@@ -94,6 +94,6 @@ export async function POST(request: NextRequest) {
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     console.error('signals/state error:', message);
-    return NextResponse.json({ ok: false, error: message }, { status: 500 });
+    return NextResponse.json({ ok: false, error: 'Not saved this time.' }, { status: 500 });   // (was the error's own text: it's in the log above)
   }
 }

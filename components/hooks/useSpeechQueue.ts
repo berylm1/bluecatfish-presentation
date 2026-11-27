@@ -1,6 +1,7 @@
 import { useRef, useState } from 'react';
 import { learnerHeaders } from '@/lib/learnerSession';
 import { voiced } from '@/lib/voiceSpeed';
+import { TTS_WAIT_MS } from '@/lib/voice';
 
 async function fetchClip(text: string): Promise<Blob | null> {
   try {
@@ -8,6 +9,7 @@ async function fetchClip(text: string): Promise<Blob | null> {
       method: 'POST',
       headers: learnerHeaders({ 'Content-Type': 'application/json' }),
       body: JSON.stringify({ text }),
+      signal: AbortSignal.timeout(TTS_WAIT_MS),
     });
     if (!res.ok) return null;
     return await res.blob();

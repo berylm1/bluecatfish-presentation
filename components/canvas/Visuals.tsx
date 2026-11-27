@@ -1,6 +1,9 @@
 'use client';
 
 import type { ChartElement, DiagramElement } from '@/lib/canvas/types';
+import { typeset } from '@/lib/mathText';
+import { FractionBars, Graph, NumberLine, Worked } from './MathVisuals';
+import { AreaModel, Clocks, Money, Shapes, Table } from './MoreVisuals';
 
 /*
  * The drawn visuals: charts (bars, a line, a pie) and diagrams (steps, a
@@ -38,7 +41,7 @@ function BarChart({ el }: { el: ChartElement }) {
             borderRadius: '0.8cqh 0.8cqh 0 0', transformOrigin: 'bottom',
             animation: `bar-grow 700ms cubic-bezier(0.34, 1.3, 0.64, 1) ${200 + i * 220}ms both`,
           }} />
-          <div style={{ fontSize: '2.8cqh', fontWeight: 600, color: SOFT, textAlign: 'center', lineHeight: 1.15, marginTop: '0.6cqh', overflowWrap: 'anywhere' }}>{b.label}</div>
+          <div style={{ fontSize: '2.8cqh', fontWeight: 600, color: SOFT, textAlign: 'center', lineHeight: 1.15, marginTop: '0.6cqh', overflowWrap: 'anywhere' }}>{typeset(b.label)}</div>
         </div>
       ))}
     </div>
@@ -72,7 +75,7 @@ function LineChart({ el }: { el: ChartElement }) {
             borderRadius: '50%', background: '#fff', border: `0.5cqh solid ${b.color ?? color}`, animation: pop(i, 200 + (1000 * i) / Math.max(1, n - 1) * 0.8) }} />
           <span style={{ position: 'absolute', left: `${px(i)}%`, top: `${py(b.value)}%`, transform: 'translate(-50%, -150%)', fontSize: '3cqh', fontWeight: 800, color: INK, whiteSpace: 'nowrap',
             animation: pop(i, 300 + (1000 * i) / Math.max(1, n - 1) * 0.8) }}>{fmt(b.value, el.unit)}</span>
-          <span style={{ position: 'absolute', left: `${px(i)}%`, top: `${B + 3}%`, transform: 'translateX(-50%)', fontSize: '2.7cqh', fontWeight: 600, color: SOFT, whiteSpace: 'nowrap' }}>{b.label}</span>
+          <span style={{ position: 'absolute', left: `${px(i)}%`, top: `${B + 3}%`, transform: 'translateX(-50%)', fontSize: '2.7cqh', fontWeight: 600, color: SOFT, whiteSpace: 'nowrap' }}>{typeset(b.label)}</span>
         </div>
       ))}
     </div>
@@ -108,11 +111,21 @@ function PieChart({ el }: { el: ChartElement }) {
 
 /* ------------------------------------------------------------ diagrams */
 
-export function DiagramView({ el }: { el: DiagramElement }) {
+/** active: it's the box being said now (a worked example shows its lines as the professor gets to them) */
+export function DiagramView({ el, active = false }: { el: DiagramElement; active?: boolean }) {
   const label = el.alt ?? el.items.map((it) => [it.label, it.detail].filter(Boolean).join(': ')).join(el.kind === 'steps' ? ' → ' : ', ');
   return (
     <div role="img" aria-label={label} data-visual="diagram" style={{ position: 'absolute', inset: 0 }}>
-      {el.kind === 'cycle' ? <Cycle el={el} />
+      {el.kind === 'numberline' ? <NumberLine el={el} />
+        : el.kind === 'fraction' ? <FractionBars el={el} />
+        : el.kind === 'graph' ? <Graph el={el} />
+        : el.kind === 'worked' ? <Worked el={el} active={active} />
+        : el.kind === 'area' ? <AreaModel el={el} />
+        : el.kind === 'clock' ? <Clocks el={el} />
+        : el.kind === 'money' ? <Money el={el} />
+        : el.kind === 'shape' ? <Shapes el={el} />
+        : el.kind === 'table' ? <Table el={el} />
+        : el.kind === 'cycle' ? <Cycle el={el} />
         : el.kind === 'timeline' ? <Timeline el={el} />
           : el.kind === 'compare' ? <Compare el={el} />
             : el.kind === 'sizes' ? <Sizes el={el} />
@@ -134,8 +147,8 @@ function Steps({ el }: { el: DiagramElement }) {
         <div key={i} style={{ display: 'contents' }}>
           {i > 0 && <span aria-hidden style={{ fontSize: '6cqh', color: '#94a3b8', fontWeight: 900, animation: pop(i, 50) }}>→</span>}
           <div style={{ ...card(i, it.color), flex: 1, maxHeight: '100%', minHeight: '45%', display: 'flex', flexDirection: 'column', justifyContent: 'center', animation: pop(i) }}>
-            <div style={{ fontSize: '4cqh', fontWeight: 800, color: INK, lineHeight: 1.15 }}>{it.label}</div>
-            {it.detail && <div style={{ fontSize: '3cqh', color: SOFT, marginTop: '0.6cqh', lineHeight: 1.2 }}>{it.detail}</div>}
+            <div style={{ fontSize: '4cqh', fontWeight: 800, color: INK, lineHeight: 1.15 }}>{typeset(it.label)}</div>
+            {it.detail && <div style={{ fontSize: '3cqh', color: SOFT, marginTop: '0.6cqh', lineHeight: 1.2 }}>{typeset(it.detail)}</div>}
           </div>
         </div>
       ))}
@@ -170,8 +183,8 @@ function Cycle({ el }: { el: DiagramElement }) {
         return (
           <div key={k} style={{ ...card(k, it.color), position: 'absolute', left: `${p.x}%`, top: `${p.y}%`, transform: 'translate(-50%, -50%)',
             maxWidth: `${Math.max(18, 70 / n)}%`, animation: pop(k) }}>
-            <div style={{ fontSize: '3.6cqh', fontWeight: 800, color: INK, lineHeight: 1.15 }}>{it.label}</div>
-            {it.detail && <div style={{ fontSize: '2.7cqh', color: SOFT, marginTop: '0.3cqh', lineHeight: 1.2 }}>{it.detail}</div>}
+            <div style={{ fontSize: '3.6cqh', fontWeight: 800, color: INK, lineHeight: 1.15 }}>{typeset(it.label)}</div>
+            {it.detail && <div style={{ fontSize: '2.7cqh', color: SOFT, marginTop: '0.3cqh', lineHeight: 1.2 }}>{typeset(it.detail)}</div>}
           </div>
         );
       })}
@@ -195,8 +208,8 @@ function Timeline({ el }: { el: DiagramElement }) {
               background: it.color ?? PALETTE[i % PALETTE.length], border: '0.5cqh solid #fff', boxShadow: '0 0 0 0.3cqh #94a3b8', animation: pop(i, 400) }} />
             <div style={{ position: 'absolute', left: `${x(i)}%`, [up ? 'bottom' : 'top']: '57%', transform: 'translateX(-50%)', width: `${Math.min(30, 90 / n)}%`,
               textAlign: 'center', animation: pop(i, 500) }}>
-              <div style={{ fontSize: '4.4cqh', fontWeight: 900, color: it.color ?? PALETTE[i % PALETTE.length], lineHeight: 1.1 }}>{it.label}</div>
-              {it.detail && <div style={{ fontSize: '3cqh', color: SOFT, lineHeight: 1.2, marginTop: '0.4cqh' }}>{it.detail}</div>}
+              <div style={{ fontSize: '4.4cqh', fontWeight: 900, color: it.color ?? PALETTE[i % PALETTE.length], lineHeight: 1.1 }}>{typeset(it.label)}</div>
+              {it.detail && <div style={{ fontSize: '3cqh', color: SOFT, lineHeight: 1.2, marginTop: '0.4cqh' }}>{typeset(it.detail)}</div>}
             </div>
           </div>
         );
@@ -215,7 +228,7 @@ function Compare({ el }: { el: DiagramElement }) {
       ))}
       {el.items.map((it, i) => [it.label, it.detail ?? ''].map((t, j) => (
         <div key={`${i}-${j}`} style={{ fontSize: '3.6cqh', color: INK, background: j ? '#f1f5f9' : '#eff6ff', borderRadius: '1cqh', padding: '1.4cqh 1.6cqh',
-          lineHeight: 1.2, fontWeight: j ? 500 : 700, animation: pop(i + j * 0.5, 350) }}>{t}</div>
+          lineHeight: 1.2, fontWeight: j ? 500 : 700, animation: pop(i + j * 0.5, 350) }}>{typeset(t)}</div>
       )))}
     </div>
   );
@@ -232,7 +245,7 @@ function Sizes({ el }: { el: DiagramElement }) {
           <div key={i} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', height: '100%', justifyContent: 'flex-end', minWidth: 0, flex: 1 }}>
             <div style={{ height: `${Math.max(8, share * 66)}%`, aspectRatio: '1', borderRadius: '50%', background: it.color ?? PALETTE[i % PALETTE.length],
               opacity: 0.9, transformOrigin: 'bottom', animation: pop(i, 200) }} />
-            <div style={{ fontSize: '3cqh', fontWeight: 800, color: INK, marginTop: '0.6cqh', textAlign: 'center', lineHeight: 1.1 }}>{it.label}</div>
+            <div style={{ fontSize: '3cqh', fontWeight: 800, color: INK, marginTop: '0.6cqh', textAlign: 'center', lineHeight: 1.1 }}>{typeset(it.label)}</div>
             {(it.value !== undefined || it.detail) && (
               <div style={{ fontSize: '2.5cqh', color: SOFT, textAlign: 'center', lineHeight: 1.15 }}>{it.detail ?? fmt(it.value!, el.unit)}</div>
             )}

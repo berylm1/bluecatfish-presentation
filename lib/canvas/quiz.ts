@@ -1,4 +1,6 @@
 import type { Deck, QuizQuestion } from './types';
+import { enterProfile } from './lessonContext';
+import { profileOf } from './profile';
 import { chat, knowledgeExcerpts, STYLE } from './ai';
 import { spokenText, shownWords } from './queue';
 import { quiz as cleanQuiz } from './sanitize';
@@ -29,7 +31,7 @@ const numbered = (qs: QuizQuestion[]) =>
 /** New questions from the lesson (not repeating `avoid`). */
 async function write(deck: Deck, count: number, avoid: QuizQuestion[]): Promise<QuizQuestion[]> {
   const out = JSON.parse(await chat(
-    `${STYLE}\nWrite ${count} multiple-choice quiz questions for the end of this lesson, for 10-14 year olds. ` +
+    `${STYLE}\nWrite ${count} multiple-choice quiz questions for the end of this lesson, for {{ages}} year olds. ` +
       'Each asks about one main idea the lesson TEACHES (nothing it doesn\'t say), in plain words, under 20 words. ' +
       '4 short choices, exactly one right; the wrong ones believable (common mix-ups), not silly; no "all of the above". ' +
       'Spread them over the whole lesson. "why": one short sentence giving the reason or a fact from the lesson that backs the answer (not the answer said again). ' +
@@ -47,7 +49,7 @@ async function check(deck: Deck, qs: QuizQuestion[]): Promise<{ kept: QuizQuesti
   if (!qs.length) return { kept: [], dropped: [] };
   const excerpts = await knowledgeExcerpts(`${deck.title} ${qs.map((q) => `${q.q} ${q.choices[q.answer]}`).join(' ')}`.slice(0, 2000), 8);
   const out = JSON.parse(await chat(
-    'You check end-of-lesson quiz questions for 10-14 year olds. For each numbered question: "ok" only if the choice marked right IS right ' +
+    'You check end-of-lesson quiz questions for {{ages}} year olds. For each numbered question: "ok" only if the choice marked right IS right ' +
       '(by the lesson and the knowledge base excerpts), no other choice is also right, and the lesson teaches it. Otherwise "bad", with a short reason. ' +
       'Reply as JSON: {"items":[{"n":1,"verdict":"ok|bad","why":"..."}]}',
     `LESSON:\n${lessonText(deck)}\n\nKNOWLEDGE BASE EXCERPTS:\n${excerpts.map((e, i) => `[${i + 1}] ${e.content}`).join('\n') || '(none found)'}\n\nQUESTIONS:\n${numbered(qs)}`,
@@ -76,6 +78,7 @@ export async function refreshQuiz(deck: Deck): Promise<{ questions: QuizQuestion
   const { kept, dropped } = await check(deck, current);
   let added = 0;
   if (kept.length < MIN_POOL) {
+  enterProfile(profileOf(deck));   // (the AI's instructions: this lesson's teacher and topic)
     const fresh = await check(deck, await write(deck, POOL - kept.length, kept));
     kept.push(...fresh.kept);
     added = fresh.kept.length;

@@ -5,7 +5,8 @@ import type { Slide, SlideElement, TextElement, TextStyle } from '@/lib/canvas/t
 import { ChartView, DiagramView } from './Visuals';
 import ActivityView, { type ActivityMistake, type FinnEvent, type FinnMove } from './Activity';
 import { planMorph, sameBase, type MorphPlan } from '@/lib/canvas/morph';
-import { contentRect } from '@/lib/canvas/laser';
+import { contentRect, pictureStyle } from '@/lib/canvas/laser';
+import { typeset } from '@/lib/mathText';
 import type { Pointer } from '@/lib/canvas/types';
 
 // Font sizes are % of the slide height (container query units), so text keeps
@@ -62,7 +63,7 @@ function FitText({ el }: { el: TextElement }) {
         whiteSpace: 'pre-wrap',
       }}
     >
-      {el.text}
+      {typeset(el.text)}
     </div>
   );
 }
@@ -77,7 +78,7 @@ function LaserDot({ el, p, imgRef }: { el: SlideElement; p: Pointer; imgRef: Rea
   const img = imgRef.current;
   const box = img?.parentElement?.getBoundingClientRect();
   const r = el.type === 'image' && img && box
-    ? contentRect(box.width, box.height, img.naturalWidth, img.naturalHeight, el.fit ?? 'contain')
+    ? contentRect(box.width, box.height, img.naturalWidth, img.naturalHeight, el.fit ?? 'contain', el.focus, el.zoom)
     : { x: 0, y: 0, w: 100, h: 100 };
   useLayoutEffect(() => { if (el.type === 'image' && img && !img.complete) img.addEventListener('load', () => rerender((n) => n + 1), { once: true }); }, [el.type, img]);
   return (
@@ -98,7 +99,7 @@ function LaserDot({ el, p, imgRef }: { el: SlideElement; p: Pointer; imgRef: Rea
 }
 
 function ElementView({ el, active, laser, dim = 1, interactive = false, onActivityDone, activityHint, solvedActivities, revealedActivities, settledActivities, activitySounds, onActivityMistake, finnMoves, onFinn, activityGuides, yourTurn }: {
-  el: SlideElement; active: boolean; laser?: Pointer | null; dim?: number; interactive?: boolean; onActivityDone?: (id: string) => void; activityHint?: number;
+  el: SlideElement; active: boolean; laser?: Pointer | null; dim?: number; interactive?: boolean; onActivityDone?: (id: string, shown?: boolean) => void; activityHint?: number;
   solvedActivities?: ReadonlySet<string>; settledActivities?: ReadonlySet<string>; activitySounds?: boolean;
   /** Skipped boxes: drawn again, solved (the answers shown) */
   revealedActivities?: ReadonlySet<string>;
@@ -137,25 +138,34 @@ function ElementView({ el, active, laser, dim = 1, interactive = false, onActivi
       ) : el.type === 'chart' ? (
         <ChartView el={el} />
       ) : el.type === 'diagram' ? (
-        <DiagramView el={el} />
+        <DiagramView el={el} active={active} />
       ) : el.type === 'activity' ? (
         // a fresh start whenever the box itself changes (the editor)
-        <ActivityView key={JSON.stringify([el.kind, el.items, el.groups, el.slider, el.src, !!revealedActivities?.has(el.id)])} el={el} interactive={interactive} onDone={() => onActivityDone?.(el.id)} hintNonce={activityHint}
+        <ActivityView key={JSON.stringify([el.kind, el.items, el.groups, el.slider, el.src, !!revealedActivities?.has(el.id)])} el={el} interactive={interactive} onDone={(shown) => onActivityDone?.(el.id, shown)} hintNonce={activityHint}
           solved={solvedActivities?.has(el.id)} quiet={settledActivities?.has(el.id)} sounds={activitySounds}
           onMistake={(m) => onActivityMistake?.(el.id, m)}
           finnMove={finnMoves?.[el.id] ?? null} onFinn={(e) => onFinn?.(el.id, e)} guide={activityGuides?.[el.id]} turn={yourTurn === el.id} />
       ) : (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img
-          ref={imgRef}
-          src={el.src}
-          alt={decorative ? '' : el.alt ?? ''}
-          aria-hidden={decorative || undefined}
-          draggable={false}
-          style={{ width: '100%', height: '100%', objectFit: el.fit ?? 'contain', borderRadius: 'inherit', pointerEvents: 'none' }}
-        />
+        // (its own clipping box: a picture zoomed in on a part stays inside its place)
+        <span style={{ position: 'absolute', inset: 0, overflow: 'hidden', borderRadius: 'inherit', display: 'block' }}>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            ref={imgRef}
+            src={el.src}
+            alt={decorative ? '' : el.alt ?? ''}
+            aria-hidden={decorative || undefined}
+            draggable={false}
+            style={{ width: '100%', height: '100%', ...pictureStyle(el), borderRadius: 'inherit', pointerEvents: 'none' }}
+          />
+        </span>
       )}
       {el.type === 'image' && el.caption?.trim() && !el.captionOff && <Caption text={el.caption.trim()} />}
+      {el.type === 'image' && el.credit && (
+        <span data-credit title={el.credit} style={{ position: 'absolute', right: '0.6cqh', top: '0.6cqh', zIndex: 4, maxWidth: '92%', padding: '0.2cqh 0.8cqh', borderRadius: '0.7cqh',
+          background: 'rgba(8, 20, 35, 0.6)', color: 'rgba(255,255,255,0.92)', fontSize: '1.5cqh', lineHeight: 1.3, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', pointerEvents: 'none' }}>
+          {el.credit}
+        </span>
+      )}
       {laser && <LaserDot el={el} p={laser} imgRef={imgRef} />}
     </div>
   );
@@ -195,8 +205,10 @@ function Content({ el }: { el: SlideElement }) {
   return (
     <>
       {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img src={el.src} alt="" draggable={false}
-        style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: el.fit ?? 'contain', borderRadius: 'inherit', pointerEvents: 'none' }} />
+      <span style={{ position: 'absolute', inset: 0, overflow: 'hidden', borderRadius: 'inherit', display: 'block' }}>
+        <img src={el.src} alt="" draggable={false}
+          style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', ...pictureStyle(el), borderRadius: 'inherit', pointerEvents: 'none' }} />
+      </span>
       {/* the caption goes along with its picture (was: gone during the morph, then back) */}
       {el.caption?.trim() && !el.captionOff && <Caption text={el.caption.trim()} />}
     </>
@@ -371,7 +383,7 @@ function SlideCanvas({
   /** Hands-on boxes can be used (the lesson); elsewhere they're drawn as they start */
   interactive?: boolean;
   /** A hands-on box was finished */
-  onActivityDone?: (elementId: string) => void;
+  onActivityDone?: (elementId: string, shown?: boolean) => void;
   /** Bump to show hands-on boxes' example hand again (the learner seems stuck) */
   activityHint?: number;
   /** Hands-on boxes already done (read when a box is drawn: one drawn again comes back finished) */

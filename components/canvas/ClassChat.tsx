@@ -1,6 +1,8 @@
 'use client';
 
 import Icon from '@/components/Icon';
+import { teacherInitials, teacherName, teacherPictureNow } from '@/lib/teacher';
+import { typeset } from '@/lib/mathText';
 
 import { useEffect, useRef, useState } from 'react';
 import { splitSentences, sentenceStops } from './useDeckPlayer';
@@ -26,10 +28,11 @@ export type ChatEntry =
 
 // Professor Marine is a crab (public/avatars/professor-marine.png); false: his initials
 const PROFESSOR_PICTURE = true;
-const PROFESSOR = { name: 'Professor Marine', short: 'PM', color: '#0891b2' };
+// (the name: the lesson's teacher, lib/teacher.ts)
+const PROFESSOR_COLOR = '#0891b2';
 
 export function speakerOf(who: Speaker, learnerName: string) {
-  if (who === 'professor') return PROFESSOR;
+  if (who === 'professor') return { name: teacherName(), short: teacherInitials(), color: PROFESSOR_COLOR };
   if (who === 'you') return { name: learnerName || 'You', short: (learnerName || 'You').slice(0, 2).toUpperCase(), color: '#22d3ee' };
   const c = CLASSMATES[who];
   return { name: c.name, short: c.name[0], color: c.color };
@@ -42,7 +45,7 @@ export function Avatar({ who, learnerName = '', size = 28, speaking = false }: {
       style={{ width: size, height: size, background: s.color, fontSize: size * 0.4 }}>
       {/* (the professor's and the classmates' pictures; the learner keeps their initials. Was: initials for all) */}
       {/* eslint-disable-next-line @next/next/no-img-element */}
-      {who === 'you' || (who === 'professor' && !PROFESSOR_PICTURE) ? s.short : <img src={`/avatars/${who === 'professor' ? 'professor-marine' : who}.png`} alt="" width={size} height={size} className="rounded-full w-full h-full object-cover" />}
+      {who === 'you' || (who === 'professor' && (!PROFESSOR_PICTURE || !teacherPictureNow())) ? s.short : <img src={who === 'professor' ? teacherPictureNow() : `/avatars/${who}.png`} alt="" width={size} height={size} className="rounded-full w-full h-full object-cover" />}
     </span>
   );
 }
@@ -67,8 +70,8 @@ function LiveText({ text, getAudio }: { text: string; getAudio?: () => HTMLAudio
     tick();
     return () => cancelAnimationFrame(raf);
   }, [text, getAudio]);
-  if (!getAudio) return <>{text}</>;
-  return <>{sentences.map((s, i) => <span key={i} className={i === current ? 'text-white' : i < current ? 'text-white/50' : 'text-white/65'}>{s}</span>)}</>;
+  if (!getAudio) return <>{typeset(text)}</>;
+  return <>{sentences.map((s, i) => <span key={i} className={i === current ? 'text-white' : i < current ? 'text-white/50' : 'text-white/65'}>{typeset(s)}</span>)}</>;
 }
 
 export default function ClassChat({ entries, learnerName, liveSlide, getAudio, thinking, speaking, onSend, onClose, closeLabel = 'Hide the chat', className = '', solid = false, mates = true, compact = false }: {
@@ -129,7 +132,7 @@ export default function ClassChat({ entries, learnerName, liveSlide, getAudio, t
       <header className={`flex items-center gap-2 border-b border-white/10 ${compact ? 'px-2 py-1.5' : 'px-3 py-2.5'}`}>
         <h2 className="font-semibold text-sm flex-1">Class chat</h2>
         {/* who's in the class (a ring on whoever is talking) */}
-        <div className="flex -space-x-1.5" aria-label={mates ? 'In the class: Professor Marine, you, Maya, Finn and Leo' : 'In the class: Professor Marine and you'}>
+        <div className="flex -space-x-1.5" aria-label={mates ? `In the class: ${teacherName()}, you, Maya, Finn and Leo` : `In the class: ${teacherName()} and you`}>
           {(['professor', 'you', ...(mates ? CLASSMATE_IDS : [])] as Speaker[]).map((w) => <Avatar key={w} who={w} learnerName={learnerName} size={22} speaking={speaking === w} />)}
         </div>
         {onClose && <button className="ml-1 w-7 h-7 rounded-full hover:bg-white/10 text-white/60 hover:text-white" onClick={onClose} aria-label={closeLabel} title={closeLabel}><Icon name="close" /></button>}
@@ -155,10 +158,10 @@ export default function ClassChat({ entries, learnerName, liveSlide, getAudio, t
                 </button>
                 {shown && lines.length > 0 && (
                   <div className="px-2.5 pb-2 flex flex-col gap-1.5">
-                    {live && open.has(e.id) && e.lines.slice(0, -1).map((l) => <p key={l.key} className="text-white/55">{l.text}</p>)}
+                    {live && open.has(e.id) && e.lines.slice(0, -1).map((l) => <p key={l.key} className="text-white/55">{typeset(l.text)}</p>)}
                     {lines.map((l, i) => (
                       <p key={l.key} className={live ? '' : 'text-white/60'}>
-                        {live && i === lines.length - 1 ? <LiveText text={l.text} getAudio={getAudio} /> : l.text}
+                        {live && i === lines.length - 1 ? <LiveText text={l.text} getAudio={getAudio} /> : typeset(l.text)}
                       </p>
                     ))}
                   </div>
@@ -175,7 +178,7 @@ export default function ClassChat({ entries, learnerName, liveSlide, getAudio, t
               <Avatar who={who} learnerName={learnerName} size={26} />
               <div className={`max-w-[85%] rounded-2xl px-3 py-2 ${mine ? 'bg-cyan-500/90 text-slate-950 rounded-br-md' : 'bg-white/10 rounded-bl-md'}`}>
                 {!mine && <div className="text-[12px] font-semibold mb-0.5" style={{ color: who === 'professor' ? '#67e8f9' : s.color }}>{s.name}{e.kind === 'line' && e.to && <span className="font-normal text-white/50"> → {e.to}</span>}</div>}
-                {text || <span className="inline-flex gap-1 py-1" aria-label="thinking"><Dot /><Dot d={150} /><Dot d={300} /></span>}
+                {typeset(text) || <span className="inline-flex gap-1 py-1" aria-label="thinking"><Dot /><Dot d={150} /><Dot d={300} /></span>}
               </div>
             </div>
           );

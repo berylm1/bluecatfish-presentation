@@ -28,7 +28,7 @@ export async function GET(req: Request) {
 }
 
 export async function DELETE(req: Request) {
-  const { lesson, slug } = await req.json().catch(() => ({}));
+  const { lesson, slug } = await req.json().catch(() => null) ?? {};
   if (!isLessonId(lesson) || typeof slug !== 'string' || !/^[a-z0-9-]{1,60}$/.test(slug)) return NextResponse.json({ error: 'Bad version' }, { status: 400 });
   // (not the version the study plays: /studyResults picks another first; was: deleted, and the study quietly fell back to the live lesson)
   // (either study's)

@@ -16,7 +16,7 @@ export type TogetherEntry = {
   /** Its answer slide (the bank), or null (the learner's question, answered live) */
   from: Slide | null;
   /** A picture for it (the learner's live-answered question) */
-  picture?: { url: string; description: string } | null;
+  picture?: { url: string; description: string; credit?: string; creditUrl?: string } | null;
 };
 
 export const TOGETHER_ID = 'together';
@@ -65,7 +65,7 @@ export function togetherSlide(entries: TogetherEntry[], title = entries.length >
       elements.push(fitText({ id: ids.label, type: 'text', text: `${e.who}: ${e.q}`, style: 'caption', x: ax, y: ay, w: aw, h: labelH, color: '#475569', bold: true, silent: true } as TextElement, 2));
     }
     const { points, media: fromMedia } = pieces(e.from);
-    const media: SlideElement | null = fromMedia ?? (e.picture ? { id: '', type: 'image', src: e.picture.url, alt: e.picture.description, x: 0, y: 0, w: 1, h: 1, fit: 'contain' } as ImageElement : null);
+    const media: SlideElement | null = fromMedia ?? (e.picture ? { id: '', type: 'image', src: e.picture.url, alt: e.picture.description, x: 0, y: 0, w: 1, h: 1, fit: 'contain', ...(e.picture.credit ? { credit: e.picture.credit, creditUrl: e.picture.creditUrl } : {}) } as ImageElement : null);
     const cy = ay + labelH + (labelH ? 1 : 0);
     const ch = ah - labelH - (labelH ? 1 : 0);
     // (the learner's live answer: room for its words, written in as they come)

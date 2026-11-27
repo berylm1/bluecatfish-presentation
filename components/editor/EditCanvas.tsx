@@ -5,6 +5,7 @@ import SlideCanvas from '@/components/canvas/SlideCanvas';
 import type { Slide, SlideElement } from '@/lib/canvas/types';
 import { contentRect } from '@/lib/canvas/laser';
 import { answerState } from '@/lib/canvas/aiFields';
+import Icon, { type IconName } from '@/components/Icon';
 
 // The slide being edited: the real renderer underneath, and on top a box per
 // element that can be clicked, dragged and resized. Positions stay in percent.
@@ -30,13 +31,23 @@ export default function EditCanvas({
   warnIds,
   placing,
   onPlace,
+  width,
+  onDuplicate,
+  onDelete,
+  onLayer,
 }: {
+  /** How wide the slide is drawn (the page fits it to the room there is) */
+  width?: string;
+  /** The little toolbar on the selected box */
+  onDuplicate?: () => void;
+  onDelete?: () => void;
+  onLayer?: (dir: 1 | -1) => void;
   slide: Slide;
   selected: string | null;
   onSelect: (id: string | null) => void;
   /** group: one undo step per drag */
   onChange: (id: string, patch: Partial<SlideElement>, group: string) => void;
-  onDropImage: (img: { url: string; description: string }, x: number, y: number) => void;
+  onDropImage: (img: { url: string; description: string; credit?: string; creditUrl?: string }, x: number, y: number) => void;
   onEditText: () => void;
   warnIds: Set<string>;
   /** Placing a laser mark on this element: the next click on it puts the mark there */
@@ -108,7 +119,7 @@ export default function EditCanvas({
     if (el.type !== 'image') return { x: 0, y: 0, w: 100, h: 100 };
     const img = wrapRef.current?.querySelector<HTMLImageElement>(`[data-element-id="${CSS.escape(el.id)}"] img`);
     const box = img?.parentElement?.getBoundingClientRect();
-    return img && box ? contentRect(box.width, box.height, img.naturalWidth, img.naturalHeight, el.fit ?? 'contain') : { x: 0, y: 0, w: 100, h: 100 };
+    return img && box ? contentRect(box.width, box.height, img.naturalWidth, img.naturalHeight, el.fit ?? 'contain', el.focus, el.zoom) : { x: 0, y: 0, w: 100, h: 100 };
   };
   const placeAt = (e: React.PointerEvent, el: SlideElement) => {
     e.stopPropagation();
@@ -130,6 +141,27 @@ export default function EditCanvas({
     onPlace?.(round(((bx - r.x) / r.w) * 100), round(((by - r.y) / r.h) * 100));
   };
 
+  // Where the selected box's toolbar sits: above it, below it, or to a side, the first of those that is on the slide
+  // and not over another box (was: always above, on top of whatever was there, often the slide's title)
+  const toolbarPlace = (el: SlideElement): React.CSSProperties => {
+    const w = wrapRef.current?.getBoundingClientRect();
+    const tw = w ? (176 / w.width) * 100 : 22, th = w ? (40 / w.height) * 100 : 8;   // the toolbar's size, in % of the slide
+    const others = slide.elements.filter((o) => o.id !== el.id && !(o.type === 'image' && o.silent && o.w * o.h > 6000));   // (not a background picture)
+    const free = (x: number, y: number) => x >= 0 && y >= 0 && x + tw <= 100 && y + th <= 100
+      && !others.some((o) => x < o.x + o.w && x + tw > o.x && y < o.y + o.h && y + th > o.y);
+    const left = el.x, right = el.x + el.w - tw;
+    const spots: [number, number, React.CSSProperties][] = [
+      [left, el.y - th, { bottom: 'calc(100% + 6px)', left: 0 }], [right, el.y - th, { bottom: 'calc(100% + 6px)', right: 0 }],
+      [left, el.y + el.h, { top: 'calc(100% + 6px)', left: 0 }], [right, el.y + el.h, { top: 'calc(100% + 6px)', right: 0 }],
+      [el.x + el.w, el.y, { left: 'calc(100% + 6px)', top: 0 }], [el.x - tw, el.y, { right: 'calc(100% + 6px)', top: 0 }],
+    ];
+    const hit = spots.find(([x, y]) => free(x, y));
+    if (hit) return hit[2];
+    // nowhere clear: above if there's room on the slide, else below, else inside its top corner
+    return el.y >= th ? { bottom: 'calc(100% + 6px)', ...(el.x + el.w / 2 > 70 ? { right: 0 } : { left: 0 }) }
+      : el.y + el.h <= 100 - th ? { top: 'calc(100% + 6px)', ...(el.x + el.w / 2 > 70 ? { right: 0 } : { left: 0 }) } : { top: 18, right: 18 };
+  };
+
   // Front-most first, so clicks land on what's on top
   const ordered = [...slide.elements].sort((a, b) => (a.z ?? 1) - (b.z ?? 1));
 
@@ -137,7 +169,7 @@ export default function EditCanvas({
     <div
       ref={wrapRef}
       className="relative select-none"
-      style={{ width: 'min(100%, calc((100vh - 190px) * 16 / 9))' }}
+      style={{ width: width ?? 'min(100%, calc((100vh - 190px) * 16 / 9))' }}
       onPointerDown={() => onSelect(null)}
       onDragOver={(e) => { if (e.dataTransfer.types.includes(IMAGE_DRAG_TYPE)) e.preventDefault(); }}
       onDrop={onDrop}
@@ -159,37 +191,37 @@ export default function EditCanvas({
                 boxShadow: warnIds.has(el.id) ? 'inset 0 0 0 2px rgba(245, 158, 11, 0.8)' : undefined,
               }}
             >
-              {el.silent && (
-                <span className="absolute -top-0.5 -left-0.5 px-1 rounded-br bg-slate-700/70 text-[10px] text-white pointer-events-none">silent</span>
+              {el.silent && !isSel && (
+                <span className="absolute -top-0.5 -left-0.5 px-1 rounded-br bg-slate-700/70 text-[11px] text-white pointer-events-none hidden group-hover:block">silent</span>
               )}
               {/* Written by the AI (spoken words or plain version): a faint dashed purple outline and a tag */}
               {(el.sayByAI || el.plainByAI) && (
                 <>
                   {!isSel && <span className="absolute inset-0 rounded-sm border border-dashed border-violet-500/60 pointer-events-none" />}
                   <span
-                    className="absolute -top-0.5 -right-0.5 px-1 rounded-bl bg-violet-600/75 text-[10px] text-white pointer-events-none"
+                    className="absolute -top-0.5 -right-0.5 px-1 rounded-bl bg-violet-600/80 text-[11px] text-white pointer-events-none flex items-center gap-0.5"
                     title={`AI-written: ${[el.sayByAI && 'spoken words', el.plainByAI && 'plain version'].filter(Boolean).join(' and ')}`}
                   >
-                    ✨ AI
+                    <Icon name="sparkle" size={11} /> AI
                   </span>
                 </>
               )}
               {/* A picture that needs a description (the AI writes its words, caption and laser marks from it) */}
               {el.type === 'image' && !el.alt?.trim() && (!el.silent || ((el.z ?? 1) > 0 && el.w * el.h >= 100)) && (
-                <span className="absolute bottom-0 left-4 px-1 rounded-t bg-amber-500 text-[10px] font-semibold text-white pointer-events-none" data-no-description
-                  title="No description: select it and press ✨ Describe it with AI (or ✨ Describe all at the top)">
-                  🖼 No description
+                <span className="absolute bottom-0 left-4 px-1 rounded-t bg-amber-500 text-[11px] font-semibold text-white pointer-events-none" data-no-description
+                  title="No description: select it and press Describe it with AI (or Describe all at the top)">
+                  No description
                 </span>
               )}
               {/* A hands-on box whose answers the knowledge base doesn't back up, or that the AI fixed */}
               {el.type === 'activity' && answerState(el) === 'flagged' && (
-                <span className="absolute bottom-0 left-4 px-1 rounded-t bg-amber-500 text-[10px] font-semibold text-white pointer-events-none" data-answer-flag
+                <span className="absolute bottom-0 left-4 px-1 rounded-t bg-amber-500 text-[11px] font-semibold text-white pointer-events-none" data-answer-flag
                   title={`Check the answers: ${(el.answerCheck?.notes ?? []).join('; ')}`}>
-                  ⚠ Check answers
+                  Check answers
                 </span>
               )}
               {el.type === 'activity' && answerState(el) === 'fixed' && (
-                <span className="absolute bottom-0 left-4 px-1 rounded-t bg-emerald-600 text-[10px] font-semibold text-white pointer-events-none" data-answer-fixed
+                <span className="absolute bottom-0 left-4 px-1 rounded-t bg-emerald-600 text-[11px] font-semibold text-white pointer-events-none" data-answer-fixed
                   title={`The AI fixed: ${(el.answerCheck?.fixed ?? []).join('; ')}`}>
                   ✓ AI fixed answers
                 </span>
@@ -198,13 +230,29 @@ export default function EditCanvas({
               {isSel && (el.pointers ?? []).map((m, i) => {
                 const r = picRect(el);
                 return (
-                  <span key={i} className="absolute w-4 h-4 -ml-2 -mt-2 rounded-full bg-red-500 border-2 border-white text-[9px] font-bold text-white flex items-center justify-center pointer-events-none shadow"
+                  <span key={i} className="absolute w-5 h-5 -ml-2.5 -mt-2.5 rounded-full bg-red-500 border-2 border-white text-[11px] font-bold text-white flex items-center justify-center pointer-events-none shadow"
                     style={{ left: `${r.x + (m.x / 100) * r.w}%`, top: `${r.y + (m.y / 100) * r.h}%`, zIndex: 2 }}>{i + 1}</span>
                 );
               })}
               {placing?.elId === el.id && (
                 <div className="absolute inset-0 cursor-crosshair bg-red-500/10 outline outline-2 outline-dashed outline-red-500" style={{ zIndex: 3 }}
                   onPointerDown={(e) => placeAt(e, el)} title={el.type === 'activity' ? 'Click where the spot goes on the picture' : 'Click where the laser should point'} />
+              )}
+              {/* The selected box's own little toolbar (was: Duplicate / Delete / Bring forward in the side panel) */}
+              {isSel && !placing && onDelete && (
+                <div data-box-toolbar onPointerDown={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()}
+                  className="absolute flex items-center gap-0.5 p-0.5 rounded-md bg-slate-900 text-white shadow-lg cursor-default"
+                  style={{ zIndex: 5, ...toolbarPlace(el) }}>
+                  {([
+                    ['copy', 'Duplicate (Ctrl+D)', onDuplicate],
+                    ['layer-up', 'Bring forward', () => onLayer?.(1)],
+                    ['layer-down', 'Send backward', () => onLayer?.(-1)],
+                  ] as [IconName, string, (() => void) | undefined][]).map(([icon, label, act]) => (
+                    <button key={icon} type="button" title={label} aria-label={label} onClick={act} className="w-7 h-7 rounded hover:bg-white/20 flex items-center justify-center"><Icon name={icon} size={16} /></button>
+                  ))}
+                  <span className="w-px h-5 bg-white/25 mx-0.5" />
+                  <button type="button" title="Delete (Del)" aria-label="Delete" onClick={onDelete} className="w-7 h-7 rounded hover:bg-red-500 flex items-center justify-center"><Icon name="trash" size={16} /></button>
+                </div>
               )}
               {isSel && HANDLES.map((h) => (
                 <span

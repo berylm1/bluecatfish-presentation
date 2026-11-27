@@ -1,4 +1,6 @@
 import type { Deck, PictureIdea, Slide, SlideElement } from './types';
+import { enterProfile } from './lessonContext';
+import { profileOf } from './profile';
 import { chat, SOL, STYLE } from './ai';
 import { autoFix, formatGuide, imagesFor, problems, type LibImage } from './generate';
 import { pictureBasis, slideBasis } from './aiFields';
@@ -186,6 +188,7 @@ async function layOut(deck: Deck, slide: Slide, picked: { img: LibImage; why: st
  * are checked next time). Each slide checked: its idea, or none and why (shown in the editor's Check tab).
  */
 export async function checkPictures(deck: Deck, slides: Slide[], candidates: Map<string, LibImage[]>, deadline = Infinity): Promise<Checked[]> {
+  enterProfile(profileOf(deck));   // (the AI's instructions: this lesson's teacher and topic)
   const from = new Map(slides.map((s) => [s.id, pictureBasis(s)]));
   const out: Checked[] = [];
   const result = (slide: Slide, idea: PictureIdea | null, note: string) => out.push({ slide, from: from.get(slide.id)!, idea, note });
@@ -223,6 +226,7 @@ export async function pictureCheck(deck: Deck, slide: Slide, candidates: LibImag
 
 /** Pictures for one slide (checkPictures for just it), or null */
 export async function pictureIdea(deck: Deck, slide: Slide, candidates: LibImage[]): Promise<PictureIdea | null> {
+  enterProfile(profileOf(deck));   // (the AI's instructions: this lesson's teacher and topic)
   return (await pictureCheck(deck, slide, candidates)).idea;
 }
 
@@ -249,6 +253,7 @@ export function searchPhrases(slide: Slide): string[] {
  * the slide may show it again. Up to 8 per slide; never one already on the slide.
  */
 export async function pictureCandidates(deck: Deck, slides: Slide[], taken: Set<string> = lessonPictures(deck)): Promise<Map<string, LibImage[]>> {
+  enterProfile(profileOf(deck));   // (the AI's instructions: this lesson's teacher and topic)
   const searches = slides.flatMap((s) => searchPhrases(s).map((q) => ({ slide: s, q })));
   const found = await Promise.all(searches.map((x) => imagesFor(x.q, 4)));
   const onSlide = (s: Slide, url: string) => s.elements.some((e) => (e.type === 'image' || e.type === 'activity') && e.src === url);

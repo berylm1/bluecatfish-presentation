@@ -7,6 +7,7 @@ import { currentAudio } from '@/lib/canvas/aiFields';
 import { introClip, isIntroId } from '@/lib/canvas/intro';
 import { learnerHeaders } from '@/lib/learnerSession';
 import { voiced, voiceSpeedNow } from '@/lib/voiceSpeed';
+import { TTS_WAIT_MS } from '@/lib/voice';
 
 const AFTER_SLIDE_MS = 1500;    // pause after a slide's last clip before moving on
 const SILENT_SLIDE_MS = 5000;   // a slide with nothing to say stays up this long
@@ -67,12 +68,16 @@ type Pos = {
 };
 
 // Clips without a pre-made file are spoken live through /api/tts and cached per text
+/** A clip playing with no progress this long is let go (said live instead, or skipped) */
+const STALL_MS = 15_000;
+
 export async function liveClip(text: string, simple: boolean): Promise<string | null> {
   try {
     const res = await fetch('/api/tts', {
       method: 'POST',
       headers: learnerHeaders({ 'Content-Type': 'application/json' }),
       body: JSON.stringify({ text, simple }),
+      signal: AbortSignal.timeout(TTS_WAIT_MS),   // (the whole download: no answer in time → the words as captions, and on)
     });
     if (!res.ok) return null;
     return URL.createObjectURL(await res.blob());
@@ -124,6 +129,8 @@ export function useDeckPlayer(
   const textRef = useRef('');                          // words of the clip playing now
   const holdRef = useRef<(() => void) | null>(null);   // set while finishing a sentence: runs once stopped
   const finishTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const afterSlideRef = useRef<{ slide: number; due: number } | null>(null);   // the pause after a slide: which slide, and when it ends
+  const stallTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);   // the playing clip's watchdog (STALL_MS)
   const pausedRef = useRef(false);   // pause asked for; a clip that finishes loading waits
   // Interrupted mid-sentence: where that sentence began. The learner talked
   // over it (it was ducked), so resume plays it again from there.
@@ -171,6 +178,7 @@ export function useDeckPlayer(
     // again when they come back to it (⏮, "go back"): start after it then
     const s = deck.slides[slide];
     const heard = !!s && introsHeard.current.has(s.id) && isIntroId(orders[slide]?.[0]?.id);
+    afterSlideRef.current = null;   // (a slide gone to on purpose: its pause is a fresh one, also when it's the same slide again)
     // Past the last slide = the end; the position moves there too, so a clip
     // still finishing can't carry the deck on
     setPos((p) => ({ slide: Math.min(slide, deck.slides.length), clip: heard ? 1 : 0, mode: 'normal', token: p.token + 1 }));
@@ -195,11 +203,18 @@ export function useDeckPlayer(
       audioRef.current = null;
       if (finishTimerRef.current) clearInterval(finishTimerRef.current);
       finishTimerRef.current = null;
+      if (stallTimerRef.current) clearInterval(stallTimerRef.current);
+      stallTimerRef.current = null;
       holdRef.current = null;
     };
 
     if (pos.clip >= order.length) {
       setStatus('waiting');
+      // The pause after a slide ends when it was first due: Next pressed again during it doesn't start it over.
+      // (was: each press did, so Next pressed about once a second kept the lesson on the slide for as long as
+      // it went on: a test script did just that, and a child hammering Next would too)
+      const wait = (order.length ? AFTER_SLIDE_MS : SILENT_SLIDE_MS) + Math.max(0, Math.min(3000, optsRef.current.extraPause?.() ?? 0));
+      if (afterSlideRef.current?.slide !== pos.slide) afterSlideRef.current = { slide: pos.slide, due: Date.now() + wait };
       timerRef.current = setTimeout(() => {
         const to = pos.slide + 1;
         if (optsRef.current.holdBefore?.(pos.slide, to)) {
@@ -209,9 +224,10 @@ export function useDeckPlayer(
         } else {
           goToSlide(to);
         }
-      }, (order.length ? AFTER_SLIDE_MS : SILENT_SLIDE_MS) + Math.max(0, Math.min(3000, optsRef.current.extraPause?.() ?? 0)));
+      }, Math.max(0, afterSlideRef.current.due - Date.now()));
       return () => { cancelled = true; clear(); };
     }
+    afterSlideRef.current = null;   // (back in the slide: its next pause is a fresh one)
 
     const el = order[pos.clip];
     // A hands-on box jumped to quietly (the learner already gets it): no instructions, their turn at once
@@ -258,6 +274,23 @@ export function useDeckPlayer(
         timerRef.current = setTimeout(next, Math.min(12000, Math.max(2000, (words * 350) / voiceSpeedNow())));
         return;
       }
+      // A clip that plays but goes nowhere (its file never arrives, and no error comes either): after STALL_MS it's
+      // let go, like one that failed. Was: the lesson waited for it for good, and Next stayed off (the part was never heard)
+      const watch = (a: HTMLAudioElement, onStall: () => void) => {
+        if (stallTimerRef.current) clearInterval(stallTimerRef.current);
+        let at = -1, since = Date.now();
+        stallTimerRef.current = setInterval(() => {
+          if (cancelled || audioRef.current !== a) return;
+          // (paused, by the learner or the page, or over: not stuck)
+          if (a.paused || a.ended || pausedRef.current || a.currentTime !== at) { at = a.currentTime; since = Date.now(); return; }
+          if (Date.now() - since < STALL_MS) return;
+          if (stallTimerRef.current) clearInterval(stallTimerRef.current);
+          stallTimerRef.current = null;
+          a.onended = null; a.onerror = null;
+          a.pause(); a.removeAttribute('src'); a.load();   // (lets go of the download that never came)
+          onStall();
+        }, 1000);
+      };
       // A stored clip that won't load (deleted, moved): the same words said live instead (was: skipped, so the
       // professor jumped over that part in silence). Once; a live clip that fails goes on as before.
       let fellBack = false;
@@ -271,6 +304,7 @@ export function useDeckPlayer(
           audioRef.current = again;
           again.onended = next;
           again.onerror = next;
+          watch(again, next);
           if (pausedRef.current) return;
           again.play().then(() => { if (!cancelled) setStatus('playing'); }).catch(next);
         });
@@ -280,6 +314,7 @@ export function useDeckPlayer(
       audioRef.current = audio;
       audio.onended = next;
       audio.onerror = stored ? sayLive : next;
+      watch(audio, stored ? sayLive : next);
       // Paused (or interrupted) while the clip was loading: keep it ready, don't start it
       if (pausedRef.current) return;
       // (a clip that can't load also rejects play(): onerror says it live; any other refusal goes on)

@@ -1,4 +1,5 @@
 import type { ActivityElement } from './types';
+import { currentProfile } from './lessonContext';
 import { chat, knowledgeExcerpts } from './ai';
 import { answerBasis } from './aiFields';
 
@@ -19,6 +20,9 @@ function statements(el: ActivityElement): string[] {
     case 'sort': return items.map((it, i) => `${i + 1}. "${it.text}" belongs in the group "${el.groups?.[it.group ?? 0] ?? '?'}"`);
     case 'cards': return items.map((it, i) => `${i + 1}. Card "${it.text}" → answer on the back: "${it.back ?? ''}"`);
     case 'hotspots': return items.map((it, i) => `${i + 1}. Spot "${it.text}" → "${it.back ?? ''}"`);
+    case 'answer': return items.map((it, i) => `${i + 1}. Question "${it.text}" → the right answer (alternatives after "|" all count): "${it.back ?? ''}"`);
+    case 'blank': return items.map((it, i) => `${i + 1}. Sentence with a blank "${it.text}" → the word that goes in it (alternatives after "|" all count): "${it.back ?? ''}"`);
+    case 'match': return items.map((it, i) => `${i + 1}. "${it.text}" goes with "${it.back ?? ''}"`);
     case 'order': return [`1. The right order is: ${items.map((it) => it.text).join(' → ')}`];
     case 'slider': return (el.slider?.stops ?? []).map((st, i) => `${i + 1}. ${el.slider?.label ?? 'Value'} ${st.at}${el.slider?.unit ? ` ${el.slider.unit}` : ''}: "${st.text}"`);
   }
@@ -35,11 +39,19 @@ export async function checkActivityAnswers(el: ActivityElement, about: { lesson?
   const lines = statements(el);
   const excerpts = await knowledgeExcerpts(`${about.topic ?? ''} ${el.prompt ?? ''} ${lines.join(' ')}`.slice(0, 2000), 8);
   const groups = el.groups ?? [];
+  // A lesson that goes by general knowledge (math, skills, well-known topics: its profile's "Facts come from"), or one
+  // whose sources have nothing on this: the key is checked against what's well established, working the sums out.
+  // (was: with no excerpts every answer came back "not confirmed by the sources", on a lesson that has none: seen on a
+  // speed-and-graphs lesson made by the wizard)
+  const general = currentProfile().sourceMode !== 'sources' && (currentProfile().sourceMode === 'general' || !excerpts.length);
   const out = JSON.parse(await chat(
-    'You check the ANSWER KEY of a hands-on activity in a lesson for 10-14 year olds against excerpts from the lesson\'s knowledge base. ' +
+    'You check the ANSWER KEY of a hands-on activity in a lesson for {{ages}} year olds' + (general
+      ? '. This lesson goes by general knowledge, so check each numbered statement against well-established knowledge of the subject, working out any calculation yourself' +
+        ' (and against the excerpts, where there are any): "right" if it is correct; "wrong" if it is not; "unsure" only if it is genuinely doubtful or a matter of opinion. '
+      : ' against excerpts from the lesson\'s knowledge base. ' +
       'For each numbered statement: "right" if the excerpts support it (or it is plainly true and nothing contradicts it); ' +
-      '"wrong" if the excerpts say otherwise; "unsure" if the excerpts don\'t cover it and it is doubtful. ' +
-      'For "wrong", give the fix from the excerpts: for a sort, "group" = the right group name copied exactly from the list; ' +
+      '"wrong" if the excerpts say otherwise; "unsure" if the excerpts don\'t cover it and it is doubtful. ') +
+      'For "wrong", give the fix' + (general ? '' : ' from the excerpts') + ': for a sort, "group" = the right group name copied exactly from the list; ' +
       'for a card or spot, "back" = the right answer (short); for a slider stop, "text" = the right text (short); for an order, "order" = the right order as statement item names. ' +
       'Judge the answers only, not the wording. Reply as JSON: {"items":[{"n":1,"verdict":"right|wrong|unsure","why":"short reason","fix":{"group":"..."}}],"order":["item", "..."]}',
     `Lesson: ${about.lesson ?? ''}\nTopic: ${about.topic ?? ''}\nActivity (${el.kind}): ${el.prompt ?? ''}${el.kind === 'sort' ? `\nGroups: ${groups.join(' | ')}` : ''}\n\n` +
@@ -82,7 +94,7 @@ export async function checkActivityAnswers(el: ActivityElement, about: { lesson?
         const g = groups.findIndex((name) => name.trim().toLowerCase() === String(fix.group ?? '').trim().toLowerCase());
         const it = tItems[i];
         if (g >= 0 && g !== it.group) change = { says: `${what}: moved to "${groups[g]}" (was "${groups[it.group ?? 0]}")`, suggest: `move it to "${groups[g]}"`, apply: () => { it.group = g; } };
-      } else if ((el.kind === 'cards' || el.kind === 'hotspots') && tItems?.[i] && short(fix.back, 160)) {
+      } else if ((el.kind === 'cards' || el.kind === 'hotspots' || el.kind === 'answer' || el.kind === 'blank' || el.kind === 'match') && tItems?.[i] && short(fix.back, 160)) {
         const it = tItems[i], back = short(fix.back, 160);
         change = { says: `${what}: answer changed to "${back}" (was "${it.back ?? ''}")`, suggest: `make the answer "${back}"`, apply: () => { it.back = back; } };
       } else if (el.kind === 'slider' && tSlider?.stops[i] && short(fix.text, 120)) {

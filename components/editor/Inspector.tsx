@@ -1,5 +1,6 @@
 'use client';
 
+import Icon from '@/components/Icon';
 import { useEffect, useRef, useState } from 'react';
 import type { ActivityElement, ChartElement, DeckBank, DeckQuiz, DiagramElement, Slide, SlideElement, TextStyle } from '@/lib/canvas/types';
 import SlideCanvas from '@/components/canvas/SlideCanvas';
@@ -7,16 +8,18 @@ import { CLASSMATES } from '@/lib/classmates';
 import type { Warning } from '@/lib/canvas/checks';
 import { answerBasis, BANK_PER_TOPIC, QUIZ_ASKED, QUIZ_POOL } from '@/lib/canvas/aiFields';
 import { activityReady } from '@/lib/canvas/queue';
+import { parseFraction } from '@/lib/mathText';
+import Section from './Section';
 
 // Right-hand panel: everything about the selected element, or the slide when
 // nothing is selected.
 
-const label = 'block text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1';
-const input = 'w-full px-2 py-1.5 rounded-md border border-slate-300 bg-white text-sm text-slate-900 outline-none focus:border-cyan-500';
-const small = 'px-2 py-1 rounded-md border border-slate-300 bg-white hover:bg-slate-50 text-xs text-slate-700';
+const label = 'block text-xs font-bold text-slate-700 mb-1';
+const input = 'w-full px-2 py-1.5 rounded-md border border-slate-400 bg-white text-sm text-slate-900 outline-none focus:border-slate-400 focus:ring-1 focus:ring-cyan-600';
+const small = 'px-2 py-1 rounded-md border border-slate-400 bg-white hover:bg-slate-100 text-xs font-semibold text-slate-800';
 
 function AiBadge({ show }: { show?: boolean }) {
-  return show ? <span className="ml-2 px-1.5 py-0.5 rounded bg-violet-100 text-violet-700 text-[10px] font-semibold normal-case tracking-normal">AI-written</span> : null;
+  return show ? <span className="ml-2 px-1.5 py-0.5 rounded bg-violet-100 text-violet-700 text-xs font-semibold normal-case tracking-normal">AI-written</span> : null;
 }
 
 function Num({ value, onChange, min = 0, max = 100 }: { value: number; onChange: (v: number) => void; min?: number; max?: number }) {
@@ -37,16 +40,13 @@ export function ElementInspector({
   el,
   order,
   update,
-  onDelete,
-  onDuplicate,
-  onLayer,
   warnings,
   placing,
   onPlacePointer,
   about,
 }: {
   el: SlideElement;
-  /** The lesson and the slide's topic (context for "✨ Describe it") */
+  /** The lesson and the slide's topic (context for "Describe it") */
   about?: { lessonTitle?: string; topic?: string };
   /** The laser mark being placed (click on the slide to put it), if any */
   placing?: number | null;
@@ -54,19 +54,13 @@ export function ElementInspector({
   /** 1-based speaking position, or null when silent */
   order: number | null;
   update: (patch: Partial<SlideElement>) => void;
-  onDelete: () => void;
-  onDuplicate: () => void;
-  onLayer: (dir: 1 | -1) => void;
   warnings: Warning[];
 }) {
   return (
-    <div className="flex flex-col gap-4">
-      <div className="flex items-center justify-between">
-        <h3 className="font-bold text-slate-900">{el.type === 'text' ? 'Text box' : el.type === 'chart' ? 'Chart' : el.type === 'diagram' ? 'Diagram' : el.type === 'activity' ? 'Hands-on box' : 'Image'}</h3>
-        <div className="flex gap-1">
-          <button className={small} onClick={onDuplicate} title="Duplicate (Ctrl+D)">Duplicate</button>
-          <button className={`${small} text-red-600`} onClick={onDelete} title="Delete (Del)">Delete</button>
-        </div>
+    <div className="flex flex-col gap-1" data-inspector="element">
+      {/* (stays at the top while the parts below scroll: what's selected, and Duplicate / Delete) */}
+      <div className="sticky -top-3 z-10 -mx-3 -mt-3 px-3 py-2 bg-white border-b border-slate-200 flex items-center justify-between">
+        <h3 className="font-bold text-slate-900 text-base">{el.type === 'text' ? 'Text box' : el.type === 'chart' ? 'Chart' : el.type === 'diagram' ? 'Diagram' : el.type === 'activity' ? 'Hands-on box' : 'Picture'}</h3>
       </div>
 
       {/* (the answer check's ⚠ is in the hands-on box's own panel below) */}
@@ -74,6 +68,7 @@ export function ElementInspector({
         <p key={i} className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-md px-2 py-1.5">⚠ {w.message}</p>
       ))}
 
+      <Section id={`el-shows-${el.type}`} icon="pencil" title="What it shows" hint={el.type === 'text' ? 'The words, their style and color' : el.type === 'image' ? 'Description, caption, credit, fit' : 'What’s in it'} open>
       {el.type === 'text' ? (
         <>
           <div>
@@ -96,9 +91,9 @@ export function ElementInspector({
             </div>
           </div>
           <div className="flex items-center gap-2">
-            <button className={`${small} ${el.bold ? 'bg-slate-800 text-white hover:bg-slate-700' : ''}`} onClick={() => update({ bold: !el.bold || undefined })}><b>B</b></button>
+            <button className={`${small} ${el.bold ? '!bg-slate-900 !text-white hover:!bg-slate-700' : ''}`} onClick={() => update({ bold: !el.bold || undefined })}><b>B</b></button>
             {(['left', 'center', 'right'] as const).map((a) => (
-              <button key={a} className={`${small} ${(el.align ?? 'left') === a ? 'bg-slate-800 text-white hover:bg-slate-700' : ''}`} onClick={() => update({ align: a })}>
+              <button key={a} className={`${small} ${(el.align ?? 'left') === a ? '!bg-slate-900 !text-white hover:!bg-slate-700' : ''}`} onClick={() => update({ align: a })}>
                 {a === 'left' ? '⯇ Left' : a === 'center' ? 'Center' : 'Right ⯈'}
               </button>
             ))}
@@ -181,16 +176,44 @@ export function ElementInspector({
             </label>
           </div>
           <div>
+            <label className={label}>Credit</label>
+            <input className={input} value={el.credit ?? ''} maxLength={200} placeholder="Who made it and its licence (a picture from outside)"
+              onChange={(e) => update({ credit: e.target.value || undefined, ...(e.target.value ? {} : { creditUrl: undefined }) })} />
+            <p className="text-xs text-slate-400 mt-0.5">Shown small on the picture and listed on the sources page. Filled in for free pictures (Pictures → Find free).</p>
+          </div>
+          <div>
             <label className={label}>Fit</label>
             <select className={input} value={el.fit ?? 'contain'} onChange={(e) => update({ fit: e.target.value as 'cover' | 'contain' })}>
               <option value="contain">Show the whole image</option>
               <option value="cover">Fill the box (crops edges)</option>
             </select>
           </div>
+          {/* Crop: zoom in on a part of the picture, and which part stays in view */}
+          <div data-crop>
+            <label className={label}><Icon name="crop" size={13} /> Zoom in on a part</label>
+            <div className="flex items-center gap-2">
+              <input type="range" min={1} max={4} step={0.05} value={el.zoom ?? 1} aria-label="Zoom" className="flex-1 accent-slate-900"
+                onChange={(e) => update({ zoom: Number(e.target.value) > 1.01 ? Number(e.target.value) : undefined } as Partial<SlideElement>)} />
+              <span className="w-10 text-xs text-slate-600 tabular-nums text-right">{(el.zoom ?? 1).toFixed(1)}×</span>
+            </div>
+            {((el.zoom ?? 1) > 1 || el.fit === 'cover') && (
+              <div className="grid grid-cols-2 gap-2 mt-1.5">
+                {(['x', 'y'] as const).map((k) => (
+                  <label key={k} className="text-xs text-slate-600">{k === 'x' ? 'Left ↔ right' : 'Top ↕ bottom'}
+                    <input type="range" min={0} max={100} step={1} value={el.focus?.[k] ?? 50} aria-label={k === 'x' ? 'Which part, left to right' : 'Which part, top to bottom'} className="w-full accent-slate-900"
+                      onChange={(e) => update({ focus: { x: el.focus?.x ?? 50, y: el.focus?.y ?? 50, [k]: Number(e.target.value) } } as Partial<SlideElement>)} />
+                  </label>
+                ))}
+              </div>
+            )}
+            {(el.zoom || el.focus) && <button className="text-xs underline text-slate-600 mt-1" onClick={() => update({ zoom: undefined, focus: undefined } as Partial<SlideElement>)}>Show the whole picture again</button>}
+            <p className="text-xs text-slate-400 mt-0.5">Laser-pointer marks move with the picture.</p>
+          </div>
         </>
       )}
+      </Section>
 
-      <div className="border-t border-slate-200 pt-4 flex flex-col gap-3">
+      <Section id="el-says" icon="speaker" title="What the professor says" hint={el.silent ? 'Silent: it doesn’t speak' : order ? `Speaks #${order} on this slide` : 'Spoken words and the simpler version'} open>
         <label className="flex items-center gap-2 text-sm text-slate-800">
           <input type="checkbox" checked={!!el.silent} onChange={(e) => update({ silent: e.target.checked || undefined })} />
           Silent {el.type === 'image' ? '(decoration: no audio, can sit behind text)' : '(titles, labels)'}
@@ -226,6 +249,12 @@ export function ElementInspector({
                 onChange={(e) => update({ plain: e.target.value || undefined, plainByAI: undefined })}
               />
             </div>
+          </>
+        )}
+      </Section>
+
+      {!el.silent && (
+        <Section id="el-order" icon="pointer" title="Speaking order and laser pointer" hint={`${el.queue ? `Queue ${el.queue}` : 'Reading order'}${el.type !== 'activity' ? ` · ${el.pointers?.length ?? 0} laser mark${el.pointers?.length === 1 ? '' : 's'}` : ''}`}>
             <div>
               <label className={label}>Queue number</label>
               <input
@@ -239,29 +268,21 @@ export function ElementInspector({
             </div>
             {/* (a hands-on box has its own spots to place; a laser on it would make no sense) */}
             {el.type !== 'activity' && <LaserMarks el={el} update={update} placing={placing ?? null} onPlace={onPlacePointer} />}
-          </>
-        )}
-        {el.silent && el.type !== 'activity' && (
-          <p className="text-xs text-slate-500">
-            🔴 No laser pointer: silent elements don’t speak, so there’s nothing for the dot to follow. Untick Silent to give it words (and laser marks).
-          </p>
-        )}
-      </div>
+        </Section>
+      )}
 
-      <div className="border-t border-slate-200 pt-4">
+      <Section id="el-place" icon="ruler" title="Size and position" hint={`At ${Math.round(el.x)}, ${Math.round(el.y)} · ${Math.round(el.w)} wide, ${Math.round(el.h)} tall`}>
+      <div>
         <label className={label}>Position and size (% of the slide)</label>
-        <div className="grid grid-cols-4 gap-1 text-[10px] text-slate-500">
+        <div className="grid grid-cols-4 gap-1 text-xs text-slate-500">
           <span>X</span><span>Y</span><span>Width</span><span>Height</span>
           <Num value={el.x} max={100 - el.w} onChange={(x) => update({ x })} />
           <Num value={el.y} max={100 - el.h} onChange={(y) => update({ y })} />
           <Num value={el.w} min={3} max={100 - el.x} onChange={(w) => update({ w })} />
           <Num value={el.h} min={3} max={100 - el.y} onChange={(h) => update({ h })} />
         </div>
-        <div className="flex gap-1 mt-2">
-          <button className={small} onClick={() => onLayer(1)}>Bring forward</button>
-          <button className={small} onClick={() => onLayer(-1)}>Send backward</button>
-        </div>
       </div>
+      </Section>
     </div>
   );
 }
@@ -309,8 +330,27 @@ export function SlideInspector({
   onQuiz: (change: (quiz: DeckQuiz | undefined) => DeckQuiz | undefined) => void;
 }) {
   return (
-    <div className="flex flex-col gap-4">
-      <h3 className="font-bold text-slate-900">Slide</h3>
+    <div className="flex flex-col gap-1" data-inspector="slide">
+      <div className="sticky -top-3 z-10 -mx-3 -mt-3 px-3 py-2 bg-white border-b border-slate-200">
+        <h3 className="font-bold text-slate-900 text-base">This slide</h3>
+        <p className="text-xs text-slate-600">Click a box on the slide to edit it. Drag to move it, pull its corners to resize.</p>
+      </div>
+      {warnings.length > 0 && (
+        <div className="flex flex-col gap-1.5" data-slide-checks>
+          {warnings.map((w, i) => (
+            <p key={i} className={`text-xs rounded-md px-2 py-1.5 border ${w.level === 'warn' ? 'text-amber-900 bg-amber-50 border-amber-300' : 'text-slate-700 bg-slate-50 border-slate-200'}`}>
+              {w.level === 'warn' ? '⚠' : 'ℹ'} {w.message}
+              {w.kind === 'space' && (
+                onGrowMedia && <button className="ml-1.5 underline text-slate-900 hover:text-slate-950" onClick={onGrowMedia}>⤢ Make them bigger</button>
+              )}
+              {w.kind === 'topic' && w.topic && (
+                <button className="ml-1.5 underline text-slate-900 hover:text-slate-950" onClick={() => update({ topic: w.topic, topicByAI: undefined })}>Use “{w.topic}”</button>
+              )}
+            </p>
+          ))}
+        </div>
+      )}
+      <Section id="slide-basics" icon="folder" title="Topic and background" hint={slide.topic?.trim() || 'No topic yet'} open>
       <div>
         <label className={label}>Topic <AiBadge show={slide.topicByAI} /></label>
         <input
@@ -354,27 +394,16 @@ export function SlideInspector({
           )}
         </div>
       </div>
-      {warnings.length > 0 && (
-        <div className="flex flex-col gap-1.5">
-          <label className={label}>Checks</label>
-          {warnings.map((w, i) => (
-            <p key={i} className={`text-xs rounded-md px-2 py-1.5 border ${w.level === 'warn' ? 'text-amber-800 bg-amber-50 border-amber-200' : 'text-slate-600 bg-slate-50 border-slate-200'}`}>
-              {w.level === 'warn' ? '⚠' : 'ℹ'} {w.message}
-              {w.kind === 'space' && (
-                onGrowMedia && <button className="ml-1.5 underline text-cyan-700 hover:text-cyan-600" onClick={onGrowMedia}>⤢ Make them bigger</button>
-              )}
-              {w.kind === 'topic' && w.topic && (
-                <button className="ml-1.5 underline text-cyan-700 hover:text-cyan-600" onClick={() => update({ topic: w.topic, topicByAI: undefined })}>Use “{w.topic}”</button>
-              )}
-            </p>
-          ))}
-        </div>
-      )}
-      <p className="text-xs text-slate-500">Click a box to edit it. Drag to move, pull the corners to resize. Drop images from the Images tab onto the slide.</p>
+      </Section>
 
-      {/* Lesson-wide, so it sits apart from the slide's own settings */}
-      <div className="border-t border-slate-200 pt-4">
-        <h3 className="font-bold text-slate-900 mb-2">Lesson</h3>
+      {/* Lesson-wide, so they sit apart from the slide's own settings (each folds: they're long) */}
+      {onBank && (
+        <Section id="slide-bank" icon="raised-hand" title="Class questions" hint={`What the classmates ask in “${slide.topic?.trim() || 'this topic'}”`}>
+          <BankSection bank={bank} topic={slide.topic?.trim() ?? ''} pending={bankPending ?? []} onBank={onBank} slides={slides} />
+        </Section>
+      )}
+      <Section id="lesson-end" icon="flag" title="The end of the lesson" hint="The recap the professor says, and the quiz">
+      <div>
         <label className={label}>End-of-lesson recap <AiBadge show={recapByAI} /></label>
         <textarea
           rows={5}
@@ -387,8 +416,8 @@ export function SlideInspector({
           {recapByAI ? 'Written by the AI: it is rewritten on each publish until you edit it.' : recap?.trim() ? 'Yours: publishing keeps it as it is.' : ''}
         </p>
         <QuizSection quiz={quiz} stale={quizStale} onQuiz={onQuiz} />
-        {onBank && <BankSection bank={bank} topic={slide.topic?.trim() ?? ''} pending={bankPending ?? []} onBank={onBank} slides={slides} />}
       </div>
+      </Section>
     </div>
   );
 }
@@ -411,8 +440,7 @@ function BankSection({ bank, topic, pending, onBank, slides = [] }: {
   const edit = (id: string, change: (q: DeckBank['questions'][number]) => DeckBank['questions'][number] | null) =>
     onBank((b) => b && { ...b, questions: b.questions.flatMap((q) => (q.id === id ? (change(q) ? [change(q)!] : []) : [q])) });
   return (
-    <div className="mt-4" data-bank-section>
-      <label className={label}>Class questions</label>
+    <div data-bank-section>
       <label className="flex items-center gap-2 text-sm text-slate-700">
         <input type="checkbox" checked={!off}
           onChange={(e) => onBank((b) => ({ questions: b?.questions ?? [], from: b?.from ?? {}, off: !e.target.checked || undefined }))} />
@@ -435,7 +463,7 @@ function BankSection({ bank, topic, pending, onBank, slides = [] }: {
                   return (
                     <li key={q.id} className="px-2 py-2 text-xs text-slate-700 flex flex-col gap-1.5" data-bank-question>
                       <div className="flex items-center gap-1.5">
-                        <span className="shrink-0 w-5 h-5 rounded-full text-white text-[10px] font-bold flex items-center justify-center" style={{ background: c.color }} title={`${c.name} asks it`}>{c.name[0]}</span>
+                        <span className="shrink-0 w-5 h-5 rounded-full text-white text-xs font-bold flex items-center justify-center" style={{ background: c.color }} title={`${c.name} asks it`}>{c.name[0]}</span>
                         <input className="flex-1 min-w-0 px-1.5 py-1 rounded border border-slate-200 text-xs" value={q.q} maxLength={200} aria-label="The question"
                           onChange={(e) => edit(q.id, (x) => ({ ...x, q: e.target.value, byAI: undefined }))} />
                         <button className="shrink-0 text-slate-400 hover:text-red-600" title="Take this question out" aria-label="Take this question out"
@@ -452,7 +480,7 @@ function BankSection({ bank, topic, pending, onBank, slides = [] }: {
                         </label>
                       )}
                       <details>
-                        <summary className="cursor-pointer text-slate-500">Answer slide {q.byAI ? '(✨ AI)' : ''}</summary>
+                        <summary className="cursor-pointer text-slate-500">Answer slide {q.byAI ? '(AI)' : ''}</summary>
                         <div className="mt-1 rounded border border-slate-200 overflow-hidden pointer-events-none"><SlideCanvas slide={q.slide} width="100%" /></div>
                         <p className="mt-1 text-slate-500">{q.slide.elements.map((e) => e.say?.trim()).filter(Boolean).join(' ')}</p>
                       </details>
@@ -536,7 +564,7 @@ function QuizSection({ quiz, stale, onQuiz }: { quiz?: DeckQuiz; stale?: boolean
  * Laser-pointer marks: when the professor says the phrase, a red dot points
  * at the spot. "Place" then a click on the slide puts the mark there.
  */
-/** "✨ Describe it": the AI looks at the picture and writes its description (an undoable edit, then yours). */
+/** "Describe it": the AI looks at the picture and writes its description (an undoable edit, then yours). */
 function DescribeButton({ src, hasText, big, about, onDescribed }: {
   src: string;
   hasText: boolean;
@@ -571,7 +599,7 @@ function DescribeButton({ src, hasText, big, about, onDescribed }: {
       <button className={big ? 'w-full mt-1.5 px-3 py-2 rounded-md bg-violet-600 hover:bg-violet-700 text-white text-sm font-semibold disabled:opacity-60' : 'text-xs text-violet-700 hover:underline disabled:opacity-50'}
         onClick={run} disabled={busy} data-describe-it
         title="The AI looks at the picture and writes what it shows (Ctrl+Z undoes it)">
-        {busy ? '✨ Looking at the picture…' : hasText ? '✨ Rewrite with AI' : big ? '✨ Describe it with AI' : '✨ Describe it'}
+        {busy ? 'Looking at the picture…' : hasText ? 'Rewrite with AI' : big ? 'Describe it with AI' : 'Describe it'}
       </button>
       {error && <p className="basis-full text-xs text-red-700 mt-1" role="alert">{error}</p>}
     </>
@@ -589,7 +617,7 @@ function LaserMarks({ el, update, placing, onPlace }: {
   const set = (next: typeof marks) => update({ pointers: next, pointersByAI: undefined });   // a person's marks: the AI leaves them alone
   return (
     <div>
-      <label className={label}>🔴 Laser pointer <AiBadge show={el.pointersByAI} /></label>
+      <label className={label}>Laser pointer <AiBadge show={el.pointersByAI} /></label>
       <p className="text-xs text-slate-500 mb-2">When the professor says a phrase, a red dot points at a spot{el.type === 'image' ? ' on the picture' : ''}.</p>
       {!marks.length && (
         <p className="text-xs text-slate-500 mb-2">
@@ -608,19 +636,19 @@ function LaserMarks({ el, update, placing, onPlace }: {
           return (
             <div key={i} className="flex flex-col gap-0.5">
               <div className="flex gap-1 items-center">
-                <span className="w-5 h-5 shrink-0 rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center">{i + 1}</span>
+                <span className="w-5 h-5 shrink-0 rounded-full bg-red-500 text-white text-xs font-bold flex items-center justify-center">{i + 1}</span>
                 <input
                   className={input}
                   value={m.word}
                   placeholder="Phrase from the spoken words"
                   onChange={(e) => set(marks.map((x, j) => (j === i ? { ...x, word: e.target.value } : x)))}
                 />
-                <button className={`${small} ${placing === i ? 'bg-red-500 text-white hover:bg-red-600' : ''}`} onClick={() => onPlace?.(placing === i ? null : i)}>
+                <button className={`${small} ${placing === i ? '!bg-red-500 !text-white hover:!bg-red-600' : ''}`} onClick={() => onPlace?.(placing === i ? null : i)}>
                   {placing === i ? 'Click the slide…' : 'Place'}
                 </button>
                 <button className={`${small} text-red-600`} onClick={() => { onPlace?.(null); set(marks.filter((_, j) => j !== i)); }} aria-label={`Remove mark ${i + 1}`}>✕</button>
               </div>
-              {!heard && <p className="text-[11px] text-amber-700 pl-6">The spoken words don’t contain this phrase, so the dot won’t show.</p>}
+              {!heard && <p className="text-xs text-amber-700 pl-6">The spoken words don’t contain this phrase, so the dot won’t show.</p>}
             </div>
           );
         })}
@@ -656,7 +684,7 @@ function LinesField({ id, title, hint, initial, rows = 5, onLines }: {
           setText(e.target.value);
           onLines(e.target.value.split('\n').map((l) => l.split(/\s*(?:\||→|->)\s*/).map((c) => c.trim())).filter((c) => c[0]));
         }} />
-      <p className="text-[11px] text-slate-500 mt-1">{hint}</p>
+      <p className="text-xs text-slate-500 mt-1">{hint}</p>
     </div>
   );
 }
@@ -668,6 +696,12 @@ const join = (...cols: (string | number | undefined)[]) => {
 };
 
 type Update = (patch: Partial<SlideElement>) => void;
+
+/** "3/4" or "1 1/2" as a number (a number line's point typed without its place) */
+const fractionValue = (s: string): number | undefined => {
+  const f = parseFraction(s ?? '');
+  return f ? f.whole + f.top / f.bottom : numOr(s);
+};
 
 function DiagramFields({ el, update }: { el: DiagramElement; update: Update }) {
   const set = (patch: Partial<DiagramElement>) => update(patch as Partial<SlideElement>);
@@ -681,8 +715,56 @@ function DiagramFields({ el, update }: { el: DiagramElement; update: Update }) {
           <option value="timeline">Timeline (label = when)</option>
           <option value="compare">Compare (two columns)</option>
           <option value="sizes">Sizes (circles by value)</option>
+          <option value="numberline">Number line (points on a line)</option>
+          <option value="fraction">Fraction bars (3/4 = 3 of 4 shaded)</option>
+          <option value="graph">Graph (points on x and y)</option>
+          <option value="worked">Worked example (one line at a time)</option>
+          <option value="area">Area model or array (rows by columns)</option>
+          <option value="clock">Clock faces (3:45)</option>
+          <option value="money">Coins and notes</option>
+          <option value="shape">Shapes and angles</option>
+          <option value="table">Table (rows and columns)</option>
         </select>
       </div>
+      {el.kind === 'numberline' && (
+        <div className="grid grid-cols-3 gap-2">
+          {([['from', 'From', 0], ['to', 'To', 1], ['parts', 'Parts per whole', 1]] as const).map(([k, name, dflt]) => (
+            <div key={k}>
+              <label className={label}>{name}</label>
+              <input className={input} type="number" value={el[k] ?? dflt} onChange={(e) => set({ [k]: e.target.value === '' ? undefined : Number(e.target.value) } as Partial<DiagramElement>)} />
+            </div>
+          ))}
+        </div>
+      )}
+      {el.kind === 'area' && (
+        <div className="grid grid-cols-3 gap-2">
+          {([['from', 'Rows', 3], ['to', 'Columns', 4], ['parts', 'Shaded', undefined]] as const).map(([k, name, dflt]) => (
+            <div key={k}>
+              <label className={label}>{name}</label>
+              <input className={input} type="number" min={k === 'parts' ? 0 : 1} max={k === 'parts' ? 900 : 30} placeholder={k === 'parts' ? 'all' : undefined} value={el[k] ?? dflt ?? ''} onChange={(e) => set({ [k]: e.target.value === '' ? undefined : Number(e.target.value) } as Partial<DiagramElement>)} />
+            </div>
+          ))}
+        </div>
+      )}
+      {el.kind === 'money' && (
+        <div>
+          <label className={label}>Written under them (the total)</label>
+          <input className={input} value={el.unit ?? ''} maxLength={12} placeholder="$1.35" onChange={(e) => set({ unit: e.target.value || undefined })} />
+        </div>
+      )}
+      {el.kind === 'graph' && (
+        <>
+          <div className="grid grid-cols-2 gap-2">
+            {[0, 1].map((i) => (
+              <input key={i} className={input} placeholder={i ? 'Up the side (y) is…' : 'Along the bottom (x) is…'} value={el.columns?.[i] ?? ''}
+                onChange={(e) => { const c: [string, string] = [el.columns?.[0] ?? '', el.columns?.[1] ?? '']; c[i] = e.target.value; set({ columns: c[0] || c[1] ? c : undefined }); }} />
+            ))}
+          </div>
+          <label className="flex items-center gap-2 text-xs text-slate-600">
+            <input type="checkbox" checked={!!el.connect} onChange={(e) => set({ connect: e.target.checked || undefined })} /> Join the points with a line
+          </label>
+        </>
+      )}
       {el.kind === 'compare' && (
         <div className="grid grid-cols-2 gap-2">
           {[0, 1].map((i) => (
@@ -692,11 +774,22 @@ function DiagramFields({ el, update }: { el: DiagramElement; update: Update }) {
         </div>
       )}
       <LinesField id="diagram-items" title="Items (one per line, up to 8)"
-        hint={el.kind === 'compare' ? 'Left | Right' : el.kind === 'sizes' ? 'Label | value | note' : el.kind === 'timeline' ? 'When | What happened' : 'Label | detail'}
-        initial={el.items.map((i) => (el.kind === 'sizes' ? join(i.label, i.value, i.detail) : join(i.label, i.detail))).join('\n')}
+        hint={el.kind === 'compare' ? 'Left | Right' : el.kind === 'sizes' ? 'Label | value | note' : el.kind === 'timeline' ? 'When | What happened'
+          : el.kind === 'numberline' ? 'What’s written (3/4) | where (0.75) | note' : el.kind === 'fraction' ? 'Fraction (3/4) | note'
+          : el.kind === 'graph' ? 'x | y | name (optional) | line (when there are two)' : el.kind === 'worked' ? 'The line of working | why'
+          : el.kind === 'area' ? 'What’s written under it (3 × 4 = 12)' : el.kind === 'clock' ? 'Time (3:45) | how it’s said' : el.kind === 'money' ? 'What’s on it (25¢, $5) | how many | note'
+          : el.kind === 'shape' ? 'Shape (triangle, square, circle, angle…) | note | degrees (for an angle)' : el.kind === 'table' ? 'One row per line, cells split by | (the first row is the header)' : 'Label | detail'}
+        initial={el.items.map((i) => (el.kind === 'sizes' || el.kind === 'numberline' ? join(i.label, i.value, i.detail)
+          : el.kind === 'money' ? join(i.label, i.value ?? 1, i.detail) : el.kind === 'shape' ? join(i.label, i.detail ?? (i.value !== undefined ? '' : undefined), i.value) : el.kind === 'table' ? i.label
+          : el.kind === 'graph' ? join(i.x, i.value, i.label === `(${i.x}, ${i.value})` ? (i.line ? '' : undefined) : i.label, i.line) : join(i.label, i.detail))).join('\n')}
         onLines={(lines) => set({
-          items: lines.slice(0, 8).map((c) => (el.kind === 'sizes'
+          items: lines.slice(0, el.kind === 'graph' ? 12 : 8).map((c) => (el.kind === 'sizes'
             ? { label: c[0], value: numOr(c[1]) ?? 1, detail: c[2] || undefined }
+            : el.kind === 'numberline' ? { label: c[0], value: numOr(c[1]) ?? fractionValue(c[0]) ?? 0, detail: c[2] || undefined }
+            : el.kind === 'money' ? { label: c[0], value: numOr(c[1]) ?? 1, detail: c[2] || undefined }
+            : el.kind === 'shape' ? { label: c[0], detail: c[1] || undefined, ...(numOr(c[2]) !== undefined ? { value: numOr(c[2]) } : {}) }
+            : el.kind === 'table' ? { label: c.join(' | ') }
+            : el.kind === 'graph' ? { x: numOr(c[0]) ?? 0, value: numOr(c[1]) ?? 0, label: c[2] || `(${numOr(c[0]) ?? 0}, ${numOr(c[1]) ?? 0})`, ...(c[3] ? { line: c[3] } : {}) }
             : { label: c[0], detail: c[1] || undefined })),
         })} />
       {el.kind === 'sizes' && (
@@ -730,9 +823,9 @@ function SpotRows({ el, set, placing, onPlace }: {
         {items.map((it, i) => (
           <div key={i} className="flex flex-col gap-1 border border-slate-200 rounded-md p-1.5">
             <div className="flex gap-1 items-center">
-              <span className="w-5 h-5 shrink-0 rounded-full bg-orange-500 text-white text-[10px] font-bold flex items-center justify-center">{i + 1}</span>
+              <span className="w-5 h-5 shrink-0 rounded-full bg-orange-500 text-white text-xs font-bold flex items-center justify-center">{i + 1}</span>
               <input className={input} value={it.text} placeholder="Name (Whiskers)" onChange={(e) => change(i, { text: e.target.value })} />
-              <button className={`${small} ${placing === i ? 'bg-orange-500 text-white hover:bg-orange-600' : ''}`} onClick={() => onPlace?.(placing === i ? null : i)}>
+              <button className={`${small} ${placing === i ? '!bg-orange-500 !text-white hover:!bg-orange-600' : ''}`} onClick={() => onPlace?.(placing === i ? null : i)}>
                 {placing === i ? 'Click the picture…' : 'Place'}
               </button>
               <button className={`${small} text-red-600`} aria-label={`Remove spot ${i + 1}`}
@@ -758,8 +851,8 @@ function ActivityFields({ el, update, placing = null, onPlace }: { el: ActivityE
   const items = el.items ?? [];
   return (
     <>
-      <p className="text-xs text-slate-600 bg-cyan-50 border border-cyan-200 rounded-md px-2 py-1.5">
-        🖐 A hands-on box. In the lesson the professor says its spoken words (what to do), then waits until the learner has done it
+      <p className="text-xs text-slate-600 bg-slate-100 border border-slate-300 rounded-md px-2 py-1.5">
+        A hands-on box. In the lesson the professor says its spoken words (what to do), then waits until the learner has done it
         (a pointing hand shows how). It should use what this slide teaches.
       </p>
       <div>
@@ -770,6 +863,9 @@ function ActivityFields({ el, update, placing = null, onPlace }: { el: ActivityE
           <option value="cards">Cards: guess, then flip to check</option>
           <option value="hotspots">Explore: tap spots on a picture</option>
           <option value="slider">Slider: move it and watch what changes</option>
+          <option value="answer">Type the answer: math, spelling, short facts</option>
+          <option value="blank">Fill in the blank: a sentence with a word missing</option>
+          <option value="match">Match the pairs: a word and what goes with it</option>
         </select>
       </div>
       <AnswerCheck el={el} set={set} />
@@ -797,6 +893,24 @@ function ActivityFields({ el, update, placing = null, onPlace }: { el: ActivityE
       {el.kind === 'cards' && (
         <LinesField id="act-cards" title="Cards (up to 8)" hint="Front (the question or guess) | Back (the answer)"
           initial={items.map((i) => join(i.text, i.back)).join('\n')} onLines={(l) => set({ items: l.slice(0, 8).map((c) => ({ text: c[0], back: c[1] || undefined })) })} />
+      )}
+      {el.kind === 'answer' && (
+        <LinesField id="act-answers" title="Questions (up to 8), each with its answer" hint="Question | Answer | another answer that counts… (3/4 and 0.75 count as the same anyway)"
+          initial={items.map((i) => join(i.text, ...(i.back ?? '').split('|').map((x) => x.trim()))).join('\n')}
+          onLines={(l) => set({ items: l.slice(0, 8).map((c) => ({ text: c[0], back: c.slice(1).filter(Boolean).join(' | ') || undefined })) })} />
+      )}
+      {el.kind === 'blank' && (
+        <>
+          <LinesField id="act-blanks" title="Sentences (up to 8), each with its missing word" hint="Sentence with ___ for the gap | the word | another that counts…"
+            initial={items.map((i) => join(i.text, ...(i.back ?? '').split('|').map((x) => x.trim()))).join('\n')}
+            onLines={(l) => set({ items: l.slice(0, 8).map((c) => ({ text: c[0], back: c.slice(1).filter(Boolean).join(' | ') || undefined })) })} />
+          <LinesField id="act-bank" title="Word bank: extra wrong words (optional)" hint="One per line. With some, learners tap a word; with none, they type it" rows={3}
+            initial={(el.groups ?? []).join('\n')} onLines={(l) => set({ groups: l.length ? l.slice(0, 8).map((c) => c[0]) : undefined })} />
+        </>
+      )}
+      {el.kind === 'match' && (
+        <LinesField id="act-pairs" title="Pairs (2 to 6)" hint="Left (the word) | Right (what goes with it)"
+          initial={items.map((i) => join(i.text, i.back)).join('\n')} onLines={(l) => set({ items: l.slice(0, 6).map((c) => ({ text: c[0], back: c[1] || undefined })) })} />
       )}
       {el.kind === 'hotspots' && (
         <>

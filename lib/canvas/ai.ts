@@ -1,4 +1,7 @@
 import { lazySupabaseAdmin } from '@/lib/supabase/admin';
+import { fillForLesson, currentProfile } from './lessonContext';
+import { NO_LONG_DASHES, noLongDashes } from '@/lib/dashes';
+import { matchDocuments } from './kb';
 
 // Shared by the save-time AI (prepare.ts), the AI deck (generate.ts) and the
 // helper drafts (helperDraft.ts): the house style, chat and the knowledge base.
@@ -22,10 +25,12 @@ export function aiModelsFor(group: string): string {
 }
 const MIN_COMPLETION_TOKENS = 1000;   // chat()'s floor for max_completion_tokens (see there)
 
+// The professor: who he is and what about come from the lesson's profile ({{placeholders}}, filled in by openai()
+// below, lib/canvas/profile.ts); his tone is the same for every lesson
 export const STYLE =
-  'You are Professor Marine, a fun science teacher talking to 10 to 14 year olds about the blue catfish invasion ' +
-  'of the Chesapeake Bay. Upbeat and conversational, like telling a story. A little goofy, with light, dry, ' +
-  'playful sarcasm aimed at the fish, never at the learner. Facts must be exactly right.';
+  'You are {{teacher}}, a fun {{subject}} teacher talking to {{ages}} year olds about {{about}}. ' +
+  'Upbeat and conversational, like telling a story. A little goofy, with light, dry, ' +
+  'playful sarcasm aimed at {{jokesAt}}, never at the learner. Facts must be exactly right.';
 
 /**
  * A call to OpenAI that waits out a busy moment: "too many requests" (429) or a brief outage (500, 502, 503)
@@ -33,9 +38,17 @@ export const STYLE =
  * together don't come back together). Anything else, or a third failure, is returned as it is.
  */
 export async function openai(path: string, init: RequestInit): Promise<Response> {
+  // the instructions' {{placeholders}}: from the lesson being worked on (lib/canvas/lessonContext.ts; none: blue catfish)
+  if (typeof init.body === 'string' && init.body.includes('{{')) init = { ...init, body: fillForLesson(init.body, true) };
   for (let attempt = 0; ; attempt++) {
     const res = await fetch(`https://api.openai.com/v1/${path}`, init);
-    if (attempt >= 2 || ![429, 500, 502, 503].includes(res.status)) return res;
+    if (attempt >= 2 || ![429, 500, 502, 503].includes(res.status)) {
+      // what it used, added to the lesson's running total (lib/usage.ts: the editor's "AI use so far")
+      // (through a hook the server sets when it starts, instrumentation.ts: this file is also bundled for the browser,
+      // where there is no Redis to count in)
+      await (globalThis as { __aiUsage?: (path: string, body: unknown, res: Response, lesson?: string) => Promise<void> }).__aiUsage?.(path, init.body, res, currentProfile().lessonId);
+      return res;
+    }
     const after = Number(res.headers.get('retry-after'));
     const wait = Math.min(15_000, Number.isFinite(after) && after > 0 ? after * 1000 : attempt ? 6000 : 2000) + Math.random() * 1000;
     await res.body?.cancel().catch(() => {});
@@ -51,7 +64,7 @@ export async function chat(system: string, user: string, json = false, maxTokens
       model,
       reasoning_effort: 'low',
       ...(json ? { response_format: { type: 'json_object' } } : {}),
-      messages: [{ role: 'system', content: system }, { role: 'user', content: user }],
+      messages: [{ role: 'system', content: `${system}\n${NO_LONG_DASHES}` }, { role: 'user', content: user }],
       // (the model's reasoning counts in this too: a small cap meant for the reply alone (60, 120, 200) could be used up
       // by the thinking, and the reply came back empty: the floor leaves room for both; only what's used is paid for)
       max_completion_tokens: Math.max(maxTokens, MIN_COMPLETION_TOKENS),
@@ -62,7 +75,8 @@ export async function chat(system: string, user: string, json = false, maxTokens
   try { data = JSON.parse(raw); } catch { /* not JSON: a proxy or outage page */ }
   const text = data?.choices?.[0]?.message?.content?.trim();
   if (!res.ok || !text) throw new Error(data?.error?.message || `OpenAI request failed (${res.status}): ${raw.slice(0, 120)}`);
-  return text;
+  // (any long dash that slipped through; one copied from what it was given, a name or an answer quoted back, stays)
+  return noLongDashes(text, `${system}\n${user}`);
 }
 
 /** An https address on a public host (not localhost or a private/link-local IP written out). */
@@ -119,7 +133,7 @@ export async function chatVision(system: string, user: string, imageUrl: string,
       reasoning_effort: 'low',
       response_format: { type: 'json_object' },
       messages: [
-        { role: 'system', content: system },
+        { role: 'system', content: `${system}\n${NO_LONG_DASHES}` },
         { role: 'user', content: [{ type: 'text', text: user }, { type: 'image_url', image_url: { url: imageUrl } }] },
       ],
       max_completion_tokens: 1500,
@@ -128,7 +142,7 @@ export async function chatVision(system: string, user: string, imageUrl: string,
   const data = await res.json().catch(() => null);
   const text = data?.choices?.[0]?.message?.content?.trim();
   if (!res.ok || !text) throw new Error(data?.error?.message || `OpenAI request failed (${res.status})`);
-  return text;
+  return noLongDashes(text, user);
 }
 
 export async function knowledge(query: string, count = 6): Promise<string> {
@@ -138,9 +152,8 @@ export async function knowledge(query: string, count = 6): Promise<string> {
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${process.env.OPENAI_API_KEY}` },
       body: JSON.stringify({ model: 'text-embedding-3-small', input: query.slice(0, 2000) }),
     }).then((r) => r.json());
-    const { data, error } = await supabase.rpc('match_documents3', { query_embedding: emb.data[0].embedding, match_count: count });
-    if (error) throw new Error(error.message);
-    return (data ?? []).map((r: any) => String(r.content ?? '')).filter(Boolean).join('\n\n');
+    const data = await matchDocuments(emb.data[0].embedding, count);   // (the lesson's knowledge bases, kb.ts)
+    return data.map((r) => String(r.content ?? '')).filter(Boolean).join('\n\n');
   } catch (e) {
     console.warn('Knowledge base lookup failed:', e);
     return '';
@@ -174,11 +187,7 @@ export async function knowledgeExcerptsMany(queries: string[], count = 4): Promi
   const vectors: number[][] = queries.map((_, i) => emb?.data?.find((d: { index: number }) => d.index === i)?.embedding);
   if (vectors.some((v) => !v)) throw new Error(emb?.error?.message || 'The search could not be made');
   type Row = { id?: number | string; content?: string; source?: string; metadata?: { source?: string } };
-  const results: Row[][] = await Promise.all(vectors.map(async (v) => {
-    const { data, error } = await supabase.rpc('match_documents3', { query_embedding: v, match_count: count });
-    if (error) throw new Error(error.message);
-    return (data ?? []) as Row[];
-  }));
+  const results: Row[][] = await Promise.all(vectors.map((v) => matchDocuments(v, count) as Promise<Row[]>));
   const byId = new Map<string, string>();
   const missing = [...new Set(results.flat().filter((r) => !r.source && !r.metadata?.source && r.id != null).map((r) => String(r.id)))];
   if (missing.length) {

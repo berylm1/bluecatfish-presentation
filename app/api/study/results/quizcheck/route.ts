@@ -38,7 +38,7 @@ export async function POST(req: NextRequest) {
   if (!(await verifyToken(req.cookies.get(AUTH_COOKIE)?.value))) return NextResponse.json({ error: 'Locked' }, { status: 401 });
   try {
     // (the study's frozen version: { study: 2 } for the classmates study)
-    const body = await req.json().catch(() => ({}));
+    const body = await req.json().catch(() => null) ?? {};
     const version = await getStudyVersion(studyOf(body?.study).id);
     const frozen = version.slug ? await readSaved(STUDY_LESSON, version.slug) : null;
     const deck = frozen ?? (await readDeck(STUDY_LESSON, 'live'));

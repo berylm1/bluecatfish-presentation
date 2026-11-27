@@ -1,3 +1,4 @@
+import type { LessonProfile } from './profile';
 // The canvas slide format — used by hand-made decks (the editor) and AI decks alike.
 // Positions and sizes are percent of the slide (0–100), so a slide looks the
 // same at any screen size. See docs/customization-plan.md.
@@ -59,12 +60,19 @@ export interface ImageElement extends ElementBase {
   /** Description: shown to screen readers and used to write the spoken words. */
   alt?: string;
   fit?: 'cover' | 'contain';
+  /** Zoomed in on a part of it: how much (1 = whole, up to 4) and the point kept in view (% of the picture's box; not set: its middle) */
+  zoom?: number;
+  focus?: { x: number; y: number };
   /** A short caption under the picture ("A blue catfish caught in the James River") */
   caption?: string;
   captionByAI?: boolean;
   captionFrom?: string;   // fingerprint of the description it was written from
   /** "No caption": the AI won't write one */
   captionOff?: boolean;
+  /** A picture from outside (lib/canvas/openPictures.ts): who made it and its licence ("Jane Doe · CC BY-SA 4.0 ·
+   * Wikimedia Commons"), shown small on the picture and listed on the sources page; creditUrl: its page there */
+  credit?: string;
+  creditUrl?: string;
 }
 
 /**
@@ -89,14 +97,28 @@ export interface ChartElement extends ElementBase {
  *   timeline  a line with dated events (label = when, detail = what)
  *   compare   a two-column table (columns = the headers; label | detail per row)
  *   sizes     circles sized by value (how big next to something familiar)
+ * and, for math (drawn by components/canvas/MathVisuals.tsx):
+ *   numberline  points on a number line (value = where, label = what's written: "3/4"; from/to = its ends,
+ *               parts = equal parts per whole: 4 marks the quarters)
+ *   fraction    fraction bars: each item's label is a fraction ("3/4": a bar cut in 4, 3 shaded); detail = a note
+ *   graph       points on x/y axes (x, value = y; columns = the axes' names; connect: joined by a line)
+ *   worked      a worked example: one line of working per item, in order (label = the line, detail = why),
+ *               shown one line at a time as the professor goes through it
  */
 export interface DiagramElement extends ElementBase {
   type: 'diagram';
-  kind: 'steps' | 'cycle' | 'timeline' | 'compare' | 'sizes';
-  items: { label: string; detail?: string; value?: number; color?: string }[];
+  kind: 'steps' | 'cycle' | 'timeline' | 'compare' | 'sizes' | 'numberline' | 'fraction' | 'graph' | 'worked' | 'area' | 'clock' | 'money' | 'shape' | 'table';
+  /** line (a graph): which line the point is on, when there's more than one to compare ("A", "Walking") */
+  items: { label: string; detail?: string; value?: number; x?: number; line?: string; color?: string }[];
   columns?: [string, string];
   unit?: string;
   alt?: string;
+  /** numberline: where it starts and ends, and the equal parts marked in each whole */
+  from?: number;
+  to?: number;
+  parts?: number;
+  /** graph: the points are joined by a line */
+  connect?: boolean;
 }
 
 /**
@@ -108,10 +130,12 @@ export interface DiagramElement extends ElementBase {
  *   cards     tap cards to flip them (text on the front, back on the back): guess, then check
  *   hotspots  tap the spots on a picture (src) to find out (label, back; x, y = % of the picture)
  *   slider    drag a slider and watch what changes (slider.stops; the picture grows with scale)
+ *   answer    type the answer (items: the question in text, the answer in back, alternatives after "|": "3/4 | 0.75");
+ *             numbers by value, words forgivingly (lib/canvas/answerMatch.ts): math, spelling, short facts
  */
 export interface ActivityElement extends ElementBase {
   type: 'activity';
-  kind: 'sort' | 'order' | 'cards' | 'hotspots' | 'slider';
+  kind: 'sort' | 'order' | 'cards' | 'hotspots' | 'slider' | 'answer' | 'blank' | 'match';
   /** What to do, shown at the top of the box ("Drag each fish to where it came from") */
   prompt?: string;
   groups?: string[];
@@ -344,4 +368,6 @@ export interface Deck {
   updatedBy?: string;
   /** The name this version was saved under when it was published (lib/canvas/saved.ts) */
   savedAs?: string;
+  /** What the lesson is about, who it's for, the teacher… (lib/canvas/profile.ts): only what's been set; the rest is the lesson's default */
+  profile?: Partial<LessonProfile>;
 }

@@ -23,7 +23,9 @@ import { CUE_TEXT, type CueKey } from '@/lib/canvas/cues';
 import { loadDeck, type Loaded } from '@/lib/canvas/loadDeck';
 import { DEFAULT_LESSON } from '@/lib/canvas/lessons';
 import type { Deck } from '@/lib/canvas/types';
-import { learnerHeaders } from '@/lib/learnerSession';
+import { learnerHeaders, setLearnerLesson } from '@/lib/learnerSession';
+import { setTeacherName, setTeacherPicture } from '@/lib/teacher';
+import { enterProfile } from '@/lib/canvas/lessonContext';
 import { CLASSMATE_NAME } from '@/lib/voice';
 import { CLASSMATES, classmateNamed, type ClassmateId } from '@/lib/classmates';
 import { playSound } from '@/lib/canvas/sounds';
@@ -53,6 +55,9 @@ import {
   CLASSMATES_ON_SCREEN, FOLLOW_UP_SAME_MIN, MID_AFTER_ASK_MS, MID_ON_SCREEN_MIN,
 } from '@/lib/settings';
 import { FamilyCard, FinnBadge } from '@/components/TakeHome';
+import { BLUE_CATFISH, profileOf, teacherPicture, usesMath, type LessonProfile } from '@/lib/canvas/profile';
+import { setMathText } from '@/lib/mathText';
+import { ClipAudio } from '@/components/canvas/MathVisuals';
 import { LIVE_VERSION, preloadedDeck, studyLesson, studyPost, writeStudy, type StudyRecord } from '@/lib/study/client';
 import { STUDIES } from '@/lib/study/content';
 import { signals } from '@/lib/signals';
@@ -188,7 +193,9 @@ const YES = /^(?:yes|yeah|yep|yup|sure|ok(?:ay)?|please|uh[- ]huh|definitely|go 
 const NO = /^(?:no|nope|nah|not really|i'?m (?:good|fine|ok(?:ay)?)|all good|keep going|carry on)\b/i;
 const SPEAKING: string[] = ['playing', 'loading', 'finishing', 'waiting'];
 const GO_ON = /^(?:no|nope|nah|no thanks?|ok(?:ay)?|go on|let'?s go on|carry on|continue|keep going|move on|next|that'?s (?:all|it)|nothing(?: else)?|i'?m (?:good|fine|ok(?:ay)?)|all good)\b/i;
-const MATE_UNSURE = () => pickOne(['Hmm, I’m not sure. Professor Marine?', 'Good question. I don’t know! Professor Marine?']);
+// The lesson's teacher (its profile, lib/canvas/profile.ts): set by the Player for the lesson on the page
+let TEACHER: LessonProfile['teacher'] = BLUE_CATFISH.teacher;
+const MATE_UNSURE = () => pickOne([`Hmm, I’m not sure. ${TEACHER.name}?`, `Good question. I don’t know! ${TEACHER.name}?`]);
 /** "Maya, why is that?" / "what do you think, Leo?": the classmate the learner is talking to, and what they said to them */
 function addressed(text: string): { who: ClassmateId; text: string } | null {
   const t = text.trim();
@@ -317,7 +324,7 @@ function endingLine(a: { name: string; covered: string; solved: number; quiz: { 
     a.covered,
     did.length ? `You ${listed(did)}.` : '',
     a.minutes ? `You stayed locked in for ${a.minutes === 1 ? 'a whole minute' : `a big ${a.minutes} minutes`}.` : '',
-    'Marine out!',
+    TEACHER.signOff,
   ].filter(Boolean).join(' ');
 }
 // After "kind of" / "lost me" at the end of a part
@@ -326,6 +333,8 @@ const REPLAY_ASK_LOST = "That's okay, it happens. Want me to show you that part 
 // After "got it" on a topic the confusion meter says was confusing (lib/confusion.ts): offered anyway, lightly
 const REPLAY_ASK_GOT = 'Great! That part had a few tricky bits, though. Want a quick look at it a different way, just in case?';
 const SMOOTH_LINE = 'Nice, that part went smoothly!';
+// A hands-on box finished with an answer given away ("Show me"): no "Nice work!" for it
+const SHOWN_LINE = "Now you've seen how it goes. Let's keep going.";
 const REPLAY_ASK_SKIPPED = 'That part looked a little tricky. Want me to show it to you a different way?';
 // Cards, when the instructions don't already ask for a guess (said once per box)
 const THINK_LINE = 'Before you flip one, take a second to guess the answer in your head.';
@@ -393,7 +402,7 @@ const NICE_TRY = `Nice try, ${CLASSMATE_NAME}! Not quite.`;
 const TAKE_ANOTHER_LOOK = `Hmm, almost! Take another look at where ${CLASSMATE_NAME} put his.`;
 
 /** The hello with the learner's name: one clip, so there's no gap around the name. */
-const greeting = (name: string) => `Hey ${name}! I'm Professor Marine. Let's dive in.`;
+const greeting = (name: string) => `Hey ${name}! I'm ${TEACHER.name}. Let's dive in.`;
 
 /** How the learner did on Finn's mistakes, in a few words for the end screen ("You caught 2 of Finn's 3 mix-ups"), or ''. */
 function finnScore(finn: ReadonlyMap<number, FinnResult>): string {
@@ -484,6 +493,14 @@ function Player({ deck, preview, startAt = 0, study = null, staticMode = false, 
    * follows. The meter still runs, unseen, for the results.
    */
   const isStatic = study ? study.group === 'static' : staticMode;
+  // The lesson's profile (what it's about, its teacher, its family card): the server's AI goes by it too (X-Lesson)
+  const profile = useMemo(() => profileOf(deck), [deck]);
+  TEACHER = profile.teacher;
+  setTeacherName(profile.teacher.name);
+  setTeacherPicture(teacherPicture(profile));
+  enterProfile(profile);   // (which recorded clips are this lesson's voice: lib/canvas/aiFields.ts audioKey)
+  setMathText(usesMath(profile));   // (a math lesson: fractions shown stacked, lib/mathText.tsx)
+  setLearnerLesson(deck.lessonId);
   // The classmates go by what's on the screen (the lesson on its own: the study is as it was, CLASSMATES_ON_SCREEN)
   const onScreen = CLASSMATES_ON_SCREEN && !study;
   const learnerAskedAt = useRef(0);   // when the learner last asked something (MID_AFTER_ASK_MS)
@@ -510,6 +527,7 @@ function Player({ deck, preview, startAt = 0, study = null, staticMode = false, 
   // Who the professor is answering now, when several questions are answered together ("→ Maya" in the chat)
   const answerTo = useRef<string | null>(null);
   const [optionsOpen, setOptionsOpen] = useState(false);          // the ⚙ Options menu
+  const [optionsRoom, setOptionsRoom] = useState<number | null>(null);   // how tall it may be: the room above its button
   const optionsRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (!optionsOpen) return;
@@ -548,6 +566,34 @@ function Player({ deck, preview, startAt = 0, study = null, staticMode = false, 
     try { localStorage.setItem('handsOnSounds', on ? 'off' : 'on'); } catch { /* private mode */ }
     return !on;
   });
+  // Easier to see: larger words around the slide, and stronger contrast (remembered on this browser). Offered in the
+  // lessons made with the lesson builder; the blue catfish lesson's menu stays as it was.
+  const easierToSee = !/^blue-catfish/.test(deck.lessonId) && deck.lessonId !== 'sample';
+  const [bigText, setBigText] = useState(false);
+  const [highContrast, setHighContrast] = useState(false);
+  useEffect(() => {
+    if (!easierToSee) return;
+    try { setBigText(localStorage.getItem('lessonBigText') === 'on'); setHighContrast(localStorage.getItem('lessonHighContrast') === 'on'); } catch { /* private mode */ }
+  }, [easierToSee]);
+  useEffect(() => {
+    const root = document.documentElement;
+    root.classList.toggle('lesson-big', bigText);   // (the words only, a fifth bigger: globals.css)
+    root.classList.toggle('lesson-hc', highContrast);
+    root.classList.toggle('lesson-keys', easierToSee);   // (the keyboard's place, ringed: globals.css)
+    return () => { root.classList.remove('lesson-big', 'lesson-hc', 'lesson-keys'); };
+  }, [bigText, highContrast, easierToSee]);
+  // "Practise with new numbers" in a typed-answer box (components/canvas/Activity.tsx): the lesson waits while they do
+  const holdRef = useRef<() => void>(() => {});
+  const practiceHold = useRef(false);   // practising on this slide: it stays until Next is pressed
+  useEffect(() => {
+    const hold = () => holdRef.current();
+    window.addEventListener('lesson-hold', hold);
+    return () => window.removeEventListener('lesson-hold', hold);
+  }, []);
+  const toggleSee = (which: 'lessonBigText' | 'lessonHighContrast') => (which === 'lessonBigText' ? setBigText : setHighContrast)((on) => {
+    try { localStorage.setItem(which, on ? 'off' : 'on'); } catch { /* private mode */ }
+    return !on;
+  });
   // What to call the learner (optional, asked on the start screen; remembered on this browser)
   const [learnerName, setLearnerName] = useState('');
   // (the study: the name they gave on its name page, app/study; kept in this browser only, never sent to the study)
@@ -566,6 +612,7 @@ function Player({ deck, preview, startAt = 0, study = null, staticMode = false, 
   const activitiesDone = useRef(new Set<string>());
   const activitiesSolved = useRef(new Set<string>());
   const activitiesRevealed = useRef(new Set<string>());   // skipped: shown with the answers filled in
+  const answersShown = useRef(new Set<string>());   // finished with an answer given away ("Show me"): done, not solved
   const turnStarted = useRef(new Map<string, number>());   // when the learner's turn began (time to finish, for the stats)   // done by the learner (not skipped): drawn finished if drawn again
   const [yourTurn, setYourTurn] = useState<string | null>(null);
   const yourTurnRef = useRef(yourTurn);
@@ -630,6 +677,10 @@ function Player({ deck, preview, startAt = 0, study = null, staticMode = false, 
     },
     extraPause: () => (!isStatic && meter.current.overall().level === 'confused' ? CONFUSED_PAUSE_MS : 0),
   });
+  // ("Practise with new numbers": the lesson doesn't move on from the box by itself; Next does. Was: paused, which
+  // didn't stop the move to the next slide once the box was done)
+  holdRef.current = () => { practiceHold.current = true; };
+  useEffect(() => { practiceHold.current = false; }, [player.slideIndex]);
   const plainHeard = useRef(new Set<string>());   // boxes said in plain words first (said again: the usual words)
   const cues = useCues(started);
   // The personal hello is made once they stop typing their name, so Start speaks at once
@@ -1486,7 +1537,7 @@ function Player({ deck, preview, startAt = 0, study = null, staticMode = false, 
         method: 'POST', headers: learnerHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify({ question, exclude }), signal: AbortSignal.timeout(4000),
       });
-      return res.ok ? ((await res.json()).picture ?? null) as { url: string; description: string } | null : null;
+      return res.ok ? ((await res.json()).picture ?? null) as { url: string; description: string; credit?: string; creditUrl?: string } | null : null;
     } catch {
       return null;
     }
@@ -2206,7 +2257,9 @@ function Player({ deck, preview, startAt = 0, study = null, staticMode = false, 
     // (SELF_CHECK), the study's adaptive lesson goes by the meter too: a topic it reads as confusing gets the offer.
     // (was: with the check hidden, nobody in the study was ever offered "another way" at a topic's end)
     const studyByMeter = !!study && !SELF_CHECK && !isStatic;
-    if (ADAPTIVE_SECTION_CHECK && (!study || studyByMeter)) {
+    // (static: never the meter's call, no offer and no "smooth sailing" line, outside the study too. Was: ?mode=static
+    // offered "That part looked a little tricky. Want me to show it a different way?" after a struggle, seen in a test run)
+    if (ADAPTIVE_SECTION_CHECK && !isStatic && (!study || studyByMeter)) {
       const t = meter.current.topic(topic);
       const confusion = (Object.entries(t.signals) as [keyof typeof SIGNALS, number][]).some(([k, n]) => n > 0 && SIGNALS[k].points > 0);
       const good = (t.signals.solved ?? 0) + (t.signals.finn_caught ?? 0) > 0;
@@ -2359,6 +2412,11 @@ function Player({ deck, preview, startAt = 0, study = null, staticMode = false, 
     if (yes) confused(next, offer.mood, false);   // (the section check counted it)
     else next();
   }, [replayOffer, tracking, cues, confused, addLine, lostQuestion]);
+  // Moved on without answering (Next, a slide picked): the offer was for the slide they left. Was: it stayed up over every
+  // slide after, seen in a test run
+  useEffect(() => {
+    if (replayOffer && player.slideIndex !== replayOffer.from) setReplayOffer(null);
+  }, [player.slideIndex, replayOffer]);
 
   // Paused on purpose before talking? Then a turn with nothing in it leaves it paused
   const resumeAfterTurn = useRef(true);
@@ -2611,7 +2669,7 @@ function Player({ deck, preview, startAt = 0, study = null, staticMode = false, 
     // The recap and the personal line are ONE clip (no gap around the name),
     // made while "Let's look back…" is playing
     if (!SPOKEN_FULL_RECAP) {
-      const solved = [...activitiesSolved.current].filter((id) => !activitiesRevealed.current.has(id)).length;
+      const solved = [...activitiesSolved.current].filter((id) => !activitiesRevealed.current.has(id) && !answersShown.current.has(id)).length;
       const minutes = lessonStartedAt.current ? Math.max(1, Math.round((Date.now() - lessonStartedAt.current) / 60000)) : 0;
       // (static: the same ending for everyone, what was covered; nothing about what they did)
       const line = isStatic ? endingLine({ name: '', covered: shortRecap(deck), solved: 0, quiz: null, finn: [], questions: 0, minutes: 0 }) : endingLine({
@@ -2797,7 +2855,7 @@ function Player({ deck, preview, startAt = 0, study = null, staticMode = false, 
 
   /* ------------------------------------------------ hands-on boxes */
   const praise = learnerName.trim() ? `Nice work, ${learnerName.trim()}!` : 'Nice work!';
-  useEffect(() => { if (yourTurn) preloadCue(praise); }, [yourTurn, praise, preloadCue]);   // ready the moment they finish
+  useEffect(() => { if (yourTurn) { preloadCue(praise); preloadCue(SHOWN_LINE); } }, [yourTurn, praise, preloadCue]);   // ready the moment they finish
   const { track } = tracking;   // stable (the tracking object itself is new every render)
   /** Resolves once nobody is talking (the professor's answer, or a line) — so lines don't overlap. At most 15 s. */
   const whenQuiet = useCallback(() => new Promise<void>((resolve) => {
@@ -2820,7 +2878,8 @@ function Player({ deck, preview, startAt = 0, study = null, staticMode = false, 
   const mistakeCounts = useRef(new Map<string, number>());   // `${box}|${item}` → wrong moves
   const steppedIn = useRef(new Map<string, Set<string>>());  // box → items already explained
   const onActivityMistake = useCallback((id: string, m: ActivityMistake) => {
-    track('tutor_decision', { action: 'activity_wrong', item: m.label.slice(0, 80) });
+    // (question and chosen: what was asked and what they answered, each whole, for the editor's "what learners answered")
+    track('tutor_decision', { action: 'activity_wrong', item: m.label.slice(0, 80), question: m.item.slice(0, 120), chosen: m.chosen.slice(0, 60) });
     noteStruggle(`${m.item} (goes with ${m.correct})`);
     const key = `${id}|${m.item}`;
     const n = (mistakeCounts.current.get(key) ?? 0) + 1;
@@ -2921,12 +2980,15 @@ function Player({ deck, preview, startAt = 0, study = null, staticMode = false, 
     }
   }, [player.slideIndex, deck]);
 
-  const onActivityDone = useCallback((id: string) => {
+  const onActivityDone = useCallback((id: string, shown?: boolean) => {
     // Solved while the professor explains the item they kept getting wrong: the explanation stops (they've got
     // it), so it doesn't carry on over the praise and what comes next (was: the two overlapped)
     if (stepInFor.current === id) { stepInFor.current = null; tutor.cancel(); }
     activitiesDone.current.add(id);
     activitiesSolved.current.add(id);
+    // (finished with an answer given away, "Show me": not one they solved themselves on the end screen.
+    // Was: "You solved 4 hands-on activities yourself" after every answer was shown, seen in a test run)
+    if (shown) answersShown.current.add(id);
     setSettledTick((n) => n + 1);
     const began = turnStarted.current.get(id);
     turnStarted.current.delete(id);
@@ -2945,12 +3007,12 @@ function Player({ deck, preview, startAt = 0, study = null, staticMode = false, 
       p.hold();
       cuesRef.current.stop();
       const slide = p.slideIndex;
-      (isStatic ? Promise.resolve() : queueLine(() => playCue({ text: praise }))).then(() => { if (playerRef.current.slideIndex === slide) playerRef.current.skipPast(id); });   // (static: no praise)
+      (isStatic ? Promise.resolve() : queueLine(() => playCue({ text: shown ? SHOWN_LINE : praise }))).then(() => { if (playerRef.current.slideIndex === slide && !practiceHold.current) playerRef.current.skipPast(id); });   // (static: no praise)
       return;
     }
     setYourTurn(null);
     // after the professor (an explanation, a reply to Finn) has finished, not over them
-    (isStatic ? Promise.resolve() : queueLine(() => playCue({ text: praise }))).then(() => { if (playerRef.current.activeId === id) playerRef.current.nextClip(); });
+    (isStatic ? Promise.resolve() : queueLine(() => playCue({ text: shown ? SHOWN_LINE : praise }))).then(() => { if (playerRef.current.activeId === id && !practiceHold.current) playerRef.current.nextClip(); });
   }, [track, playCue, praise, queueLine, tutor, topicOf, feel]);
   /** Skip: the box fills in its answers (so the learner still sees how it goes), a word from the professor, then on. */
   const skipActivity = () => {
@@ -2966,7 +3028,7 @@ function Player({ deck, preview, startAt = 0, study = null, staticMode = false, 
     cuesRef.current.stop();   // Finn (or a reply) mid-line: not over what comes next
     // a moment to look at the answers while it's said, then the lesson goes on (if still on that box)
     (isStatic ? Promise.resolve() : queueLine(() => playCue({ text: SKIP_LINE }))).then(() => new Promise((r) => setTimeout(r, SKIP_LOOK_MS)))
-      .then(() => { if (playerRef.current.activeId === id) playerRef.current.nextClip(); });
+      .then(() => { if (playerRef.current.activeId === id && !practiceHold.current) playerRef.current.nextClip(); });
   };
   // Cards: the box waits a moment for a guess (Activity.tsx); said once, unless the instructions already ask for a guess
   useEffect(() => {
@@ -2979,7 +3041,7 @@ function Player({ deck, preview, startAt = 0, study = null, staticMode = false, 
   // Back on a hands-on slide (going back, or starting over): the lesson waits for it again
   useEffect(() => {
     for (const e of deck.slides[player.slideIndex]?.elements ?? []) {
-      if (e.type === 'activity') { activitiesDone.current.delete(e.id); activitiesSolved.current.delete(e.id); activitiesRevealed.current.delete(e.id); }
+      if (e.type === 'activity') { activitiesDone.current.delete(e.id); activitiesSolved.current.delete(e.id); activitiesRevealed.current.delete(e.id); answersShown.current.delete(e.id); }
     }
   }, [player.slideIndex, deck]);
   // Moved on some other way (a command, a jump): no longer their turn
@@ -3097,7 +3159,7 @@ function Player({ deck, preview, startAt = 0, study = null, staticMode = false, 
     cancelAnswer();
     setClassmateSaying(null);
     if (variant) { variantAfter.current = null; variantMode.current = 'answer'; setVariant(null); helperSeq.current++; setHelperActive(null); }
-    checked.current.clear(); activitiesDone.current.clear(); activitiesSolved.current.clear(); activitiesRevealed.current.clear(); classmateTopics.current.clear(); classmateAsked.current = []; finnReady.current.clear(); finnResults.current.clear(); ownUp.current = null;
+    checked.current.clear(); activitiesDone.current.clear(); activitiesSolved.current.clear(); activitiesRevealed.current.clear(); answersShown.current.clear(); classmateTopics.current.clear(); classmateAsked.current = []; finnReady.current.clear(); finnResults.current.clear(); ownUp.current = null;
     roomCount.current = 0; setRoom(null);
     classmateWho.current = []; lastMixUp.current = -2; curious.current.clear(); struggles.current.clear();
     midTopics.current.clear(); shaky.current.clear(); carried.current.clear(); helperUsed.current.clear(); midMatch.current.clear(); midPending.current = null; midResume.current = false; struggleSlide.current = -1; mateTalkAt.current = 0;
@@ -3132,7 +3194,7 @@ function Player({ deck, preview, startAt = 0, study = null, staticMode = false, 
     const name = learnerName.trim();
     if (!study) try { localStorage.setItem('learnerName', name); } catch { /* private mode */ }
     // A name: a personal hello (spoken live); otherwise the recorded intro. Coming back: "Welcome back"
-    (from ? cues.play({ text: welcomeBack(name) }) : name ? cues.play({ text: greeting(name) }) : cues.play('cue_intro')).finally(() => setIntroDone(true));
+    (from ? cues.play({ text: welcomeBack(name) }) : name ? cues.play({ text: greeting(name) }) : TEACHER.name === BLUE_CATFISH.teacher.name ? cues.play('cue_intro') : cues.play({ text: `Hey! I'm ${TEACHER.name}. Let's dive in.` })).finally(() => setIntroDone(true));
   }
 
   if (!started && !guideSeen) return <LessonGuide isStatic={isStatic} mates={matesAllowed && classmateOn} onDone={() => { setGuideSeen(true); window.scrollTo(0, 0); }} />;
@@ -3163,7 +3225,7 @@ function Player({ deck, preview, startAt = 0, study = null, staticMode = false, 
         <p className="text-slate-300 text-center max-w-md"><Icon name="speaker" /> Turn your sound on. {isStatic ? 'The professor takes you through the slides.' : <>Ask the professor anything, or say &quot;repeat&quot; or &quot;simpler please&quot; at any time.</>}</p>
         {/* (the study: the name was asked on its own page before, app/study) */}
         {!study && <label className="flex flex-col items-center gap-1 text-sm text-slate-300">
-          What should Professor Marine call you? (optional)
+          What should {TEACHER.name} call you? (optional)
           <input
             value={learnerName}
             onChange={(e) => setLearnerName(e.target.value.replace(/[^\p{L}\p{N} '.-]/gu, '').slice(0, 24))}
@@ -3212,7 +3274,7 @@ function Player({ deck, preview, startAt = 0, study = null, staticMode = false, 
   if (player.status === 'finished') {
     const topics = lessonLength(deck.slides).topics.map((t) => deck.slides[t.start]?.topic?.trim()).filter(Boolean);
     achievements.push({ icon: 'book', text: topics.length > 1 ? <>You finished every part: <b>{topics.join(', ')}</b></> : <>You finished the lesson{topics[0] ? <>: <b>{topics[0]}</b></> : ''}</> });
-    const handsOn = [...activitiesSolved.current].filter((id) => !activitiesRevealed.current.has(id)).length;
+    const handsOn = [...activitiesSolved.current].filter((id) => !activitiesRevealed.current.has(id) && !answersShown.current.has(id)).length;
     if (handsOn) achievements.push({ icon: 'hands-on-activity', text: <>You solved <b>{handsOn}</b> hands-on activit{handsOn === 1 ? 'y' : 'ies'} yourself</> });
     if (quiz.state === 'done') achievements.push({ icon: 'check-mark', text: <>Quiz: <b>{quiz.right}</b> of <b>{quiz.questions.length}</b> right{quiz.right === quiz.questions.length ? '. Perfect!' : ''}</> });
     if (finnSummary) achievements.push({ icon: 'classmates', text: finnSummary });
@@ -3225,7 +3287,7 @@ function Player({ deck, preview, startAt = 0, study = null, staticMode = false, 
   // (sideways: each button fills its place in the two rows, its name beside the icon, smaller)
   const btn = sideDock
     ? 'w-full h-8 px-1 flex items-center justify-center gap-0.5 rounded-lg bg-white/10 hover:bg-white/20 text-[10px] leading-[1.1] font-medium transition-colors disabled:opacity-40'
-    : 'px-2.5 py-2 rounded-lg bg-white/10 hover:bg-white/20 text-sm font-medium transition-colors disabled:opacity-40';
+    : 'px-2.5 py-2 rounded-lg bg-white/10 hover:bg-white/20 text-sm font-medium transition-colors disabled:opacity-40 max-sm:min-w-11 max-sm:min-h-11 max-sm:inline-flex max-sm:items-center max-sm:justify-center max-sm:text-lg';
   const group = 'flex items-center gap-1 p-1 rounded-xl bg-white/[0.04] border border-white/10';
   // a button's name: hidden (but read out) on a phone, and on a phone turned sideways
   const label = sideDock ? '' : 'max-sm:sr-only [@media(max-height:500px)]:sr-only';
@@ -3265,11 +3327,11 @@ function Player({ deck, preview, startAt = 0, study = null, staticMode = false, 
     <main className="min-h-screen flex flex-col items-center justify-center gap-4 bg-gradient-to-br from-sky-950 via-slate-900 to-cyan-950 text-white px-4 py-4 max-sm:px-2 [@media(max-height:500px)]:gap-2 [@media(max-height:500px)]:py-2" style={mainStyle}>
       {/* (a phone turned sideways: out of the way while it's the learner's turn, so the hands-on box has the screen, and on the end screen) */}
       {SHOW_FLOATING_TRANSCRIPT && showTranscript && !(shortScreen && (yourTurn || player.status === 'finished')) && (cues.saying
-        ? <Transcript speaker={classmateSaying ? `${CLASSMATES[classmateSaying].name} · classmate` : 'Professor Marine'} text={cues.saying} dialogue={tutor.history} />
+        ? <Transcript speaker={classmateSaying ? `${CLASSMATES[classmateSaying].name} · classmate` : TEACHER.name} text={cues.saying} dialogue={tutor.history} />
         : tutor.speaking || tutor.thinking
-          ? <Transcript speaker="Professor Marine · answering" text={tutor.exchange?.answer || (tutor.thinking ? 'thinking…' : '')} dialogue={earlierDialogue}
+          ? <Transcript speaker={`${TEACHER.name} · answering`} text={tutor.exchange?.answer || (tutor.thinking ? 'thinking…' : '')} dialogue={earlierDialogue}
               question={tutor.exchange ? { text: tutor.exchange.question, asker: tutor.exchange.asker } : undefined} />
-          : !selfCheck && <Transcript speaker={player.mode === 'plain' ? 'Professor Marine · plain version' : 'Professor Marine'} text={player.captionText} getAudio={player.getAudio} dialogue={tutor.history} />)}
+          : !selfCheck && <Transcript speaker={player.mode === 'plain' ? `${TEACHER.name} · plain version` : TEACHER.name} text={player.captionText} getAudio={player.getAudio} dialogue={tutor.history} />)}
       <div className={`w-full max-w-5xl flex items-start gap-2 ${sideDock ? '-mt-0.5' : ''}`}>
       {/* left: the chat (when it isn't showing) and start over; right: the classmates (when they aren't showing) */}
       <div className="flex-1 flex items-center gap-1 min-w-0">
@@ -3351,7 +3413,7 @@ function Player({ deck, preview, startAt = 0, study = null, staticMode = false, 
             {!study && (
               <div className="w-full max-w-2xl text-left">
                 {endFinn.caught > 0 && <FinnBadge caught={endFinn.caught} of={endFinn.of} />}
-                <FamilyCard />
+                <FamilyCard things={profile.familyThings} learnMore={profile.learnMore} />
               </div>
             )}
             {study ? (
@@ -3363,13 +3425,15 @@ function Player({ deck, preview, startAt = 0, study = null, staticMode = false, 
               <Link href="/" onClick={() => cues.stop()} className="px-6 py-3 rounded-xl bg-slate-200 hover:bg-slate-300 font-semibold"><Icon name="home" /> Back to home</Link>
             </div>
             )}
-            {!study && <Link href="/sources" target="_blank" className="text-sm underline text-slate-500 hover:text-slate-700">Where the lesson’s facts come from: view sources</Link>}
+            {!study && <Link href={`/sources?lesson=${encodeURIComponent(deck.lessonId)}`} target="_blank" className="text-sm underline text-slate-500 hover:text-slate-700" data-end-sources>{profile.sources.length > 1 ? `Where the lesson’s facts come from: all ${profile.sources.length} sources` : 'Where the lesson’s facts come from: view sources'}</Link>}
           </div>
         ) : (
+          <ClipAudio.Provider value={variant ? null : player.getAudio}>
           <SlideCanvas slide={shownSlide} width={SLIDE_WIDTH} activeId={variant ? helperActive : player.activeId} morph={MORPH_HELPERS} laser={laser} spotlight={SPOTLIGHT}
             interactive onActivityDone={onActivityDone} activityHint={activityHint}
             solvedActivities={activitiesSolved.current} revealedActivities={activitiesRevealed.current} settledActivities={activitiesDone.current} settledTick={settledTick} activitySounds={soundsOn} onActivityMistake={onActivityMistake}
             finnMoves={finnMoves} onFinn={onFinn} activityGuides={activityGuides} yourTurn={variant || selfCheck ? null : yourTurn} />
+          </ClipAudio.Provider>
         )}
         {/* A topic's introduction is being said: a small title card for the part that's starting */}
         {isIntroId(player.activeId) && !variant && deck.slides[player.slideIndex]?.topic && (
@@ -3567,7 +3631,7 @@ function Player({ deck, preview, startAt = 0, study = null, staticMode = false, 
           <button className="absolute top-2 right-3 text-white/50 hover:text-white" onClick={tutor.clearExchange} aria-label="Close"><Icon name="close" /></button>
           <p className={tutor.exchange.asker ? 'text-amber-200' : 'text-cyan-200/90'}><b>{tutor.exchange.asker ?? 'You'}:</b> {tutor.exchange.question}</p>
           <p className="mt-1 text-white/90">
-            <b>Professor Marine:</b>{' '}
+            <b>{TEACHER.name}:</b>{' '}
             {tutor.thinking && !tutor.exchange.answer ? <span className="animate-pulse">thinking…</span> : tutor.exchange.answer}
           </p>
         </div>
@@ -3644,14 +3708,14 @@ function Player({ deck, preview, startAt = 0, study = null, staticMode = false, 
         </button>
         {/* The on/off switches, in one menu (was: five more buttons, so the controls took two rows) */}
         <div className="relative" ref={optionsRef}>
-          <button className={`${btn} ${optionsOpen ? 'bg-white/25' : ''}`} onClick={() => setOptionsOpen((o) => !o)} aria-expanded={optionsOpen}
+          <button className={`${btn} ${optionsOpen ? 'bg-white/25' : ''}`} onClick={(e) => { const top = e.currentTarget.getBoundingClientRect().top; setOptionsRoom(window.innerWidth >= 640 && window.innerHeight > 500 ? Math.max(160, top - 16) : null); setOptionsOpen((o) => !o); }} aria-expanded={optionsOpen}
             title="Voice speed, interrupt, camera, classmates, sounds, class chat" aria-label="Options">
             <Icon name="settings" /><span className={label}> Options</span>
             {/* what's on, at a glance */}
             <span className="ml-1.5 text-xs opacity-80">{SHOW_OPTION_ICONS && ([interruptOn && 'microphone', cameraOn && 'camera', classmateOn && 'classmates', soundsOn && 'bell', chatOpen && 'chat-bubble'] as (IconName | false)[]).map((n) => n && <Icon key={n} name={n} className="mr-0.5" />)}{voiceSpeed !== 1 && ` ${voiceSpeed}×`}</span>
           </button>
           {optionsOpen && (
-            <div className="absolute bottom-full mb-2 right-0 z-30 w-72 rounded-xl bg-slate-900/95 border border-white/15 shadow-2xl p-2 flex flex-col gap-1" role="menu">
+            <div className="absolute bottom-full mb-2 right-0 z-30 w-72 max-h-[calc(100dvh-5rem)] overflow-y-auto rounded-xl bg-slate-900/95 border border-white/15 shadow-2xl p-2 flex flex-col gap-1 max-sm:fixed max-sm:inset-x-2 max-sm:bottom-2 max-sm:mb-0 max-sm:w-auto max-sm:max-h-[80dvh] [@media(max-height:500px)]:fixed [@media(max-height:500px)]:top-2 [@media(max-height:500px)]:bottom-2 [@media(max-height:500px)]:right-2 [@media(max-height:500px)]:mb-0 [@media(max-height:500px)]:max-h-none [@media(max-height:500px)]:z-50 max-sm:z-50" role="menu" data-options-menu style={optionsRoom ? { maxHeight: optionsRoom } : undefined}>
               {/* Voice speed: three steps, not a switch */}
               <div className="px-2.5 pt-1.5 pb-2 border-b border-white/10 mb-1">
                 <span className="block text-sm font-medium" id="speed-label"><Icon name="speaker" /> Voice speed</span>
@@ -3678,6 +3742,10 @@ function Player({ deck, preview, startAt = 0, study = null, staticMode = false, 
                 ...(study || isStatic ? [] : [['classmates', 'Classmates', 'Maya, Finn and Leo: they ask questions, and Finn has a go at the hands-on activities', classmateOn, () => setClassmateOn((v) => !v)] as const]),
                 ['bell', 'Sounds', 'Little sounds in the hands-on activities', soundsOn, toggleSounds],
                 ['chat-bubble', 'Class chat', desk ? 'The conversation beside the slide' : 'The latest line under the slide (tap it for the whole chat)', chatOpen, () => setChatOpen((v) => !v)],
+                ...(easierToSee ? [
+                  ['text-size', 'Larger text', 'Bigger words in the chat, the buttons and the questions', bigText, () => toggleSee('lessonBigText')] as const,
+                  ['contrast', 'High contrast', 'Stronger colours and outlines, easier to see', highContrast, () => toggleSee('lessonHighContrast')] as const,
+                ] : []),
               ] as const).map(([icon, name, hint, on, toggle]) => (
                 <button key={name} role="menuitemcheckbox" aria-checked={on} onClick={toggle}
                   className="flex items-center gap-2 px-2.5 py-2 rounded-lg hover:bg-white/10 text-left">
@@ -3691,6 +3759,11 @@ function Player({ deck, preview, startAt = 0, study = null, staticMode = false, 
                   </span>
                 </button>
               ))}
+              {easierToSee && (
+                <p className="px-2.5 pt-1.5 mt-1 border-t border-white/10 text-xs text-white/70 leading-snug" data-keys>
+                  Keys: <b>Space</b> pause or go on · <b>→</b> next part · <b>←</b> back · <b>Shift →</b> next slide · <b>Tab</b> to reach every button
+                </p>
+              )}
             </div>
           )}
         </div>
@@ -3698,7 +3771,7 @@ function Player({ deck, preview, startAt = 0, study = null, staticMode = false, 
       {/* (was under the lesson: it led out of the lesson mid-way. Now on the lesson's end screen, and the study's last page) */}
       {SHOW_SOURCES_UNDER_LESSON && (
       <footer className="text-xs text-white/40 [@media(max-height:500px)]:hidden" data-bubble-avoid>
-        <Link href="/sources" className="underline hover:text-white/70">View sources</Link>
+        <Link href={`/sources?lesson=${encodeURIComponent(deck.lessonId)}`} className="underline hover:text-white/70">View sources</Link>
       </footer>
       )}
 

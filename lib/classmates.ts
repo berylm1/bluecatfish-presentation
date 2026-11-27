@@ -3,7 +3,7 @@
 // when the learner asks something they ask the related questions (the question bank).
 //   Maya: curious. What a word means, why something happens, how big or how many.
 //   Finn: quick, and sometimes mixes things up on purpose for the learner to catch; has a go in the hands-on boxes.
-//   Leo: practical. What people can do about it, what it means for fishermen, food and the Bay, what happens next.
+//   Leo: practical. What people can do about it, what it means for {{practical}}, what happens next.
 
 export type ClassmateId = 'maya' | 'finn' | 'leo';
 
@@ -44,7 +44,7 @@ export const CLASSMATES: Record<ClassmateId, Classmate> = {
   leo: {
     id: 'leo', name: 'Leo', his: 'his',
     blurb: 'Practical: asks what people can do about it, and what it means in real life',
-    persona: 'practical: you ask what people can do about it, what it means for fishermen, food and the Bay, or what happens next',
+    persona: 'practical: you ask what people can do about it, what it means for {{practical}}, or what happens next',
     voice: 'ash',
     voiceInstructions: 'You are a down-to-earth 12 year old boy asking your teacher a question in class. Sound young, ' +
       'friendly and matter-of-fact, natural like a real kid, not an actor.',

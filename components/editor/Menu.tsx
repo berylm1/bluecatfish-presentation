@@ -8,7 +8,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
  */
 export default function Menu({ label, title, className, width = 'w-64', disabled, children, help }: {
   label: ReactNode;
-  /** Where the ✨ helper can point ([data-help]) */
+  /** Where the helper can point ([data-help]) */
   help?: string;
   title?: string;
   className: string;
@@ -55,5 +55,5 @@ export function MenuItem({ onClick, children, hint, danger, disabled }: { onClic
 }
 
 export const MenuHeading = ({ children }: { children: ReactNode }) => (
-  <div className="px-2.5 pt-2 pb-1 text-[10px] font-semibold uppercase tracking-wider text-slate-400">{children}</div>
+  <div className="px-2.5 pt-2 pb-1 text-xs font-semibold uppercase tracking-wider text-slate-400">{children}</div>
 );

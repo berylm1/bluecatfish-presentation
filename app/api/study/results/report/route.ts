@@ -92,7 +92,7 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   const editor = await verifyToken(req.cookies.get(AUTH_COOKIE)?.value);
   if (!editor) return NextResponse.json({ error: 'Locked' }, { status: 401 });
-  const body = await req.json().catch(() => ({}));
+  const body = await req.json().catch(() => null) ?? {};
   const name = typeof body?.name === 'string' ? body.name.replace(/\s+/g, ' ').trim().slice(0, MAX_NAME) : '';
   if (!name) return NextResponse.json({ error: 'Give the snapshot a name' }, { status: 400 });
   try {
@@ -108,7 +108,7 @@ export async function POST(req: NextRequest) {
 
 export async function DELETE(req: NextRequest) {
   if (!(await verifyToken(req.cookies.get(AUTH_COOKIE)?.value))) return NextResponse.json({ error: 'Locked' }, { status: 401 });
-  const body = await req.json().catch(() => ({}));
+  const body = await req.json().catch(() => null) ?? {};
   if (!Number.isInteger(body?.id)) return NextResponse.json({ error: 'Bad snapshot' }, { status: 400 });
   const { error } = await supabase.from('study_reports').delete().eq('id', body.id);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });

@@ -5,7 +5,8 @@ import { useEffect, useState } from 'react';
 
 // Only go back to a page on this site ("/slideEditor"), never an outside link
 function safeNext(raw: string | null): string {
-  return raw && raw.startsWith('/') && !raw.startsWith('//') ? raw : '/slideEditor';
+  // (one leading slash, then anything but a slash or backslash: "//host" and "/\\host" both lead off the site)
+  return raw && /^\/(?![/\\])[^\\\u0000-\u001f]*$/.test(raw) ? raw : '/slideEditor';
 }
 
 export default function Unlock() {

@@ -1,5 +1,7 @@
 import { lazySupabaseAdmin } from '@/lib/supabase/admin';
-import { TTS_VOICE, VOICE_INSTRUCTIONS, SIMPLE_VOICE_INSTRUCTIONS } from '@/lib/voice';
+import { currentProfile, enterProfile } from './lessonContext';
+import { profileOf } from './profile';
+import { voiceFor } from '@/lib/voice';
 import type { Deck, Pointer, Slide, SlideElement } from './types';
 import { spokenText } from './queue';
 import { introBasis, introText } from './intro';
@@ -81,7 +83,7 @@ async function writeIntro(deck: Deck, i: number): Promise<string> {
 /** A short caption for a picture, from its description. */
 async function writeCaption(el: SlideElement): Promise<string> {
   const out = await chat(
-    'Write a short caption shown under a picture in a lesson for 10-14 year olds: 3 to 10 words saying what the picture shows ' +
+    'Write a short caption shown under a picture in a lesson for {{ages}} year olds: 3 to 10 words saying what the picture shows ' +
       '("A blue catfish caught in the James River"). Only what the description says. No "Image of", no quotation marks, no full stop at the end.',
     `Picture description: ${el.type === 'image' ? el.alt ?? '' : ''}`,
   );
@@ -146,6 +148,7 @@ async function nameTopics(deck: Deck): Promise<Map<number, string>> {
 }
 
 export async function writeRecap(deck: Deck): Promise<string> {
+  enterProfile(profileOf(deck));   // (the AI's instructions: this lesson's teacher and topic)
   const outline = deck.slides.map((s) => `[${s.topic ?? ''}] ${s.elements.map((e) => spokenText(e)).filter(Boolean).join(' ')}`).join('\n').slice(0, 12000);
   // was: 3 to 5 sentences (60-100 words) on the main ideas; the ending now goes on to the learner's own achievements, so this is one quick line
   return chat(
@@ -171,8 +174,8 @@ export async function recordClip(text: string, simple: boolean): Promise<{ url: 
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${process.env.OPENAI_API_KEY}` },
     body: JSON.stringify({
       model: 'gpt-4o-mini-tts',
-      voice: TTS_VOICE,
-      instructions: simple ? SIMPLE_VOICE_INSTRUCTIONS : VOICE_INSTRUCTIONS,
+      voice: voiceFor(currentProfile()).voice,
+      instructions: simple ? voiceFor(currentProfile()).simple : voiceFor(currentProfile()).instructions,
       input: text,
     }),
   });
@@ -261,6 +264,7 @@ export async function prepareDeck(
   out: { patches: Patch[]; errors: string[] } = { patches: [], errors: [] },
 ): Promise<{ patches: Patch[]; errors: string[] }> {
   const deck: Deck = structuredClone(source);
+  enterProfile(profileOf(deck));   // (the AI's instructions: this lesson's teacher and topic)
   const { patches, errors } = out;
   const keep = (p: Patch) => { patches.push(p); applyPatches(deck, [p]); };
   const fail = (what: string, e: unknown) => {

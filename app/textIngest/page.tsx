@@ -1,10 +1,12 @@
 'use client';
 
 import { useState } from 'react';
+import KbPicker from '@/components/editor/KbPicker';
 
 export default function AdminPage() {
   const [file, setFile] = useState<File | null>(null);
   const [dragging, setDragging] = useState(false);
+  const [kb, setKb] = useState('blue-catfish');   // the knowledge base it goes in
   const [status, setStatus] = useState('');
 
   function handleFile(f: File) {
@@ -36,6 +38,7 @@ export default function AdminPage() {
         file: base64,
         fileType: file.name.split('.').pop(),
         fileName: file.name,
+        kb,
       }),
     });
 
@@ -56,7 +59,8 @@ export default function AdminPage() {
   }
 
   return (
-  <div style={{ display: 'flex', justifyContent: 'center', marginTop: 100 }}>
+  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', marginTop: 100, gap: 24 }}>
+    <div style={{ width: 400 }}><KbPicker value={kb} onChange={setKb} /></div>
     <div
       onDragOver={(e) => {
         e.preventDefault();

@@ -1,4 +1,6 @@
 import type { BankQuestion, Deck, Slide } from './types';
+import { enterProfile } from './lessonContext';
+import { profileOf } from './profile';
 import { chat, knowledge, STYLE } from './ai';
 import { autoFix, formatGuide, imagesFor, markAi, problems, toSlide, type LibImage } from './generate';
 import { hasWords } from './pictures';
@@ -35,10 +37,10 @@ export function usedPictures(deck: Deck, redoing: string[] = []): Set<string> {
 }
 
 const QUESTIONS = `${STYLE}
-You prepare a lesson's QUESTION BANK for ONE topic: questions 10-14 year olds might really ask in class after its slides.
+You prepare a lesson's QUESTION BANK for ONE topic: questions {{ages}} year olds might really ask in class after its slides.
 Write ${BANK_PER_TOPIC} questions:
 - 2 "curious": what a word means, why or how something happens, how big or how many
-- 2 "practical": what people can do about it, what it means for fishermen, food, the Bay or the learner
+- 2 "practical": what people can do about it, what it means for {{practical}} or the learner
 - 2 "checking": a kid checking they understood ("So does that mean…?", "Wait, is it because…?")
 Each: under 16 words, in kid words, different from the others, answered by the SOURCE CONTENT (leave out any it can't answer).
 Go a bit beyond what the slides already say, or ask it another way; never just repeat a slide.
@@ -47,7 +49,7 @@ Reply as JSON: {"questions":[{"q":"...","kind":"curious|practical|checking"}]}`;
 // (CLASSMATES_ON_SCREEN, the lesson on its own) Each question is for one slide, asked while it's up: it has to fit
 // what's on the screen. (was QUESTIONS: questions about the topic as a whole, so a classmate asked about eggs on a slide about whiskers)
 const QUESTIONS_ON_SCREEN = `${STYLE}
-You prepare a lesson's QUESTION BANK for ONE topic: questions 10-14 year olds might really ask in class, each WHILE ONE OF THE
+You prepare a lesson's QUESTION BANK for ONE topic: questions {{ages}} year olds might really ask in class, each WHILE ONE OF THE
 TOPIC'S SLIDES IS ON THE SCREEN (the slides are numbered below, with their pictures).
 Write up to ${BANK_PER_TOPIC} questions, one per slide that has something worth asking about (skip a title or a slide with little on it;
 two for a slide only when the topic has fewer slides than that). Each question:
@@ -57,7 +59,7 @@ two for a slide only when the topic has fewer slides than that). Each question:
   - the difference between two things on the slide, kind "checking" or "curious"
   - a prediction ("What would happen if…?", "So what happens when…?"), kind "practical" or "curious"
   - something in the picture ("Why does it have…?"), kind "curious"
-  - what it means for people, fishermen, food or the Bay, kind "practical"
+  - what it means for people, {{practical}}, kind "practical"
 - NEVER asks for a fact the slide just said (its answer must not be a line read back off the slide), and never repeats another question.
 - is under 16 words, in kid words, and answered by the SOURCE CONTENT or the slides (leave out any they can't answer).
 Mix the kinds (some of each, when the slides allow).
@@ -78,10 +80,10 @@ Reply as JSON: {"slide":{"background":"#hex","elements":[...]}}`;
 // The study's lesson (lib/study/content.ts slidesOnly): the questions and answers stay inside what its slides teach
 const SLIDES_ONLY_SOURCE = '(none: use only WHAT THE TOPIC\'S SLIDES TEACH)';
 const QUESTIONS_SLIDES_ONLY = `${STYLE}
-You prepare a lesson's QUESTION BANK for ONE topic: questions 10-14 year olds might really ask in class after its slides.
+You prepare a lesson's QUESTION BANK for ONE topic: questions {{ages}} year olds might really ask in class after its slides.
 Write ${BANK_PER_TOPIC} questions:
 - 2 "curious": what a word on the slides means, or why or how something on them happens
-- 2 "practical": what something on the slides means for people, the Bay or the learner
+- 2 "practical": what something on the slides means for people, {{practical}} or the learner
 - 2 "checking": a kid checking they understood ("So does that mean…?", "Wait, is it because…?")
 Each: under 16 words, in kid words, different from the others, and FULLY answered by WHAT THE TOPIC'S SLIDES TEACH.
 Never ask about anything the slides don't teach: no new facts, numbers or examples. Ask about what they teach in another way.
@@ -106,6 +108,7 @@ export async function writeBankTopic(deck: Deck, topic: string,
   /** Pictures taken (usedPictures): shared by topics written at the same time, so no two answers get the same one */
   used: Set<string> = usedPictures(deck, [topic]),
 ): Promise<BankQuestion[]> {
+  enterProfile(profileOf(deck));   // (the AI's instructions: this lesson's teacher and topic)
   const slides = deck.slides.filter((s) => s.topic?.trim() === topic);
   const taught = slides.map((s) => `${slideBasis(s)}\n${s.elements.map(spokenText).filter(Boolean).join(' ')}`).join('\n---\n').slice(0, 6000);
   // (the study's lesson: its slides only, never the knowledge base, so the classmates re-explain and don't teach more)

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import KbPicker from "@/components/editor/KbPicker";
 
 export default function UploadImagePage() {
   const [file, setFile] = useState<File | null>(null);
@@ -8,6 +9,7 @@ export default function UploadImagePage() {
   const [status, setStatus] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
   const [preview, setPreview] = useState<string | null>(null);
+  const [kb, setKb] = useState("blue-catfish");   // the knowledge base it goes in
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const selected = e.target.files?.[0] ?? null;
@@ -28,6 +30,7 @@ export default function UploadImagePage() {
       const formData = new FormData();
       formData.append("file", file);
       if (description.trim()) formData.append("description", description.trim());
+      formData.append("kb", kb);
 
       const supabase = (await import('@supabase/supabase-js')).createClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -77,6 +80,8 @@ export default function UploadImagePage() {
         <p className="mb-6 text-sm text-gray-500">
           The description is what gets embedded and matched against slide topics.
         </p>
+
+        <div className="mb-4"><KbPicker value={kb} onChange={setKb} pictures /></div>
 
         <div className="mb-4">
           <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-gray-500">

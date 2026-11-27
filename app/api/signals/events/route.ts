@@ -63,7 +63,8 @@ export async function POST(req: Request) {
     if (error) throw new Error(error.message);
     return NextResponse.json({ ok: true, written, dropped: Math.min(raw.length, MAX_EVENTS) - written });
   } catch (e) {
-    // tracking is best effort: say what went wrong, the lesson doesn't wait for it
-    return NextResponse.json({ error: e instanceof Error ? e.message : String(e) }, { status: 500 });
+    // tracking is best effort: the lesson doesn't wait for it (what went wrong is in the server's log, not sent to the page)
+    console.error('signals/events error:', e instanceof Error ? e.message : e);
+    return NextResponse.json({ error: 'Not saved this time.' }, { status: 500 });
   }
 }

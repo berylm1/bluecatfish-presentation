@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { CUE_TEXT, type CueKey } from '@/lib/canvas/cues';
 import { learnerHeaders } from '@/lib/learnerSession';
 import { voiced } from '@/lib/voiceSpeed';
+import { TTS_WAIT_MS } from '@/lib/voice';
 import type { ClassmateId } from '@/lib/classmates';
 
 /** A live clip: its URL and where the sound starts and ends (the silence around it is skipped). */
@@ -34,7 +35,7 @@ async function soundBounds(blob: Blob): Promise<{ start: number; end: number } |
 
 async function liveClip(text: string, who?: ClassmateId): Promise<Live | null> {
   try {
-    const res = await fetch('/api/tts', { method: 'POST', headers: learnerHeaders({ 'Content-Type': 'application/json' }), body: JSON.stringify({ text, who }) });
+    const res = await fetch('/api/tts', { method: 'POST', headers: learnerHeaders({ 'Content-Type': 'application/json' }), body: JSON.stringify({ text, who }), signal: AbortSignal.timeout(TTS_WAIT_MS) });
     if (!res.ok) return null;
     const blob = await res.blob();
     const b = await soundBounds(blob);

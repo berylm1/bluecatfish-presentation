@@ -3,6 +3,8 @@ import { CUE_TEXT } from '@/lib/canvas/cues';
 import { recordClip } from '@/lib/canvas/prepare';
 import { audioKey } from '@/lib/canvas/aiFields';
 import { rateLimit } from '@/lib/rateLimit';
+import { enterProfile } from '@/lib/canvas/lessonContext';
+import { lessonOf } from '@/lib/canvas/lessonProfiles';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -10,13 +12,16 @@ export const maxDuration = 60;
 // Public: GET → { urls: { cmd_nextSlide: "https://…mp3", … } } for the canvas
 // page's short spoken lines. Each is recorded once (same words + voice = same
 // file) and remembered per server instance; missing ones are spoken live.
-let cached: { urls: Record<string, string>; key: string } | null = null;
-const versionKey = audioKey(JSON.stringify(CUE_TEXT), false);
+// (per voice: a lesson whose teacher has another voice gets the lines in that voice. Was: Professor Marine's for all)
+const cached = new Map<string, Record<string, string>>();
 
 export async function GET(req: Request) {
   const limited = await rateLimit(req, 'cues');
   if (limited) return limited;
-  if (cached?.key === versionKey) return NextResponse.json({ urls: cached.urls });
+  enterProfile(await lessonOf(req));   // (the asking lesson: its teacher's voice)
+  const versionKey = audioKey(JSON.stringify(CUE_TEXT), false);
+  const hit = cached.get(versionKey);
+  if (hit) return NextResponse.json({ urls: hit });
   const urls: Record<string, string> = {};
   await Promise.all(
     Object.entries(CUE_TEXT).map(async ([key, text]) => {
@@ -27,6 +32,6 @@ export async function GET(req: Request) {
       }
     }),
   );
-  if (Object.keys(urls).length === Object.keys(CUE_TEXT).length) cached = { urls, key: versionKey };
+  if (Object.keys(urls).length === Object.keys(CUE_TEXT).length) { if (cached.size > 50) cached.clear(); cached.set(versionKey, urls); }
   return NextResponse.json({ urls });
 }

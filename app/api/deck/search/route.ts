@@ -43,7 +43,7 @@ export async function POST(req: NextRequest) {
   try {
     const limited = await rateLimit(req, 'search');
     if (limited) return limited;
-    const body = await req.json();
+    const body = (await req.json().catch(() => null)) ?? {};
     const query = String(body.query ?? '').trim().slice(0, 200);
     const docs = (Array.isArray(body.docs) ? body.docs : []).slice(0, 80) as Doc[];
     if (!query || docs.length === 0) {
@@ -76,6 +76,6 @@ export async function POST(req: NextRequest) {
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     console.error('deck/search error:', message);
-    return NextResponse.json({ found: false, error: message }, { status: 500 });
+    return NextResponse.json({ found: false, error: 'The search didn’t work this time.' }, { status: 500 });   // (was the error's own text: it's in the log above)
   }
 }
