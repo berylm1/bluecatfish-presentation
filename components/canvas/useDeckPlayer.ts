@@ -129,6 +129,7 @@ export function useDeckPlayer(
   const textRef = useRef('');                          // words of the clip playing now
   const holdRef = useRef<(() => void) | null>(null);   // set while finishing a sentence: runs once stopped
   const finishTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const afterSlideRef = useRef<{ slide: number; due: number } | null>(null);   // the pause after a slide: which slide, and when it ends
   const stallTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);   // the playing clip's watchdog (STALL_MS)
   const pausedRef = useRef(false);   // pause asked for; a clip that finishes loading waits
   // Interrupted mid-sentence: where that sentence began. The learner talked
@@ -177,6 +178,7 @@ export function useDeckPlayer(
     // again when they come back to it (⏮, "go back"): start after it then
     const s = deck.slides[slide];
     const heard = !!s && introsHeard.current.has(s.id) && isIntroId(orders[slide]?.[0]?.id);
+    afterSlideRef.current = null;   // (a slide gone to on purpose: its pause is a fresh one, also when it's the same slide again)
     // Past the last slide = the end; the position moves there too, so a clip
     // still finishing can't carry the deck on
     setPos((p) => ({ slide: Math.min(slide, deck.slides.length), clip: heard ? 1 : 0, mode: 'normal', token: p.token + 1 }));
@@ -208,6 +210,11 @@ export function useDeckPlayer(
 
     if (pos.clip >= order.length) {
       setStatus('waiting');
+      // The pause after a slide ends when it was first due: Next pressed again during it doesn't start it over.
+      // (was: each press did, so Next pressed about once a second kept the lesson on the slide for as long as
+      // it went on: a test script did just that, and a child hammering Next would too)
+      const wait = (order.length ? AFTER_SLIDE_MS : SILENT_SLIDE_MS) + Math.max(0, Math.min(3000, optsRef.current.extraPause?.() ?? 0));
+      if (afterSlideRef.current?.slide !== pos.slide) afterSlideRef.current = { slide: pos.slide, due: Date.now() + wait };
       timerRef.current = setTimeout(() => {
         const to = pos.slide + 1;
         if (optsRef.current.holdBefore?.(pos.slide, to)) {
@@ -217,9 +224,10 @@ export function useDeckPlayer(
         } else {
           goToSlide(to);
         }
-      }, (order.length ? AFTER_SLIDE_MS : SILENT_SLIDE_MS) + Math.max(0, Math.min(3000, optsRef.current.extraPause?.() ?? 0)));
+      }, Math.max(0, afterSlideRef.current.due - Date.now()));
       return () => { cancelled = true; clear(); };
     }
+    afterSlideRef.current = null;   // (back in the slide: its next pause is a fresh one)
 
     const el = order[pos.clip];
     // A hands-on box jumped to quietly (the learner already gets it): no instructions, their turn at once
