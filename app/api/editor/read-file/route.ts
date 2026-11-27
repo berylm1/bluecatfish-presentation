@@ -9,20 +9,32 @@ const MAX_BYTES = 12 * 1024 * 1024;
 
 // POST { file: base64, fileType: 'pdf' | 'docx' | 'txt' } → { text }: the words in an uploaded file, for the
 // "New lesson" flow's material box (editors only: under /api/editor, see proxy.ts). Nothing is stored here.
-/** A PDF's words: the reader the site has always used, and a second one for the files it can't follow */
+/**
+ * A PDF's words. The reader the site has always used can fail on its very first file after the server wakes up
+ * ("bad XRef entry") and read the same file a moment later, so it gets three goes; then a second reader, for a
+ * file the first really can't follow.
+ */
 async function pdfText(buffer: Buffer): Promise<string> {
-  try {
-    const text = (await extract(buffer)).text ?? '';
-    if (text.trim()) return text;
-  } catch (e) {
-    console.warn('pdf-extraction could not read a file:', e instanceof Error ? e.message : e);
+  let last: unknown;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      const text = (await extract(Buffer.from(buffer))).text ?? '';
+      if (text.trim()) return text;
+    } catch (e) {
+      last = e;
+      await new Promise((r) => setTimeout(r, 150));
+    }
   }
-  const { PDFParse } = await import('pdf-parse');
-  const parser = new PDFParse({ data: new Uint8Array(buffer) });
   try {
-    return (await parser.getText()).text ?? '';
-  } finally {
-    await parser.destroy().catch(() => {});
+    const { PDFParse } = await import('pdf-parse');
+    const parser = new PDFParse({ data: new Uint8Array(buffer) });
+    try {
+      return (await parser.getText()).text ?? '';
+    } finally {
+      await parser.destroy().catch(() => {});
+    }
+  } catch (e) {
+    throw last instanceof Error ? last : e;
   }
 }
 
