@@ -5,10 +5,11 @@ import type { ActivityElement } from '@/lib/canvas/types';
 import { contentRect } from '@/lib/canvas/laser';
 import { PALETTE } from './Visuals';
 import { activityReady } from '@/lib/canvas/queue';
-import { answerMatches } from '@/lib/canvas/answerMatch';
+import { answerMatches, parseNumber } from '@/lib/canvas/answerMatch';
+import { learnerHeaders } from '@/lib/learnerSession';
 import { playSound, type HandsOnSound } from '@/lib/canvas/sounds';
 import Icon from '@/components/Icon';
-import { typeset } from '@/lib/mathText';
+import { mathTextOn, typeset } from '@/lib/mathText';
 
 /**
  * Words as big as fit their box, between `min` and `max` (% of the slide's height). A card's words were one fixed
@@ -120,7 +121,7 @@ export default function ActivityView({ el, interactive, onDone, hintNonce = 0, s
 
   const ready = activityReady(el);
   const hint = interactive && ready && !touched && !done && !quiet;
-  const kit: Kit = { interactive: interactive && ready && !done, hint, touch, finish, solved, sound, mistake, finnMove: interactive ? finnMove : null, finnEvent, guide, turn: interactive && turn };
+  const kit: Kit = { live: interactive && ready, interactive: interactive && ready && !done, hint, touch, finish, solved, sound, mistake, finnMove: interactive ? finnMove : null, finnEvent, guide, turn: interactive && turn };
   // A half-made box: the editor shows what's missing; learners see nothing (it isn't waited on either)
   if (!ready && interactive) return null;
   return (
@@ -140,7 +141,8 @@ export default function ActivityView({ el, interactive, onDone, hintNonce = 0, s
           : el.kind === 'order' ? <Order el={el} kit={kit} />
             : el.kind === 'cards' ? <Cards el={el} kit={kit} />
               : el.kind === 'hotspots' ? <Hotspots el={el} kit={kit} />
-                : el.kind === 'answer' ? <TypeAnswer el={el} kit={kit} />
+                : el.kind === 'answer' || el.kind === 'blank' ? <TypeAnswer el={el} kit={kit} />
+                : el.kind === 'match' ? <Match el={el} kit={kit} />
                   : <Slider el={el} kit={kit} />}
         {hint && area && <HintHand area={area} mode={el.kind === 'sort' || el.kind === 'slider' ? 'drag' : 'tap'} />}
       </div>
@@ -154,6 +156,8 @@ export default function ActivityView({ el, interactive, onDone, hintNonce = 0, s
 }
 
 type Kit = {
+  /** On the lesson page (not the editor's drawing of it), done or not */
+  live: boolean;
   interactive: boolean; hint: boolean; touch: () => void; finish: (shown?: boolean) => void; solved: boolean;
   sound: (k: HandsOnSound) => void; mistake: (m: ActivityMistake) => void;
   finnMove?: FinnMove | null; finnEvent: (e: FinnEvent) => void; guide?: string;
@@ -380,63 +384,213 @@ function shuffled(n: number, seed: string): number[] {
  * shows the answer and goes on. Checked forgivingly (lib/canvas/answerMatch.ts: 3/4 = 0.75, small typos…).
  */
 const TRIES_BEFORE_SHOW = 2;
+const KEYS = ['/', '.', '-', '(', ')', '^'];
+const DIGITS = ['7', '8', '9', '4', '5', '6', '1', '2', '3', '0'];
+type Typed = { text: string; back?: string };
 function TypeAnswer({ el, kit }: { el: ActivityElement; kit: Kit }) {
-  const items = el.items ?? [];
+  // Practice: the same questions with fresh numbers (asked for once the box is done; they don't count for the lesson)
+  const [fresh, setFresh] = useState<Typed[] | null>(null);
+  const [freshBusy, setFreshBusy] = useState(false);
+  const [freshNote, setFreshNote] = useState('');
+  const [round, setRound] = useState(0);        // practice rounds finished
+  const items: Typed[] = fresh ?? el.items ?? [];
   const [at, setAt] = useState(kit.solved ? items.length - 1 : 0);
-  const [value, setValue] = useState('');
+  const [typed, setValue] = useState('');
+  const value = typed;
   const [tries, setTries] = useState(0);
   const [result, setResult] = useState<'right' | 'wrong' | 'shown' | null>(kit.solved ? 'right' : null);
+  const [over, setOver] = useState(kit.solved);   // every question answered (the box, or a practice round)
+  const [hint, setHint] = useState('');
+  const hintFor = useRef('');
   const anyShown = useRef(false);   // an answer given away: the box is done, not solved (the end screen's count)
   const input = useRef<HTMLInputElement>(null);
   const item = items[Math.min(at, items.length - 1)];
   const answer = (item?.back ?? '').split('|')[0].trim();
   const last = at >= items.length - 1;
+  const canType = fresh ? kit.live && !over : kit.interactive;
+  // Fill in the blank: the sentence is shown with its gap; with a word bank (the box's extra words) the learner taps a word
+  const gap = el.kind === 'blank';
+  const bank = useMemo(() => {
+    if (!gap || !el.groups?.length) return null;
+    const words = [...new Set([...(el.items ?? []).map((it) => (it.back ?? '').split('|')[0].trim()), ...el.groups].filter(Boolean))];
+    return shuffled(words.length, `${el.id}:bank`).map((k) => words[k]);
+  }, [gap, el.groups, el.items, el.id]);
+  const math = mathTextOn();
+  const touch = typeof window !== 'undefined' && !!window.matchMedia?.('(pointer: coarse)').matches;
   const next = () => {
-    if (last) { kit.finish(anyShown.current); return; }
-    setAt((i) => i + 1); setValue(''); setTries(0); setResult(null);
+    if (last) {
+      setOver(true);
+      if (fresh) setRound((n) => n + 1); else kit.finish(anyShown.current);
+      return;
+    }
+    setAt((i) => i + 1); setValue(''); setTries(0); setResult(null); setHint('');
     window.setTimeout(() => input.current?.focus(), 50);
   };
-  const check = () => {
-    if (!kit.interactive || !item || !value.trim() || result === 'right' || result === 'shown') return;
+  // A hint after a wrong try (/api/tutor/practice): the next step, never the answer. None when it can't be had: fine
+  const askHint = (tried: string) => {
+    const key = `${item.text}|${tried}`;
+    if (hintFor.current === key) return;
+    hintFor.current = key;
+    fetch('/api/tutor/practice', { method: 'POST', headers: learnerHeaders({ 'Content-Type': 'application/json' }), body: JSON.stringify({ kind: 'hint', question: item.text, answer: item.back ?? '', tried }) })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => { if (d?.hint && hintFor.current === key) setHint(String(d.hint)); })
+      .catch(() => {});
+  };
+  const check = (given?: string) => {
+    const value = given ?? typed;
+    if (!canType || !item || !value.trim() || result === 'right' || result === 'shown') return;
     kit.touch();
-    if (answerMatches(value, item.back ?? '', item.text)) {
+    if (answerMatches(value, item.back ?? '', gap ? '' : item.text)) {
       kit.sound('good');
-      setResult('right');
+      setResult('right'); setHint('');
       window.setTimeout(next, 1100);
     } else {
       kit.sound('bad');
-      kit.mistake({ label: `${item.text} → ${value.trim()}`, item: item.text, chosen: value.trim(), correct: answer });
+      if (!fresh) kit.mistake({ label: `${item.text} → ${value.trim()}`, item: item.text, chosen: value.trim(), correct: answer });
       setTries((t) => t + 1);
       setResult('wrong');
+      if (kit.live) askHint(value.trim());
     }
   };
-  const show = () => { anyShown.current = true; setResult('shown'); setValue(answer); window.setTimeout(next, 2200); };
+  const show = () => { anyShown.current = true; setResult('shown'); setHint(''); setValue(answer); window.setTimeout(next, 2200); };
+  // The same questions with other numbers (each checked on the server: one whose sum doesn't add up is left out)
+  const practise = async () => {
+    setFreshBusy(true); setFreshNote('');
+    try {
+      const made = (await Promise.all((el.items ?? []).map((it) =>
+        fetch('/api/tutor/practice', { method: 'POST', headers: learnerHeaders({ 'Content-Type': 'application/json' }), body: JSON.stringify({ kind: 'fresh', question: it.text, answer: it.back ?? '' }) })
+          .then((r) => (r.ok ? r.json() : null)).catch(() => null),
+      ))).filter((d) => d?.question && d?.answer).map((d) => ({ text: String(d.question), back: String(d.answer) }));
+      if (!made.length) { setFreshNote('No new questions this time. Try again in a moment.'); return; }
+      setFresh(made); setAt(0); setValue(''); setTries(0); setResult(null); setHint(''); setOver(false);
+      window.setTimeout(() => input.current?.focus(), 50);
+    } finally {
+      setFreshBusy(false);
+    }
+  };
+  const press = (k: string) => {
+    const node = input.current;
+    const a = node?.selectionStart ?? value.length, b = node?.selectionEnd ?? value.length;
+    const v = k === 'back' ? value.slice(0, a === b ? Math.max(0, a - 1) : a) + value.slice(b) : value.slice(0, a) + k + value.slice(b);
+    const caret = k === 'back' ? (a === b ? Math.max(0, a - 1) : a) : a + k.length;
+    setValue(v); if (result === 'wrong') setResult(null); kit.touch();
+    window.setTimeout(() => { node?.focus({ preventScroll: true }); node?.setSelectionRange(caret, caret); }, 0);
+  };
   if (!item) return null;
   const color = result === 'right' ? '#16a34a' : result === 'wrong' ? '#dc2626' : result === 'shown' ? '#0891b2' : '#94a3b8';
+  const key: CSSProperties = { fontSize: '3.2cqh', fontWeight: 700, minWidth: '6cqh', padding: '0.5cqh 1cqh', borderRadius: '1.2cqh', border: '0.3cqh solid #cbd5e1', background: '#fff', color: INK, cursor: 'pointer', lineHeight: 1.2 };
+  // (only questions whose answer is a number can be made again with other numbers)
+  const canPractise = kit.live && over && math && (el.items ?? []).some((it) => parseNumber((it.back ?? '').split('|')[0]) !== null);
   return (
-    <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '2.4cqh' }} data-type-answer>
-      {items.length > 1 && <div style={{ fontSize: '2.4cqh', fontWeight: 700, color: '#64748b' }}>{Math.min(at, items.length - 1) + 1} of {items.length}</div>}
-      <FitBox fitKey={item.text} min={3} max={7} style={{ width: '92%', maxHeight: '38%', textAlign: 'center', fontWeight: 800, color: INK, lineHeight: 1.15, overflow: 'hidden' }}>
-        {typeset(item.text)}
+    <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '1.8cqh' }} data-type-answer data-practice={fresh ? '' : undefined}>
+      {(items.length > 1 || fresh) && <div style={{ fontSize: '2.4cqh', fontWeight: 700, color: fresh ? '#7c3aed' : '#64748b' }}>{fresh ? 'Practice · ' : ''}{Math.min(at, items.length - 1) + 1} of {items.length}</div>}
+      <FitBox fitKey={item.text} min={3} max={7} style={{ width: '92%', maxHeight: '34%', textAlign: 'center', fontWeight: 800, color: INK, lineHeight: 1.15, overflow: 'hidden' }}>
+        {gap ? (() => {
+          // the sentence, with the word in its gap once it's right (or shown)
+          const [before, ...after] = item.text.split(/_{2,}/);
+          const filled = result === 'right' || result === 'shown' ? (result === 'shown' ? answer : value.trim()) : bank && value ? value : '';
+          return <>{before}<span data-gap style={{ display: 'inline-block', minWidth: '4.5em', padding: '0 0.3em', margin: '0 0.15em', borderBottom: `0.14em solid ${color}`, color, lineHeight: 1.1 }}>{filled || ' '}</span>{after.join('___')}</>;
+        })() : typeset(item.text)}
       </FitBox>
+      {bank ? (
+        <div data-word-bank style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'center', gap: '1.4cqh', maxWidth: '92%' }}>
+          {bank.map((w) => (
+            <button key={w} type="button" disabled={!canType || result === 'right' || result === 'shown'} onClick={() => { setValue(w); if (result === 'wrong') setResult(null); check(w); }}
+              style={{ fontSize: '3.8cqh', fontWeight: 800, padding: '0.9cqh 2.4cqh', borderRadius: '1.6cqh', border: `0.4cqh solid ${value === w && result === 'wrong' ? '#dc2626' : '#0891b2'}`, color: INK, background: value === w && result === 'right' ? '#dcfce7' : '#fff',
+                cursor: 'pointer', opacity: !canType || result === 'right' || result === 'shown' ? 0.6 : 1, animation: value === w && result === 'wrong' ? 'shake 360ms ease' : undefined }}>{w}</button>
+          ))}
+        </div>
+      ) : (
       <form onSubmit={(e) => { e.preventDefault(); check(); }} style={{ display: 'flex', gap: '1.4cqh', width: '70%', maxWidth: '90cqh' }}>
-        <input ref={input} value={value} disabled={!kit.interactive || result === 'right' || result === 'shown'} inputMode="text" autoComplete="off"
+        <input ref={input} value={value} disabled={!canType || result === 'right' || result === 'shown'} inputMode="text" autoComplete="off"
           aria-label={`Your answer: ${item.text}`} placeholder="Your answer" data-hint-from=""
           onChange={(e) => { setValue(e.target.value); if (result === 'wrong') setResult(null); kit.touch(); }}
           style={{ flex: 1, minWidth: 0, fontSize: '4.6cqh', fontWeight: 700, textAlign: 'center', padding: '1cqh 1.6cqh', borderRadius: '1.6cqh',
             border: `0.5cqh solid ${color}`, color: INK, background: '#fff', outline: 'none',
             animation: result === 'wrong' ? 'shake 360ms ease' : undefined }} />
-        <button type="submit" disabled={!kit.interactive || !value.trim() || result === 'right' || result === 'shown'}
+        <button type="submit" disabled={!canType || !value.trim() || result === 'right' || result === 'shown'}
           style={{ fontSize: '3.6cqh', fontWeight: 800, padding: '1cqh 2.6cqh', borderRadius: '1.6cqh', background: '#0891b2', color: '#fff', border: 'none',
-            opacity: !kit.interactive || !value.trim() || result === 'right' || result === 'shown' ? 0.45 : 1, cursor: 'pointer' }}>Check</button>
+            opacity: !canType || !value.trim() || result === 'right' || result === 'shown' ? 0.45 : 1, cursor: 'pointer' }}>Check</button>
       </form>
-      <div role="status" style={{ minHeight: '4.4cqh', fontSize: '3.2cqh', fontWeight: 700, color, display: 'flex', alignItems: 'center', gap: '1.6cqh' }}>
+      )}
+      {/* Math keys: the signs a keyboard hides (and the digits, on a touch screen) */}
+      {math && !gap && canType && result !== 'right' && result !== 'shown' && (
+        <div data-math-keys style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'center', gap: '0.8cqh', maxWidth: '92%' }}>
+          {(touch ? [...DIGITS, ...KEYS] : KEYS).map((k) => (
+            <button key={k} type="button" onClick={() => press(k)} aria-label={k === '/' ? 'fraction bar' : k === '^' ? 'to the power of' : k === '-' ? 'minus' : k === '.' ? 'decimal point' : k} style={key}>{k === '-' ? '−' : k}</button>
+          ))}
+          <button type="button" onClick={() => press('back')} aria-label="Delete" style={key}>⌫</button>
+        </div>
+      )}
+      <div role="status" style={{ minHeight: '4.4cqh', fontSize: '3.2cqh', fontWeight: 700, color, display: 'flex', alignItems: 'center', gap: '1.6cqh', flexWrap: 'wrap', justifyContent: 'center' }}>
         {result === 'right' && <><Icon name="check-mark" /> Right!</>}
         {result === 'wrong' && <>Not quite. Try again!</>}
         {result === 'shown' && <>The answer: {typeset(answer)}</>}
-        {result !== 'right' && result !== 'shown' && tries >= TRIES_BEFORE_SHOW && kit.interactive && (
+        {result !== 'right' && result !== 'shown' && tries >= TRIES_BEFORE_SHOW && canType && (
           <button type="button" onClick={show} style={{ fontSize: '2.8cqh', fontWeight: 700, padding: '0.6cqh 1.8cqh', borderRadius: '99cqh', border: '0.3cqh solid #0891b2', color: '#0891b2', background: '#fff', cursor: 'pointer' }}>Show me</button>
         )}
+      </div>
+      {hint && result === 'wrong' && (
+        <div data-answer-hint style={{ maxWidth: '88%', fontSize: '2.8cqh', fontWeight: 600, color: '#92400e', background: '#fef3c7', border: '0.3cqh solid #fcd34d', borderRadius: '1.4cqh', padding: '0.8cqh 1.6cqh', textAlign: 'center', lineHeight: 1.25 }}>
+          <Icon name="lightbulb" /> {typeset(hint)}
+        </div>
+      )}
+      {canPractise && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: '1.4cqh', flexWrap: 'wrap', justifyContent: 'center' }}>
+          <button type="button" onClick={practise} disabled={freshBusy} data-practise
+            style={{ fontSize: '2.8cqh', fontWeight: 700, padding: '0.7cqh 2cqh', borderRadius: '99cqh', border: '0.3cqh solid #7c3aed', color: '#6d28d9', background: '#fff', cursor: 'pointer', opacity: freshBusy ? 0.6 : 1 }}>
+            {freshBusy ? 'Making new questions…' : round ? 'Practise again with new numbers' : 'Practise with new numbers'}
+          </button>
+          {freshNote && <span style={{ fontSize: '2.4cqh', color: '#64748b' }}>{freshNote}</span>}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/*
+ * Match the pairs: the words on the left, what goes with each on the right (mixed up). Tap one, then its partner:
+ * right, the two take a colour and stay; wrong, a shake and another go. Done when every pair is made.
+ */
+function Match({ el, kit }: { el: ActivityElement; kit: Kit }) {
+  const items = useMemo(() => (el.items ?? []).slice(0, 6), [el.items]);
+  const order = useMemo(() => shuffled(items.length, `${el.id}:match`), [items.length, el.id]);
+  const [made, setMade] = useState<Set<number>>(() => new Set(kit.solved ? items.map((_, i) => i) : []));
+  const [left, setLeft] = useState<number | null>(null);
+  const [wrong, setWrong] = useState<number | null>(null);   // the right-hand one just tried, wrongly
+  const pick = (r: number) => {
+    if (!kit.interactive || left === null || made.has(r)) return;
+    kit.touch();
+    if (r === left) {
+      kit.sound('good');
+      const next = new Set(made).add(r);
+      setMade(next); setLeft(null); setWrong(null);
+      if (next.size === items.length) window.setTimeout(() => kit.finish(), 500);
+    } else {
+      kit.sound('bad');
+      kit.mistake({ label: `${items[left].text} → ${items[r].back ?? ''}`, item: items[left].text, chosen: items[r].back ?? '', correct: items[left].back ?? '' });
+      setWrong(r);
+      window.setTimeout(() => setWrong((w) => (w === r ? null : w)), 500);
+    }
+  };
+  const cell = (on: boolean, done: number | null, bad = false): CSSProperties => ({
+    flex: 1, minHeight: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', textAlign: 'center', padding: '0.6cqh 1.6cqh', borderRadius: '1.6cqh', fontWeight: 800, lineHeight: 1.12,
+    fontSize: `${Math.max(2.8, Math.min(4.4, 26 / items.length))}cqh`, cursor: done === null && kit.interactive ? 'pointer' : 'default', color: done !== null ? '#fff' : INK,
+    background: done !== null ? PALETTE[done % PALETTE.length] : on ? '#cffafe' : '#fff', border: `0.4cqh solid ${bad ? '#dc2626' : done !== null ? PALETTE[done % PALETTE.length] : on ? '#0891b2' : '#94a3b8'}`,
+  });
+  return (
+    <div style={{ position: 'absolute', inset: 0, display: 'flex', gap: '6%', padding: '0 2%' }} data-match>
+      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '1.4cqh' }}>
+        {items.map((it, i) => (
+          <button key={i} type="button" data-match-left={i} data-hint-from={!made.has(i) && left === null ? '' : undefined} disabled={made.has(i) || !kit.interactive}
+            onClick={() => { kit.touch(); setLeft(left === i ? null : i); }} style={cell(left === i, made.has(i) ? i : null)}>{typeset(it.text)}</button>
+        ))}
+      </div>
+      <div style={{ flex: 1.3, display: 'flex', flexDirection: 'column', gap: '1.4cqh' }}>
+        {order.map((r) => (
+          <button key={r} type="button" data-match-right={r} disabled={made.has(r) || !kit.interactive} onClick={() => pick(r)}
+            style={{ ...cell(false, made.has(r) ? r : null, wrong === r), animation: wrong === r ? 'shake 360ms ease' : undefined }}>{typeset(items[r].back)}</button>
+        ))}
       </div>
     </div>
   );

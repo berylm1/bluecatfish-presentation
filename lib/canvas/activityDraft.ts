@@ -12,7 +12,7 @@ import { fingerprint, sayBasis } from './aiFields';
  * The editor inserts it after the slide; the person can change anything.
  */
 
-const KINDS = ['sort', 'order', 'cards', 'hotspots', 'slider', 'answer'] as const;
+const KINDS = ['sort', 'order', 'cards', 'hotspots', 'slider', 'answer', 'blank', 'match'] as const;
 export type ActivityKind = (typeof KINDS)[number];
 export const isActivityKind = (v: unknown): v is ActivityKind => KINDS.includes(v as ActivityKind);
 
@@ -21,7 +21,8 @@ You turn one lesson slide into a HANDS-ON slide for {{ages}} year olds: the lear
 so it sticks. Pick the kind that fits the facts best (unless one is asked for): things that belong to groups → sort; a process or
 story in order → order; surprising numbers or facts to guess → cards; parts of one picture → hotspots; something that changes with
 an amount (age, years, temperature, numbers) → slider; a problem to work out or a short answer to recall (math, spelling,
-a key word or number) → answer (only when each answer is a number, a fraction or 1-3 words; a "why" question → cards). Only facts from the slide and the knowledge base; never invent numbers.
+a key word or number) → answer; a sentence with one key word missing (vocabulary, grammar, a rule) → blank; things that go together
+in pairs (a word and its meaning, a word in two languages, a term and its example) → match. (answer: only when each answer is a number, a fraction or 1-3 words; a "why" question → cards). Only facts from the slide and the knowledge base; never invent numbers.
 
 The slide: {"background":"#hex","elements":[ a title text box ("silent": true, style "title", under 6 words, y about 4, h about 14),
 and ONE hands-on box below it (x about 6, y about 22, w about 88, h about 72) ]}.

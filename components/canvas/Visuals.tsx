@@ -3,6 +3,7 @@
 import type { ChartElement, DiagramElement } from '@/lib/canvas/types';
 import { typeset } from '@/lib/mathText';
 import { FractionBars, Graph, NumberLine, Worked } from './MathVisuals';
+import { AreaModel, Clocks, Money, Shapes, Table } from './MoreVisuals';
 
 /*
  * The drawn visuals: charts (bars, a line, a pie) and diagrams (steps, a
@@ -119,6 +120,11 @@ export function DiagramView({ el, active = false }: { el: DiagramElement; active
         : el.kind === 'fraction' ? <FractionBars el={el} />
         : el.kind === 'graph' ? <Graph el={el} />
         : el.kind === 'worked' ? <Worked el={el} active={active} />
+        : el.kind === 'area' ? <AreaModel el={el} />
+        : el.kind === 'clock' ? <Clocks el={el} />
+        : el.kind === 'money' ? <Money el={el} />
+        : el.kind === 'shape' ? <Shapes el={el} />
+        : el.kind === 'table' ? <Table el={el} />
         : el.kind === 'cycle' ? <Cycle el={el} />
         : el.kind === 'timeline' ? <Timeline el={el} />
           : el.kind === 'compare' ? <Compare el={el} />

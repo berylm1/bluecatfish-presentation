@@ -1119,17 +1119,17 @@ function Editor({
         {/* canvas */}
         <main className="flex-1 min-w-0 flex flex-col" onPointerDown={() => ed.setSelected(null)}>
           {/* The slide's own toolbar: fold the sides, add to the slide, which version of it */}
-          <div className="flex items-center gap-1 px-2 h-11 shrink-0 bg-white border-b border-slate-300" onPointerDown={(e) => e.stopPropagation()} data-canvas-toolbar>
+          <div className="@container shrink-0 bg-white border-b border-slate-300" onPointerDown={(e) => e.stopPropagation()} data-canvas-toolbar><div className="flex items-center gap-1 px-2 h-11">
             <button className={`${toolIcon} ${leftOpen ? '' : 'bg-slate-200'}`} onClick={() => toggleSide('left')} title={leftOpen ? 'Hide the slide list' : 'Show the slide list'} aria-label="Slide list" aria-pressed={leftOpen}><Icon name="panel-left" size={18} /></button>
             <span className="w-px h-6 bg-slate-300 mx-1" />
             <span className="text-xs font-semibold text-slate-500 mr-1 hidden xl:inline">Add</span>
             <div className="flex items-center gap-0.5" role="group" aria-label="Add to this slide" data-add-group>
-              <button data-help="add-text" className={tool} onClick={addText}><Icon name="text" size={16} /> Text</button>
-              <button data-help="add-image" className={tool} onClick={() => setPanel('images')}><Icon name="image" size={16} /> Picture</button>
-              <Menu help="add-chart" className={tool} title="A chart or a diagram" label={<><Icon name="chart" size={16} /> Chart <Icon name="chevron-down" size={13} /></>} width="w-56">
+              <button data-help="add-text" className={tool} onClick={addText} title="Add a text box"><Icon name="text" size={16} /> <span className="hidden @2xl:inline">Text</span></button>
+              <button data-help="add-image" className={tool} onClick={() => setPanel('images')} title="Add a picture"><Icon name="image" size={16} /> <span className="hidden @2xl:inline">Picture</span></button>
+              <Menu help="add-chart" className={tool} title="A chart or a diagram" label={<><Icon name="chart" size={16} /> <span className="hidden @2xl:inline">Chart</span> <Icon name="chevron-down" size={13} /></>} width="w-56">
                 {(close) => VISUAL_KINDS.map(([k, name]) => <MenuItem key={k} onClick={() => { close(); addElement(visualTemplate(k)); }}>{name}</MenuItem>)}
               </Menu>
-              <Menu help="hands-on" className={tool} label={handsOnBusy ? 'Making a hands-on slide…' : <><Icon name="hands-on-activity" size={16} /> Hands-on <Icon name="chevron-down" size={13} /></>} disabled={!!handsOnBusy} width="w-72">
+              <Menu help="hands-on" className={tool} label={handsOnBusy ? 'Making a hands-on slide…' : <><Icon name="hands-on-activity" size={16} /> <span className="hidden @2xl:inline">Hands-on</span> <Icon name="chevron-down" size={13} /></>} disabled={!!handsOnBusy} width="w-72">
                 {(close) => (
                   <>
                     <MenuItem onClick={() => { close(); aiHandsOn(); }} hint="The AI makes a hands-on slide from what this slide teaches"><span className="text-violet-700"><Icon name="sparkle" size={14} /> Hands-on slide from this slide</span></MenuItem>
@@ -1142,7 +1142,7 @@ function Editor({
             <span className="w-px h-6 bg-slate-300 mx-1" />
             {/* The AI writes this slide again, as asked (violet: the AI's) */}
             <Menu help="rewrite" className={`${tool} !text-violet-800 hover:!bg-violet-50`} disabled={rewriteBusy} width="w-80" title="The AI writes this slide again, the way you ask"
-              label={rewriteBusy ? <><span className="w-3.5 h-3.5 rounded-full border-2 border-violet-200 border-t-violet-700 animate-spin" aria-hidden /> Rewriting…</> : <><Icon name="sparkle" size={16} /> Rewrite <Icon name="chevron-down" size={13} /></>}>
+              label={rewriteBusy ? <><span className="w-3.5 h-3.5 rounded-full border-2 border-violet-200 border-t-violet-700 animate-spin" aria-hidden /> Rewriting…</> : <><Icon name="sparkle" size={16} /> <span className="hidden @2xl:inline">Rewrite</span> <Icon name="chevron-down" size={13} /></>}>
               {(close) => (
                 <div data-rewrite-menu>
                   <MenuHeading>Rewrite this slide</MenuHeading>
@@ -1180,10 +1180,10 @@ function Editor({
               </span>
             )}
             <div className="flex-1" />
-            <span className="text-xs text-slate-500 whitespace-nowrap" title={main?.topic || undefined}>Slide {slideIdx + 1} of {deck.slides.length}</span>
+            <span className="text-xs text-slate-500 whitespace-nowrap" title={main?.topic || undefined}><span className="hidden @md:inline">Slide </span>{slideIdx + 1} of {deck.slides.length}</span>
             <span className="w-px h-6 bg-slate-300 mx-1" />
             <button className={`${toolIcon} ${rightOpen ? '' : 'bg-slate-200'}`} onClick={() => toggleSide('right')} title={rightOpen ? 'Hide the side panel' : 'Show the side panel'} aria-label="Side panel" aria-pressed={rightOpen}><Icon name="panel-right" size={18} /></button>
-          </div>
+          </div></div>
           <div ref={stage} className="flex-1 min-h-0 flex items-center justify-center p-4 overflow-hidden" data-stage>
           {ed.layer === 'helper' && (helperState === 'none' || helperState === 'off') ? (
             <div className="w-full max-w-2xl aspect-video rounded-xl border-2 border-dashed border-violet-300 bg-violet-50/60 flex flex-col items-center justify-center gap-3 p-6 text-center text-sm text-slate-700" onPointerDown={(e) => e.stopPropagation()}>

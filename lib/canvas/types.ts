@@ -104,7 +104,7 @@ export interface ChartElement extends ElementBase {
  */
 export interface DiagramElement extends ElementBase {
   type: 'diagram';
-  kind: 'steps' | 'cycle' | 'timeline' | 'compare' | 'sizes' | 'numberline' | 'fraction' | 'graph' | 'worked';
+  kind: 'steps' | 'cycle' | 'timeline' | 'compare' | 'sizes' | 'numberline' | 'fraction' | 'graph' | 'worked' | 'area' | 'clock' | 'money' | 'shape' | 'table';
   /** line (a graph): which line the point is on, when there's more than one to compare ("A", "Walking") */
   items: { label: string; detail?: string; value?: number; x?: number; line?: string; color?: string }[];
   columns?: [string, string];
@@ -132,7 +132,7 @@ export interface DiagramElement extends ElementBase {
  */
 export interface ActivityElement extends ElementBase {
   type: 'activity';
-  kind: 'sort' | 'order' | 'cards' | 'hotspots' | 'slider' | 'answer';
+  kind: 'sort' | 'order' | 'cards' | 'hotspots' | 'slider' | 'answer' | 'blank' | 'match';
   /** What to do, shown at the top of the box ("Drag each fish to where it came from") */
   prompt?: string;
   groups?: string[];

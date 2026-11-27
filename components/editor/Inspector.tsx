@@ -697,6 +697,11 @@ function DiagramFields({ el, update }: { el: DiagramElement; update: Update }) {
           <option value="fraction">Fraction bars (3/4 = 3 of 4 shaded)</option>
           <option value="graph">Graph (points on x and y)</option>
           <option value="worked">Worked example (one line at a time)</option>
+          <option value="area">Area model or array (rows by columns)</option>
+          <option value="clock">Clock faces (3:45)</option>
+          <option value="money">Coins and notes</option>
+          <option value="shape">Shapes and angles</option>
+          <option value="table">Table (rows and columns)</option>
         </select>
       </div>
       {el.kind === 'numberline' && (
@@ -707,6 +712,22 @@ function DiagramFields({ el, update }: { el: DiagramElement; update: Update }) {
               <input className={input} type="number" value={el[k] ?? dflt} onChange={(e) => set({ [k]: e.target.value === '' ? undefined : Number(e.target.value) } as Partial<DiagramElement>)} />
             </div>
           ))}
+        </div>
+      )}
+      {el.kind === 'area' && (
+        <div className="grid grid-cols-3 gap-2">
+          {([['from', 'Rows', 3], ['to', 'Columns', 4], ['parts', 'Shaded', undefined]] as const).map(([k, name, dflt]) => (
+            <div key={k}>
+              <label className={label}>{name}</label>
+              <input className={input} type="number" min={k === 'parts' ? 0 : 1} max={k === 'parts' ? 900 : 30} placeholder={k === 'parts' ? 'all' : undefined} value={el[k] ?? dflt ?? ''} onChange={(e) => set({ [k]: e.target.value === '' ? undefined : Number(e.target.value) } as Partial<DiagramElement>)} />
+            </div>
+          ))}
+        </div>
+      )}
+      {el.kind === 'money' && (
+        <div>
+          <label className={label}>Written under them (the total)</label>
+          <input className={input} value={el.unit ?? ''} maxLength={12} placeholder="$1.35" onChange={(e) => set({ unit: e.target.value || undefined })} />
         </div>
       )}
       {el.kind === 'graph' && (
@@ -733,13 +754,19 @@ function DiagramFields({ el, update }: { el: DiagramElement; update: Update }) {
       <LinesField id="diagram-items" title="Items (one per line, up to 8)"
         hint={el.kind === 'compare' ? 'Left | Right' : el.kind === 'sizes' ? 'Label | value | note' : el.kind === 'timeline' ? 'When | What happened'
           : el.kind === 'numberline' ? 'What’s written (3/4) | where (0.75) | note' : el.kind === 'fraction' ? 'Fraction (3/4) | note'
-          : el.kind === 'graph' ? 'x | y | name (optional) | line (when there are two)' : el.kind === 'worked' ? 'The line of working | why' : 'Label | detail'}
+          : el.kind === 'graph' ? 'x | y | name (optional) | line (when there are two)' : el.kind === 'worked' ? 'The line of working | why'
+          : el.kind === 'area' ? 'What’s written under it (3 × 4 = 12)' : el.kind === 'clock' ? 'Time (3:45) | how it’s said' : el.kind === 'money' ? 'What’s on it (25¢, $5) | how many | note'
+          : el.kind === 'shape' ? 'Shape (triangle, square, circle, angle…) | note | degrees (for an angle)' : el.kind === 'table' ? 'One row per line, cells split by | (the first row is the header)' : 'Label | detail'}
         initial={el.items.map((i) => (el.kind === 'sizes' || el.kind === 'numberline' ? join(i.label, i.value, i.detail)
+          : el.kind === 'money' ? join(i.label, i.value ?? 1, i.detail) : el.kind === 'shape' ? join(i.label, i.detail ?? (i.value !== undefined ? '' : undefined), i.value) : el.kind === 'table' ? i.label
           : el.kind === 'graph' ? join(i.x, i.value, i.label === `(${i.x}, ${i.value})` ? (i.line ? '' : undefined) : i.label, i.line) : join(i.label, i.detail))).join('\n')}
         onLines={(lines) => set({
           items: lines.slice(0, el.kind === 'graph' ? 12 : 8).map((c) => (el.kind === 'sizes'
             ? { label: c[0], value: numOr(c[1]) ?? 1, detail: c[2] || undefined }
             : el.kind === 'numberline' ? { label: c[0], value: numOr(c[1]) ?? fractionValue(c[0]) ?? 0, detail: c[2] || undefined }
+            : el.kind === 'money' ? { label: c[0], value: numOr(c[1]) ?? 1, detail: c[2] || undefined }
+            : el.kind === 'shape' ? { label: c[0], detail: c[1] || undefined, ...(numOr(c[2]) !== undefined ? { value: numOr(c[2]) } : {}) }
+            : el.kind === 'table' ? { label: c.join(' | ') }
             : el.kind === 'graph' ? { x: numOr(c[0]) ?? 0, value: numOr(c[1]) ?? 0, label: c[2] || `(${numOr(c[0]) ?? 0}, ${numOr(c[1]) ?? 0})`, ...(c[3] ? { line: c[3] } : {}) }
             : { label: c[0], detail: c[1] || undefined })),
         })} />
@@ -815,6 +842,8 @@ function ActivityFields({ el, update, placing = null, onPlace }: { el: ActivityE
           <option value="hotspots">Explore: tap spots on a picture</option>
           <option value="slider">Slider: move it and watch what changes</option>
           <option value="answer">Type the answer: math, spelling, short facts</option>
+          <option value="blank">Fill in the blank: a sentence with a word missing</option>
+          <option value="match">Match the pairs: a word and what goes with it</option>
         </select>
       </div>
       <AnswerCheck el={el} set={set} />
@@ -847,6 +876,19 @@ function ActivityFields({ el, update, placing = null, onPlace }: { el: ActivityE
         <LinesField id="act-answers" title="Questions (up to 8), each with its answer" hint="Question | Answer | another answer that counts… (3/4 and 0.75 count as the same anyway)"
           initial={items.map((i) => join(i.text, ...(i.back ?? '').split('|').map((x) => x.trim()))).join('\n')}
           onLines={(l) => set({ items: l.slice(0, 8).map((c) => ({ text: c[0], back: c.slice(1).filter(Boolean).join(' | ') || undefined })) })} />
+      )}
+      {el.kind === 'blank' && (
+        <>
+          <LinesField id="act-blanks" title="Sentences (up to 8), each with its missing word" hint="Sentence with ___ for the gap | the word | another that counts…"
+            initial={items.map((i) => join(i.text, ...(i.back ?? '').split('|').map((x) => x.trim()))).join('\n')}
+            onLines={(l) => set({ items: l.slice(0, 8).map((c) => ({ text: c[0], back: c.slice(1).filter(Boolean).join(' | ') || undefined })) })} />
+          <LinesField id="act-bank" title="Word bank: extra wrong words (optional)" hint="One per line. With some, learners tap a word; with none, they type it" rows={3}
+            initial={(el.groups ?? []).join('\n')} onLines={(l) => set({ groups: l.length ? l.slice(0, 8).map((c) => c[0]) : undefined })} />
+        </>
+      )}
+      {el.kind === 'match' && (
+        <LinesField id="act-pairs" title="Pairs (2 to 6)" hint="Left (the word) | Right (what goes with it)"
+          initial={items.map((i) => join(i.text, i.back)).join('\n')} onLines={(l) => set({ items: l.slice(0, 6).map((c) => ({ text: c[0], back: c[1] || undefined })) })} />
       )}
       {el.kind === 'hotspots' && (
         <>

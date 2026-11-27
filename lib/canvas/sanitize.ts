@@ -8,8 +8,8 @@ import { sanitizeProfile } from './profile';
 const STYLES: TextStyle[] = ['title', 'body', 'caption', 'bigNumber'];
 const MAX_SLIDES = 200;
 const MAX_ELEMENTS = 60;
-const DIAGRAMS = ['steps', 'cycle', 'timeline', 'compare', 'sizes', 'numberline', 'fraction', 'graph', 'worked'];
-const ACTIVITIES = ['sort', 'order', 'cards', 'hotspots', 'slider', 'answer'];
+const DIAGRAMS = ['steps', 'cycle', 'timeline', 'compare', 'sizes', 'numberline', 'fraction', 'graph', 'worked', 'area', 'clock', 'money', 'shape', 'table'];
+const ACTIVITIES = ['sort', 'order', 'cards', 'hotspots', 'slider', 'answer', 'blank', 'match'];
 
 const str = (v: unknown, max: number): string | undefined =>
   typeof v === 'string' && v.trim() ? v.slice(0, max) : undefined;
@@ -82,7 +82,7 @@ function element(raw: any, fallbackId: string): SlideElement | null {
       .map((it: any) => {
         const value = typeof it?.value === 'number' ? num(it.value, signed ? -1e6 : 0, signed ? 1e6 : 1e9, 0) : undefined;
         const x = kind === 'graph' && typeof it?.x === 'number' ? num(it.x, -1e6, 1e6, 0) : undefined;
-        const label = str(it?.label, kind === 'worked' ? 70 : 40)
+        const label = str(it?.label, kind === 'worked' ? 70 : kind === 'table' ? 90 : 40)
           ?? (kind === 'graph' && x !== undefined && value !== undefined ? `(${x}, ${value})` : kind === 'numberline' && value !== undefined ? String(value) : '');
         return { label, detail: str(it?.detail, 80), value, ...(x !== undefined ? { x } : {}), ...(kind === 'graph' && str(it?.line, 24) ? { line: str(it.line, 24) } : {}), color: color(it?.color) };
       })
@@ -98,17 +98,24 @@ function element(raw: any, fallbackId: string): SlideElement | null {
         parts: typeof raw.parts === 'number' ? num(Math.round(raw.parts), 1, 20, 1) : undefined,
       } : {}),
       ...(kind === 'graph' && raw.connect === true ? { connect: true } : {}),
+      // (an area model: rows, columns, how many squares are shaded)
+      ...(kind === 'area' ? {
+        from: num(Math.round(typeof raw.from === 'number' ? raw.from : 3), 1, 30, 3),
+        to: num(Math.round(typeof raw.to === 'number' ? raw.to : 4), 1, 30, 4),
+        parts: typeof raw.parts === 'number' ? num(Math.round(raw.parts), 0, 900, 0) : undefined,
+      } : {}),
     };
     return el;
   }
   if (raw.type === 'activity') {
     const kind = ACTIVITIES.includes(raw.kind) ? raw.kind : null;
     if (!kind) return null;
-    const groups = (Array.isArray(raw.groups) ? raw.groups : []).slice(0, 4).map((g: unknown) => str(g, 30) ?? '').filter(Boolean);
+    // (a sort's groups; a fill-in-the-blank's word bank: up to 8 words)
+    const groups = (Array.isArray(raw.groups) ? raw.groups : []).slice(0, raw.kind === 'blank' ? 8 : 4).map((g: unknown) => str(g, 30) ?? '').filter(Boolean);
     const items = (Array.isArray(raw.items) ? raw.items : []).slice(0, 8)
       .map((it: any) => ({
         // (a typed-answer question can be longer; so can a flip card's front, a question: was cut at 60, mid-word)
-        text: str(it?.text, kind === 'answer' ? 140 : kind === 'cards' ? 110 : 60) ?? '', back: str(it?.back, 160),
+        text: str(it?.text, kind === 'answer' || kind === 'blank' ? 140 : kind === 'cards' ? 110 : 60) ?? '', back: str(it?.back, 160),
         group: typeof it?.group === 'number' ? num(Math.round(it.group), 0, Math.max(0, groups.length - 1), 0) : undefined,
         x: typeof it?.x === 'number' ? num(it.x, 0, 100, 50) : undefined,
         y: typeof it?.y === 'number' ? num(it.y, 0, 100, 50) : undefined,
@@ -126,7 +133,7 @@ function element(raw: any, fallbackId: string): SlideElement | null {
     // Kept even half made (the editor saves work in progress); the lesson skips one that isn't ready (activityReady)
     const el: ActivityElement = {
       ...base, type: 'activity', kind, prompt: str(raw.prompt, 120), alt: str(raw.alt, 2000),
-      groups: kind === 'sort' ? groups : undefined, items: kind === 'slider' ? undefined : items,
+      groups: kind === 'sort' || (kind === 'blank' && groups.length) ? groups : undefined, items: kind === 'slider' ? undefined : items,
       src: safeUrl(raw.src), slider,
       answerCheck: raw.answerCheck && typeof raw.answerCheck === 'object' && tag(raw.answerCheck.from) ? {
         from: raw.answerCheck.from, ok: raw.answerCheck.ok === true,

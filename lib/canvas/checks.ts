@@ -169,6 +169,20 @@ export function activityFormatProblems(el: ActivityElement): string[] {
       if (long) out.push(`“${long.text}”: the answer is too long to type; use a number or a few words, or make it a card`);
       break;
     }
+    case 'blank': {
+      const noKey = items.filter((i) => !i.back?.trim());
+      if (noKey.length) out.push(`“${noKey[0].text}” has no answer`);
+      const noGap = items.find((i) => !/_{2,}/.test(i.text));
+      if (noGap) out.push(`“${noGap.text}” has no blank: put ___ where the missing word goes`);
+      break;
+    }
+    case 'match': {
+      const noBack = items.filter((i) => !i.back?.trim());
+      if (noBack.length) out.push(`“${noBack[0].text}” has nothing to match it with`);
+      const backs = dupes(items.map((i) => i.back ?? ''));
+      if (backs.length) out.push(`two things match “${backs[0]}”: each pair needs its own`);
+      break;
+    }
     case 'cards':
     case 'hotspots': {
       const noBack = items.filter((i) => !i.back?.trim());
