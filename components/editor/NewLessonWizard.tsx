@@ -2,6 +2,8 @@
 
 import { useState } from 'react';
 import type { Outline } from '@/lib/canvas/outline';
+import { TEACHER_VOICES } from '@/lib/voice';
+import Icon from '@/components/Icon';
 
 /*
  * "New lesson": a lesson on any topic, in four steps.
@@ -43,6 +45,41 @@ export default function NewLessonWizard({ onClose, onCreated, onBlank }: {
   const [error, setError] = useState('');
   // Free pictures (Wikimedia Commons, Openverse) for the new lesson's library, before its slides are written
   const [freePictures, setFreePictures] = useState(true);
+  // The teacher: a name and a voice (left empty: the usual teacher's)
+  const [teacherName, setTeacherName] = useState('');
+  const [voice, setVoice] = useState('');
+  const [hearing, setHearing] = useState(false);
+  const hear = async () => {
+    setHearing(true);
+    try {
+      const res = await fetch('/api/tts', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text: `Hello! I'm ${teacherName.trim() || 'your teacher'}. Ready to learn something new?`, voice: voice || undefined }) });
+      if (res.ok) await new Audio(URL.createObjectURL(await res.blob())).play();
+    } catch { /* no sound this time */ } finally { setHearing(false); }
+  };
+  // A PDF, Word or text file: its words go in the material box (read on the server, nothing is stored there)
+  const [reading, setReading] = useState('');
+  const addFile = async (file: File) => {
+    const ext = file.name.toLowerCase().split('.').pop() ?? '';
+    const fileType = ext === 'pdf' ? 'pdf' : ext === 'docx' ? 'docx' : ['txt', 'md', 'csv'].includes(ext) ? 'txt' : '';
+    if (!fileType) { setError('Use a PDF, a Word file (.docx) or a text file.'); return; }
+    if (file.size > 12 * 1024 * 1024) { setError('That file is over 12 MB: paste the part you need instead.'); return; }
+    setError(''); setReading(`Reading ${file.name}…`);
+    try {
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      let bin = '';
+      for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+      const res = await fetch('/api/editor/read-file', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ file: btoa(bin), fileType }) });
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok || !d.text) throw new Error(d.error ?? 'That file couldn’t be read');
+      const joined = [material.trim(), d.text].filter(Boolean).join('\n\n');
+      setMaterial(joined.slice(0, 60000));
+      setReading(joined.length > 60000 ? `Added the first part of ${file.name} (the box holds 60,000 characters).` : `Added ${file.name}.`);
+      if (!topic.trim()) setTopic(file.name.replace(/\.[^.]+$/, '').replace(/[_-]+/g, ' ').slice(0, 120));
+    } catch (e) {
+      setReading('');
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  };
 
   const propose = async (avoid?: string) => {
     setError(''); setBusy(avoid ? 'Thinking of another version…' : 'Planning the lesson…');
@@ -71,7 +108,7 @@ export default function NewLessonWizard({ onClose, onCreated, onBlank }: {
     if (!outline) return;
     setError(''); setStep('making'); setBusy('Making the lesson and its knowledge base…');
     try {
-      const res = await fetch('/api/editor/create-lesson', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ outline, material: material.trim() || undefined }) });
+      const res = await fetch('/api/editor/create-lesson', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ outline, material: material.trim() || undefined, teacher: { name: teacherName.trim() || undefined, voice: voice || undefined } }) });
       const made = await res.json();
       if (!res.ok || !made.lesson) throw new Error(made.error ?? 'The lesson couldn’t be made');
       // Its pictures first (a new lesson's library is empty): the slides are then written with them to hand.
@@ -149,7 +186,13 @@ export default function NewLessonWizard({ onClose, onCreated, onBlank }: {
             <label className={lbl}>Your own material (optional)</label>
             <textarea className={`${box} min-h-40`} value={material} onChange={(e) => setMaterial(e.target.value)} maxLength={60000}
               placeholder="Paste notes, an article or a chapter: the lesson is built from it, and it goes in the lesson’s own knowledge base (for the professor’s answers and the fact checks). Leave it empty to plan from general knowledge." />
-            <p className={hint}>{material.length ? `${material.length.toLocaleString()} characters` : 'PDFs and Word files: add them with Text upload afterwards, to the new lesson’s knowledge base.'}</p>
+            <div className="mt-2 flex flex-wrap items-center gap-3" data-wizard-file>
+              <label className={`${secondary} cursor-pointer flex items-center gap-2`}>
+                <Icon name="upload" size={16} /> Add a PDF or Word file
+                <input type="file" accept=".pdf,.docx,.txt,.md" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) addFile(f); }} />
+              </label>
+              <span className="text-xs text-slate-500" role="status">{reading || (material.length ? `${material.length.toLocaleString()} characters` : 'Its words are put in the box above, to look over before you go on.')}</span>
+            </div>
             <div className="mt-6 flex items-center justify-between">
               <button className="text-sm text-slate-500 underline hover:text-slate-800" onClick={onBlank}>Just an empty lesson</button>
               <button className={primary} disabled={!topic.trim() && !material.trim()} onClick={() => setStep('who')}>Next</button>
@@ -182,6 +225,22 @@ export default function NewLessonWizard({ onClose, onCreated, onBlank }: {
               <div>
                 <label className={lbl}>Language</label>
                 <input className={box} value={language} onChange={(e) => setLanguage(e.target.value)} maxLength={40} />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-x-4" data-wizard-teacher>
+              <div>
+                <label className={lbl}>The teacher’s name</label>
+                <input className={box} value={teacherName} onChange={(e) => setTeacherName(e.target.value)} maxLength={60} placeholder="The usual one (Professor Marine)" />
+              </div>
+              <div>
+                <label className={lbl}>The teacher’s voice</label>
+                <div className="flex gap-2">
+                  <select className={box} value={voice} onChange={(e) => setVoice(e.target.value)} aria-label="The teacher’s voice">
+                    <option value="">The usual one</option>
+                    {TEACHER_VOICES.map((v) => <option key={v.id} value={v.id}>{v.label}</option>)}
+                  </select>
+                  <button type="button" className={`${secondary} whitespace-nowrap flex items-center gap-1.5`} onClick={hear} disabled={hearing}><Icon name="speaker" size={16} /> {hearing ? '…' : 'Hear it'}</button>
+                </div>
               </div>
             </div>
             <label className={lbl}>Facts come from</label>

@@ -39,6 +39,7 @@ import { applyMove, clearRewordedWords, moveDone, moveKey, openMoves, slideName 
 import SavedVersions from '@/components/editor/SavedVersions';
 import AssistantBox from '@/components/editor/AssistantBox';
 import SlideGrid from '@/components/editor/SlideGrid';
+import CopyLesson from '@/components/editor/CopyLesson';
 import Icon, { type IconName } from '@/components/Icon';
 
 /*
@@ -135,6 +136,8 @@ export default function SlideEditorPage() {
 
   // "+ New lesson…": the creation flow (components/editor/NewLessonWizard.tsx); "Just an empty lesson" in it: a name only
   const [creating, setCreating] = useState(false);
+  // "Duplicate this lesson…" / "Translate a copy…" (components/editor/CopyLesson.tsx)
+  const [copying, setCopying] = useState<{ translate: boolean } | null>(null);
   const newLesson = () => setCreating(true);
   const blankLesson = async () => {
     setCreating(false);
@@ -176,8 +179,18 @@ export default function SlideEditorPage() {
           if (notes.length) window.setTimeout(() => window.alert(`“${lesson.title}” is ready.\n\n${notes.join('\n')}`), 500);
         }} />
     )}
+    {copying && (
+      <CopyLesson from={lessonId} title={lessons.find((l) => l.id === lessonId)?.title ?? lessonId} translate={copying.translate} onClose={() => setCopying(null)}
+        onMade={(lesson, note) => {
+          setCopying(null);
+          setLessons((l) => (l.some((x) => x.id === lesson.id) ? l : [...l, lesson]));
+          switchLesson(lesson.id);
+          window.setTimeout(() => window.alert(note), 500);
+        }} />
+    )}
     <Editor
       key={initial.key}
+      onCopyLesson={(translate) => setCopying({ translate })}
       lessonId={lessonId}
       lessons={lessons}
       initial={initial.deck}
@@ -193,7 +206,7 @@ export default function SlideEditorPage() {
 }
 
 function Editor({
-  lessonId, lessons, initial, savedAt: initialSavedAt, savedBy: initialSavedBy, onSwitchLesson, onNewLesson, onDeleteLesson, onReload,
+  lessonId, lessons, initial, savedAt: initialSavedAt, savedBy: initialSavedBy, onSwitchLesson, onNewLesson, onDeleteLesson, onReload, onCopyLesson,
 }: {
   onDeleteLesson: (id: string) => Promise<string | null>;
   onReload: () => void;
@@ -204,6 +217,7 @@ function Editor({
   savedBy?: string;
   onSwitchLesson: (id: string) => void;
   onNewLesson: () => void;
+  onCopyLesson: (translate: boolean) => void;
 }) {
   const ed = useEditorDeck(initial);
   // The saved draft this editor started from (or last saved). If someone else
@@ -671,13 +685,41 @@ function Editor({
 
   // The AI makes a hands-on slide from what this slide teaches; it goes in after it
   const [handsOnBusy, setHandsOnBusy] = useState(false);
+  // "Rewrite": the AI writes this slide again as asked (lib/canvas/rewriteSlide.ts); one undo step
+  const [rewriteBusy, setRewriteBusy] = useState(false);
+  const [rewriteText, setRewriteText] = useState('');
+  const rewrite = async (instruction: string) => {
+    const target = deck.slides[slideIdx];
+    if (!target || !instruction.trim()) return;
+    if (ed.layer !== 'main') ed.setLayer('main');
+    setRewriteBusy(true);
+    try {
+      const res = await fetch('/api/editor/rewrite-slide', {
+        method: 'POST', headers: { 'Content-Type': 'application/json', 'x-lesson': lessonId },
+        body: JSON.stringify({ slide: target, instruction, lessonTitle: deck.title }),
+      });
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok || !d.slide) throw new Error(d.error ?? `HTTP ${res.status}`);
+      ed.change((dd) => {
+        const i = dd.slides.findIndex((sl) => sl.id === target.id);
+        if (i >= 0) dd.slides[i] = { ...d.slide, id: target.id, elements: d.slide.elements.map((e: SlideElement) => ({ ...e, id: newId('el') })) };
+      });
+      ed.setSelected(null);
+      setRewriteText('');
+      flash(`Rewrote the slide${d.note ? `: ${d.note}` : ''} (Ctrl+Z puts the old one back). Save to record its voice.`);
+    } catch (e) {
+      flash(`The slide couldn’t be rewritten (${e instanceof Error ? e.message : String(e)})`, 'error');
+    } finally {
+      setRewriteBusy(false);
+    }
+  };
   const aiHandsOn = async () => {
     const from = ed.mainSlide;
     if (!from) return;
     setHandsOnBusy(true);
     try {
       const res = await fetch('/api/editor/activity', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        method: 'POST', headers: { 'Content-Type': 'application/json', 'x-lesson': lessonId },
         body: JSON.stringify({ slide: from, lessonTitle: deck.title }),
       });
       const d = await res.json().catch(() => ({}));
@@ -1030,6 +1072,8 @@ function Editor({
               {lessonId === STUDY_LESSON && (
                 <MenuItem onClick={() => { close(); setPullOpen(true); }} hint={`Bring changed or new slides across from “${lessons.find((l) => l.id === STUDY_SOURCE)?.title ?? STUDY_SOURCE}”, one by one`}>Pull from the original…</MenuItem>
               )}
+              <MenuItem onClick={() => { close(); if (!ed.dirty || window.confirm('The copy is made from the draft as last saved, so your unsaved changes won’t be in it. Go on?')) onCopyLesson(false); }} hint="A new lesson with the same slides, to change freely">Duplicate this lesson…</MenuItem>
+              <MenuItem onClick={() => { close(); if (!ed.dirty || window.confirm('The copy is made from the draft as last saved, so your unsaved changes won’t be in it. Go on?')) onCopyLesson(true); }} hint="A copy with every word in another language">Translate a copy…</MenuItem>
               {/*MORE-LESSON*/}
               <MenuHeading>Other pages (new tab)</MenuHeading>
               <MenuItem onClick={() => { close(); window.open(`/lessonReview?lesson=${encodeURIComponent(lessonId)}&preview=1`, '_blank', 'noopener'); }}>Lesson review, to read or print</MenuItem>
@@ -1094,8 +1138,30 @@ function Editor({
                   </>
                 )}
               </Menu>
-              {/*SLIDE-AI*/}
             </div>
+            <span className="w-px h-6 bg-slate-300 mx-1" />
+            {/* The AI writes this slide again, as asked (violet: the AI's) */}
+            <Menu help="rewrite" className={`${tool} !text-violet-800 hover:!bg-violet-50`} disabled={rewriteBusy} width="w-80" title="The AI writes this slide again, the way you ask"
+              label={rewriteBusy ? <><span className="w-3.5 h-3.5 rounded-full border-2 border-violet-200 border-t-violet-700 animate-spin" aria-hidden /> Rewriting…</> : <><Icon name="sparkle" size={16} /> Rewrite <Icon name="chevron-down" size={13} /></>}>
+              {(close) => (
+                <div data-rewrite-menu>
+                  <MenuHeading>Rewrite this slide</MenuHeading>
+                  {([
+                    ['Make it simpler', 'Make this slide simpler: fewer and easier words, one idea at a time'],
+                    ['Add an example', 'Add a concrete everyday example of what this slide teaches'],
+                    ['Shorten the words', 'Shorten what is shown and what the professor says, keeping the main point'],
+                    ['Make it more visual', 'Show this with a chart, a diagram or a picture instead of bullets, where it fits'],
+                    ['Turn it into a question', 'Turn this slide into a hands-on box that asks the learner about what it teaches'],
+                  ] as const).map(([name, ask]) => <MenuItem key={name} onClick={() => { close(); rewrite(ask); }}>{name}</MenuItem>)}
+                  <form className="p-1.5 pt-2 mt-1 border-t border-slate-200 flex flex-col gap-1.5" onSubmit={(e) => { e.preventDefault(); if (rewriteText.trim()) { close(); rewrite(rewriteText); } }}>
+                    <textarea value={rewriteText} onChange={(e) => setRewriteText(e.target.value)} maxLength={500} rows={2} placeholder="Or say what to change: “use a pizza for the example”, “add a bar chart of the three speeds”…"
+                      className="w-full px-2 py-1.5 rounded-md border border-slate-300 text-sm text-slate-900 outline-none focus:border-violet-500" aria-label="What to change" />
+                    <button className="self-end px-3 py-1 rounded-md bg-violet-600 hover:bg-violet-700 text-white text-sm font-semibold disabled:opacity-40" disabled={!rewriteText.trim()}>Rewrite</button>
+                    <p className="text-xs text-slate-500">Ctrl+Z puts the old slide back.</p>
+                  </form>
+                </div>
+              )}
+            </Menu>
             <div className="flex-1" />
             <div data-help="layers" className="inline-flex rounded-md border border-slate-300 overflow-hidden text-xs" role="tablist" aria-label="Which version">
               <button role="tab" aria-selected={ed.layer === 'main'} onClick={() => switchLayer('main')}

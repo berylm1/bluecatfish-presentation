@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server';
 import { draftActivity, isActivityKind } from '@/lib/canvas/activityDraft';
 import { sanitizeDeck } from '@/lib/canvas/sanitize';
+import { enterProfile } from '@/lib/canvas/lessonContext';
+import { lessonOf } from '@/lib/canvas/lessonProfiles';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -8,6 +10,7 @@ export const maxDuration = 60;
 // POST { slide, lessonTitle?, kind? } → { slide }: a hands-on slide drafted
 // from the slide being edited (editors only: under /api/editor, see proxy.ts).
 export async function POST(req: Request) {
+  enterProfile(await lessonOf(req));   // (the lesson being edited: its ages, subject and knowledge base)
   const body = await req.json().catch(() => ({}));
   if (!body?.slide || typeof body.slide !== 'object') return NextResponse.json({ error: 'Bad slide' }, { status: 400 });
   let slide;

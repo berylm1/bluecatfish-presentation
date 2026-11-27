@@ -3,6 +3,8 @@ import { editorName } from '@/lib/editorAuth';
 import { ensureLesson, listLessons, writeDeck } from '@/lib/canvas/store';
 import { profileFromOutline, sanitizeOutline } from '@/lib/canvas/outline';
 import { sanitizeDeck } from '@/lib/canvas/sanitize';
+import { profileOf } from '@/lib/canvas/profile';
+import { isTeacherVoice } from '@/lib/voice';
 import { addToKnowledgeBase, ensureKnowledgeBase } from '@/lib/canvas/kbIngest';
 
 export const dynamic = 'force-dynamic';
@@ -34,7 +36,15 @@ export async function POST(req: Request) {
       notes.push(`The material couldn’t be added to the knowledge base (${e instanceof Error ? e.message : String(e)}); the lesson is still made from it.`);
     }
   }
-  const deck = sanitizeDeck({ title: outline.title, slides: [], profile: profileFromOutline(outline, id) }, id, 'hand');
+  // The teacher picked in the wizard (a name, a voice): not set, the AI's suggestion or the usual one
+  const profile = profileFromOutline(outline, id);
+  const teacherName = typeof body.teacher?.name === 'string' ? body.teacher.name.trim().slice(0, 60) : '';
+  const voice = isTeacherVoice(body.teacher?.voice) ? body.teacher.voice : undefined;
+  if (teacherName || voice) {
+    const base = profileOf({ lessonId: id, title: outline.title, profile }).teacher;
+    profile.teacher = { ...base, ...(teacherName ? { name: teacherName, signOff: base.signOff.replace(base.name, teacherName), picture: '' } : {}), ...(voice ? { voice } : {}) };
+  }
+  const deck = sanitizeDeck({ title: outline.title, slides: [], profile }, id, 'hand');
   const failed = await writeDeck(id, 'draft', deck, by);
   if (failed) notes.push(failed);
   return NextResponse.json({ lesson: { id, title: outline.title }, notes });
