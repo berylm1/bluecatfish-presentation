@@ -62,16 +62,23 @@ export default function NewLessonWizard({ onClose, onCreated, onBlank }: {
     const ext = file.name.toLowerCase().split('.').pop() ?? '';
     const fileType = ext === 'pdf' ? 'pdf' : ext === 'docx' ? 'docx' : ['txt', 'md', 'csv'].includes(ext) ? 'txt' : '';
     if (!fileType) { setError('Use a PDF, a Word file (.docx) or a text file.'); return; }
-    if (file.size > 12 * 1024 * 1024) { setError('That file is over 12 MB: paste the part you need instead.'); return; }
+    // (4 MB: the most the server takes in one go; a text file is read right here, whatever its size)
+    if (fileType !== 'txt' && file.size > 4 * 1024 * 1024) { setError('That file is over 4 MB, the most that can be sent. Paste the part you need instead, or save it as a smaller file.'); return; }
     setError(''); setReading(`Reading ${file.name}…`);
     try {
-      const bytes = new Uint8Array(await file.arrayBuffer());
-      let bin = '';
-      for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
-      const res = await fetch('/api/editor/read-file', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ file: btoa(bin), fileType }) });
-      const d = await res.json().catch(() => ({}));
-      if (!res.ok || !d.text) throw new Error(d.error ?? 'That file couldn’t be read');
-      const joined = [material.trim(), d.text].filter(Boolean).join('\n\n');
+      let d: { text?: string; error?: string };
+      if (fileType === 'txt') {
+        d = { text: (await file.text()).replace(/\u0000/g, '').trim() };
+        if (!d.text) throw new Error('That file is empty');
+      } else {
+        const form = new FormData();
+        form.append('file', file);
+        const res = await fetch('/api/editor/read-file', { method: 'POST', body: form });
+        d = await res.json().catch(() => ({}));
+        // (413 with no message of ours: the host itself turned it away for its size)
+        if (!res.ok || !d.text) throw new Error(d.error ?? (res.status === 413 ? 'That file is too big to send. Paste the part you need instead.' : 'That file couldn’t be read'));
+      }
+      const joined = [material.trim(), d.text ?? ''].filter(Boolean).join('\n\n');
       setMaterial(joined.slice(0, 60000));
       setReading(joined.length > 60000 ? `Added the first part of ${file.name} (the box holds 60,000 characters).` : `Added ${file.name}.`);
       if (!topic.trim()) setTopic(file.name.replace(/\.[^.]+$/, '').replace(/[_-]+/g, ' ').slice(0, 120));
@@ -191,7 +198,7 @@ export default function NewLessonWizard({ onClose, onCreated, onBlank }: {
                 <Icon name="upload" size={16} /> Add a PDF or Word file
                 <input type="file" accept=".pdf,.docx,.txt,.md" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) addFile(f); }} />
               </label>
-              <span className="text-xs text-slate-500" role="status">{reading || (material.length ? `${material.length.toLocaleString()} characters` : 'Its words are put in the box above, to look over before you go on.')}</span>
+              <span className="text-xs text-slate-500" role="status">{reading || (material.length ? `${material.length.toLocaleString()} characters` : 'Up to 4 MB. Its words are put in the box above, to look over before you go on.')}</span>
             </div>
             <div className="mt-6 flex items-center justify-between">
               <button className="text-sm text-slate-500 underline hover:text-slate-800" onClick={onBlank}>Just an empty lesson</button>

@@ -5,10 +5,10 @@ import extract from 'pdf-extraction';
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
 
-const MAX_BYTES = 12 * 1024 * 1024;
+// The host turns away a request over about 4.5 MB before it gets here, so that's the most a file can be
+// (was: "up to 12 MB", sent as text inside JSON, a third bigger again: anything over about 3 MB failed with no reason given)
+const MAX_BYTES = 4 * 1024 * 1024;
 
-// POST { file: base64, fileType: 'pdf' | 'docx' | 'txt' } → { text }: the words in an uploaded file, for the
-// "New lesson" flow's material box (editors only: under /api/editor, see proxy.ts). Nothing is stored here.
 /**
  * A PDF's words. The reader the site has always used can fail on its very first file after the server wakes up
  * ("bad XRef entry") and read the same file a moment later, so it gets three goes; then a second reader, for a
@@ -38,22 +38,29 @@ async function pdfText(buffer: Buffer): Promise<string> {
   }
 }
 
+// POST (a form with the file in "file") → { text }: the words in an uploaded PDF, Word or text file, for the
+// "New lesson" flow's material box (editors only: under /api/editor, see proxy.ts). Nothing is stored here.
 export async function POST(req: Request) {
-  const body = await req.json().catch(() => ({}));
-  if (typeof body.file !== 'string' || !body.file) return NextResponse.json({ error: 'No file' }, { status: 400 });
-  const buffer = Buffer.from(body.file, 'base64');
-  if (buffer.length > MAX_BYTES) return NextResponse.json({ error: 'That file is over 12 MB: paste the part you need instead' }, { status: 413 });
+  const form = await req.formData().catch(() => null);
+  const file = form?.get('file');
+  if (!(file instanceof File) || !file.size) return NextResponse.json({ error: 'No file' }, { status: 400 });
+  if (file.size > MAX_BYTES) return NextResponse.json({ error: 'That file is over 4 MB: paste the part you need instead' }, { status: 413 });
+  const ext = file.name.toLowerCase().split('.').pop() ?? '';
+  const fileType = ext === 'pdf' ? 'pdf' : ext === 'docx' ? 'docx' : ['txt', 'md', 'csv'].includes(ext) ? 'txt' : '';
+  if (!fileType) return NextResponse.json({ error: 'Use a PDF, a Word file (.docx) or a text file' }, { status: 400 });
   try {
+    const buffer = Buffer.from(await file.arrayBuffer());
     let text = '';
-    if (body.fileType === 'pdf') text = await pdfText(buffer);
+    if (fileType === 'pdf') text = await pdfText(buffer);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    else if (body.fileType === 'docx') text = ((await mammoth.extractRawText({ buffer })) as any).value ?? '';
-    else if (body.fileType === 'txt') text = buffer.toString('utf-8');
-    else return NextResponse.json({ error: 'Use a PDF, a Word file (.docx) or a text file' }, { status: 400 });
+    else if (fileType === 'docx') text = ((await mammoth.extractRawText({ buffer })) as any).value ?? '';
+    else text = buffer.toString('utf-8');
     text = text.replace(/\u0000/g, '').replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
     if (!text) return NextResponse.json({ error: 'No words could be read from that file (a scanned PDF is pictures: paste its text instead)' }, { status: 422 });
-    return NextResponse.json({ text });
+    // (the wizard's box holds 60,000 characters: there's no use sending back a whole book)
+    return NextResponse.json({ text: text.slice(0, 200_000) });
   } catch (e) {
-    return NextResponse.json({ error: `That file couldn’t be read (${e instanceof Error ? e.message : String(e)})` }, { status: 422 });
+    console.error('read-file error:', e instanceof Error ? e.message : e);
+    return NextResponse.json({ error: 'That file couldn’t be read. If it’s a PDF, try saving it again, or paste its text instead.' }, { status: 422 });
   }
 }

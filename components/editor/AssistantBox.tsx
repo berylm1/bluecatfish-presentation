@@ -72,7 +72,7 @@ export default function AssistantBox({ lesson, onShow, onAddImage, onAddText }: 
         <Icon name="sparkle" size={15} className="text-violet-300 group-focus-within:text-violet-600" />
         <input value={q} onChange={(e) => setQ(e.target.value)} maxLength={300} onFocus={() => (reply || error) && setOpen(true)}
           placeholder="Ask the helper: where is…, find a picture of…" aria-label="Ask the editor helper"
-          className="flex-1 min-w-0 bg-transparent text-sm outline-none placeholder:text-slate-300 group-focus-within:placeholder:text-slate-500" />
+          className="flex-1 min-w-0 bg-transparent text-sm outline-none text-ellipsis placeholder:text-slate-300 group-focus-within:placeholder:text-slate-500" />
         <button className="px-2.5 h-6 rounded bg-violet-500 hover:bg-violet-600 text-white text-xs font-semibold disabled:opacity-50" disabled={busy || !q.trim()}>
           {busy ? '…' : 'Ask'}
         </button>

@@ -257,7 +257,12 @@ function Editor({
   const [leftOpen, setLeftOpen] = useState(true);
   const [rightOpen, setRightOpen] = useState(true);
   useEffect(() => {
-    try { setLeftOpen(localStorage.getItem('editor:left') !== '0'); setRightOpen(localStorage.getItem('editor:right') !== '0'); } catch { /* fine */ }
+    // (nothing remembered yet: on a small window the panels start folded, so the slide has room)
+    try {
+      const l = localStorage.getItem('editor:left'), r = localStorage.getItem('editor:right');
+      setLeftOpen(l ? l !== '0' : window.innerWidth >= 760);
+      setRightOpen(r ? r !== '0' : window.innerWidth >= 1000);
+    } catch { /* fine */ }
   }, []);
   const toggleSide = (side: 'left' | 'right') => {
     const set = side === 'left' ? setLeftOpen : setRightOpen;
@@ -1023,8 +1028,8 @@ function Editor({
     <div className="flex flex-col h-screen bg-slate-100 text-slate-900">
       {/* The one top bar: the lesson, what's left for the AI, the helper, then undo, save, preview, publish and the menus
           (was: a dark bar of page links, a row of saving and a row of adding: three bars before any slide) */}
-      <header className="flex items-center gap-2 px-3 h-12 shrink-0 bg-slate-900 text-white" data-editor-toolbar>
-        <select data-help="lesson" className="h-8 px-2 rounded-md bg-slate-800 border border-slate-600 text-sm font-semibold text-white max-w-48" value={lessonId} aria-label="Lesson"
+      <header className="flex flex-wrap items-center gap-x-2 gap-y-1.5 px-3 py-2 min-h-12 shrink-0 bg-slate-900 text-white" data-editor-toolbar>
+        <select data-help="lesson" className="h-8 px-2 rounded-md bg-slate-800 border border-slate-600 text-sm font-semibold text-white max-w-48 max-[1180px]:max-w-36 min-w-0" value={lessonId} aria-label="Lesson"
           onChange={(e) => (e.target.value === '__new' ? onNewLesson() : confirmSwitch(e.target.value))}>
           {lessons.map((l) => <option key={l.id} value={l.id}>{l.title}</option>)}
           <option value="__new">+ New lesson…</option>
@@ -1033,12 +1038,12 @@ function Editor({
         <Menu help="ai-status" width="w-80" title={ai.errors.join('\n') || 'What the AI fills in when you save: click to see it'}
           className={`h-8 px-3 rounded-full text-xs font-semibold flex items-center gap-1.5 whitespace-nowrap ${ai.running ? 'bg-violet-500 text-white' : ai.errors.length ? 'bg-red-500 text-white' : todoHere ? 'bg-amber-400 text-slate-950' : 'bg-white/10 text-emerald-300'}`}
           label={ai.running
-            ? <><Icon name="sparkle" size={14} /> Writing and recording…{ai.remaining ? <b>{ai.remaining} left</b> : null}</>
+            ? <><Icon name="sparkle" size={14} /> <span className="max-[1180px]:hidden">Writing and recording…</span>{ai.remaining ? <b>{ai.remaining} left</b> : null}</>
             : ai.errors.length
-              ? <><Icon name="warning" size={14} /> The AI step had problems</>
+              ? <><Icon name="warning" size={14} /> <span className="max-[1180px]:hidden">The AI step had problems</span><span className="min-[1181px]:hidden">Problems</span></>
               : todoHere
-                ? <><b className="text-sm">{todoHere}</b> to write or record</>
-                : <><Icon name="check-mark" size={14} /> Words and audio ready</>}>
+                ? <><b className="text-sm">{todoHere}</b> <span className="max-[1180px]:hidden">to write or record</span><span className="min-[1181px]:hidden">to do</span></>
+                : <><Icon name="check-mark" size={14} /> <span className="max-[1180px]:hidden">Words and audio ready</span><span className="min-[1181px]:hidden">Ready</span></>}>
           {(close) => {
             const rows: [number, string][] = [
               [todo.say, 'spoken words to write'], [todo.plain, 'simpler versions to write'], [todo.audio, 'voice clips to record'],
@@ -1070,17 +1075,17 @@ function Editor({
             );
           }}
         </Menu>
-        <div className="flex-1 min-w-[9rem] flex justify-center">
+        <div className="flex-1 min-w-[11rem] flex justify-center">
           <AssistantBox lesson={lessonId} onShow={showPart} onAddImage={(img) => { addImage(img); flash('Added the picture to this slide (Ctrl+Z undoes it)'); }}
             onAddText={(text) => { addElement({ id: newId('el'), type: 'text', x: 8, y: 68, w: 84, h: 20, text, style: 'body', color: '#0f172a' }); flash('Added the sentence as a text box (Ctrl+Z undoes it)'); }} />
         </div>
-        <span className="hidden xl:inline text-xs text-slate-300 whitespace-nowrap" data-save-state>
+        <span className="hidden min-[1500px]:inline text-xs text-slate-300 whitespace-nowrap" data-save-state>
           {saving ? 'Saving…' : ed.dirty ? <span className="text-amber-300 font-bold">● Unsaved changes{autosave ? ' (saving soon)' : ''}</span> : saved.at ? `Saved ${when(saved.at)}${saved.by ? ` by ${saved.by}` : ''}` : 'Not saved yet'}
         </span>
         <button data-help="undo" className={ghostIcon} onClick={ed.undo} disabled={!ed.canUndo} title="Undo (Ctrl+Z)" aria-label="Undo"><Icon name="undo" size={17} /></button>
         <button className={ghostIcon} onClick={ed.redo} disabled={!ed.canRedo} title="Redo (Ctrl+Shift+Z)" aria-label="Redo"><Icon name="redo" size={17} /></button>
-        <button data-help="save" className={ed.dirty ? 'h-8 px-3.5 rounded-md text-sm font-bold bg-white hover:bg-slate-200 text-slate-950 disabled:opacity-40 flex items-center gap-1.5' : ghost} onClick={() => save()} disabled={saving} title="Ctrl+S"><Icon name="save" size={16} /> Save</button>
-        <Menu help="preview" className={ghost} label={<><Icon name="play" size={15} /> Preview</>} title="Play the saved lesson in a new tab" width="w-56">
+        <button data-help="save" className={ed.dirty ? 'h-8 px-3.5 rounded-md text-sm font-bold bg-white hover:bg-slate-200 text-slate-950 disabled:opacity-40 flex items-center gap-1.5' : ghost} onClick={() => save()} disabled={saving} title="Ctrl+S"><Icon name="save" size={16} /> <span className="max-[1100px]:hidden">Save</span></button>
+        <Menu help="preview" className={ghost} label={<><Icon name="play" size={15} /> <span className="max-[1100px]:hidden">Preview</span></>} title="Preview: play the saved lesson in a new tab" width="w-56">
           {(close) => (
             <>
               <MenuItem onClick={() => { close(); preview(); }} hint="Opens in a new tab">From the start</MenuItem>
@@ -1094,7 +1099,7 @@ function Editor({
         {/* The lesson's profile (what it's about, who it's for, the teacher…): in the side panel */}
         <button className={`${ghost} ${panel === 'lesson' && rightOpen ? '!bg-white !text-slate-950' : ''}`} onClick={() => setPanel(panel === 'lesson' ? 'props' : 'lesson')}
           title="What the lesson is about, who it’s for, the teacher, the family card, the sources" aria-pressed={panel === 'lesson'} data-help="lesson-settings">
-          <Icon name="settings" size={16} /> <span className="hidden lg:inline">Lesson settings</span>
+          <Icon name="settings" size={16} /> <span className="hidden min-[1240px]:inline">Lesson settings</span>
         </button>
         {/* Everything else about the lesson, and the other editor pages, in one menu */}
         <Menu help="more" className={`${ghostIcon} ${heat ? '!bg-white !text-slate-950' : ''}`} title="More" label={pdfProgress ? <span className="text-xs">{pdfProgress}</span> : <Icon name="more" size={18} />} width="w-72">
@@ -1159,17 +1164,17 @@ function Editor({
         {/* canvas */}
         <main className="flex-1 min-w-0 flex flex-col" onPointerDown={() => ed.setSelected(null)}>
           {/* The slide's own toolbar: fold the sides, add to the slide, which version of it */}
-          <div className="@container shrink-0 bg-white border-b border-slate-300" onPointerDown={(e) => e.stopPropagation()} data-canvas-toolbar><div className="flex items-center gap-1 px-2 h-11">
+          <div className="@container shrink-0 bg-white border-b border-slate-300" onPointerDown={(e) => e.stopPropagation()} data-canvas-toolbar><div className="flex flex-wrap items-center gap-x-1 gap-y-1 px-2 py-1.5 min-h-11">
             <button className={`${toolIcon} ${leftOpen ? '' : 'bg-slate-200'}`} onClick={() => toggleSide('left')} title={leftOpen ? 'Hide the slide list' : 'Show the slide list'} aria-label="Slide list" aria-pressed={leftOpen}><Icon name="panel-left" size={18} /></button>
-            <span className="w-px h-6 bg-slate-300 mx-1" />
-            <span className="text-xs font-semibold text-slate-500 mr-1 hidden xl:inline">Add</span>
-            <div className="flex items-center gap-0.5" role="group" aria-label="Add to this slide" data-add-group>
-              <button data-help="add-text" className={tool} onClick={addText} title="Add a text box"><Icon name="text" size={16} /> <span className="hidden @2xl:inline">Text</span></button>
-              <button data-help="add-image" className={tool} onClick={() => setPanel('images')} title="Add a picture"><Icon name="image" size={16} /> <span className="hidden @2xl:inline">Picture</span></button>
-              <Menu help="add-chart" className={tool} title="A chart or a diagram" label={<><Icon name="chart" size={16} /> <span className="hidden @2xl:inline">Chart</span> <Icon name="chevron-down" size={13} /></>} width="w-56">
+            <span className="w-px h-6 bg-slate-300 mx-1 hidden @[32rem]:block" />
+            <span className="text-xs font-semibold text-slate-500 mr-1 hidden @[60rem]:inline">Add</span>
+            <div className="flex flex-wrap items-center gap-0.5" role="group" aria-label="Add to this slide" data-add-group>
+              <button data-help="add-text" className={tool} onClick={addText} title="Add a text box"><Icon name="text" size={16} /> <span className="hidden @[54rem]:inline">Text</span></button>
+              <button data-help="add-image" className={tool} onClick={() => setPanel('images')} title="Add a picture"><Icon name="image" size={16} /> <span className="hidden @[54rem]:inline">Picture</span></button>
+              <Menu help="add-chart" className={tool} title="A chart or a diagram" label={<><Icon name="chart" size={16} /> <span className="hidden @[54rem]:inline">Chart</span> <Icon name="chevron-down" size={13} /></>} width="w-56">
                 {(close) => VISUAL_KINDS.map(([k, name]) => <MenuItem key={k} onClick={() => { close(); addElement(visualTemplate(k)); }}>{name}</MenuItem>)}
               </Menu>
-              <Menu help="hands-on" className={tool} label={handsOnBusy ? 'Making a hands-on slide…' : <><Icon name="hands-on-activity" size={16} /> <span className="hidden @2xl:inline">Hands-on</span> <Icon name="chevron-down" size={13} /></>} disabled={!!handsOnBusy} width="w-72">
+              <Menu help="hands-on" className={tool} label={handsOnBusy ? 'Making a hands-on slide…' : <><Icon name="hands-on-activity" size={16} /> <span className="hidden @[54rem]:inline">Hands-on</span> <Icon name="chevron-down" size={13} /></>} disabled={!!handsOnBusy} width="w-72">
                 {(close) => (
                   <>
                     <MenuItem onClick={() => { close(); aiHandsOn(); }} hint="The AI makes a hands-on slide from what this slide teaches"><span className="text-violet-700"><Icon name="sparkle" size={14} /> Hands-on slide from this slide</span></MenuItem>
@@ -1179,10 +1184,10 @@ function Editor({
                 )}
               </Menu>
             </div>
-            <span className="w-px h-6 bg-slate-300 mx-1" />
+            <span className="w-px h-6 bg-slate-300 mx-1 hidden @[32rem]:block" />
             {/* The AI writes this slide again, as asked (violet: the AI's) */}
             <Menu help="rewrite" className={`${tool} !text-violet-800 hover:!bg-violet-50`} disabled={rewriteBusy} width="w-80" title="The AI writes this slide again, the way you ask"
-              label={rewriteBusy ? <><span className="w-3.5 h-3.5 rounded-full border-2 border-violet-200 border-t-violet-700 animate-spin" aria-hidden /> Rewriting…</> : <><Icon name="sparkle" size={16} /> <span className="hidden @2xl:inline">Rewrite</span> <Icon name="chevron-down" size={13} /></>}>
+              label={rewriteBusy ? <><span className="w-3.5 h-3.5 rounded-full border-2 border-violet-200 border-t-violet-700 animate-spin" aria-hidden /> Rewriting…</> : <><Icon name="sparkle" size={16} /> <span className="hidden @[54rem]:inline">Rewrite</span> <Icon name="chevron-down" size={13} /></>}>
               {(close) => (
                 <div data-rewrite-menu className="flex flex-col">
                   <MenuHeading>Rewrite this slide</MenuHeading>
@@ -1208,20 +1213,20 @@ function Editor({
                 className={`px-3 py-1.5 ${ed.layer === 'main' ? 'bg-slate-900 text-white font-semibold' : 'bg-white hover:bg-slate-100 text-slate-700'}`} title="The slide as learners first see it">Main</button>
               <button role="tab" aria-selected={ed.layer === 'helper'} onClick={() => switchLayer('helper')}
                 className={`px-3 py-1.5 border-l border-slate-300 ${ed.layer === 'helper' ? 'bg-slate-900 text-white font-semibold' : 'bg-white hover:bg-slate-100 text-slate-700'}`}
-                title={`What this slide turns into when a learner says they're lost${helperState === 'ai' ? ' (drafted by the AI)' : ''}`}>
-                Helper{helperState === 'none' ? ' · none' : helperState === 'off' ? ' · off' : ''}
+                title={`What this slide turns into when a learner says they're lost${helperState === 'ai' ? ' (drafted by the AI)' : helperState === 'none' ? ' (none yet)' : helperState === 'off' ? ' (switched off for this slide)' : ''}`}>
+                Helper{(helperState === 'none' || helperState === 'off') && <span aria-hidden className="inline-block w-1.5 h-1.5 ml-1.5 rounded-full border border-current opacity-70 align-middle" />}
               </button>
             </div>
             {ed.layer === 'helper' && helperState !== 'none' && helperState !== 'off' && (
-              <span className="flex items-center gap-2 text-xs text-slate-600 ml-1 whitespace-nowrap">
-                <button className="underline" onClick={() => setMorphPreview(true)}>Preview the morph</button>
-                <button className="underline" onClick={aiHelper} title="Throw this helper away; the AI drafts a new one when you save">Redo with AI</button>
-                <button className="underline text-red-600" onClick={noHelper}>No helper</button>
+              <span className="flex items-center" data-helper-actions>
+                <button className={toolIcon} onClick={() => setMorphPreview(true)} title="Preview the morph: the slide turning into its helper" aria-label="Preview the morph"><Icon name="play" size={16} /></button>
+                <button className={`${toolIcon} !text-violet-800`} onClick={aiHelper} title="Redo with AI: throw this helper away; the AI drafts a new one when you save" aria-label="Redo the helper with AI"><Icon name="sparkle" size={16} /></button>
+                <button className={`${toolIcon} hover:!bg-red-50 hover:!text-red-700`} onClick={noHelper} title="No helper for this slide" aria-label="No helper for this slide"><Icon name="trash" size={16} /></button>
               </span>
             )}
             <div className="flex-1" />
-            <span className="text-xs text-slate-500 whitespace-nowrap" title={main?.topic || undefined}><span className="hidden @md:inline">Slide </span>{slideIdx + 1} of {deck.slides.length}</span>
-            <span className="w-px h-6 bg-slate-300 mx-1" />
+            <span className={`text-xs text-slate-500 whitespace-nowrap hidden ${ed.layer === 'helper' ? '@[64rem]:inline' : '@[36rem]:inline'}`} title={main?.topic || undefined}><span className="hidden @[54rem]:inline">Slide </span>{slideIdx + 1} of {deck.slides.length}</span>
+            <span className="w-px h-6 bg-slate-300 mx-1 hidden @[32rem]:block" />
             <button className={`${toolIcon} ${rightOpen ? '' : 'bg-slate-200'}`} onClick={() => toggleSide('right')} title={rightOpen ? 'Hide the side panel' : 'Show the side panel'} aria-label="Side panel" aria-pressed={rightOpen}><Icon name="panel-right" size={18} /></button>
           </div></div>
           <div ref={stage} className="flex-1 min-h-0 flex items-center justify-center p-4 overflow-hidden" data-stage>
