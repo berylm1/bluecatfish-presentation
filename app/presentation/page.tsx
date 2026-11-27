@@ -581,6 +581,13 @@ function Player({ deck, preview, startAt = 0, study = null, staticMode = false, 
     root.classList.toggle('lesson-keys', easierToSee);   // (the keyboard's place, ringed: globals.css)
     return () => { root.style.fontSize = ''; root.classList.remove('lesson-hc', 'lesson-keys'); };
   }, [bigText, highContrast, easierToSee]);
+  // "Practise with new numbers" in a typed-answer box (components/canvas/Activity.tsx): the lesson waits while they do
+  const holdRef = useRef<() => void>(() => {});
+  useEffect(() => {
+    const hold = () => holdRef.current();
+    window.addEventListener('lesson-hold', hold);
+    return () => window.removeEventListener('lesson-hold', hold);
+  }, []);
   const toggleSee = (which: 'lessonBigText' | 'lessonHighContrast') => (which === 'lessonBigText' ? setBigText : setHighContrast)((on) => {
     try { localStorage.setItem(which, on ? 'off' : 'on'); } catch { /* private mode */ }
     return !on;
@@ -668,6 +675,7 @@ function Player({ deck, preview, startAt = 0, study = null, staticMode = false, 
     },
     extraPause: () => (!isStatic && meter.current.overall().level === 'confused' ? CONFUSED_PAUSE_MS : 0),
   });
+  holdRef.current = () => { if (player.status !== 'paused') player.pause(); };   // ("Practise with new numbers": see holdRef)
   const plainHeard = useRef(new Set<string>());   // boxes said in plain words first (said again: the usual words)
   const cues = useCues(started);
   // The personal hello is made once they stop typing their name, so Start speaks at once

@@ -456,6 +456,8 @@ function TypeAnswer({ el, kit }: { el: ActivityElement; kit: Kit }) {
   // The same questions with other numbers (each checked on the server: one whose sum doesn't add up is left out)
   const practise = async () => {
     setFreshBusy(true); setFreshNote('');
+    // (the lesson waits while they practise: the lesson page pauses on this; they go on with Pause / Next)
+    window.dispatchEvent(new CustomEvent('lesson-hold'));
     try {
       const made = (await Promise.all((el.items ?? []).map((it) =>
         fetch('/api/tutor/practice', { method: 'POST', headers: learnerHeaders({ 'Content-Type': 'application/json' }), body: JSON.stringify({ kind: 'fresh', question: it.text, answer: it.back ?? '' }) })
