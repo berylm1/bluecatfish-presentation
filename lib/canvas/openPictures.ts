@@ -80,7 +80,8 @@ function fromCommons(pages: any): OpenPicture[] {
     return [{
       source: 'wikimedia', id: String(p.title), title: text(meta.ObjectName?.value || String(p.title).replace(/^File:/, '').replace(/\.\w+$/, '').replace(/_/g, ' '), 120),
       url, thumb: url.replace(/\/(\d+)px-/, '/330px-'), page: String(ii.descriptionurl ?? `https://commons.wikimedia.org/wiki/${encodeURIComponent(String(p.title))}`),
-      author: text(meta.Artist?.value, 80), license,
+      // (Commons' filler around a name it worked out itself: "No machine-readable author provided. X assumed (based on copyright claims).")
+      author: text(String(meta.Artist?.value ?? '').replace(/No machine-readable author provided\.?/i, '').replace(/assumed\s*\(based on copyright claims\)\.?/i, ''), 80), license,
     }];
   });
 }
