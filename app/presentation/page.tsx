@@ -1504,7 +1504,7 @@ function Player({ deck, preview, startAt = 0, study = null, staticMode = false, 
         method: 'POST', headers: learnerHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify({ question, exclude }), signal: AbortSignal.timeout(4000),
       });
-      return res.ok ? ((await res.json()).picture ?? null) as { url: string; description: string } | null : null;
+      return res.ok ? ((await res.json()).picture ?? null) as { url: string; description: string; credit?: string; creditUrl?: string } | null : null;
     } catch {
       return null;
     }

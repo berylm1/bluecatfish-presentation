@@ -38,7 +38,7 @@ const PICTURES_MS = 30_000;            // the picture pass (in parallel over the
 const supabase = lazySupabaseAdmin();
 
 /** score: how close it is to the search (0-1), when the library search gives it; used: the lesson already shows it (the picture check) */
-export type LibImage = { id: string; url: string; description: string; score?: number; used?: boolean };
+export type LibImage = { id: string; url: string; description: string; score?: number; used?: boolean; credit?: string; creditUrl?: string };
 
 // Pictures from outside (lib/canvas/openPictures.ts) come with a credit: remembered per picture as the library is
 // searched, and put on every slide picture made from one (autoFix: every maker of slides calls it)
@@ -60,7 +60,8 @@ export async function imagesFor(query: string, count: number): Promise<LibImage[
     const data = await matchImages(emb.data[0].embedding, count);   // (the lesson's knowledge bases and the shared ones, kb.ts)
     if (CREDITS.size > 5000) CREDITS.clear();
     for (const r of data) if (r.credit && typeof r.url === 'string') CREDITS.set(r.url, { credit: r.credit, ...(r.source_url ? { creditUrl: r.source_url } : {}) });
-    return data.map((r: any, i: number) => ({ id: `img${i + 1}`, url: r.url, description: r.description ?? '', ...(typeof r.similarity === 'number' ? { score: r.similarity } : {}) }));
+    return data.map((r: any, i: number) => ({ id: `img${i + 1}`, url: r.url, description: r.description ?? '', ...(typeof r.similarity === 'number' ? { score: r.similarity } : {}),
+      ...(r.credit ? { credit: r.credit, ...(r.source_url ? { creditUrl: r.source_url } : {}) } : {}) }));
   } catch (e) {
     console.warn('Image lookup failed:', e);
     return [];

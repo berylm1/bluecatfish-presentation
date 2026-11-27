@@ -50,7 +50,8 @@ export default function ImageLibrary({
     try {
       const form = new FormData();
       form.append('file', file);
-      if (kb) form.append('kb', kb);   // (was: every upload went into the blue catfish lesson's library, whatever the lesson)
+      if (kb) form.append('kb', kb);
+      if (lesson) form.append('lesson', lesson);   // (was: every upload went into the blue catfish lesson's library, whatever the lesson)
       const res = await fetch('/api/image-Ingest', { method: 'POST', body: form });
       const data = await res.json();
       if (!res.ok || data.error) throw new Error(data.error || `Upload failed (${res.status})`);

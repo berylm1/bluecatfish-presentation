@@ -2,6 +2,9 @@ import { NextResponse } from "next/server";
 import { openai } from '@/lib/canvas/ai';
 import { kbColumns } from '@/lib/canvas/kb';
 import { isKbId } from '@/lib/canvas/profile';
+import { enterProfile } from '@/lib/canvas/lessonContext';
+import { profileForLesson } from '@/lib/canvas/lessonProfiles';
+import { isLessonId } from '@/lib/canvas/store';
 import { lazySupabaseAdmin } from "@/lib/supabase/admin";
 import { requireIngestAdmin } from "@/lib/requireAdmin";
 
@@ -63,6 +66,9 @@ export async function POST(req: Request) {
     const file = formData.get("file") as File;
     const manualDescription = (formData.get("description") as string | null)?.trim() || null;
     // The knowledge base it goes in ('shared': every lesson; none: the blue catfish lesson's)
+    // (the lesson it's uploaded in, from the editor: the AI's description is written for that lesson, not the blue catfish one)
+    const lessonId = String(formData.get("lesson") ?? "").trim();
+    if (isLessonId(lessonId)) enterProfile(await profileForLesson(lessonId));
     const kbRaw = String(formData.get("kb") ?? "").trim();
     const kb = isKbId(kbRaw) ? kbRaw : "blue-catfish";
     const tagged = await kbColumns();
