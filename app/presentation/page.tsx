@@ -584,6 +584,7 @@ function Player({ deck, preview, startAt = 0, study = null, staticMode = false, 
   }, [bigText, highContrast, easierToSee]);
   // "Practise with new numbers" in a typed-answer box (components/canvas/Activity.tsx): the lesson waits while they do
   const holdRef = useRef<() => void>(() => {});
+  const practiceHold = useRef(false);   // practising on this slide: it stays until Next is pressed
   useEffect(() => {
     const hold = () => holdRef.current();
     window.addEventListener('lesson-hold', hold);
@@ -676,7 +677,10 @@ function Player({ deck, preview, startAt = 0, study = null, staticMode = false, 
     },
     extraPause: () => (!isStatic && meter.current.overall().level === 'confused' ? CONFUSED_PAUSE_MS : 0),
   });
-  holdRef.current = () => { if (player.status !== 'paused') player.pause(); };   // ("Practise with new numbers": see holdRef)
+  // ("Practise with new numbers": the lesson doesn't move on from the box by itself; Next does. Was: paused, which
+  // didn't stop the move to the next slide once the box was done)
+  holdRef.current = () => { practiceHold.current = true; };
+  useEffect(() => { practiceHold.current = false; }, [player.slideIndex]);
   const plainHeard = useRef(new Set<string>());   // boxes said in plain words first (said again: the usual words)
   const cues = useCues(started);
   // The personal hello is made once they stop typing their name, so Start speaks at once
@@ -3003,12 +3007,12 @@ function Player({ deck, preview, startAt = 0, study = null, staticMode = false, 
       p.hold();
       cuesRef.current.stop();
       const slide = p.slideIndex;
-      (isStatic ? Promise.resolve() : queueLine(() => playCue({ text: shown ? SHOWN_LINE : praise }))).then(() => { if (playerRef.current.slideIndex === slide) playerRef.current.skipPast(id); });   // (static: no praise)
+      (isStatic ? Promise.resolve() : queueLine(() => playCue({ text: shown ? SHOWN_LINE : praise }))).then(() => { if (playerRef.current.slideIndex === slide && !practiceHold.current) playerRef.current.skipPast(id); });   // (static: no praise)
       return;
     }
     setYourTurn(null);
     // after the professor (an explanation, a reply to Finn) has finished, not over them
-    (isStatic ? Promise.resolve() : queueLine(() => playCue({ text: shown ? SHOWN_LINE : praise }))).then(() => { if (playerRef.current.activeId === id) playerRef.current.nextClip(); });
+    (isStatic ? Promise.resolve() : queueLine(() => playCue({ text: shown ? SHOWN_LINE : praise }))).then(() => { if (playerRef.current.activeId === id && !practiceHold.current) playerRef.current.nextClip(); });
   }, [track, playCue, praise, queueLine, tutor, topicOf, feel]);
   /** Skip: the box fills in its answers (so the learner still sees how it goes), a word from the professor, then on. */
   const skipActivity = () => {
@@ -3024,7 +3028,7 @@ function Player({ deck, preview, startAt = 0, study = null, staticMode = false, 
     cuesRef.current.stop();   // Finn (or a reply) mid-line: not over what comes next
     // a moment to look at the answers while it's said, then the lesson goes on (if still on that box)
     (isStatic ? Promise.resolve() : queueLine(() => playCue({ text: SKIP_LINE }))).then(() => new Promise((r) => setTimeout(r, SKIP_LOOK_MS)))
-      .then(() => { if (playerRef.current.activeId === id) playerRef.current.nextClip(); });
+      .then(() => { if (playerRef.current.activeId === id && !practiceHold.current) playerRef.current.nextClip(); });
   };
   // Cards: the box waits a moment for a guess (Activity.tsx); said once, unless the instructions already ask for a guess
   useEffect(() => {

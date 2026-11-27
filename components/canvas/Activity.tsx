@@ -537,6 +537,7 @@ function TypeAnswer({ el, kit }: { el: ActivityElement; kit: Kit }) {
           <Icon name="lightbulb" /> {typeset(hint)}
         </div>
       )}
+      {fresh && kit.live && <div style={{ fontSize: '2.4cqh', color: '#64748b' }} data-practice-note>The lesson waits here. Press Next when you want to go on.</div>}
       {canPractise && (
         <div style={{ display: 'flex', alignItems: 'center', gap: '1.4cqh', flexWrap: 'wrap', justifyContent: 'center' }}>
           <button type="button" onClick={practise} disabled={freshBusy} data-practise
